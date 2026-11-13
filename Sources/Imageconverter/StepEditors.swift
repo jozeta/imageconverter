@@ -31,8 +31,9 @@ struct StepEditor: View {
             }
             .accessibilityLabel("Color profile")
         case .watermark:
-            Text("Watermark settings are coming")
-                .foregroundStyle(.secondary)
+            WatermarkEditor(options: Binding(
+                get: { if case .watermark(let opts) = operation { return opts } else { return WatermarkOptions() } },
+                set: { operation = .watermark($0) }))
         }
     }
 }

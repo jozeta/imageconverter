@@ -44,7 +44,12 @@ final class AppModel {
     // MARK: Pipeline editing
 
     func addStep(_ kind: StepKind) -> PipelineStep {
-        let step = PipelineStep(operation: kind.defaultOperation)
+        var operation = kind.defaultOperation
+        if case .watermark(var options) = operation, !NSFullUserName().isEmpty {
+            options.content = .text(TextWatermark(text: "© " + NSFullUserName()))
+            operation = .watermark(options)
+        }
+        let step = PipelineStep(operation: operation)
         pipeline.steps.append(step)
         return step
     }
