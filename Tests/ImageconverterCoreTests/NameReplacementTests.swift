@@ -95,4 +95,14 @@ final class NameReplacementTests: XCTestCase {
         XCTAssertEqual(RenameOptions(replacements: rules).summary, "{name} · 3 replacements")
         XCTAssertEqual(RenameOptions(replacements: [rules[0]]).summary, "{name}")
     }
+
+    func testLegacyDecodeIsStable() throws {
+        let json = Data(#"{"isEnabled":true,"findText":"IMG","replaceText":"pic"}"#.utf8)
+        let first = try JSONDecoder().decode(RenameOptions.self, from: json)
+        let second = try JSONDecoder().decode(RenameOptions.self, from: json)
+        XCTAssertEqual(first, second)
+        let noID = Data(#"{"replacements":[{"find":"a"}]}"#.utf8)
+        XCTAssertEqual(try JSONDecoder().decode(RenameOptions.self, from: noID),
+                       try JSONDecoder().decode(RenameOptions.self, from: noID))
+    }
 }

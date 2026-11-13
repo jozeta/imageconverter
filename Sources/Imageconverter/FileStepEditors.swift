@@ -106,10 +106,11 @@ struct RenameEditor: View {
     let example: String
 
     @FocusState private var focusedRule: UUID?
-    @State private var placeholderID = UUID()
+    /// The first row while there are no rules: edits stay here and nothing is saved until Find has text.
+    @State private var placeholder = ReplacementRule()
 
     private var rows: [ReplacementRule] {
-        options.replacements.isEmpty ? [ReplacementRule(id: placeholderID)] : options.replacements
+        options.replacements.isEmpty ? [placeholder] : options.replacements
     }
 
     private var unknown: [String] { RenameTemplate(options.pattern).unknownTokens }
@@ -152,12 +153,14 @@ struct RenameEditor: View {
 
     private func ruleBinding(_ id: UUID) -> Binding<ReplacementRule> {
         Binding(
-            get: { options.replacements.first { $0.id == id } ?? ReplacementRule(id: id) },
+            get: { options.replacements.first { $0.id == id } ?? placeholder },
             set: { new in
                 if let slot = options.replacements.firstIndex(where: { $0.id == id }) {
                     options.replacements[slot] = new
                 } else if options.replacements.isEmpty {
-                    options.replacements = [new]
+                    placeholder = new
+                    // Same id, so the row and its focus survive the switch from placeholder to real rule.
+                    if !new.find.isEmpty { options.replacements = [new] }
                 }
             })
     }
@@ -187,7 +190,8 @@ struct RenameEditor: View {
                     .buttonStyle(.plain)
                     .padding(LadaGlass.Spacing.xs)
                     .contentShape(Rectangle())
-                    .disabled(options.replacements.count >= RenameOptions.maxReplacements)
+                    .disabled(options.replacements.count >= RenameOptions.maxReplacements
+                              || (options.replacements.isEmpty && placeholder.find.isEmpty))
                     .help("Add another find and replace")
                     .accessibilityLabel("Add another find and replace")
             } else {
@@ -205,7 +209,6 @@ struct RenameEditor: View {
 
     private func addRule(after index: Int) {
         let new = ReplacementRule()
-        if options.replacements.isEmpty { options.replacements = [ReplacementRule(id: placeholderID)] }
         options.replacements.insert(new, at: min(index + 1, options.replacements.count))
         focusedRule = new.id
     }

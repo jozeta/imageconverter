@@ -63,10 +63,13 @@ public struct ReplacementRule: Codable, Equatable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey { case id, find, replace, useRegex }
 
+    static let fallbackID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+
     /// Lenient: a missing field takes its default.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        // A fixed id keeps two decodes of the same old file equal (preset change tracking compares them).
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? Self.fallbackID
         find = try container.decodeIfPresent(String.self, forKey: .find) ?? ""
         replace = try container.decodeIfPresent(String.self, forKey: .replace) ?? ""
         useRegex = try container.decodeIfPresent(Bool.self, forKey: .useRegex) ?? false
@@ -116,12 +119,18 @@ public struct RenameOptions: Codable, Equatable, Sendable {
         counterStart = min(max(start, Self.counterRange.lowerBound), Self.counterRange.upperBound)
         if let rules = try container.decodeIfPresent([ReplacementRule].self, forKey: .replacements) {
             replacements = Array(rules.prefix(Self.maxReplacements))
+            // Rules without an id all got the same fallback; give repeats a position-based id (ForEach needs unique ids).
+            var seen = Set<UUID>()
+            for index in replacements.indices where !seen.insert(replacements[index].id).inserted {
+                replacements[index].id = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index + 1))!
+            }
         } else {
             let legacy = try decoder.container(keyedBy: LegacyKeys.self)
             let find = try legacy.decodeIfPresent(String.self, forKey: .findText) ?? ""
             let replace = try legacy.decodeIfPresent(String.self, forKey: .replaceText) ?? ""
             let regex = try legacy.decodeIfPresent(Bool.self, forKey: .useRegex) ?? false
-            replacements = find.isEmpty ? [] : [ReplacementRule(find: find, replace: replace, useRegex: regex)]
+            replacements = find.isEmpty ? [] : [ReplacementRule(id: ReplacementRule.fallbackID, find: find, replace: replace,
+                                                                useRegex: regex)]
         }
     }
 }
