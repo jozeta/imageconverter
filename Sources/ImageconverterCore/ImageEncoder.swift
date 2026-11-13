@@ -19,8 +19,7 @@ public enum ImageEncoder {
 
         var props = sanitized(properties)
         if format.supportsQuality {
-            let quality = settings.quality.isNaN ? 0.82 : min(1, max(0, settings.quality))
-            props[kCGImageDestinationLossyCompressionQuality as String] = quality
+            props[kCGImageDestinationLossyCompressionQuality as String] = settings.clampedQuality
         }
         if format == .tiff {
             let tiffKey = kCGImagePropertyTIFFDictionary as String

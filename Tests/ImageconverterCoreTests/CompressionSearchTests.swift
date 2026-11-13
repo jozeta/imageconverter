@@ -86,6 +86,105 @@ final class CompressionSearchTests: XCTestCase {
         }
     }
 
+    func testSmartFindsInteriorQualityThatLooksTheSame() throws {
+        let image = CompressionImages.texture(width: 256, height: 192)
+        var settings = OutputSettings(format: .jpeg)
+        settings.compression = .smart
+        let result = try CompressionSearch.encode(image, properties: [:], settings: settings)
+        let quality = try XCTUnwrap(result.quality)
+        XCTAssertGreaterThan(quality, 0.40)
+        XCTAssertLessThan(quality, 0.95)
+        XCTAssertGreaterThanOrEqual(ImageSimilarity.ssim(image, try CompressionImages.decode(result.data)), 0.985)
+    }
+
+    func testSmartFlatResultLooksTheSame() throws {
+        let image = CompressionImages.gradient(width: 160, height: 120)
+        var settings = OutputSettings(format: .jpeg)
+        settings.compression = .smart
+        let result = try CompressionSearch.encode(image, properties: [:], settings: settings)
+        XCTAssertGreaterThanOrEqual(ImageSimilarity.ssim(image, try CompressionImages.decode(result.data)), 0.985)
+    }
+
+    /// Runs the search with a counting encoder whose size is `size(quality)` bytes.
+    private func countEncodes(
+        _ mode: CompressionMode, quality: Double = 0.82, size: @escaping (Double) -> Int
+    ) throws -> (result: CompressionSearch.Output, encodes: Int) {
+        var settings = OutputSettings(format: .jpeg, quality: quality)
+        settings.compression = mode
+        var count = 0
+        let result = try CompressionSearch.encode(noisy, settings: settings) { quality in
+            count += 1
+            return Data(count: size(quality))
+        }
+        return (result, count)
+    }
+
+    func testSizeModesStayWithinEncodeBudget() throws {
+        let linear: (Double) -> Int = { Int($0 * 10_000) + 100 }
+        // 5000 is never hit within 1 %, so the bisection uses its whole budget.
+        let target = try countEncodes(.targetSize(bytes: 5_000), size: linear)
+        XCTAssertEqual(target.encodes, 8)
+        XCTAssertLessThanOrEqual(target.result.data.count, 5_000)
+        let maxSize = try countEncodes(.maxSize(bytes: 5_000), quality: 0.9, size: linear)
+        XCTAssertLessThanOrEqual(maxSize.encodes, 8)
+        XCTAssertLessThanOrEqual(maxSize.result.data.count, 5_000)
+        XCTAssertEqual(try countEncodes(.targetSize(bytes: 50), size: linear).encodes, 2)
+        XCTAssertEqual(try countEncodes(.maxSize(bytes: 20_000), size: linear).encodes, 1)
+    }
+
+    func testMaxSizeAtQualityZeroEncodesOnce() throws {
+        XCTAssertThrowsError(try countEncodes(.maxSize(bytes: 50), quality: 0, size: { _ in 1_000 })) { error in
+            XCTAssertEqual(error as? ConversionError, .sizeUnreachable(limit: 50, smallest: 1_000))
+        }
+        var count = 0
+        var settings = OutputSettings(format: .jpeg, quality: 0)
+        settings.compression = .maxSize(bytes: 50)
+        _ = try? CompressionSearch.encode(noisy, settings: settings) { _ in
+            count += 1
+            return Data(count: 1_000)
+        }
+        XCTAssertEqual(count, 1)
+    }
+
+    func testSmartStaysWithinEncodeBudget() throws {
+        var settings = OutputSettings(format: .jpeg)
+        settings.compression = .smart
+        // Noise never looks the same, so the search runs to the end and falls back to 0.95.
+        var count = 0
+        let result = try CompressionSearch.encode(noisy, settings: settings) { quality in
+            count += 1
+            var settings = settings
+            settings.quality = quality
+            return try ImageEncoder.encode(self.noisy, properties: [:], settings: settings)
+        }
+        XCTAssertLessThanOrEqual(count, 7)
+        XCTAssertEqual(result.quality, 0.95)
+    }
+
+    func testCancelledSearchThrows() async throws {
+        var settings = OutputSettings(format: .jpeg)
+        settings.compression = .targetSize(bytes: 5_000)
+        let image = noisy
+        let task = Task { () -> Int in
+            var count = 0
+            withUnsafeCurrentTask { $0?.cancel() }
+            do {
+                _ = try CompressionSearch.encode(image, settings: settings) { quality in
+                    count += 1
+                    return Data(count: Int(quality * 10_000) + 100)
+                }
+            } catch is CancellationError {
+                return count
+            } catch {
+                return -2
+            }
+            return -1
+        }
+        // The first encode runs; cancellation is seen before the next one.
+        let encodes = await task.value
+        XCTAssertEqual(encodes, 1)
+    }
+
     func testFormatsWithoutQualityIgnoreCompression() throws {
         var settings = OutputSettings(format: .png, optimizePNG: false)
         settings.compression = .maxSize(bytes: 10)

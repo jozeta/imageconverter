@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Compression modes (Core) for JPEG, HEIC, JPEG 2000 and AVIF: quality, target size (highest quality that fits, with a note when even the lowest quality is too big), maximum size (lowers the quality only when needed; the file is skipped if it can't fit) and smart (the lowest quality that still looks the same, by SSIM). The size estimate uses the same search; for PNG it skips the optimisation and says the optimised file may be smaller.
 - Metadata and Rename are optional steps added from "+ Add step" (under "Always last"), no longer in every new pipeline; the "Always last" label shows only when one is used. Every pipeline row now has a trash icon (red on hover or keyboard focus) instead of the cross.
 - Adjust step: exposure, brilliance, highlights, shadows, contrast, brightness, black point, saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction, as sliders in three groups (Light, Colour, Detail) with a reset per group and double-click on a label to reset one; rendered with Core Image, keeping each image's colour space, bit depth and transparency.
 - Preview zoom: pinch on the trackpad to zoom the before and after images together (up to 800 % actual pixels), pan with two fingers or a drag, double-click for fit ↔ 100 %, and View › Zoom In (⌘+/⌘=), Zoom Out (⌘−), Zoom to Fit (⌘0), Actual Size (⌥⌘0). Zoomed in, the full-size original and the encoded result are shown so encoder artifacts can be compared.

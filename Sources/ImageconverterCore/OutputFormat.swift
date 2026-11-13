@@ -102,7 +102,17 @@ public struct OutputSettings: Codable, Equatable, Sendable {
     /// Formats with `supportsQuality` only.
     public var compression: CompressionMode
 
-    public init(format: OutputFormat = .jpeg, quality: Double = 0.82, tiffCompression: TIFFCompression = .lzw,
+    public static let defaultQuality = 0.82
+
+    /// `quality` limited to 0…1 (NaN takes the default).
+    public var clampedQuality: Double { Self.clampQuality(quality) }
+
+    static func clampQuality(_ quality: Double) -> Double {
+        quality.isNaN ? defaultQuality : min(1, max(0, quality))
+    }
+
+    public init(format: OutputFormat = .jpeg, quality: Double = OutputSettings.defaultQuality,
+                tiffCompression: TIFFCompression = .lzw,
                 progressive: Bool = false, optimizePNG: Bool = true, compression: CompressionMode = .quality) {
         self.format = format
         self.quality = quality
@@ -120,7 +130,7 @@ public struct OutputSettings: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         format = try container.decodeIfPresent(OutputFormat.self, forKey: .format) ?? .jpeg
-        quality = try container.decodeIfPresent(Double.self, forKey: .quality) ?? 0.82
+        quality = try container.decodeIfPresent(Double.self, forKey: .quality) ?? Self.defaultQuality
         tiffCompression = try container.decodeIfPresent(TIFFCompression.self, forKey: .tiffCompression) ?? .lzw
         progressive = try container.decodeIfPresent(Bool.self, forKey: .progressive) ?? false
         optimizePNG = try container.decodeIfPresent(Bool.self, forKey: .optimizePNG) ?? true

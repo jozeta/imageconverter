@@ -77,7 +77,8 @@ public enum BatchRunner {
     /// completion order (not input order), from the collecting side of the batch; `completed`
     /// (successes plus failures) increases monotonically. `BatchReport.cancelled` is false if
     /// cancellation arrives after the last item was scheduled. Cancelling the calling task stops new files
-    /// from starting; files already in flight finish their atomic commit, so no temp files remain.
+    /// from starting; files already in flight stop between compression search encodes (nothing written,
+    /// and the report is then `cancelled`) or finish their atomic commit, so no temp files remain.
     public static func run(
         _ items: [InputItem],
         pipeline: Pipeline,
@@ -97,12 +98,11 @@ public enum BatchRunner {
         let missingAsset = assets.hasMissing(for: pipeline)
         var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
         var weights = [Int](repeating: 1, count: total)
-        var outcomes = [Result<WrittenItem, ConversionError>?](repeating: nil, count: total)
+        var outcomes = [Result<WrittenItem?, ConversionError>?](repeating: nil, count: total)
         var cancelled = false
 
-        await withTaskGroup(of: (Int, Result<WrittenItem, ConversionError>).self) { group in
+        await withTaskGroup(of: (Int, Result<WrittenItem?, ConversionError>).self) { group in
             var next = 0
-            var inFlight = 0
             var completed = 0
             var failed = 0
 
@@ -114,15 +114,11 @@ public enum BatchRunner {
                     }
                     let index = next
                     let plan = plans[index]
-                    // Header-only read; unreadable files weigh 1 and fail later in `convert`.
-                    let weight = max(1, ImageLoader.pixelSize(of: plan.item.source).map {
-                        pipeline.peakPixels(sourceWidth: $0.width, sourceHeight: $0.height)
-                    } ?? 1)
+                    let weight = weight(of: plan, pipeline: pipeline)
                     guard window.canStart(weight: weight) else { break }
                     weights[index] = weight
                     window.start(weight: weight)
                     next += 1
-                    inFlight += 1
                     group.addTask {
                         // A watermark image that can't be read fails every file, before any source is decoded.
                         if missingAsset { return (index, .failure(.watermarkImageUnreadable)) }
@@ -132,16 +128,27 @@ public enum BatchRunner {
                 }
                 if cancelled { next = total }
                 guard let (index, result) = await group.next() else { break }
-                inFlight -= 1
                 window.finish(weight: weights[index])
                 outcomes[index] = result
+                // Nil: cancelled during its compression search, before anything was written.
+                if case .success(nil) = result {
+                    cancelled = true
+                    continue
+                }
                 completed += 1
-                if case .failure = result { failed += 1 }
+                failed += result.isFailure ? 1 : 0
                 progress(BatchProgress(completed: completed, failed: failed, total: total))
             }
         }
 
         return makeReport(plans: plans, outcomes: outcomes, cancelled: cancelled)
+    }
+
+    /// Peak pixels of one item, from a header-only read; unreadable files weigh 1 and fail later in `convert`.
+    private static func weight(of plan: PlannedOutput, pipeline: Pipeline) -> Int {
+        max(1, ImageLoader.pixelSize(of: plan.item.source).map {
+            pipeline.peakPixels(sourceWidth: $0.width, sourceHeight: $0.height)
+        } ?? 1)
     }
 
     /// Renders the rename template for every item, serially in input order (the counter depends on
@@ -159,17 +166,17 @@ public enum BatchRunner {
     }
 
     private static func makeReport(
-        plans: [PlannedOutput], outcomes: [Result<WrittenItem, ConversionError>?], cancelled: Bool
+        plans: [PlannedOutput], outcomes: [Result<WrittenItem?, ConversionError>?], cancelled: Bool
     ) -> BatchReport {
         var report = BatchReport(cancelled: cancelled)
         for (plan, outcome) in zip(plans, outcomes) {
             switch outcome {
-            case .success(let item):
+            case .success(let item?):
                 report.written.append(item.url)
                 if let note = item.note { report.notes.append(BatchNote(source: plan.item.source, text: note)) }
             case .failure(let error):
                 report.failures.append(BatchFailure(source: plan.item.source, reason: error.reason))
-            case nil: break
+            case .success(nil), nil: break
             }
         }
         return report
@@ -177,12 +184,14 @@ public enum BatchRunner {
 
     private static func convert(
         _ plan: PlannedOutput, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int, trash: Trasher
-    ) -> Result<WrittenItem, ConversionError> {
+    ) -> Result<WrittenItem?, ConversionError> {
         autoreleasepool {
             do {
                 let encoded = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
                 try FileCommitter.commit(encoded.data, for: plan, trash: trash)
                 return .success(WrittenItem(url: plan.destination, note: encoded.note))
+            } catch is CancellationError {
+                return .success(nil)
             } catch let error as ConversionError {
                 return .failure(error)
             } catch {
@@ -203,5 +212,12 @@ public enum BatchRunner {
         let properties = MetadataOps.apply(pipeline.metadata, to: loaded.properties)
         let result = try CompressionSearch.encode(image, properties: properties, settings: pipeline.output)
         return EncodedItem(data: result.data, source: loaded.image, quality: result.quality, note: result.note)
+    }
+}
+
+private extension Result {
+    var isFailure: Bool {
+        if case .failure = self { return true }
+        return false
     }
 }

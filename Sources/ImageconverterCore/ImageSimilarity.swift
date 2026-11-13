@@ -10,12 +10,16 @@ public enum ImageSimilarity {
     /// (K1 0.01, K2 0.03, range 255). 1 means identical. `second` is scaled to `first`'s comparison size;
     /// transparency is composited on white, as the JPEG encoder does.
     public static func ssim(_ first: CGImage, _ second: CGImage) -> Double {
-        let scale = min(1, Double(maxEdge) / Double(max(first.width, first.height, 1)))
-        let width = max(1, Int((Double(first.width) * scale).rounded()))
-        let height = max(1, Int((Double(first.height) * scale).rounded()))
+        let (width, height) = comparisonSize(width: first.width, height: first.height)
         guard let lumaA = luma(first, width: width, height: height),
               let lumaB = luma(second, width: width, height: height) else { return 0 }
         return ssim(lumaA, lumaB, width: width, height: height)
+    }
+
+    /// The size an image of `width`×`height` is compared at: scaled down to at most `maxEdge` on the long edge.
+    static func comparisonSize(width: Int, height: Int) -> (width: Int, height: Int) {
+        let scale = min(1, Double(maxEdge) / Double(max(width, height, 1)))
+        return (max(1, Int((Double(width) * scale).rounded())), max(1, Int((Double(height) * scale).rounded())))
     }
 
     /// 8-bit luma of `image` drawn at `width`×`height` on white.
