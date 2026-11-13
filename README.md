@@ -8,7 +8,7 @@ on your Mac: no uploads, no network access at all.
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 0.1.0 · **Status:** early development (milestone 1, batch conversion, works; the image steps resize, crop, rotate/flip, canvas and color profile, plus metadata and rename, are available; the watermark step is available; presets are coming).
+**Version:** 0.1.0 · **Status:** early development (milestone 1, batch conversion, works; the image steps resize, crop, rotate/flip, canvas and color profile, plus metadata and rename, are available; the watermark step is available; presets and the before/after preview are available).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- Presets (save, save as, rename, delete, reset; three built-ins) and a collapsible before/after preview with a filmstrip of the batch.
 - Watermark step: text (font, colour) or image (e.g. a logo), with position, size relative to the image, opacity and margin.
 - Metadata step (remove location, camera details or everything; set artist, copyright and description) and Rename step with tokens ({date}, {camera}, {counter:000}, …) and a live example.
 - Wide-colour (Display P3) photos keep their colour when resized and saved as JPEG; opaque images stay opaque through steps; memory use accounts for enlargement.
@@ -25,7 +26,7 @@ Started 2026-11-13. The full design is in
 
 - Project created. Older versions are listed in [CHANGELOG.md](CHANGELOG.md).
 
-## Features (all but presets available now; the rest planned for 1.0)
+## Features
 
 - **Reads** every format macOS can decode: HEIC, JPEG, PNG, TIFF, GIF, BMP, WebP, AVIF, PSD, camera
   RAW, JPEG 2000, ICNS and more. Animated and multi-page files are read using their first frame.
@@ -43,9 +44,9 @@ Started 2026-11-13. The full design is in
     details, or set artist, copyright and description; the color profile is always kept
   - (available) **Rename** (always last): a pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`,
     with a live example
-- **Presets**: save a pipeline under a name, or set up a one-off run without saving.
+- **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
 - **Live preview** of the selected image before and after the pipeline, with its new name and
-  size. The preview and the pipeline can both be collapsed for a compact window.
+  size, and a filmstrip of the batch (click a thumbnail or use ← →). Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
   half-written files, and name collisions resolved with `_2`, `_3`, …
 
@@ -111,6 +112,17 @@ Watermark (pipeline step, saved with the pipeline):
 | Opacity | 0 to 100 % | 65 % |
 | Margin | Distance from the edges, percent of the shorter side (0 to 25 %) | 3 % |
 
+Presets and preview:
+
+| Setting | What it is | Default |
+|---------|------------|---------|
+| Presets folder | `~/Library/Application Support/imageconverter/presets/`, one `<UUID>.json` file per preset | created on first save |
+| Web export (built-in) | Resize fit 2048 × 2048, color sRGB, metadata strip location, JPEG 82 % | n/a |
+| Instagram 4:5 (built-in) | Resize exact 1080 × 1350 fill & crop, sRGB, metadata strip location, JPEG 85 % | n/a |
+| Archive TIFF (built-in) | No image steps, metadata off, TIFF LZW | n/a |
+| Show preview | View → Hide Preview / Show Preview (⌥⌘P); UserDefaults key `previewCollapsed` | shown |
+| Pipeline collapsed | The Collapse/Expand button in the sidebar; key `pipelineCollapsed` | expanded |
+
 In *Overwrite originals* mode, a rename that only changes letter case keeps the original name.
 
 CMYK and indexed-colour sources are converted to sRGB by pixel steps (colour-managed, so they
@@ -127,6 +139,24 @@ folders you drop or pick. When you drop loose files and write next to them, it w
 folder for access and remember your answer. Until then it runs unsandboxed.
 
 ## How to
+
+### Save a preset
+
+1. Build the pipeline, then press **⌘S** (or Save in the preset bar). On a built-in or a one-off
+   pipeline this opens "Save as": type a name (1 to 80 characters, unique) and confirm.
+2. Pick a preset in the preset bar to load it. If you have unsaved changes, you are asked
+   "Discard changes to <name>?" first. Reset returns to the saved version; rename and delete are in
+   the preset bar. Built-ins can't be changed or deleted.
+
+### Preview before running
+
+1. Add images; the preview pane on the right shows the first one before and after the pipeline,
+   with `old name → new name` and `W × H → W × H` underneath.
+2. Click a thumbnail in the filmstrip, or focus it and press ← / →, to look at another image.
+3. Edit a step: the preview updates 300 ms later, and shows a spinner meanwhile. If an image can't
+   be rendered, the reason is shown instead of the "after" image. The preview shows the name for
+   that image alone; numbers like `_2` that avoid clashes within a batch appear only when you run it.
+4. Hide the preview with the button or ⌥⌘P; the window shrinks to the sidebar.
 
 ### Build a pipeline
 

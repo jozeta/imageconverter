@@ -31,4 +31,11 @@ final class RenameExampleTests: XCTestCase {
             RenameExample.render(source: url, header: nil, created: nil, pipeline: pipeline("{width}x{height}")),
             "4032x3024.jpg")
     }
+
+    func testCounterFollowsTheItemIndex() {
+        XCTAssertEqual(
+            RenameExample.render(
+                source: nil, header: nil, created: nil, pipeline: pipeline("{counter:000}"), index: 4),
+            "005.jpg")
+    }
 }

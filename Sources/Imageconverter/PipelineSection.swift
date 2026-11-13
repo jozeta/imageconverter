@@ -6,7 +6,7 @@ struct PipelineSection: View {
     @Bindable var model: AppModel
     var settings: AppSettings
     @Environment(\.openSettings) private var openSettings
-    @State private var isCollapsed = false
+    private var isCollapsed: Bool { model.pipelineCollapsed }
     @State private var expanded: Set<PipelineStep.ID> = []
     @State private var metadataExpanded = false
     @State private var renameExpanded = false
@@ -74,7 +74,7 @@ struct PipelineSection: View {
                 .font(LadaGlass.Typography.label)
                 .foregroundStyle(LadaGlass.Colors.muted)
             Spacer()
-            Button(isCollapsed ? "Expand" : "Collapse") { isCollapsed.toggle() }
+            Button(isCollapsed ? "Expand" : "Collapse") { model.pipelineCollapsed.toggle() }
                 .buttonStyle(.lg(.ghost))
                 .accessibilityLabel(isCollapsed ? "Expand the pipeline" : "Collapse the pipeline")
         }

@@ -86,6 +86,10 @@ private struct SetFieldRow: View {
                 .accessibilityLabel(title)
         }
         .onAppear { draft = text ?? "" }
+        // A preset switch or reset can set the text from outside; keep the draft in step.
+        .onChange(of: text) { _, new in
+            if let new, new != draft { draft = new }
+        }
     }
 }
 

@@ -10,6 +10,7 @@ struct SidebarView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
+                PresetBar(model: model)
                 dropZone
                 countRow
                 PipelineSection(model: model, settings: settings)
@@ -53,6 +54,11 @@ struct SidebarView: View {
         HStack {
             LGChip("\(model.items.count) \(model.items.count == 1 ? "image" : "images")", status: .neutral)
             Spacer()
+            if model.previewCollapsed {
+                Button("Show preview") { model.togglePreview() }
+                    .buttonStyle(.lg(.ghost))
+                    .accessibilityLabel("Show the preview")
+            }
             Button("Clear") { model.clear() }
                 .buttonStyle(.lg(.ghost))
                 .disabled(model.items.isEmpty || model.isRunning)

@@ -1,14 +1,24 @@
 import AppKit
+import CoreGraphics
 import Observation
 import ImageconverterCore
 
 @MainActor @Observable
 final class AppModel {
     var items: [InputItem] = []
-    /// The image steps and output format; saved to `UserDefaults` on every change.
-    var pipeline: Pipeline {
-        didSet { Self.save(pipeline, to: defaults) }
+    /// The selected preset and the pipeline being edited; both are saved to `UserDefaults` on every change.
+    var session: PresetSession {
+        didSet { persist() }
     }
+    /// The image steps and output format being edited (the session's pipeline).
+    var pipeline: Pipeline {
+        get { session.pipeline }
+        set { session.pipeline = newValue }
+    }
+    /// The user's saved presets, sorted by name; the built-ins are in `PresetStore.builtIns`.
+    var userPresets: [Preset] = []
+    /// Set by Save (⌘S) on a built-in or ad hoc pipeline; the preset bar shows its "Save as" sheet.
+    var isSavingAs = false
     var progress: BatchProgress?
     var lastReport: BatchReport?
     var isRunning = false
@@ -19,15 +29,68 @@ final class AppModel {
     /// "Example: name.ext" for the Rename editor; see `refreshRenameExample()`.
     private(set) var renameExample = ""
 
+    /// The selected image (index into `items`); see `selectedItemIndex` for the clamped value.
+    var selectedIndex = 0
+    /// The latest preview, kept on screen while the next one renders.
+    var previewResult: PreviewResult?
+    /// Why the last render failed (nil when it succeeded).
+    var previewFailure: String?
+    /// The name of the item whose render failed, shown when there is no result for it.
+    var previewFailureName: String?
+    var isRenderingPreview = false
+    /// Bumped when a filmstrip thumbnail has loaded, so cells refresh (see `AppModel+Preview.swift`).
+    var thumbnailTick = 0
+    var previewCollapsed: Bool {
+        didSet { defaults.set(previewCollapsed, forKey: Self.previewCollapsedKey) }
+    }
+    var pipelineCollapsed: Bool {
+        didSet { defaults.set(pipelineCollapsed, forKey: Self.pipelineCollapsedKey) }
+    }
+
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored var previewTask: Task<Void, Never>?
+    @ObservationIgnored var previewGeneration = 0
+    @ObservationIgnored var expandedWindowWidth: CGFloat?
+    /// The main window, captured by `WindowAccessor`; the preview toggle resizes this one.
+    @ObservationIgnored weak var mainWindow: NSWindow?
+    @ObservationIgnored var previewMode: OutputMode?
+    @ObservationIgnored let previewRenderer = PreviewRenderer()
+    @ObservationIgnored let thumbnailCache: NSCache<NSURL, CGImageBox> = {
+        let cache = NSCache<NSURL, CGImageBox>()
+        cache.countLimit = 500
+        return cache
+    }()
+    @ObservationIgnored var thumbnailsLoading: Set<URL> = []
+    @ObservationIgnored var thumbnailsFailed: Set<URL> = []
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var exampleSource: (url: URL, info: RenameSource)?
     @ObservationIgnored private var exampleCache: (key: RenameExampleKey, text: String)?
+    @ObservationIgnored let presetStore: PresetStore
     static let pipelineKey = "currentPipeline"
+    static let selectedPresetKey = "selectedPresetID"
+    static let previewCollapsedKey = "previewCollapsed"
+    static let pipelineCollapsedKey = "pipelineCollapsed"
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard,
+         presetStore: PresetStore = PresetStore(directory: PresetStore.defaultDirectory)) {
         self.defaults = defaults
-        pipeline = Self.loadPipeline(from: defaults)
+        self.presetStore = presetStore
+        previewCollapsed = defaults.bool(forKey: Self.previewCollapsedKey)
+        pipelineCollapsed = defaults.bool(forKey: Self.pipelineCollapsedKey)
+        let saved = Self.loadPipeline(from: defaults)
+        session = PresetSession(selected: nil, pipeline: saved)
+        let result = presetStore.loadAll()
+        userPresets = PresetStore.userPresets(from: result.presets)
+        // A remembered preset is selected again; if the saved pipeline differs it shows as modified.
+        if let id = defaults.string(forKey: Self.selectedPresetKey).flatMap(UUID.init(uuidString:)),
+           let preset = allPresets.first(where: { $0.id == id }) {
+            session = PresetSession(selected: preset, pipeline: saved)
+        }
+        if !result.skipped.isEmpty {
+            let count = result.skipped.count
+            toasts.show("Skipped \(count) preset \(count == 1 ? "file" : "files")", type: .info,
+                        description: result.skipped.map { "\($0.file): \($0.reason)" }.joined(separator: "\n"))
+        }
     }
 
     /// An undecodable or missing value gives an empty pipeline with the default output.
@@ -37,8 +100,13 @@ final class AppModel {
         return pipeline
     }
 
-    private static func save(_ pipeline: Pipeline, to defaults: UserDefaults) {
-        if let data = try? JSONEncoder().encode(pipeline) { defaults.set(data, forKey: pipelineKey) }
+    func persist() {
+        if let data = try? JSONEncoder().encode(session.pipeline) { defaults.set(data, forKey: Self.pipelineKey) }
+        if let id = session.selected?.id {
+            defaults.set(id.uuidString, forKey: Self.selectedPresetKey)
+        } else {
+            defaults.removeObject(forKey: Self.selectedPresetKey)
+        }
     }
 
     // MARK: Pipeline editing
@@ -95,6 +163,10 @@ final class AppModel {
     func clear() {
         guard !isRunning else { return }
         items = []
+        selectedIndex = 0
+        thumbnailCache.removeAllObjects()
+        thumbnailsFailed = []
+        resetPreview()
         progress = nil
         lastReport = nil
     }
@@ -130,6 +202,7 @@ final class AppModel {
         let batch = items
         let pipeline = self.pipeline
         isRunning = true
+        resetPreview()
         lastReport = nil
         progress = BatchProgress(completed: 0, failed: 0, total: batch.count)
         task = Task { [weak self] in
@@ -155,8 +228,11 @@ final class AppModel {
     private func finish(_ report: BatchReport) {
         isRunning = false
         task = nil
+        Task { await previewRenderer.purge() }
+        schedulePreview(mode: previewMode)
         lastReport = report
         progress = nil
+        dropMissingItems()
         let done = report.written.count
         let skipped = report.failures.count
         let prefix = report.cancelled ? "Cancelled. " : ""
@@ -172,11 +248,11 @@ final class AppModel {
     /// What the live example depends on; when it changes the example is recomputed.
     var renameExampleKey: RenameExampleKey {
         RenameExampleKey(
-            firstItem: items.first?.source, pattern: pipeline.rename.pattern,
+            exampleItem: selectedItemIndex.map { items[$0].source }, index: selectedItemIndex ?? 0, pattern: pipeline.rename.pattern,
             counterStart: pipeline.rename.counterStart, format: pipeline.output.format, steps: pipeline.steps)
     }
 
-    /// Renders the rename pattern for the first image (or a built-in sample when there are none).
+    /// Renders the rename pattern for the selected image (the first by default, or a built-in sample when there are none).
     /// The file is read off the main actor; the header is kept per file and the result per key.
     func refreshRenameExample() async {
         let key = renameExampleKey
@@ -185,18 +261,18 @@ final class AppModel {
             return
         }
         let pipeline = self.pipeline
-        let known = exampleSource.flatMap { $0.url == key.firstItem ? $0.info : nil }
+        let known = exampleSource.flatMap { $0.url == key.exampleItem ? $0.info : nil }
         let (info, text) = await Task.detached(priority: .userInitiated) {
-            Self.renderExample(url: key.firstItem, known: known, pipeline: pipeline)
+            Self.renderExample(url: key.exampleItem, known: known, pipeline: pipeline, index: key.index)
         }.value
         guard !Task.isCancelled else { return }
-        if let url = key.firstItem { exampleSource = (url, info) }
+        if let url = key.exampleItem { exampleSource = (url, info) }
         exampleCache = (key, text)
         renameExample = text
     }
 
     nonisolated private static func renderExample(
-        url: URL?, known: RenameSource?, pipeline: Pipeline
+        url: URL?, known: RenameSource?, pipeline: Pipeline, index: Int
     ) -> (RenameSource, String) {
         var info = known ?? RenameSource(header: nil, created: nil)
         if let url, known == nil {
@@ -204,7 +280,8 @@ final class AppModel {
                 header: ImageLoader.header(of: url),
                 created: (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate)
         }
-        let name = RenameExample.render(source: url, header: info.header, created: info.created, pipeline: pipeline)
+        let name = RenameExample.render(source: url, header: info.header, created: info.created, pipeline: pipeline,
+                                    index: index)
         return (info, "Example: \(name)")
     }
 }
@@ -216,9 +293,16 @@ struct RenameSource: @unchecked Sendable {
 }
 
 struct RenameExampleKey: Equatable {
-    let firstItem: URL?
+    let exampleItem: URL?
+    let index: Int
     let pattern: String
     let counterStart: Int
     let format: OutputFormat
     let steps: [PipelineStep]
+}
+
+/// Reference wrapper so `NSCache` can hold a `CGImage`.
+final class CGImageBox: @unchecked Sendable {
+    let image: CGImage
+    init(_ image: CGImage) { self.image = image }
 }
