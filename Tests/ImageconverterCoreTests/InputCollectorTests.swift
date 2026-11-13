@@ -14,6 +14,12 @@ final class InputCollectorTests: XCTestCase {
         try? FileManager.default.removeItem(at: dir)
     }
 
+    func testSVGIsIgnored() throws {
+        let svg = dir.appendingPathComponent("logo.svg")
+        try Data("<svg/>".utf8).write(to: svg)
+        XCTAssertEqual(InputCollector.collect([svg]), [])
+    }
+
     func testCollectsImagesFromFoldersAndFiles() throws {
         let fileManager = FileManager.default
         let trip = dir.appendingPathComponent("Trip", isDirectory: true)
@@ -26,6 +32,7 @@ final class InputCollectorTests: XCTestCase {
         try Data("hi".utf8).write(to: trip.appendingPathComponent("notes.txt"))
         try Data().write(to: trip.appendingPathComponent(".DS_Store"))
         try Data().write(to: day2.appendingPathComponent("broken.jpg"))
+        try Data("<svg/>".utf8).write(to: trip.appendingPathComponent("logo.svg"))
         let loose = dir.appendingPathComponent("c.heic")
         try TestImages.write(image, to: loose, type: .heic)
 

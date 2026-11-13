@@ -10,7 +10,7 @@ public enum ImageEncoder {
     public static func encode(_ image: CGImage, properties: [String: Any], settings: OutputSettings) throws -> Data {
         let format = settings.format
         let source: CGImage
-        if needsOpaque(format), hasAlpha(image) {
+        if needsOpaque(format), ImageOps.hasAlpha(image) {
             guard let flat = flattenedOnWhite(image) else { throw ConversionError.encodeFailed }
             source = flat
         } else {
@@ -42,31 +42,35 @@ public enum ImageEncoder {
         format == .jpeg || format == .bmp
     }
 
-    private static func hasAlpha(_ image: CGImage) -> Bool {
-        switch image.alphaInfo {
-        case .none, .noneSkipFirst, .noneSkipLast: return false
-        default: return true
-        }
-    }
-
     private static func flattenedOnWhite(_ image: CGImage) -> CGImage? {
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
-              let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
-                                  bytesPerRow: 0, space: space,
-                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
-        let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
-        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fill(rect)
-        ctx.draw(image, in: rect)
-        return ctx.makeImage()
+        // Prefer the image's own RGB color space (wide gamut); extended-range spaces can't back an
+        // 8-bit context, so fall back to sRGB.
+        var spaces: [CGColorSpace] = []
+        if let own = image.colorSpace, own.model == .rgb { spaces.append(own) }
+        if let srgb = CGColorSpace(name: CGColorSpace.sRGB) { spaces.append(srgb) }
+        for space in spaces {
+            guard let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { continue }
+            let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fill(rect)
+            ctx.draw(image, in: rect)
+            return ctx.makeImage()
+        }
+        return nil
     }
 
-    /// Copy of `properties` with orientation 1 and without the (possibly pre-rotation) pixel dimensions.
+    /// Copy of `properties` with orientation 1 and without stale pixel dimensions or color description.
     private static func sanitized(_ properties: [String: Any]) -> [String: Any] {
         var props = properties
         props[kCGImagePropertyOrientation as String] = 1
         props.removeValue(forKey: kCGImagePropertyPixelWidth as String)
         props.removeValue(forKey: kCGImagePropertyPixelHeight as String)
+        // Describe the old color; ImageIO derives these from the image being written.
+        props.removeValue(forKey: kCGImagePropertyProfileName as String)
+        props.removeValue(forKey: kCGImagePropertyColorModel as String)
+        props.removeValue(forKey: kCGImagePropertyDepth as String)
 
         let exifKey = kCGImagePropertyExifDictionary as String
         if var exif = props[exifKey] as? [String: Any] {

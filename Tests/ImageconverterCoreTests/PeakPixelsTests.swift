@@ -1,0 +1,35 @@
+import XCTest
+@testable import ImageconverterCore
+
+final class PeakPixelsTests: XCTestCase {
+    private func pipeline(_ operation: ImageOperation) -> Pipeline {
+        Pipeline(steps: [PipelineStep(operation: operation)])
+    }
+
+    func testDownscaleKeepsSourceAsPeak() {
+        let pipe = pipeline(.resize(ResizeOptions(mode: .maxWidth(100))))
+        XCTAssertEqual(pipe.peakPixels(sourceWidth: 4000, sourceHeight: 3000), 12_000_000)
+    }
+
+    func testEnlargementCounts() {
+        let options = ResizeOptions(mode: .exactSize(width: 8000, height: 8000, fill: .stretch), allowEnlarge: true)
+        XCTAssertEqual(pipeline(.resize(options)).peakPixels(sourceWidth: 100, sourceHeight: 100), 64_000_000)
+    }
+
+    func testCanvasPaddingCounts() {
+        let options = CanvasOptions(mode: .padding(pixels: 100))
+        XCTAssertEqual(pipeline(.canvas(options)).peakPixels(sourceWidth: 100, sourceHeight: 100), 90_000)
+    }
+
+    func testRotateKeepsPixelCount() {
+        let options = RotateFlipOptions(rotation: .cw90)
+        XCTAssertEqual(pipeline(.rotateFlip(options)).peakPixels(sourceWidth: 300, sourceHeight: 100), 30_000)
+    }
+
+    func testDisabledStepsIgnoredAndHugeSizesSaturate() {
+        var pipe = pipeline(.canvas(CanvasOptions(mode: .padding(pixels: 10))))
+        pipe.steps[0].isEnabled = false
+        XCTAssertEqual(pipe.peakPixels(sourceWidth: 10, sourceHeight: 10), 100)
+        XCTAssertGreaterThan(Pipeline().peakPixels(sourceWidth: Int.max, sourceHeight: Int.max), 0)
+    }
+}

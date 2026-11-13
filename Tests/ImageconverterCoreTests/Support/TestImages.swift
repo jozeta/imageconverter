@@ -94,4 +94,47 @@ enum TestImages {
         }
         return props
     }
+
+    /// Left half `left`, right half `right`.
+    static func twoColor(width: Int, height: Int, left: CGColor, right: CGColor) -> CGImage {
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            fatalError("Couldn't create a bitmap context")
+        }
+        ctx.setFillColor(left)
+        ctx.fill(CGRect(x: 0, y: 0, width: width / 2, height: height))
+        ctx.setFillColor(right)
+        ctx.fill(CGRect(x: width / 2, y: 0, width: width - width / 2, height: height))
+        guard let image = ctx.makeImage() else { fatalError("Couldn't make an image") }
+        return image
+    }
+
+    /// A solid 16-bit Display P3 image.
+    static func displayP3(width: Int, height: Int) -> CGImage {
+        guard let space = CGColorSpace(name: CGColorSpace.displayP3),
+              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 16, bytesPerRow: 0,
+                                  space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            fatalError("Couldn't create a P3 context")
+        }
+        ctx.setFillColor(CGColor(colorSpace: space, components: [1, 0.2, 0.1, 1]) ?? CGColor(gray: 0.5, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = ctx.makeImage() else { fatalError("Couldn't make an image") }
+        return image
+    }
+
+    /// The RGBA pixel at (x, y) of `image` (top-left origin), rendered to 8-bit sRGB, components 0-255.
+    static func pixel(of image: CGImage, x column: Int, y row: Int) -> Pixel {
+        var buf = [UInt8](repeating: 0, count: 4)
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: &buf, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            fatalError("Couldn't create a pixel context")
+        }
+        ctx.draw(image, in: CGRect(x: -column, y: row - image.height + 1, width: image.width, height: image.height))
+        let alphaValue = Double(buf[3])
+        let unpremultiply: (UInt8) -> Double = { alphaValue > 0 ? min(255, Double($0) * 255 / alphaValue) : 0 }
+        return Pixel(red: unpremultiply(buf[0]), green: unpremultiply(buf[1]),
+                     blue: unpremultiply(buf[2]), alpha: alphaValue)
+    }
 }

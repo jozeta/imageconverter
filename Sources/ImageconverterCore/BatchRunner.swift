@@ -38,7 +38,11 @@ public struct BatchReport: Equatable, Sendable {
 }
 
 public enum BatchRunner {
-    /// Converts `items` in parallel (at most `concurrency` at a time). A file that fails is
+    /// A quarter of physical memory at about 12 bytes per pixel (a decoded copy plus working copies).
+    public static let defaultMemoryBudgetPixels = Int(ProcessInfo.processInfo.physicalMemory / 4 / 12)
+
+    /// Converts `items` in parallel (at most `concurrency` at a time, and while their combined pixel
+    /// count stays within `memoryBudgetPixels`; a single oversized image still runs, alone). A file that fails is
     /// recorded and skipped; the rest carry on. `progress` is called once per finished item, in
     /// completion order (not input order), from the collecting side of the batch; `completed`
     /// (successes plus failures) increases monotonically. `BatchReport.cancelled` is false if
@@ -46,16 +50,18 @@ public enum BatchRunner {
     /// from starting; files already in flight finish their atomic commit, so no temp files remain.
     public static func run(
         _ items: [InputItem],
-        output: OutputSettings,
+        pipeline: Pipeline,
         mode: OutputMode,
         maxPixels: Int = 250_000_000,
         concurrency: Int = ProcessInfo.processInfo.activeProcessorCount,
+        memoryBudgetPixels: Int = BatchRunner.defaultMemoryBudgetPixels,
         trash: @escaping Trasher = systemTrash,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
     ) async -> BatchReport {
-        let plans = OutputPlanner.plan(items, format: output.format, mode: mode)
+        let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode)
         let total = plans.count
-        let limit = max(1, concurrency)
+        var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
+        var weights = [Int](repeating: 1, count: total)
         var outcomes = [Result<URL, ConversionError>?](repeating: nil, count: total)
         var cancelled = false
 
@@ -66,22 +72,30 @@ public enum BatchRunner {
             var failed = 0
 
             while true {
-                while inFlight < limit, next < total {
+                while next < total {
                     if Task.isCancelled {
                         cancelled = true
                         break
                     }
                     let index = next
                     let plan = plans[index]
+                    // Header-only read; unreadable files weigh 1 and fail later in `convert`.
+                    let weight = max(1, ImageLoader.pixelSize(of: plan.item.source).map {
+                        pipeline.peakPixels(sourceWidth: $0.width, sourceHeight: $0.height)
+                    } ?? 1)
+                    guard window.canStart(weight: weight) else { break }
+                    weights[index] = weight
+                    window.start(weight: weight)
                     next += 1
                     inFlight += 1
                     group.addTask {
-                        (index, convert(plan, output: output, maxPixels: maxPixels, trash: trash))
+                        (index, convert(plan, pipeline: pipeline, maxPixels: maxPixels, trash: trash))
                     }
                 }
                 if cancelled { next = total }
                 guard let (index, result) = await group.next() else { break }
                 inFlight -= 1
+                window.finish(weight: weights[index])
                 outcomes[index] = result
                 completed += 1
                 if case .failure = result { failed += 1 }
@@ -89,6 +103,12 @@ public enum BatchRunner {
             }
         }
 
+        return makeReport(plans: plans, outcomes: outcomes, cancelled: cancelled)
+    }
+
+    private static func makeReport(
+        plans: [PlannedOutput], outcomes: [Result<URL, ConversionError>?], cancelled: Bool
+    ) -> BatchReport {
         var report = BatchReport(cancelled: cancelled)
         for (plan, outcome) in zip(plans, outcomes) {
             switch outcome {
@@ -102,12 +122,13 @@ public enum BatchRunner {
     }
 
     private static func convert(
-        _ plan: PlannedOutput, output: OutputSettings, maxPixels: Int, trash: Trasher
+        _ plan: PlannedOutput, pipeline: Pipeline, maxPixels: Int, trash: Trasher
     ) -> Result<URL, ConversionError> {
         autoreleasepool {
             do {
                 let loaded = try ImageLoader.load(plan.item.source, maxPixels: maxPixels)
-                let data = try ImageEncoder.encode(loaded.image, properties: loaded.properties, settings: output)
+                let image = try pipeline.apply(to: loaded.image)
+                let data = try ImageEncoder.encode(image, properties: loaded.properties, settings: pipeline.output)
                 try FileCommitter.commit(data, for: plan, trash: trash)
                 return .success(plan.destination)
             } catch let error as ConversionError {

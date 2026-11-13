@@ -12,6 +12,25 @@ public struct LoadedImage: @unchecked Sendable {
 public enum ImageLoader {
     public static let defaultMaxPixels = 250_000_000
 
+    /// The pixel count of the first frame, read from the header only. Nil if unreadable.
+    public static func pixelCount(of url: URL) -> Int? {
+        guard let size = pixelSize(of: url) else { return nil }
+        let (pixels, overflow) = size.width.multipliedReportingOverflow(by: size.height)
+        return overflow ? Int.max : pixels
+    }
+
+    /// The pixel size of the first frame, read from the header only. Nil if unreadable.
+    public static func pixelSize(of url: URL) -> (width: Int, height: Int)? {
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
+              CGImageSourceGetCount(source) > 0,
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
+              let width = properties[kCGImagePropertyPixelWidth as String] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight as String] as? Int,
+              width > 0, height > 0 else { return nil }
+        return (width, height)
+    }
+
     /// Loads the first frame of `url`, rotated upright according to its EXIF orientation.
     /// Throws `.tooLarge` before decoding when the image exceeds `maxPixels`.
     public static func load(_ url: URL, maxPixels: Int = defaultMaxPixels) throws -> LoadedImage {

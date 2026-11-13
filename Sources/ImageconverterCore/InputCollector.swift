@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 
 /// One image file to convert, and where it sat in the dropped folder structure.
@@ -60,6 +61,12 @@ public enum InputCollector {
     private static func isImage(_ url: URL) -> Bool {
         guard !url.pathExtension.isEmpty,
               let type = UTType(filenameExtension: url.pathExtension.lowercased()) else { return false }
-        return type.conforms(to: .image)
+        guard type.conforms(to: .image) else { return false }
+        return readableTypes.contains(type.identifier)
+            || type.supertypes.contains { readableTypes.contains($0.identifier) }
     }
+
+    /// Type identifiers ImageIO can decode (so `.svg`, which is an image type but not decodable, is out).
+    private static let readableTypes: Set<String> =
+        Set((CGImageSourceCopyTypeIdentifiers() as? [String]) ?? [])
 }
