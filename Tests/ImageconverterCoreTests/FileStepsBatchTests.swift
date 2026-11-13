@@ -162,15 +162,15 @@ final class FileStepsBatchTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     }
 
-    func testOverwriteRenameTrashesOriginal() async throws {
+    func testOverwriteIgnoresRenameAndReplacesInPlace() async throws {
         let url = try source("a.jpg")
         let trashed = LockedLog<URL>()
         let trash: Trasher = { trashed.append($0) }
         let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: renamePipeline("renamed"),
                                            mode: .overwrite, trash: trash)
         XCTAssertEqual(report.failures, [])
-        XCTAssertEqual(report.written, [root.appendingPathComponent("renamed.jpg")])
-        XCTAssertEqual(trashed.values, [url])
+        XCTAssertEqual(report.written, [url])
+        XCTAssertEqual(trashed.values, [])
     }
 
     func testPlannerIgnoresMismatchedBaseNames() {
@@ -245,12 +245,11 @@ final class FileStepsBatchTests: XCTestCase {
         XCTAssertFalse(plans[0].trashesSource)
     }
 
-    func testPlannerOverwriteSwapDoesNotUseOriginalsAsDestinations() {
+    func testPlannerOverwriteSwapIgnoresBaseNames() {
         let items = ["2.jpg", "1.jpg"].map { InputItem(source: root.appendingPathComponent($0), relativeDirectory: "") }
-        let existing: Set<String> = ["1.jpg", "2.jpg"].reduce(into: []) { $0.insert(root.appendingPathComponent($1).path) }
         let plans = OutputPlanner.plan(items, format: .jpeg, mode: .overwrite, baseNames: ["1", "2"],
-                                       fileExists: { existing.contains($0.path) })
-        XCTAssertEqual(plans.map { $0.destination.lastPathComponent }, ["1_2.jpg", "2_2.jpg"])
-        XCTAssertTrue(plans.allSatisfy { $0.trashesSource && !$0.replacesSource })
+                                       fileExists: { _ in true })
+        XCTAssertEqual(plans.map { $0.destination.lastPathComponent }, ["2.jpg", "1.jpg"])
+        XCTAssertTrue(plans.allSatisfy { $0.replacesSource && !$0.trashesSource })
     }
 }

@@ -191,7 +191,7 @@ final class PreviewRendererTests: XCTestCase {
         }
         let sameFolder = try ready(await PreviewRenderer().render(
             item: jpegItem, index: 0, pipeline: plain, mode: .sameFolder(suffix: "_converted")))
-        XCTAssertEqual(sameFolder.outputName, "p_converted.jpg")
+        XCTAssertEqual(sameFolder.outputName, "p.jpg")
     }
 
     func testRewrittenFileIsDecodedAgain() async throws {

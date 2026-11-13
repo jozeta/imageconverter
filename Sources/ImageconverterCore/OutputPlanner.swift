@@ -39,9 +39,18 @@ public struct PlannedOutput: Equatable, Sendable {
 }
 
 public enum OutputPlanner {
+    /// Suffix offered by default for same-folder output.
+    public static let defaultSuffix = "_new"
+
     /// Plans one destination per item, in input order. An original is only ever replaced or
     /// trashed in overwrite mode; no other file is replaced, and no two outputs share a path
     /// (compared case-insensitively, as macOS volumes usually are).
+    ///
+    /// - New folder: every output goes flat into the chosen folder (source subfolders are not
+    ///   mirrored); clashes get `_2`, `_3`, ...
+    /// - Same folder: the suffix is appended only when the output would otherwise be the source
+    ///   file itself; other clashes get `_2`, `_3`, ...
+    /// - Overwrite: `baseNames` is ignored (renaming is disabled), so the name stays the source's.
     public static func plan(
         _ items: [InputItem],
         format: OutputFormat,
@@ -49,7 +58,8 @@ public enum OutputPlanner {
         baseNames: [String]? = nil,
         fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
     ) -> [PlannedOutput] {
-        let names = baseNames?.count == items.count ? baseNames : nil
+        // Renaming is disabled when overwriting, so a leftover template can't change the plan.
+        let names = (mode == .overwrite || baseNames?.count != items.count) ? nil : baseNames
         let ext = format.fileExtensions[0]
         let isOverwrite = mode == .overwrite
         var claimed = Set<String>()
@@ -78,11 +88,12 @@ public enum OutputPlanner {
             var suffix = ""
             switch mode {
             case .newFolder(let root):
-                directory = item.relativeDirectory.isEmpty
-                    ? root : root.appendingPathComponent(item.relativeDirectory, isDirectory: true)
+                directory = root
             case .sameFolder(let value):
                 directory = sourceDir
-                suffix = names == nil ? sanitized(value) : ""
+                // Only a would-be source overwrite needs telling apart from the original.
+                let plain = directory.appendingPathComponent("\(name).\(ext)")
+                if sameFile(plain, item.source) { suffix = sanitized(value) }
             case .overwrite:
                 directory = sourceDir
             }
@@ -100,6 +111,12 @@ public enum OutputPlanner {
                                        replacesSource: false, trashesSource: isOverwrite))
         }
         return plans
+    }
+
+    private static func sameFile(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.deletingLastPathComponent().standardizedFileURL.path
+            == rhs.deletingLastPathComponent().standardizedFileURL.path
+            && lhs.lastPathComponent.lowercased() == rhs.lastPathComponent.lowercased()
     }
 
     private static func key(_ url: URL) -> String {
