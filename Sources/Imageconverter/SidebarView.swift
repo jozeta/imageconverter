@@ -17,6 +17,7 @@ struct SidebarView: View {
                 VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
                     PresetBar(model: model)
                     dropZone
+                    pipelineHandle
                     countRow
                     PipelineSection(model: model, settings: settings)
                     runSection
@@ -40,6 +41,14 @@ struct SidebarView: View {
         .lgBackdrop()
         .lgCompact()
         .lgToasts(model.toasts)
+    }
+
+    /// Collapses or expands the pipeline (Johan: between the drop zone and the image count).
+    private var pipelineHandle: some View {
+        let collapsed = model.pipelineCollapsed
+        return EdgeHandle(edge: .bottom, pointsOutward: collapsed,
+                          label: collapsed ? "Expand pipeline" : "Collapse pipeline") { model.togglePipeline() }
+            .frame(maxWidth: .infinity)
     }
 
     private var dropZone: some View {

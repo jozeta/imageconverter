@@ -81,7 +81,6 @@ private struct MainWindowContent: View {
             SidebarView(model: model, settings: settings)
                 .frame(width: WindowLayout.sidebarWidth)
                 .overlay(alignment: .trailing) { previewHandle }
-                .overlay(alignment: .bottom) { pipelineHandle }
                 // Above the preview, so the handle on the shared border is drawn and clickable.
                 .zIndex(1)
             if sizer.previewMounted {
@@ -142,15 +141,6 @@ private struct MainWindowContent: View {
                           label: collapsed ? "Show preview" : "Hide preview") { model.togglePreview() }
             .offset(x: collapsed ? halfWidth - LadaGlass.Spacing.m / 2 : halfWidth)
             .animation(.easeInOut(duration: WindowSizer.animationDuration), value: collapsed)
-    }
-
-    /// Centred in the padding under the sidebar panel, on the window's bottom edge.
-    private var pipelineHandle: some View {
-        let collapsed = model.pipelineCollapsed
-        let halfHeight = EdgeHandle.thickness / 2 + EdgeHandle.hitMargin
-        return EdgeHandle(edge: .bottom, pointsOutward: collapsed,
-                          label: collapsed ? "Expand pipeline" : "Collapse pipeline") { model.togglePipeline() }
-        .offset(y: halfHeight - LadaGlass.Spacing.m / 2)
     }
 }
 
