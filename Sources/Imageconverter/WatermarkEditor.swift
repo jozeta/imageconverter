@@ -55,7 +55,7 @@ struct WatermarkEditor: View {
             .pickerStyle(.segmented)
             .accessibilityLabel("Watermark content")
             if isText { textControls } else { imageControls }
-            HStack(alignment: .top, spacing: LadaGlass.Spacing.m) {
+            HStack(alignment: .top, spacing: LadaGlass.Spacing.s) {
                 Text("Position").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 AnchorPicker(anchor: $options.anchor)
             }

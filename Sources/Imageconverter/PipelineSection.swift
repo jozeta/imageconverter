@@ -17,9 +17,10 @@ struct PipelineSection: View {
     private var enabledCount: Int { model.pipeline.steps.filter(\.isEnabled).count }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
+        VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
             header
             if !isCollapsed {
+                addMenu.disabled(model.isRunning)
                 ForEach(model.pipeline.steps) { step in
                     StepRow(
                         step: stepBinding(step),
@@ -34,7 +35,6 @@ struct PipelineSection: View {
                         dropped: { model.moveStep($0, to: step.id) })
                     .disabled(model.isRunning)
                 }
-                addMenu.disabled(model.isRunning)
                 Text("Always last").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 fileSteps
                 outputRow
@@ -87,10 +87,8 @@ struct PipelineSection: View {
     private var addMenu: some View {
         Menu("+ Add step") {
             ForEach(StepKind.allCases, id: \.self) { kind in
-                Button(kind.displayName) {
-                    let step = model.addStep(kind)
-                    expanded.insert(step.id)
-                }
+                // New steps start collapsed.
+                Button(kind.displayName) { _ = model.addStep(kind) }
             }
         }
         .accessibilityLabel("Add a pipeline step")
@@ -132,7 +130,8 @@ struct PipelineSection: View {
             estimateLine
             saveToControls
         }
-        .padding(LadaGlass.Spacing.m)
+        .padding(.horizontal, LadaGlass.Spacing.m)
+        .padding(.vertical, LadaGlass.Spacing.s)
         .frame(maxWidth: .infinity, alignment: .leading)
         .lgSurface()
         .onChange(of: pendingOverwrite) { _, pending in
@@ -242,53 +241,68 @@ private struct StepRow: View {
     let move: (Int) -> Void
     let remove: () -> Void
     let dropped: (PipelineStep.ID) -> Bool
+    @State private var isTargeted = false
+
+    private var name: String { step.operation.kind.displayName }
 
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
-            StepEditor(operation: $step.operation)
-                .padding(.top, LadaGlass.Spacing.s)
-        } label: {
+        AccordionCard(isExpanded: $isExpanded, canExpand: step.isEnabled, title: name) {
             HStack(spacing: LadaGlass.Spacing.s) {
-                Image(systemName: "line.3.horizontal")
-                    .foregroundStyle(LadaGlass.Colors.muted)
-                    .draggable(step.id.uuidString)
-                    .help("Drag to reorder")
-                    .accessibilityHidden(true)
+                handle
                 Toggle("Enabled", isOn: $step.isEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.mini)
-                    .accessibilityLabel("\(step.operation.kind.displayName) enabled")
+                    .accessibilityLabel("\(name) enabled")
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(step.operation.kind.displayName).font(LadaGlass.Typography.subtitle)
+                    Text(name).font(LadaGlass.Typography.subtitle)
                     Text(step.operation.summary)
                         .font(LadaGlass.Typography.label)
                         .foregroundStyle(LadaGlass.Colors.muted)
                         .lineLimit(1)
                 }
+                .opacity(step.isEnabled ? 1 : 0.5)
                 Spacer(minLength: 0)
-                Menu {
-                    actions
-                } label: {
-                    Image(systemName: "ellipsis")
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .accessibilityLabel("\(step.operation.kind.displayName) actions")
+                Button(action: remove) { Image(systemName: "xmark") }
+                    .buttonStyle(.lg(.ghost))
+                    .accessibilityLabel("Remove \(name)")
+                    .help("Remove \(name)")
             }
-            .opacity(step.isEnabled ? 1 : 0.5)
             .contentShape(Rectangle())
             .contextMenu { actions }
+        } content: {
+            StepEditor(operation: $step.operation)
         }
-        .font(LadaGlass.Typography.body)
-        .padding(LadaGlass.Spacing.m)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .lgSurface()
+        .overlay(alignment: .top) {
+            if isTargeted {
+                Capsule().fill(LadaGlass.accent.color).frame(height: 2).offset(y: -1)
+            }
+        }
         .dropDestination(for: String.self) { ids, _ in
             guard let id = ids.first.flatMap(UUID.init(uuidString:)) else { return false }
             return dropped(id)
-        }
+        } isTargeted: { isTargeted = $0 }
+        .accessibilityAction(named: "Move up") { if canMoveUp { move(-1) } }
+        .accessibilityAction(named: "Move down") { if canMoveDown { move(1) } }
+    }
+
+    private var handle: some View {
+        Image(systemName: "line.3.horizontal")
+            .foregroundStyle(LadaGlass.Colors.muted)
+            .frame(width: 20, height: 24)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.openHand.push() } else { NSCursor.pop() }
+            }
+            .draggable(step.id.uuidString) {
+                Text(name)
+                    .font(LadaGlass.Typography.subtitle)
+                    .padding(.horizontal, LadaGlass.Spacing.m)
+                    .padding(.vertical, LadaGlass.Spacing.s)
+                    .lgSurface()
+            }
+            .help("Drag to reorder")
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder private var actions: some View {

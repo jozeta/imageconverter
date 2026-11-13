@@ -19,15 +19,13 @@ struct FileStepRow<Content: View>: View {
     private var shownEnabled: Bool { isEnabled && !locked }
 
     var body: some View {
-        DisclosureGroup(isExpanded: locked ? .constant(false) : $isExpanded) {
-            VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) { content }
-                .padding(.top, LadaGlass.Spacing.s)
-        } label: {
+        AccordionCard(isExpanded: $isExpanded, canExpand: shownEnabled, title: title) {
             HStack(spacing: LadaGlass.Spacing.s) {
                 Toggle("Enabled", isOn: locked ? .constant(false) : $isEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.mini)
+                    .disabled(locked)
                     .accessibilityLabel("\(title) enabled")
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title).font(LadaGlass.Typography.subtitle)
@@ -40,13 +38,10 @@ struct FileStepRow<Content: View>: View {
             }
             .opacity(shownEnabled ? 1 : 0.5)
             .contentShape(Rectangle())
+        } content: {
+            VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) { content }
         }
-        .disabled(locked)
         .help(lockedHelp ?? "")
-        .font(LadaGlass.Typography.body)
-        .padding(LadaGlass.Spacing.m)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .lgSurface()
     }
 }
 

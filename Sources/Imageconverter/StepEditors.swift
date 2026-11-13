@@ -200,7 +200,7 @@ private struct CropEditor: View {
                         get: { size.high }, set: { options.mode = .size(width: size.wide, height: $0) }))
                 }
             }
-            HStack(alignment: .top, spacing: LadaGlass.Spacing.m) {
+            HStack(alignment: .top, spacing: LadaGlass.Spacing.s) {
                 Text("Anchor").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 AnchorPicker(anchor: $options.anchor)
             }
@@ -281,7 +281,7 @@ private struct CanvasEditor: View {
                     NumberField(title: "Height", value: Binding(
                         get: { size.high }, set: { options.mode = .size(width: size.wide, height: $0) }))
                 }
-                HStack(alignment: .top, spacing: LadaGlass.Spacing.m) {
+                HStack(alignment: .top, spacing: LadaGlass.Spacing.s) {
                     Text("Anchor").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                     AnchorPicker(anchor: $options.anchor)
                 }

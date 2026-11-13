@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Pipeline rows: drag handle with an insertion line replaces the actions menu (Move Up/Down stay in the context menu and as accessibility actions), a small remove button, "+ Add step" above the steps (new steps start collapsed), switched-off steps collapse and cannot be expanded, and tighter spacing.
 - Output row: a "Save to" dropdown replaces the Settings window (⌘, is gone), an "Original → about" size estimate, a Rename step that is greyed out while overwriting, and find and replace (plain or regular expression) in the Rename step. The same-folder suffix now defaults to `_new`.
 - Preview and preset fixes: a failed preview no longer shows the previous image, the preview toggle (⌥⌘P) resizes the main window, ⌘S is disabled while running, preset names ignore look-alike spaces, skipped preset files give specific reasons, and images whose originals were trashed are removed with a notice.
 - Presets (save, save as, rename, delete, reset; three built-ins) and a collapsible before/after preview with a filmstrip of the batch.

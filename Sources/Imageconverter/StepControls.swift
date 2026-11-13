@@ -122,6 +122,49 @@ struct AnchorPicker: View {
 struct FieldRow<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        HStack(spacing: LadaGlass.Spacing.m) { content }
+        HStack(spacing: LadaGlass.Spacing.s) { content }
+    }
+}
+
+/// An accordion card: a chevron button and a header, with the content below when expanded. Own chevron
+/// instead of DisclosureGroup so it can be greyed and inert while the step is off.
+struct AccordionCard<Header: View, Content: View>: View {
+    @Binding var isExpanded: Bool
+    let canExpand: Bool
+    let title: String
+    @ViewBuilder var header: Header
+    @ViewBuilder var content: Content
+
+    private var showsContent: Bool { isExpanded && canExpand }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: LadaGlass.Spacing.s) {
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(showsContent ? 90 : 0))
+                        .frame(width: 14, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(LadaGlass.Colors.muted)
+                .opacity(canExpand ? 1 : 0.35)
+                .disabled(!canExpand)
+                .accessibilityLabel(showsContent ? "Collapse \(title)" : "Expand \(title)")
+                header
+            }
+            if showsContent {
+                content.padding(.top, LadaGlass.Spacing.xs)
+            }
+        }
+        .font(LadaGlass.Typography.body)
+        .padding(.horizontal, LadaGlass.Spacing.m)
+        .padding(.vertical, LadaGlass.Spacing.s)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .lgSurface()
+        .onChange(of: canExpand) { _, can in if !can { isExpanded = false } }
     }
 }
