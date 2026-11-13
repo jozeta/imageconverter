@@ -47,6 +47,32 @@ public struct MetadataOptions: Codable, Equatable, Sendable {
     }
 }
 
+/// One find-and-replace rule of the Rename step.
+public struct ReplacementRule: Codable, Equatable, Sendable, Identifiable {
+    public var id: UUID
+    public var find: String
+    public var replace: String
+    public var useRegex: Bool
+
+    public init(id: UUID = UUID(), find: String = "", replace: String = "", useRegex: Bool = false) {
+        self.id = id
+        self.find = find
+        self.replace = replace
+        self.useRegex = useRegex
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, find, replace, useRegex }
+
+    /// Lenient: a missing field takes its default.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        find = try container.decodeIfPresent(String.self, forKey: .find) ?? ""
+        replace = try container.decodeIfPresent(String.self, forKey: .replace) ?? ""
+        useRegex = try container.decodeIfPresent(Bool.self, forKey: .useRegex) ?? false
+    }
+}
+
 /// How output files are named.
 public struct RenameOptions: Codable, Equatable, Sendable {
     public var isEnabled: Bool
@@ -55,28 +81,29 @@ public struct RenameOptions: Codable, Equatable, Sendable {
     public var isActive: Bool { isIncluded && isEnabled }
     public var pattern: String
     public var counterStart: Int
-    /// Find and replace on the rendered name; empty `findText` does nothing.
-    public var findText: String
-    public var replaceText: String
-    public var useRegex: Bool
+    /// Find and replace rules, applied in order to the rendered name; a rule with an empty `find` does nothing.
+    public var replacements: [ReplacementRule]
 
     /// The counter start is limited to 0...999_999_999 when decoded.
     public static let counterRange = 0...999_999_999
+    /// At most this many rules are kept when decoded.
+    public static let maxReplacements = 20
 
     public init(isEnabled: Bool = false, isIncluded: Bool? = nil, pattern: String = "{name}", counterStart: Int = 1,
-                findText: String = "", replaceText: String = "", useRegex: Bool = false) {
+                replacements: [ReplacementRule] = []) {
         self.isEnabled = isEnabled
         self.isIncluded = isIncluded ?? isEnabled
         self.pattern = pattern
         self.counterStart = counterStart
-        self.findText = findText
-        self.replaceText = replaceText
-        self.useRegex = useRegex
+        self.replacements = replacements
     }
 
     private enum CodingKeys: String, CodingKey {
-        case isEnabled, isIncluded, pattern, counterStart, findText, replaceText, useRegex
+        case isEnabled, isIncluded, pattern, counterStart, replacements
     }
+
+    /// The single-rule keys of older files; read, never written.
+    private enum LegacyKeys: String, CodingKey { case findText, replaceText, useRegex }
 
     /// Lenient: a missing field takes its default.
     public init(from decoder: Decoder) throws {
@@ -87,8 +114,14 @@ public struct RenameOptions: Codable, Equatable, Sendable {
         pattern = try container.decodeIfPresent(String.self, forKey: .pattern) ?? "{name}"
         let start = try container.decodeIfPresent(Int.self, forKey: .counterStart) ?? 1
         counterStart = min(max(start, Self.counterRange.lowerBound), Self.counterRange.upperBound)
-        findText = try container.decodeIfPresent(String.self, forKey: .findText) ?? ""
-        replaceText = try container.decodeIfPresent(String.self, forKey: .replaceText) ?? ""
-        useRegex = try container.decodeIfPresent(Bool.self, forKey: .useRegex) ?? false
+        if let rules = try container.decodeIfPresent([ReplacementRule].self, forKey: .replacements) {
+            replacements = Array(rules.prefix(Self.maxReplacements))
+        } else {
+            let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+            let find = try legacy.decodeIfPresent(String.self, forKey: .findText) ?? ""
+            let replace = try legacy.decodeIfPresent(String.self, forKey: .replaceText) ?? ""
+            let regex = try legacy.decodeIfPresent(Bool.self, forKey: .useRegex) ?? false
+            replacements = find.isEmpty ? [] : [ReplacementRule(find: find, replace: replace, useRegex: regex)]
+        }
     }
 }

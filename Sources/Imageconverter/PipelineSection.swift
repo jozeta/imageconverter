@@ -53,6 +53,8 @@ struct PipelineSection: View {
         .onAppear {
             if CommandLine.arguments.contains("-debugExpandSteps") {
                 expanded = Set(model.pipeline.steps.map(\.id))
+                metadataExpanded = true
+                renameExpanded = true
             }
         }
         #endif

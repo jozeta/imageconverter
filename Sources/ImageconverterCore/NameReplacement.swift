@@ -19,8 +19,10 @@ public enum NameReplacement {
 }
 
 extension RenameOptions {
-    /// Applies this step's find and replace to a raw rendered name (before sanitising).
+    /// Applies this step's rules, in order, to a raw rendered name (before sanitising).
     func replacing(in name: String) -> String {
-        NameReplacement.apply(name, find: findText, replace: replaceText, regex: useRegex)
+        replacements.reduce(name) { current, rule in
+            NameReplacement.apply(current, find: rule.find, replace: rule.replace, regex: rule.useRegex)
+        }
     }
 }

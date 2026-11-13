@@ -105,6 +105,13 @@ struct RenameEditor: View {
     @Binding var options: RenameOptions
     let example: String
 
+    @FocusState private var focusedRule: UUID?
+    @State private var placeholderID = UUID()
+
+    private var rows: [ReplacementRule] {
+        options.replacements.isEmpty ? [ReplacementRule(id: placeholderID)] : options.replacements
+    }
+
     private var unknown: [String] { RenameTemplate(options.pattern).unknownTokens }
 
     var body: some View {
@@ -121,22 +128,10 @@ struct RenameEditor: View {
             .fixedSize()
             .accessibilityLabel("Insert token")
         }
-        FieldRow {
-            TextField("Find", text: $options.findText)
-                .textFieldStyle(.roundedBorder)
-                .font(LadaGlass.Typography.mono)
-                .accessibilityLabel("Find in name")
-            TextField("Replace with", text: $options.replaceText)
-                .textFieldStyle(.roundedBorder)
-                .font(LadaGlass.Typography.mono)
-                .accessibilityLabel("Replace with")
-        }
-        Toggle("Regular expression", isOn: $options.useRegex)
-            .accessibilityLabel("Regular expression")
-        if options.useRegex, !options.findText.isEmpty, let error = NameReplacement.regexError(options.findText) {
-            Text(error)
-                .font(LadaGlass.Typography.label)
-                .foregroundStyle(LadaGlass.Colors.badText)
+        // The first row is always shown so "+" has a home; with no rules it is a placeholder that becomes
+        // the first real rule (same id, so focus survives) when typed into.
+        ForEach(Array(rows.enumerated()), id: \.element.id) { index, rule in
+            replacementRow(index: index, id: rule.id)
         }
         NumberField(title: "Counter starts at", value: $options.counterStart, minimum: RenameOptions.counterRange.lowerBound,
                     maximum: RenameOptions.counterRange.upperBound, suffix: "")
@@ -153,5 +148,65 @@ struct RenameEditor: View {
             .textSelection(.enabled)
             .accessibilityLabel(example)
         }
+    }
+
+    private func ruleBinding(_ id: UUID) -> Binding<ReplacementRule> {
+        Binding(
+            get: { options.replacements.first { $0.id == id } ?? ReplacementRule(id: id) },
+            set: { new in
+                if let slot = options.replacements.firstIndex(where: { $0.id == id }) {
+                    options.replacements[slot] = new
+                } else if options.replacements.isEmpty {
+                    options.replacements = [new]
+                }
+            })
+    }
+
+    private func replacementRow(index: Int, id: UUID) -> some View {
+        let number = index == 0 ? "" : " \(index + 1)"
+        let binding = ruleBinding(id)
+        return VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
+            replacementFields(index: index, id: id, number: number, binding: binding)
+        }
+    }
+
+    @ViewBuilder
+    private func replacementFields(index: Int, id: UUID, number: String, binding: Binding<ReplacementRule>) -> some View {
+        FieldRow {
+            TextField("Find", text: binding.find)
+                .textFieldStyle(.roundedBorder)
+                .font(LadaGlass.Typography.mono)
+                .focused($focusedRule, equals: id)
+                .accessibilityLabel("Find\(number)")
+            TextField("Replace with", text: binding.replace)
+                .textFieldStyle(.roundedBorder)
+                .font(LadaGlass.Typography.mono)
+                .accessibilityLabel("Replace with\(number)")
+            if index == 0 {
+                Button { addRule(after: index) } label: { Image(systemName: "plus") }
+                    .buttonStyle(.plain)
+                    .padding(LadaGlass.Spacing.xs)
+                    .contentShape(Rectangle())
+                    .disabled(options.replacements.count >= RenameOptions.maxReplacements)
+                    .help("Add another find and replace")
+                    .accessibilityLabel("Add another find and replace")
+            } else {
+                RemoveStepButton(label: "find and replace") { options.replacements.remove(at: index) }
+            }
+        }
+        Toggle("Regular expression", isOn: binding.useRegex)
+            .accessibilityLabel("Regular expression\(number)")
+        if binding.wrappedValue.useRegex, let error = NameReplacement.regexError(binding.wrappedValue.find) {
+            Text(error)
+                .font(LadaGlass.Typography.label)
+                .foregroundStyle(LadaGlass.Colors.badText)
+        }
+    }
+
+    private func addRule(after index: Int) {
+        let new = ReplacementRule()
+        if options.replacements.isEmpty { options.replacements = [ReplacementRule(id: placeholderID)] }
+        options.replacements.insert(new, at: min(index + 1, options.replacements.count))
+        focusedRule = new.id
     }
 }

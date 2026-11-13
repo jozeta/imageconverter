@@ -101,8 +101,11 @@ extension AdjustOptions {
 }
 
 extension RenameOptions {
-    /// One-line description for the pipeline list: the pattern itself.
-    public var summary: String { pattern }
+    /// One-line description for the pipeline list: the pattern, plus the rule count when there are several.
+    public var summary: String {
+        let count = replacements.filter { !$0.find.isEmpty }.count
+        return count > 1 ? "\(pattern) · \(count) replacements" : pattern
+    }
 }
 
 extension WatermarkOptions {

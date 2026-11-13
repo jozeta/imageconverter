@@ -263,7 +263,7 @@ final class AppModel {
         RenameExampleKey(
             exampleItem: selectedItemIndex.map { items[$0].source }, index: selectedItemIndex ?? 0, pattern: pipeline.rename.pattern,
             counterStart: pipeline.rename.counterStart,
-            findText: pipeline.rename.findText, replaceText: pipeline.rename.replaceText, useRegex: pipeline.rename.useRegex,
+            replacements: pipeline.rename.replacements,
             format: pipeline.output.format, steps: pipeline.steps)
     }
 
@@ -312,9 +312,7 @@ struct RenameExampleKey: Equatable {
     let index: Int
     let pattern: String
     let counterStart: Int
-    let findText: String
-    let replaceText: String
-    let useRegex: Bool
+    let replacements: [ReplacementRule]
     let format: OutputFormat
     let steps: [PipelineStep]
 }
