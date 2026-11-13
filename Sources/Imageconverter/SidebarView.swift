@@ -4,7 +4,6 @@ import ImageconverterCore
 struct SidebarView: View {
     @Bindable var model: AppModel
     var settings: AppSettings
-    @Environment(\.openSettings) private var openSettings
     @State private var targeted = false
     @State private var showFailures = false
 

@@ -15,22 +15,37 @@ struct PipelineSection: View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
             header
             if !isCollapsed {
-                ForEach($model.pipeline.steps) { $step in
+                ForEach(model.pipeline.steps) { step in
                     StepRow(
-                        step: $step,
+                        step: stepBinding(step),
                         isExpanded: expandedBinding(step.id),
                         canMoveUp: step.id != model.pipeline.steps.first?.id,
                         canMoveDown: step.id != model.pipeline.steps.last?.id,
                         move: { model.moveStep(step.id, by: $0) },
-                        remove: { model.removeStep(step.id) },
+                        remove: {
+                            expanded.remove(step.id)
+                            model.removeStep(step.id)
+                        },
                         dropped: { model.moveStep($0, to: step.id) })
+                    .disabled(model.isRunning)
                 }
-                addMenu
+                addMenu.disabled(model.isRunning)
                 Text("Always last").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 outputRow
             }
         }
-        .disabled(model.isRunning)
+    }
+
+    /// Looks the step up by id on every access, so a row that outlives its step cannot index out of range.
+    private func stepBinding(_ step: PipelineStep) -> Binding<PipelineStep> {
+        let id = step.id
+        return Binding(
+            get: { model.pipeline.steps.first { $0.id == id } ?? step },
+            set: { new in
+                if let index = model.pipeline.steps.firstIndex(where: { $0.id == id }) {
+                    model.pipeline.steps[index] = new
+                }
+            })
     }
 
     private var header: some View {
@@ -66,6 +81,7 @@ struct PipelineSection: View {
     private var outputRow: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
             Text("Output").font(LadaGlass.Typography.subtitle)
+            Group {
             Picker("Format", selection: $model.pipeline.output.format) {
                 ForEach(OutputFormat.available(), id: \.self) { Text($0.displayName).tag($0) }
             }
@@ -87,6 +103,8 @@ struct PipelineSection: View {
                 }
                 .accessibilityLabel("TIFF compression")
             }
+            }
+            .disabled(model.isRunning)
             HStack {
                 Text(settings.summary)
                     .font(LadaGlass.Typography.body)
@@ -111,7 +129,7 @@ private struct StepRow: View {
     let canMoveDown: Bool
     let move: (Int) -> Void
     let remove: () -> Void
-    let dropped: (PipelineStep.ID) -> Void
+    let dropped: (PipelineStep.ID) -> Bool
 
     var body: some View {
         DisclosureGroup(isExpanded: $isExpanded) {
@@ -158,8 +176,7 @@ private struct StepRow: View {
         .lgSurface()
         .dropDestination(for: String.self) { ids, _ in
             guard let id = ids.first.flatMap(UUID.init(uuidString:)) else { return false }
-            dropped(id)
-            return true
+            return dropped(id)
         }
     }
 

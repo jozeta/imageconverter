@@ -57,12 +57,14 @@ final class AppModel {
     }
 
     /// Drag and drop: puts `id` where `target` is now.
-    func moveStep(_ id: PipelineStep.ID, to target: PipelineStep.ID) {
-        guard id != target,
-              let from = pipeline.steps.firstIndex(where: { $0.id == id }),
-              let dest = pipeline.steps.firstIndex(where: { $0.id == target }) else { return }
+    /// Returns false when either id is not a current step.
+    func moveStep(_ id: PipelineStep.ID, to target: PipelineStep.ID) -> Bool {
+        guard let from = pipeline.steps.firstIndex(where: { $0.id == id }),
+              let dest = pipeline.steps.firstIndex(where: { $0.id == target }) else { return false }
+        guard from != dest else { return true }
         let step = pipeline.steps.remove(at: from)
         pipeline.steps.insert(step, at: dest)
+        return true
     }
 
     /// Scans `urls` off the main actor (large folders), then merges new items in, skipping duplicates.
