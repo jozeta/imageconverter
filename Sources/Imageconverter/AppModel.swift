@@ -72,7 +72,7 @@ final class AppModel {
         lastReport = nil
         progress = BatchProgress(completed: 0, failed: 0, total: batch.count)
         task = Task { [weak self] in
-            let report = await BatchRunner.run(batch, output: format, mode: mode, progress: { update in
+            let report = await BatchRunner.run(batch, pipeline: Pipeline(output: format), mode: mode, progress: { update in
                 Task { @MainActor in
                     // Updates can arrive out of order; only move forward.
                     guard let self, self.isRunning, update.completed > (self.progress?.completed ?? 0) else { return }

@@ -46,14 +46,14 @@ public enum BatchRunner {
     /// from starting; files already in flight finish their atomic commit, so no temp files remain.
     public static func run(
         _ items: [InputItem],
-        output: OutputSettings,
+        pipeline: Pipeline,
         mode: OutputMode,
         maxPixels: Int = 250_000_000,
         concurrency: Int = ProcessInfo.processInfo.activeProcessorCount,
         trash: @escaping Trasher = systemTrash,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
     ) async -> BatchReport {
-        let plans = OutputPlanner.plan(items, format: output.format, mode: mode)
+        let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode)
         let total = plans.count
         let limit = max(1, concurrency)
         var outcomes = [Result<URL, ConversionError>?](repeating: nil, count: total)
@@ -76,7 +76,7 @@ public enum BatchRunner {
                     next += 1
                     inFlight += 1
                     group.addTask {
-                        (index, convert(plan, output: output, maxPixels: maxPixels, trash: trash))
+                        (index, convert(plan, pipeline: pipeline, maxPixels: maxPixels, trash: trash))
                     }
                 }
                 if cancelled { next = total }
@@ -102,12 +102,13 @@ public enum BatchRunner {
     }
 
     private static func convert(
-        _ plan: PlannedOutput, output: OutputSettings, maxPixels: Int, trash: Trasher
+        _ plan: PlannedOutput, pipeline: Pipeline, maxPixels: Int, trash: Trasher
     ) -> Result<URL, ConversionError> {
         autoreleasepool {
             do {
                 let loaded = try ImageLoader.load(plan.item.source, maxPixels: maxPixels)
-                let data = try ImageEncoder.encode(loaded.image, properties: loaded.properties, settings: output)
+                let image = try pipeline.apply(to: loaded.image)
+                let data = try ImageEncoder.encode(image, properties: loaded.properties, settings: pipeline.output)
                 try FileCommitter.commit(data, for: plan, trash: trash)
                 return .success(plan.destination)
             } catch let error as ConversionError {

@@ -56,7 +56,7 @@ final class BatchRunnerTests: XCTestCase {
 
         let items = InputCollector.collect(files)
         let log = LockedLog<BatchProgress>()
-        let report = await BatchRunner.run(items, output: .init(format: .jpeg), mode: .newFolder(out),
+        let report = await BatchRunner.run(items, pipeline: Pipeline(output: .init(format: .jpeg)), mode: .newFolder(out),
                                            progress: { log.append($0) })
 
         XCTAssertEqual(report.written.count, 5)
@@ -82,7 +82,7 @@ final class BatchRunnerTests: XCTestCase {
 
         let box = TaskBox()
         let task = Task {
-            await BatchRunner.run(items, output: .init(format: .jpeg), mode: .newFolder(out),
+            await BatchRunner.run(items, pipeline: Pipeline(output: .init(format: .jpeg)), mode: .newFolder(out),
                                   concurrency: 2, progress: { _ in box.cancel() })
         }
         box.store(task)
@@ -105,7 +105,7 @@ final class BatchRunnerTests: XCTestCase {
         let trashed = LockedLog<URL>()
         let trash: Trasher = { trashed.append($0) }
         let report = await BatchRunner.run(
-            InputCollector.collect([original]), output: .init(format: .jpeg), mode: .overwrite, trash: trash)
+            InputCollector.collect([original]), pipeline: Pipeline(output: .init(format: .jpeg)), mode: .overwrite, trash: trash)
 
         XCTAssertEqual(report.failures, [])
         XCTAssertEqual(report.written, [src.appendingPathComponent("a.jpg")])

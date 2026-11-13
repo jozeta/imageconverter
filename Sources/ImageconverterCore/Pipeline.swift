@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Where a crop or canvas is anchored.
@@ -189,5 +190,22 @@ public struct Pipeline: Codable, Equatable, Sendable {
         self.schemaVersion = schemaVersion
         self.steps = steps
         self.output = output
+    }
+}
+
+extension Pipeline {
+    /// Runs the enabled steps in order on `image`.
+    public func apply(to image: CGImage) throws -> CGImage {
+        var current = image
+        for step in steps where step.isEnabled {
+            switch step.operation {
+            case .resize(let options): current = try ImageOps.resize(current, options)
+            case .crop(let options): current = try ImageOps.crop(current, options)
+            case .rotateFlip(let options): current = try ImageOps.rotateFlip(current, options)
+            case .canvas(let options): current = try ImageOps.canvas(current, options)
+            case .colorProfile(let profile): current = try ImageOps.convertColor(current, to: profile)
+            }
+        }
+        return current
     }
 }
