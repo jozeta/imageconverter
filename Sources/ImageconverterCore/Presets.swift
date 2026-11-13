@@ -299,3 +299,11 @@ public final class PresetStore: @unchecked Sendable {
         try data.write(to: fileURL(for: preset.id), options: .atomic)
     }
 }
+
+extension PresetStore {
+    /// The user's own presets from a load result (which also lists the built-ins), sorted by name.
+    public static func userPresets(from presets: [Preset]) -> [Preset] {
+        presets.filter { !$0.isBuiltIn }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+}

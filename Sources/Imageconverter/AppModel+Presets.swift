@@ -6,12 +6,12 @@ extension AppModel {
 
     var allPresets: [Preset] { PresetStore.builtIns + userPresets }
 
-    static func sorted(_ presets: [Preset]) -> [Preset] {
-        presets.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
     func reloadPresets() {
-        userPresets = Self.sorted(presetStore.loadAll().presets)
+        userPresets = PresetStore.userPresets(from: presetStore.loadAll().presets)
+        // A selected user preset whose file is gone becomes an ad hoc pipeline (the pipeline is kept).
+        if let selected = session.selected, !selected.isBuiltIn, !userPresets.contains(where: { $0.id == selected.id }) {
+            session.deselect()
+        }
     }
 
     /// Selects a preset, or goes ad hoc for nil. Returns `.needsConfirmation` when edits would be lost.
@@ -28,6 +28,7 @@ extension AppModel {
 
     /// Save (⌘S): overwrites a user preset; otherwise opens the "Save as" sheet.
     func saveCurrent() {
+        guard !isRunning else { return }
         guard case .overwrite(let id) = session.saveTarget(), var preset = session.selected, preset.id == id else {
             isSavingAs = true
             return

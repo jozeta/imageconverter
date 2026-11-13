@@ -43,7 +43,7 @@ final class AppModel {
         let saved = Self.loadPipeline(from: defaults)
         session = PresetSession(selected: nil, pipeline: saved)
         let result = presetStore.loadAll()
-        userPresets = Self.sorted(result.presets)
+        userPresets = PresetStore.userPresets(from: result.presets)
         // A remembered preset is selected again; if the saved pipeline differs it shows as modified.
         if let id = defaults.string(forKey: Self.selectedPresetKey).flatMap(UUID.init(uuidString:)),
            let preset = allPresets.first(where: { $0.id == id }) {

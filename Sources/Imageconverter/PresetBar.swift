@@ -8,6 +8,8 @@ struct PresetBar: View {
     @State private var showDiscard = false
     @State private var showRename = false
     @State private var showDelete = false
+    /// Bumped when a switch is cancelled so the picker redraws with the real selection.
+    @State private var pickerReset = 0
 
     private var selected: Preset? { model.session.selected }
     private var selectedName: String { selected?.name ?? "this preset" }
@@ -24,6 +26,7 @@ struct PresetBar: View {
                         ForEach(model.userPresets) { Text($0.name).tag(Optional($0.id)) }
                     }
                 }
+                .id(pickerReset)
                 .accessibilityLabel("Preset")
                 if model.session.isModified {
                     Text("•")
@@ -54,8 +57,13 @@ struct PresetBar: View {
                 if let target = pendingSwitch { _ = model.selectPreset(target, force: true) }
                 pendingSwitch = nil
             }
-            Button("Cancel", role: .cancel) { pendingSwitch = nil }
+            Button("Cancel", role: .cancel) { cancelSwitch() }
         }
+        .onChange(of: showDiscard) { _, shown in
+            // Dismissing the dialog without a choice (Escape) also cancels.
+            if !shown, pendingSwitch != nil { cancelSwitch() }
+        }
+        .disabled(model.isRunning)
         .confirmationDialog("Delete preset \(selectedName)?", isPresented: $showDelete) {
             Button("Delete", role: .destructive) { model.deleteSelected() }
             Button("Cancel", role: .cancel) {}
@@ -68,6 +76,11 @@ struct PresetBar: View {
             PresetNameSheet(title: "Rename preset", initial: selected?.name ?? "", confirm: "Rename",
                             excluding: selected?.id, existing: model.allPresets) { try model.renameSelected(to: $0) }
         }
+    }
+
+    private func cancelSwitch() {
+        pendingSwitch = nil
+        pickerReset += 1
     }
 
     private var selection: Binding<UUID?> {

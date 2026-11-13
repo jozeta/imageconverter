@@ -80,3 +80,12 @@ final class PresetSessionTests: XCTestCase {
         XCTAssertTrue(session.isModified)
     }
 }
+
+final class UserPresetsTests: XCTestCase {
+    func testBuiltInsAreFilteredAndNamesSorted() {
+        let zed = Preset(name: "zed", pipeline: Pipeline())
+        let alpha = Preset(name: "Alpha", pipeline: Pipeline())
+        let result = PresetStore.userPresets(from: PresetStore.builtIns + [zed, alpha])
+        XCTAssertEqual(result.map(\.name), ["Alpha", "zed"])
+    }
+}
