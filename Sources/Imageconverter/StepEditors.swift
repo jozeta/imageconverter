@@ -30,6 +30,9 @@ struct StepEditor: View {
                 ForEach(ColorProfile.allCases, id: \.self) { Text($0.displayName).tag($0) }
             }
             .accessibilityLabel("Color profile")
+        case .watermark:
+            Text("Watermark settings are coming")
+                .foregroundStyle(.secondary)
         }
     }
 }

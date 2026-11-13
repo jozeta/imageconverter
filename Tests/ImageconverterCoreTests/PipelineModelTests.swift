@@ -13,7 +13,7 @@ final class PipelineModelTests: XCTestCase {
         XCTAssertEqual(StepKind.colorProfile.defaultOperation, .colorProfile(.sRGB))
         for kind in StepKind.allCases { XCTAssertEqual(kind.defaultOperation.kind, kind) }
         XCTAssertEqual(StepKind.allCases.map(\.displayName),
-                       ["Resize", "Crop", "Rotate / flip", "Canvas / padding", "Color profile"])
+                       ["Resize", "Crop", "Rotate / flip", "Canvas / padding", "Color profile", "Watermark"])
     }
 
     func testPipelineCodableRoundTrip() throws {

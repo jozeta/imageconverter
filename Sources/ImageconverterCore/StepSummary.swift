@@ -9,6 +9,7 @@ extension ImageOperation {
         case .rotateFlip(let options): return Self.summary(of: options)
         case .canvas(let options): return Self.summary(of: options.mode)
         case .colorProfile(let profile): return profile.displayName
+        case .watermark(let options): return options.summary
         }
     }
 
@@ -87,4 +88,20 @@ extension MetadataOptions {
 extension RenameOptions {
     /// One-line description for the pipeline list: the pattern itself.
     public var summary: String { pattern }
+}
+
+extension WatermarkOptions {
+    /// One-line description for the pipeline list: `© Johan · bottom right · 4 %`.
+    public var summary: String {
+        let name: String
+        switch content {
+        case .text(let watermark):
+            name = watermark.text.count > 20 ? String(watermark.text.prefix(20)) + "…" : watermark.text
+        case .image(let watermark):
+            name = watermark.path.isEmpty ? "no image" : URL(fileURLWithPath: watermark.path).lastPathComponent
+        }
+        let size = clampedSizePercent.formatted(.number.locale(Locale(identifier: "en_US_POSIX"))
+            .precision(.fractionLength(0...2)).grouping(.never))
+        return "\(name) · \(anchor.displayName) · \(size) %"
+    }
 }
