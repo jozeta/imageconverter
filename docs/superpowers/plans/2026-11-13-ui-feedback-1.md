@@ -368,3 +368,22 @@ Already present: text and image watermarks, opacity, 9-point position, margin, f
 **Files:** `Sources/Imageconverter/WatermarkEditor.swift` (split if > ~300 lines)
 - Add: Rotation slider (−180…180, value text, quick 0/−45/45/90 buttons), Layout picker Single/Tiled (Tiled: spacing slider, stagger toggle; anchor grid and margin disabled), text Shadow and Outline toggles each revealing colour well + sliders, a token "Insert" menu next to the text field ({filename}, {date}, {year}, {copyright}, {artist}) with the live text shown for the selected image, the image chooser accepts SVG, and a "Templates" menu (Apply ▸, Save as template…, Delete ▸) like the metadata one.
 - [ ] Build/test/lint, screenshots with `-debugAddFiles`, docs (README watermark section: every option and token), commit `feat(app): watermark rotation, tiling, shadow/outline, tokens, SVG and templates in the editor`.
+
+## Rename round (Johan, 2026-11-13)
+
+Already present: templates with tokens `{name} {ext} {date:…} {time:…} {camera} {make} {lens} {iso} {width} {height} {format} {folder} {counter:000}`, counter start, find/replace (plain/regex), sanitising.
+
+### Task 23: Rename options: prefix/suffix, cleanup, case, more EXIF tokens (Core)
+
+**Files:** `FileSteps.swift` (`RenameOptions`), `RenameTemplate.swift` (tokens + render pipeline), `RenameExample.swift`, `StepSummary.swift`; Create `Sources/ImageconverterCore/NameTransforms.swift`; Tests `NameTransformsTests.swift`, `RenameTemplateTests.swift`
+- New `RenameOptions` fields (lenient decode, defaults = no change): `prefix: String` (""), `suffix: String` (""), `removeSpaces: Bool` (false), `specialCharacters: SpecialCharacters { keep, replace /* everything outside letters, digits, `-`, `_`, `.` becomes `replacement` */, remove }` (keep), `replacement: String` ("-" ; only `-`, `_`, `.` or "" allowed), `caseStyle: CaseStyle { keep, lower, upper, camel /* "my photo 01" → "myPhoto01" */, pascal, snake /* my_photo_01 */, kebab /* my-photo-01 */, title }` (keep).
+- Render order (one function used by batch, preview and example): template render → find/replace → prefix + name + suffix → remove spaces → special characters (collapse runs of the replacement, trim it from the ends) → case style (camel/pascal/snake/kebab split words on spaces, `-`, `_`, `.` and lower→upper boundaries; digits stay attached) → the existing sanitising and fallback. Letters with diacritics count as letters (keep `å` in `keep`/case modes; `replace` keeps Unicode letters too, only symbols/punctuation are replaced).
+- New tokens: `{focal}` (e.g. `24mm`, from FocalLength, rounded), `{aperture}` (`f2.8`), `{shutter}` (`1-250s` — no `/`), `{datetime}` (= `{date:yyyy-MM-dd}_{time:HHmmss}`), `{seq}` alias of `{counter}`; add them to `tokenExamples` and the header requirement check.
+- [ ] Tests: each transform and the order (`testCamelCase`, `testSnakeKebabTitlePascal`, `testRemoveSpaces`, `testReplaceSpecialCharactersCollapsesAndTrims`, `testRemoveSpecialKeepsUnicodeLetters`, `testPrefixSuffixApplied`, `testOrderFindReplaceBeforeCase`), `testExifTokens` (fixture with FocalLength 24, FNumber 2.8, ExposureTime 0.004 → `24mm f2.8 1-250s`), `testOldRenameJSONDecodes`.
+- [ ] Implement, commit `feat(core): rename prefix/suffix, space and character cleanup, case styles, more EXIF tokens`.
+
+### Task 24: Rename editor additions
+
+**Files:** `Sources/Imageconverter/FileStepEditors.swift` (move the rename editor to `RenameEditor.swift` if large)
+- Add Prefix and Suffix fields, "Remove spaces" toggle, "Special characters" picker (Keep / Replace with [ - _ . ] / Remove), "Case" picker (Keep, lowercase, UPPERCASE, camelCase, PascalCase, snake_case, kebab-case, Title Case), and quick pattern presets in the Insert menu: "Date + counter" (`{date:yyyy-MM-dd}_{counter:000}`), "Camera + date" (`{camera}_{datetime}`), "Name + size" (`{name}_{width}x{height}`). The live example shows the effect of every option.
+- [ ] Build/test/lint, screenshot, README rename section (every option and token), commit `feat(app): rename editor with prefix/suffix, cleanup and case options`.
