@@ -259,6 +259,8 @@ Mapping constants may be tuned if a test or a screenshot shows them clearly wron
 
 ### Task 12: Compression report and percentages
 
+> Amended 2026-11-14 (reporting round): Task 12 also creates `Sources/ImageconverterCore/ProcessingReport.swift` — the one report model (`RunSummary` + per-file entries, see Task 38) that the toast, the sidebar report, jobs (Task 29) and exports (Task 38) all use. Task 29 reuses it instead of defining its own.
+
 **Files:** Modify `BatchRunner.swift` (`BatchReport.inputBytes`, `.outputBytes` summed over written files; per-file `BatchResultEntry { source, destination, inputBytes, outputBytes, note }`), `SidebarView.swift`/`PreviewPane.swift`/`PipelineSection.swift` (app), `AppModel.swift`; Test `BatchRunnerTests.swift`
 - Size line under the quality controls and the preview table's Size row show the change as a percentage: `4.2 MB → about 1.1 MB (−74 %)` (or `+12 %`).
 - After a run: toast "Converted 24 images · saved 31.2 MB (62 %)" (or "grew by …"), and a collapsible "Report" section in the sidebar (where the skipped list is) with totals and one row per file (name, before → after, %), notes included; it stays until the next run or Clear.
@@ -526,3 +528,21 @@ Already by design: no network code, no telemetry, local-only processing, skip-on
 - A "Privacy" section in the About window (milestone 6 builds the window; for now a Help menu item "Privacy…" opening a small window): "Works entirely offline. No network access, no telemetry, no uploads. Built only on Apple frameworks (SwiftUI, AppKit, ImageIO, Core Graphics, Core Image, Accelerate, Vision, UniformTypeIdentifiers); no third-party code." plus the limits in force.
 - README: a prominent "Privacy" section near the top (the above, the limits, what the privacy scan looks for, the honest note about temp-file deletion), SECURITY.md updated (threat model: untrusted images/SVG/presets/URL scheme input; no network).
 - [ ] Build/test/lint, screenshots, commit `feat(app): privacy scan, safe quit, privacy statement`.
+
+## Reporting round (Johan, 2026-11-14)
+
+### Task 38: Report model, exports, error log, history (Core)
+
+**Files:** `Sources/ImageconverterCore/ProcessingReport.swift` (from Task 12; extend), Create `Sources/ImageconverterCore/ReportExporter.swift`, `Sources/ImageconverterCore/RunHistory.swift`, `Sources/ImageconverterCore/ErrorLog.swift`; Tests `ReportExporterTests.swift`, `RunHistoryTests.swift`, `ErrorLogTests.swift`
+- `RunSummary { id, startedAt, finishedAt, jobName?, presetName?, outputMode, total, succeeded, failed, skipped (by condition/unchanged), cancelled, inputBytes, outputBytes, savedBytes, averageRatio /* output/input over succeeded files */, averageDuration, totalDuration }` + `[ReportEntry { source, destination?, status, inputBytes, outputBytes?, ratio?, duration, width×height in/out, note/reason }]`.
+- `ReportExporter.csv(_:)`, `.json(_:)` (stable keys, ISO 8601 dates), `.html(_:)` — a single self-contained file (inline CSS only, no scripts, no external resources, light/dark via `prefers-color-scheme`), summary cards + a table; **every string from filenames/metadata/reasons is HTML-escaped** (`& < > " '`), and CSV fields are quoted and protected against formula injection (prefix `'` when a field starts with `= + - @`, tab or CR).
+- `ErrorLog`: appends one line per failure (ISO time, file path, reason) to `Application Support/imageconverter/logs/errors.log`, rotated at 1 MB (keep 3), no image data; `recent(limit:)` for the UI.
+- `RunHistory`: stores each run's `RunSummary` + entries as `history/<id>.json` (entries capped at 5000 per run), keeps the latest 100 runs (oldest deleted), loads with the same hardening as presets; job runs carry `jobName` so job summaries = history filtered by job.
+- [ ] Tests: `testSummaryMaths` (ratio, saved, averages), `testCSVQuotingAndFormulaInjection`, `testHTMLEscapesFilenames` (a file named `<script>alert(1)</script>.jpg` appears escaped; the HTML contains no `<script`), `testJSONRoundTrip`, `testErrorLogRotation`, `testHistoryKeeps100AndRejectsGarbage`. Commit `feat(core): run summaries, CSV/JSON/HTML exports, error log, history`.
+
+### Task 39: Reports and history UI
+
+**Files:** Create `Sources/Imageconverter/HistoryView.swift`, `Sources/Imageconverter/ReportView.swift`; Modify `SidebarView.swift`, `ImageconverterApp.swift`, Jobs window (Task 31)
+- After a run, the sidebar "Report" section (Task 12) shows the summary cards (processed, succeeded, failed, skipped, original → output, saved, average ratio, average time) and "Export ▸ CSV / JSON / HTML…" (save panel) plus "Show error log".
+- A "History" window (Window menu, ⌥⌘H): runs list (date, preset/job, counts, saved), detail = the same ReportView with per-image table (sortable), export, "Reveal outputs", delete entry, "Clear history"; a filter by job gives job summaries; the Jobs window links to them.
+- [ ] Build/test/lint, screenshots, README "Reports and history", commit `feat(app): run reports with exports, error log and processing history`.
