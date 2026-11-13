@@ -562,3 +562,17 @@ Rules:
 - Built-in presets that use metadata stripping (e.g. Web export) must set `isIncluded = true`.
 Tests: `testOldJSONIncludedFollowsEnabled`, `testNewPipelineHasNoFileSteps`, `testActiveRequiresIncludedAndEnabled` (batch with included=false, enabled=true → no rename/metadata change), built-in presets still strip what they did.
 Commit `feat: Metadata and Rename are added from the step menu; "Always last" only when used`.
+### Task 41: Several find/replace rules in Rename (Johan, 2026-11-14)
+
+Johan: "when renaming files add the ability to do find/replace multiple times; add a + sign after the 'Replace with' input box; clicking it adds a new find/replace row under the original one."
+
+**Files:** `Sources/ImageconverterCore/FileSteps.swift` (`RenameOptions`), `NameReplacement.swift`, `RenameTemplate.swift`/`RenameRendering.swift`/`RenameExample.swift` (where replacement is applied), `StepSummary.swift`; `Sources/Imageconverter/FileStepEditors.swift` (Rename editor), `AppModel.swift` (`RenameExampleKey`); Tests `NameReplacementTests.swift`, `FileStepsModelTests.swift`.
+
+Rules:
+- `public struct ReplacementRule: Codable, Equatable, Sendable, Identifiable { id: UUID; find: String; replace: String; useRegex: Bool }`; `RenameOptions.replacements: [ReplacementRule]` (max 20; extra dropped on decode). Decoding: if `replacements` is missing, build it from the old `findText`/`replaceText`/`useRegex` (one rule when findText is non-empty, else empty array). Encode only `replacements` (drop the old keys) — keep reading them for old files.
+- Applied in order, each to the result of the previous one, at the same point in the render pipeline as today (before sanitising); rules with empty `find` are skipped; an invalid regex rule is skipped (others still apply).
+- `RenameExampleKey` includes the rules.
+- Editor: the first rule row shows Find, Replace with, a "+" button right after the Replace field (label "Add another find and replace"), and the Regular expression checkbox; "+" inserts a new empty rule directly below that row and focuses its Find field; extra rows have the same fields plus the shared trash `RemoveStepButton` ("Remove find and replace"); the first row keeps "+" only (its fields can just be cleared). Each row shows its own regex error. Keyboard reachable; VoiceOver labels "Find 2", "Replace with 2" etc.
+- Summary mentions the count ("3 replacements") when > 1.
+Tests: `testRulesApplyInOrder` ("a-b" with "-"→"_", then "_"→"." gives "a.b"), `testInvalidRuleSkippedOthersApply`, `testOldSingleFieldsMigrateToOneRule`, `testEmptyOldFieldsGiveNoRules`, `testMax20Rules`, `testEncodeHasNoOldKeys`.
+Commit `feat: several find/replace rules in the Rename step`.
