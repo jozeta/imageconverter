@@ -114,6 +114,18 @@ final class FileStepsBatchTests: XCTestCase {
         return pipeline
     }
 
+    func testExcludedStepsDoNothingInBatch() async throws {
+        let url = try source("keep.jpg", properties: cameraProps)
+        var pipeline = Pipeline(output: .init(format: .jpeg))
+        pipeline.rename = RenameOptions(isEnabled: true, isIncluded: false, pattern: "renamed")
+        pipeline.metadata = MetadataOptions(isEnabled: true, isIncluded: false, removeAll: true)
+        let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: pipeline, mode: .newFolder(out))
+        XCTAssertEqual(report.failures, [])
+        let written = try XCTUnwrap(report.written.first)
+        XCTAssertEqual(written.deletingPathExtension().lastPathComponent, "keep")
+        XCTAssertTrue(contains(try Data(contentsOf: written), "SECRETCAM"))
+    }
+
     func testHugeCounterStartDoesNotTrap() async throws {
         let files = try (1...2).map { try source("big\($0).jpg") }
         let pipeline = renamePipeline("n{counter}", start: Int.max)

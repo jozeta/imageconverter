@@ -10,11 +10,13 @@ struct PipelineSection: View {
     @State private var expanded: Set<PipelineStep.ID> = []
     /// Set when a drag starts, so rows can show the slot a drop will land in.
     @State private var draggedID: PipelineStep.ID?
-    @State private var metadataExpanded = false
-    @State private var renameExpanded = false
+    @State fileprivate var metadataExpanded = false
+    @State fileprivate var renameExpanded = false
     @State private var pendingOverwrite = false
     /// Bumped when the overwrite dialog is cancelled, so the menu picker redraws the real mode.
     @State private var pickerID = 0
+
+    fileprivate static let overwriteHelp = "Not available when overwriting originals"
 
     private var enabledCount: Int { model.pipeline.steps.filter(\.isEnabled).count }
 
@@ -39,7 +41,9 @@ struct PipelineSection: View {
                         dropped: { model.moveStep($0, to: step.id) })
                     .disabled(model.isRunning)
                 }
-                Text("Always last").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                if model.pipeline.metadata.isIncluded || model.pipeline.rename.isIncluded {
+                    Text("Always last").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                }
                 fileSteps
                 outputRow
             }
@@ -62,24 +66,6 @@ struct PipelineSection: View {
               let from = steps.firstIndex(where: { $0.id == dragged }),
               let target = steps.firstIndex(where: { $0.id == id }) else { return nil }
         return from > target ? .top : .bottom
-    }
-
-    private var fileSteps: some View {
-        Group {
-            FileStepRow(
-                title: "Metadata", summary: model.pipeline.metadata.summary,
-                isEnabled: $model.pipeline.metadata.isEnabled, isExpanded: $metadataExpanded) {
-                MetadataEditor(options: $model.pipeline.metadata)
-            }
-            FileStepRow(
-                title: "Rename", summary: model.pipeline.rename.summary,
-                isEnabled: $model.pipeline.rename.isEnabled, isExpanded: $renameExpanded,
-                lockedHelp: settings.modeKind == .overwrite ? "Not available when overwriting originals" : nil) {
-                RenameEditor(options: $model.pipeline.rename, example: model.renameExample)
-                    .task(id: model.renameExampleKey) { await model.refreshRenameExample() }
-            }
-        }
-        .disabled(model.isRunning)
     }
 
     /// Looks the step up by id on every access, so a row that outlives its step cannot index out of range.
@@ -105,6 +91,27 @@ struct PipelineSection: View {
             ForEach(StepKind.allCases, id: \.self) { kind in
                 // New steps start collapsed.
                 Button(kind.displayName) { _ = model.addStep(kind) }
+            }
+            if !model.pipeline.metadata.isIncluded || !model.pipeline.rename.isIncluded {
+                Divider()
+                Section("Always last") {
+                    if !model.pipeline.metadata.isIncluded {
+                        Button("Metadata") {
+                            model.pipeline.metadata.isIncluded = true
+                            model.pipeline.metadata.isEnabled = true
+                            metadataExpanded = false
+                        }
+                    }
+                    if !model.pipeline.rename.isIncluded {
+                        Button("Rename") {
+                            model.pipeline.rename.isIncluded = true
+                            model.pipeline.rename.isEnabled = true
+                            renameExpanded = false
+                        }
+                        .disabled(settings.modeKind == .overwrite)
+                        .help(settings.modeKind == .overwrite ? Self.overwriteHelp : "")
+                    }
+                }
             }
         }
         .accessibilityLabel("Add a pipeline step")
@@ -249,6 +256,44 @@ struct PipelineSection: View {
     }
 }
 
+extension PipelineSection {
+    var fileSteps: some View {
+        Group {
+            if model.pipeline.metadata.isIncluded {
+                FileStepRow(
+                    title: "Metadata", summary: model.pipeline.metadata.summary,
+                    isEnabled: $model.pipeline.metadata.isEnabled, isExpanded: $metadataExpanded,
+                    remove: removeMetadata) {
+                    MetadataEditor(options: $model.pipeline.metadata)
+                }
+            }
+            if model.pipeline.rename.isIncluded {
+                FileStepRow(
+                    title: "Rename", summary: model.pipeline.rename.summary,
+                    isEnabled: $model.pipeline.rename.isEnabled, isExpanded: $renameExpanded,
+                    lockedHelp: settings.modeKind == .overwrite ? Self.overwriteHelp : nil,
+                    remove: removeRename) {
+                    RenameEditor(options: $model.pipeline.rename, example: model.renameExample)
+                        .task(id: model.renameExampleKey) { await model.refreshRenameExample() }
+                }
+            }
+        }
+        .disabled(model.isRunning)
+    }
+
+    private func removeMetadata() {
+        metadataExpanded = false
+        model.pipeline.metadata.isIncluded = false
+        model.pipeline.metadata.isEnabled = false
+    }
+
+    private func removeRename() {
+        renameExpanded = false
+        model.pipeline.rename.isIncluded = false
+        model.pipeline.rename.isEnabled = false
+    }
+}
+
 private struct StepRow: View {
     @Binding var step: PipelineStep
     @Binding var isExpanded: Bool
@@ -282,10 +327,7 @@ private struct StepRow: View {
                 }
                 .opacity(step.isEnabled ? 1 : 0.5)
                 Spacer(minLength: 0)
-                Button(action: remove) { Image(systemName: "xmark") }
-                    .buttonStyle(.lg(.ghost))
-                    .accessibilityLabel("Remove \(name)")
-                    .help("Remove \(name)")
+                RemoveStepButton(label: name, action: remove)
             }
             .contentShape(Rectangle())
             .contextMenu { actions }

@@ -42,7 +42,7 @@ public enum MetadataOps {
 
     /// Returns `properties` with the options applied: strip (all, location, camera), then set fields.
     public static func apply(_ options: MetadataOptions, to properties: [String: Any]) -> [String: Any] {
-        guard options.isEnabled else { return properties }
+        guard options.isActive else { return properties }
         var props: [String: Any] = options.removeAll ? [:] : properties
 
         if !options.removeAll {

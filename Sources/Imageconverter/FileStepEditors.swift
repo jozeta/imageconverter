@@ -13,6 +13,7 @@ struct FileStepRow<Content: View>: View {
     /// When set, the row is greyed out, its toggle shows off and it can't be expanded. The stored
     /// `isEnabled` is left alone so unlocking restores it.
     var lockedHelp: String?
+    let remove: () -> Void
     @ViewBuilder var content: Content
 
     private var locked: Bool { lockedHelp != nil }
@@ -35,9 +36,11 @@ struct FileStepRow<Content: View>: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                RemoveStepButton(label: title, action: remove)
             }
             .opacity(shownEnabled ? 1 : 0.5)
             .contentShape(Rectangle())
+            .contextMenu { Button("Remove", role: .destructive, action: remove) }
         } content: {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) { content }
         }

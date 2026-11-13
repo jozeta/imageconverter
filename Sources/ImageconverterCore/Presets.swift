@@ -117,7 +117,7 @@ public final class PresetStore: @unchecked Sendable {
                 PipelineStep(id: webColorStepID, operation: .colorProfile(.sRGB))
             ],
             output: OutputSettings(format: .jpeg, quality: 0.82),
-            metadata: MetadataOptions(isEnabled: true, removeLocation: true)), isBuiltIn: true),
+            metadata: MetadataOptions(isEnabled: true, isIncluded: true, removeLocation: true)), isBuiltIn: true),
         Preset(id: instagramID, name: "Instagram 4:5", pipeline: Pipeline(
             steps: [
                 PipelineStep(id: instaResizeStepID, operation: .resize(ResizeOptions(
@@ -125,7 +125,7 @@ public final class PresetStore: @unchecked Sendable {
                 PipelineStep(id: instaColorStepID, operation: .colorProfile(.sRGB))
             ],
             output: OutputSettings(format: .jpeg, quality: 0.85),
-            metadata: MetadataOptions(isEnabled: true, removeLocation: true)), isBuiltIn: true),
+            metadata: MetadataOptions(isEnabled: true, isIncluded: true, removeLocation: true)), isBuiltIn: true),
         Preset(id: archiveID, name: "Archive TIFF", pipeline: Pipeline(
             steps: [],
             output: OutputSettings(format: .tiff, tiffCompression: .lzw),

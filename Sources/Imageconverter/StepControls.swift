@@ -7,6 +7,26 @@ typealias Anchor = ImageconverterCore.Anchor
 
 // MARK: - Shared controls
 
+/// The trash button on every pipeline row: muted, red on hover and when keyboard-focused.
+struct RemoveStepButton: View {
+    let label: String
+    let action: () -> Void
+    @State private var hovered = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Button(action: action) { Image(systemName: "trash") }
+            .buttonStyle(.plain)
+            .focused($focused)
+            .foregroundStyle(hovered || focused ? LadaGlass.Colors.badText : LadaGlass.Colors.muted)
+            .onHover { hovered = $0 }
+            .padding(LadaGlass.Spacing.xs)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Remove \(label)")
+            .help("Remove")
+    }
+}
+
 /// A labelled integer field; values are clamped to `minimum` when committed.
 struct NumberField: View {
     let title: String

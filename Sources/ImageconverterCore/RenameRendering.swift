@@ -7,7 +7,7 @@ enum RenameRendering {
     /// The counter is `counterStart + index`, saturating. The header and creation date are only
     /// read when the template uses them.
     static func baseName(for item: InputItem, index: Int, pipeline: Pipeline) -> String? {
-        guard pipeline.rename.isEnabled else { return nil }
+        guard pipeline.rename.isActive else { return nil }
         let template = RenameTemplate(pipeline.rename.pattern)
         let header = template.needsHeader ? ImageLoader.header(of: item.source) : nil
         let upright = header?.uprightSize ?? (width: 1, height: 1)

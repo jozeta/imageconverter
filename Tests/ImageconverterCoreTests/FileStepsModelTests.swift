@@ -23,6 +23,30 @@ final class FileStepsModelTests: XCTestCase {
         XCTAssertEqual(decoded.schemaVersion, 1)
     }
 
+    func testOldJSONIncludedFollowsEnabled() throws {
+        let enabled = try JSONDecoder().decode(MetadataOptions.self, from: Data(#"{"isEnabled":true}"#.utf8))
+        XCTAssertTrue(enabled.isIncluded)
+        XCTAssertTrue(enabled.isActive)
+        let disabled = try JSONDecoder().decode(RenameOptions.self, from: Data(#"{"isEnabled":false}"#.utf8))
+        XCTAssertFalse(disabled.isIncluded)
+        let explicit = try JSONDecoder().decode(
+            RenameOptions.self, from: Data(#"{"isEnabled":true,"isIncluded":false}"#.utf8))
+        XCTAssertFalse(explicit.isIncluded)
+        XCTAssertFalse(explicit.isActive)
+    }
+
+    func testNewPipelineHasNoFileSteps() {
+        let pipeline = Pipeline()
+        XCTAssertFalse(pipeline.metadata.isIncluded || pipeline.metadata.isEnabled)
+        XCTAssertFalse(pipeline.rename.isIncluded || pipeline.rename.isEnabled)
+    }
+
+    func testActiveRequiresIncludedAndEnabled() {
+        XCTAssertFalse(MetadataOptions(isEnabled: true, isIncluded: false).isActive)
+        XCTAssertFalse(RenameOptions(isEnabled: false, isIncluded: true).isActive)
+        XCTAssertTrue(RenameOptions(isEnabled: true, isIncluded: true).isActive)
+    }
+
     func testEmptyObjectDecodesToDefaults() throws {
         let decoded = try JSONDecoder().decode(Pipeline.self, from: Data("{}".utf8))
         XCTAssertEqual(decoded, Pipeline())
