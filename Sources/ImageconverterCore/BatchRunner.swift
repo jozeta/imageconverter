@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// How far a batch has got. `completed` counts successes and failures.
@@ -148,10 +149,7 @@ public enum BatchRunner {
     ) -> Result<URL, ConversionError> {
         autoreleasepool {
             do {
-                let loaded = try ImageLoader.load(plan.item.source, maxPixels: maxPixels)
-                let image = try pipeline.apply(to: loaded.image, assets: assets)
-                let properties = MetadataOps.apply(pipeline.metadata, to: loaded.properties)
-                let data = try ImageEncoder.encode(image, properties: properties, settings: pipeline.output)
+                let data = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels).data
                 try FileCommitter.commit(data, for: plan, trash: trash)
                 return .success(plan.destination)
             } catch let error as ConversionError {
@@ -160,5 +158,18 @@ public enum BatchRunner {
                 return .failure(.writeFailed(error.localizedDescription))
             }
         }
+    }
+
+    /// Load, apply, metadata and encode for one file: everything the batch does before it commits.
+    /// The size estimate shares it so the estimate can't drift from what is written.
+    /// `source` is the upright full-size image as loaded.
+    static func encodeItem(
+        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int
+    ) throws -> (data: Data, source: CGImage) {
+        let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
+        let image = try pipeline.apply(to: loaded.image, assets: assets)
+        let properties = MetadataOps.apply(pipeline.metadata, to: loaded.properties)
+        let data = try ImageEncoder.encode(image, properties: properties, settings: pipeline.output)
+        return (data, loaded.image)
     }
 }

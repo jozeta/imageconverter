@@ -250,3 +250,17 @@ final class PreviewRendererTests: XCTestCase {
         XCTAssertEqual(count, 1)
     }
 }
+
+extension PreviewRendererTests {
+    func testPreviewResultHasOutputURLAndSourceSize() async throws {
+        let url = dir.appendingPathComponent("p.png")
+        try TestImages.write(TestImages.make(width: 40, height: 30), to: url, type: .png)
+        let item = InputItem(source: url, relativeDirectory: "")
+        let outcome = await PreviewRenderer().render(item: item, index: 0, pipeline: Pipeline(output: .init(format: .jpeg)))
+        guard case .ready(let result) = outcome else { return XCTFail("Expected ready") }
+        XCTAssertEqual(result.outputURL.lastPathComponent, "p.jpg")
+        XCTAssertEqual(result.outputURL.deletingLastPathComponent().path, dir.path)
+        let expected = try XCTUnwrap(try url.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+        XCTAssertEqual(result.sourceFileSize, expected)
+    }
+}

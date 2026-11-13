@@ -12,6 +12,10 @@ public struct PreviewResult: @unchecked Sendable {
     public let outputName: String
     public let sourceSize: (Int, Int)
     public let outputSize: (Int, Int)
+    /// Where this item would be written (planned alone, so no collision numbers).
+    public let outputURL: URL
+    /// The source file's size on disk.
+    public let sourceFileSize: Int?
 }
 
 public enum PreviewOutcome: Sendable {
@@ -99,19 +103,22 @@ public actor PreviewRenderer {
         guard let after = fit(result) else {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
+        let destination = outputDestination(for: item, index: index, pipeline: pipeline, mode: mode)
+        let fileSize = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
         return .ready(PreviewResult(
             before: before, after: after, source: item.source, sourceName: item.source.lastPathComponent,
-            outputName: outputName(for: item, index: index, pipeline: pipeline, mode: mode),
-            sourceSize: (source.width, source.height), outputSize: (result.width, result.height)))
+            outputName: destination.lastPathComponent,
+            sourceSize: (source.width, source.height), outputSize: (result.width, result.height),
+            outputURL: destination, sourceFileSize: fileSize))
     }
 
-    private func outputName(for item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode?) -> String {
+    private func outputDestination(for item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode?) -> URL {
         let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline)
         let plan = OutputPlanner.plan(
             [item], format: pipeline.output.format,
-            mode: mode ?? .newFolder(FileManager.default.temporaryDirectory),
+            mode: mode ?? .newFolder(item.source.deletingLastPathComponent()),
             baseNames: base.map { [$0] }, fileExists: { _ in false })
-        return plan.first?.destination.lastPathComponent ?? item.source.lastPathComponent
+        return plan.first?.destination ?? item.source
     }
 
     private func sourceImages(for url: URL) throws -> (CGImage, CGImage) {
