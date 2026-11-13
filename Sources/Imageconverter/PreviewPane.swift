@@ -31,8 +31,11 @@ struct PreviewPane: View {
                     }
                 }
                 runProgress
-                infoTable
-                Filmstrip(model: model)
+                // The bottom handle (pipeline collapse) is a compact mode: the details and thumbnails go too.
+                if !model.pipelineCollapsed {
+                    infoTable
+                    Filmstrip(model: model)
+                }
             }
         }
         .lgPanel()
