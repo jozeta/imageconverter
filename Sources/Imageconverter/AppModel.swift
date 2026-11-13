@@ -36,8 +36,8 @@ final class AppModel {
     /// Why the last render failed (nil when it succeeded).
     var previewFailure: String?
     var isRenderingPreview = false
-    /// Filmstrip thumbnails by file (see `AppModel+Preview.swift`).
-    var thumbnails: [URL: CGImage] = [:]
+    /// Bumped when a filmstrip thumbnail has loaded, so cells refresh (see `AppModel+Preview.swift`).
+    var thumbnailTick = 0
     var previewCollapsed: Bool {
         didSet { defaults.set(previewCollapsed, forKey: Self.previewCollapsedKey) }
     }
@@ -48,8 +48,14 @@ final class AppModel {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored var previewTask: Task<Void, Never>?
     @ObservationIgnored var previewGeneration = 0
+    @ObservationIgnored var expandedWindowWidth: CGFloat?
     @ObservationIgnored var previewMode: OutputMode?
     @ObservationIgnored let previewRenderer = PreviewRenderer()
+    @ObservationIgnored let thumbnailCache: NSCache<NSURL, CGImageBox> = {
+        let cache = NSCache<NSURL, CGImageBox>()
+        cache.countLimit = 500
+        return cache
+    }()
     @ObservationIgnored var thumbnailsLoading: Set<URL> = []
     @ObservationIgnored var thumbnailsFailed: Set<URL> = []
     @ObservationIgnored private let defaults: UserDefaults
@@ -154,6 +160,8 @@ final class AppModel {
         guard !isRunning else { return }
         items = []
         selectedIndex = 0
+        thumbnailCache.removeAllObjects()
+        thumbnailsFailed = []
         resetPreview()
         progress = nil
         lastReport = nil
@@ -220,6 +228,7 @@ final class AppModel {
         schedulePreview(mode: previewMode)
         lastReport = report
         progress = nil
+        dropMissingItems()
         let done = report.written.count
         let skipped = report.failures.count
         let prefix = report.cancelled ? "Cancelled. " : ""
@@ -235,7 +244,7 @@ final class AppModel {
     /// What the live example depends on; when it changes the example is recomputed.
     var renameExampleKey: RenameExampleKey {
         RenameExampleKey(
-            exampleItem: selectedItemIndex.map { items[$0].source }, pattern: pipeline.rename.pattern,
+            exampleItem: selectedItemIndex.map { items[$0].source }, index: selectedItemIndex ?? 0, pattern: pipeline.rename.pattern,
             counterStart: pipeline.rename.counterStart, format: pipeline.output.format, steps: pipeline.steps)
     }
 
@@ -250,7 +259,7 @@ final class AppModel {
         let pipeline = self.pipeline
         let known = exampleSource.flatMap { $0.url == key.exampleItem ? $0.info : nil }
         let (info, text) = await Task.detached(priority: .userInitiated) {
-            Self.renderExample(url: key.exampleItem, known: known, pipeline: pipeline)
+            Self.renderExample(url: key.exampleItem, known: known, pipeline: pipeline, index: key.index)
         }.value
         guard !Task.isCancelled else { return }
         if let url = key.exampleItem { exampleSource = (url, info) }
@@ -259,7 +268,7 @@ final class AppModel {
     }
 
     nonisolated private static func renderExample(
-        url: URL?, known: RenameSource?, pipeline: Pipeline
+        url: URL?, known: RenameSource?, pipeline: Pipeline, index: Int
     ) -> (RenameSource, String) {
         var info = known ?? RenameSource(header: nil, created: nil)
         if let url, known == nil {
@@ -267,7 +276,8 @@ final class AppModel {
                 header: ImageLoader.header(of: url),
                 created: (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate)
         }
-        let name = RenameExample.render(source: url, header: info.header, created: info.created, pipeline: pipeline)
+        let name = RenameExample.render(source: url, header: info.header, created: info.created, pipeline: pipeline,
+                                    index: index)
         return (info, "Example: \(name)")
     }
 }
@@ -280,8 +290,15 @@ struct RenameSource: @unchecked Sendable {
 
 struct RenameExampleKey: Equatable {
     let exampleItem: URL?
+    let index: Int
     let pattern: String
     let counterStart: Int
     let format: OutputFormat
     let steps: [PipelineStep]
+}
+
+/// Reference wrapper so `NSCache` can hold a `CGImage`.
+final class CGImageBox: @unchecked Sendable {
+    let image: CGImage
+    init(_ image: CGImage) { self.image = image }
 }

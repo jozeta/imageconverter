@@ -42,7 +42,7 @@ struct Filmstrip: View {
             focused = true
         } label: {
             Group {
-                if let image = model.thumbnails[item.source] {
+                if let image = model.thumbnail(for: item.source) {
                     Image(decorative: image, scale: 1).resizable().scaledToFill()
                 } else {
                     Image(systemName: "photo").foregroundStyle(LadaGlass.Colors.muted)

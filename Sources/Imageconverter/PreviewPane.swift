@@ -56,7 +56,8 @@ struct PreviewPane: View {
                              : AnyLayout(HStackLayout(spacing: LadaGlass.Spacing.m))
         layout {
             side(title: "Before", image: model.previewResult?.before, failure: nil)
-            side(title: "After", image: model.previewResult?.after, failure: model.previewFailure)
+            side(title: "After", image: model.previewFailure == nil ? model.previewResult?.after : nil,
+                 failure: model.previewFailure)
         }
     }
 
@@ -80,7 +81,13 @@ struct PreviewPane: View {
     }
 
     @ViewBuilder private var infoLine: some View {
-        if let result = model.previewResult {
+        if let result = model.previewResult, model.previewFailure != nil {
+            Text(result.sourceName)
+                .font(LadaGlass.Typography.mono)
+                .foregroundStyle(LadaGlass.Colors.muted)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        } else if let result = model.previewResult {
             Text("\(result.sourceName) \(result.sourceSize.0) × \(result.sourceSize.1) → "
                  + "\(result.outputName) \(result.outputSize.0) × \(result.outputSize.1)")
                 .font(LadaGlass.Typography.mono)

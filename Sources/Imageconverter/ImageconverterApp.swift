@@ -15,7 +15,7 @@ struct ImageconverterApp: App {
         WindowGroup("imageconverter") {
             HStack(spacing: 0) {
                 SidebarView(model: model, settings: settings)
-                    .frame(minWidth: 340, idealWidth: 360, maxWidth: model.previewCollapsed ? .infinity : 380)
+                    .frame(minWidth: 340, idealWidth: 360, maxWidth: 380)
                 if !model.previewCollapsed {
                     PreviewPane(model: model)
                         .frame(minWidth: 420)

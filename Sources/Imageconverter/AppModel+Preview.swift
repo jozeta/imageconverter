@@ -7,8 +7,7 @@ extension AppModel {
     /// Wait after the last change before a preview render starts.
     static let previewDebounce = Duration.milliseconds(300)
     nonisolated static let thumbnailPixels = 64
-    /// The thumbnail cache is emptied when it grows past this many images.
-    static let thumbnailLimit = 500
+    static let sidebarWidth: CGFloat = 360
 
     /// The selected image's index, kept inside `items` (nil when the batch is empty).
     var selectedItemIndex: Int? {
@@ -21,15 +20,32 @@ extension AppModel {
         selectedIndex = min(max(current + offset, 0), items.count - 1)
     }
 
-    /// Flips the preview pane and moves the window edge by the pane's width.
+    /// Flips the preview pane, then moves the window edge: hiding shrinks the window to the sidebar,
+    /// showing restores the width it had before.
     func togglePreview() {
+        let window = NSApp.keyWindow
+        let before = window?.frame.width ?? 0
+        if !previewCollapsed { expandedWindowWidth = before }
         previewCollapsed.toggle()
-        guard let window = NSApp.keyWindow else { return }
-        let delta: CGFloat = 440
-        var frame = window.frame
-        frame.size.width = max(window.minSize.width, frame.width + (previewCollapsed ? -delta : delta))
-        if let visible = window.screen?.visibleFrame { frame.size.width = min(frame.width, visible.width) }
-        window.setFrame(frame, display: true, animate: true)
+        let target = previewCollapsed ? Self.sidebarWidth : (expandedWindowWidth ?? before + 440)
+        // Wait a runloop so SwiftUI has applied the new minimum size before the frame is set.
+        DispatchQueue.main.async {
+            guard let window else { return }
+            var frame = window.frame
+            var width = target
+            if let visible = window.screen?.visibleFrame { width = min(width, visible.width) }
+            frame.size.width = max(width, window.minSize.width)
+            window.setFrame(frame, display: true, animate: true)
+        }
+    }
+
+    /// After a run, forgets items whose file is gone (overwrite mode trashes originals when the format changes).
+    func dropMissingItems() {
+        let kept = items.filter { FileManager.default.fileExists(atPath: $0.source.path) }
+        guard kept.count != items.count else { return }
+        items = kept
+        selectedIndex = min(selectedIndex, max(kept.count - 1, 0))
+        resetPreview()
     }
 
     /// Drops the shown preview and frees the renderer's caches (batch start, clear).
@@ -65,6 +81,7 @@ extension AppModel {
             guard let renderer = self?.previewRenderer else { return }
             let outcome = await renderer.render(item: item, index: index, pipeline: pipeline, mode: mode)
             guard let self, generation == self.previewGeneration else { return }
+            isRenderingPreview = false
             switch outcome {
             case .ready(let result):
                 previewResult = result
@@ -72,23 +89,41 @@ extension AppModel {
             case .failed(let reason):
                 // A cancelled render belongs to a newer request that is already on its way.
                 if reason == "Cancelled" { return }
-                previewResult = nil
+                // The last Before image and name stay; only the After side shows the reason.
                 previewFailure = reason
             }
-            isRenderingPreview = false
         }
     }
 
     // MARK: Thumbnails
 
-    /// Loads the filmstrip thumbnail for `url` off the main actor, once; images over the pixel
-    /// limit and unreadable files get no thumbnail.
+    /// The cached thumbnail for `url`, if loaded. Reading `thumbnailTick` makes views refresh when one arrives.
+    func thumbnail(for url: URL) -> CGImage? {
+        _ = thumbnailTick
+        return thumbnailCache.object(forKey: url as NSURL)?.image
+    }
+
+    /// Loads the filmstrip thumbnail for `url` off the main actor unless it is cached; images over
+    /// the pixel limit and unreadable files get no thumbnail. Evicted entries load again on demand.
     func loadThumbnail(for url: URL) async {
-        guard thumbnails[url] == nil, !thumbnailsFailed.contains(url), thumbnailsLoading.insert(url).inserted else { return }
+        guard thumbnailCache.object(forKey: url as NSURL) == nil, !thumbnailsFailed.contains(url),
+              thumbnailsLoading.insert(url).inserted else { return }
         defer { thumbnailsLoading.remove(url) }
-        let image = await Task.detached(priority: .utility) { Self.makeThumbnail(url) }.value
-        if thumbnails.count >= Self.thumbnailLimit { thumbnails.removeAll() }
-        if let image { thumbnails[url] = image } else { thumbnailsFailed.insert(url) }
+        let image = await Self.decodeThumbnail(url)
+        // Cancelled (the cell scrolled away or the list was cleared): don't record a failure.
+        guard !Task.isCancelled else { return }
+        if let image {
+            thumbnailCache.setObject(CGImageBox(image), forKey: url as NSURL)
+            thumbnailTick += 1
+        } else {
+            thumbnailsFailed.insert(url)
+        }
+    }
+
+    /// Runs on the global executor (nonisolated async), inherits the caller's cancellation.
+    nonisolated private static func decodeThumbnail(_ url: URL) async -> CGImage? {
+        if Task.isCancelled { return nil }
+        return makeThumbnail(url)
     }
 
     nonisolated private static func makeThumbnail(_ url: URL) -> CGImage? {
