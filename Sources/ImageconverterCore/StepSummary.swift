@@ -59,6 +59,7 @@ extension ImageOperation {
 
     /// Whole numbers without decimals, others with the minimal decimals.
     private static func number(_ value: Double) -> String {
-        value == value.rounded() ? String(Int(value)) : String(value)
+        value.formatted(.number.locale(Locale(identifier: "en_US_POSIX"))
+            .precision(.fractionLength(0...2)).grouping(.never))
     }
 }

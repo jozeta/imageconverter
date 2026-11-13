@@ -65,4 +65,18 @@ final class PipelineModelTests: XCTestCase {
         XCTAssertEqual(Anchor.allCases.map(\.displayName),
                        ["top left", "top", "top right", "left", "center", "right", "bottom left", "bottom", "bottom right"])
     }
+
+    func testSummariesNeverTrapOnNonFiniteOrHugeValues() {
+        let crops: [Double] = [.infinity, 1e30, .nan, -.infinity]
+        for value in crops {
+            let crop = ImageOperation.crop(CropOptions(mode: .aspect(width: value, height: 1)))
+            XCTAssertFalse(crop.summary.isEmpty)
+            XCTAssertFalse(ImageOperation.canvas(CanvasOptions(mode: .paddingPercent(value))).summary.isEmpty)
+        }
+    }
+
+    func testSummaryRoundsFloatingPointNoise() {
+        let crop = ImageOperation.crop(CropOptions(mode: .aspect(width: 0.1 + 0.2, height: 1), anchor: .center))
+        XCTAssertEqual(crop.summary, "0.3:1 · center")
+    }
 }
