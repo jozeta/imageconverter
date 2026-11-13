@@ -9,7 +9,13 @@ public enum ImageEncoder {
     /// Formats without alpha (JPEG, BMP) get transparent pixels flattened onto white.
     public static func encode(_ image: CGImage, properties: [String: Any], settings: OutputSettings) throws -> Data {
         let format = settings.format
-        let source = needsOpaque(format) && hasAlpha(image) ? (flattenedOnWhite(image) ?? image) : image
+        let source: CGImage
+        if needsOpaque(format), hasAlpha(image) {
+            guard let flat = flattenedOnWhite(image) else { throw ConversionError.encodeFailed }
+            source = flat
+        } else {
+            source = image
+        }
 
         var props = sanitized(properties)
         if format.supportsQuality {

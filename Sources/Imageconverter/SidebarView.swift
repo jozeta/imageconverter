@@ -29,13 +29,12 @@ struct SidebarView: View {
 
     private var dropZone: some View {
         VStack(spacing: LadaGlass.Spacing.s) {
-            Text("Drop images or folders here")
+            Text(model.isAdding ? "Adding…" : "Drop images or folders here")
                 .font(LadaGlass.Typography.body)
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .multilineTextAlignment(.center)
             Button("Add…") { model.chooseInputs() }
                 .buttonStyle(.lg(.secondary))
-                .keyboardShortcut("o", modifiers: .command)
                 .accessibilityLabel("Add images or folders")
         }
         .frame(maxWidth: .infinity)
@@ -108,14 +107,13 @@ struct SidebarView: View {
         if model.isRunning {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
                 if let progress = model.progress {
-                    ProgressView(value: Double(progress.completed + progress.failed), total: Double(max(progress.total, 1)))
+                    ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
                         .accessibilityLabel("Conversion progress")
-                    Text("\(progress.completed + progress.failed) / \(progress.total)")
+                    Text("\(progress.completed) / \(progress.total)")
                         .font(LadaGlass.Typography.mono)
                 }
                 Button("Cancel") { model.cancel() }
                     .buttonStyle(.lg(.secondary))
-                    .keyboardShortcut(".", modifiers: .command)
                     .accessibilityLabel("Cancel the conversion")
             }
         } else {
@@ -123,8 +121,7 @@ struct SidebarView: View {
                 model.run(settings: settings)
             }
             .buttonStyle(.lg(.primary))
-            .keyboardShortcut("r", modifiers: .command)
-            .disabled(model.items.isEmpty)
+            .disabled(model.items.isEmpty || model.isAdding)
             .accessibilityLabel("Run the conversion")
         }
     }

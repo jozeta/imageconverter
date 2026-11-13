@@ -39,8 +39,10 @@ public struct BatchReport: Equatable, Sendable {
 
 public enum BatchRunner {
     /// Converts `items` in parallel (at most `concurrency` at a time). A file that fails is
-    /// recorded and skipped; the rest carry on. `progress` is called once per finished file, in
-    /// order, from the collecting side of the batch. Cancelling the calling task stops new files
+    /// recorded and skipped; the rest carry on. `progress` is called once per finished item, in
+    /// completion order (not input order), from the collecting side of the batch; `completed`
+    /// (successes plus failures) increases monotonically. `BatchReport.cancelled` is false if
+    /// cancellation arrives after the last item was scheduled. Cancelling the calling task stops new files
     /// from starting; files already in flight finish their atomic commit, so no temp files remain.
     public static func run(
         _ items: [InputItem],

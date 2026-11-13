@@ -16,6 +16,19 @@ struct ImageconverterApp: App {
             SidebarView(model: model, settings: settings)
                 .frame(minWidth: 340, minHeight: 420)
         }
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("Add Images…") { model.chooseInputs() }
+                    .keyboardShortcut("o", modifiers: .command)
+                    .disabled(model.isRunning)
+                Button("Run") { model.run(settings: settings) }
+                    .keyboardShortcut("r", modifiers: .command)
+                    .disabled(model.items.isEmpty || model.isRunning || model.isAdding)
+                Button("Cancel Run") { model.cancel() }
+                    .keyboardShortcut(".", modifiers: .command)
+                    .disabled(!model.isRunning)
+            }
+        }
         Settings {
             SettingsView(settings: settings)
         }

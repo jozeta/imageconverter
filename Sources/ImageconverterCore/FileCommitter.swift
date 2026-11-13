@@ -19,6 +19,9 @@ public enum FileCommitter {
     /// file stays and `.writeFailed("Converted, but couldn't move the original to the Trash: …")`
     /// is thrown. Every other failure removes the temp file and throws `.writeFailed`.
     public static func commit(_ data: Data, for plan: PlannedOutput, trash: Trasher = systemTrash) throws {
+        guard !(plan.replacesSource && plan.trashesSource) else {
+            throw ConversionError.writeFailed("Invalid output plan")
+        }
         let files = FileManager.default
         let directory = plan.destination.deletingLastPathComponent()
         let temp = directory.appendingPathComponent("\(tempPrefix)\(UUID().uuidString).tmp")

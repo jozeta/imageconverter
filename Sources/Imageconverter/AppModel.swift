@@ -9,14 +9,25 @@ final class AppModel {
     var progress: BatchProgress?
     var lastReport: BatchReport?
     var isRunning = false
+    /// Number of drops/pickers still being scanned off the main actor.
+    private(set) var pendingAdds = 0
+    var isAdding: Bool { pendingAdds > 0 }
     let toasts = LGToastCenter()
 
     @ObservationIgnored private var task: Task<Void, Never>?
 
+    /// Scans `urls` off the main actor (large folders), then merges new items in, skipping duplicates.
     func add(_ urls: [URL]) {
-        var seen = Set(items)
-        for item in InputCollector.collect(urls) where seen.insert(item).inserted {
-            items.append(item)
+        guard !urls.isEmpty else { return }
+        pendingAdds += 1
+        Task { [weak self] in
+            let found = await Task.detached(priority: .userInitiated) { InputCollector.collect(urls) }.value
+            guard let self else { return }
+            var seen = Set(self.items)
+            for item in found where seen.insert(item).inserted {
+                self.items.append(item)
+            }
+            self.pendingAdds -= 1
         }
     }
 
@@ -38,8 +49,8 @@ final class AppModel {
     }
 
     func run(settings: AppSettings) {
-        guard !isRunning, !items.isEmpty else { return }
-        if settings.modeKind == .newFolder, settings.outputFolder == nil {
+        guard !isRunning, !isAdding, !items.isEmpty else { return }
+        if settings.modeKind == .newFolder, !Self.isExistingDirectory(settings.outputFolder) {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false
             panel.canChooseDirectories = true
@@ -47,7 +58,10 @@ final class AppModel {
             panel.allowsMultipleSelection = false
             panel.message = "Choose output folder"
             panel.prompt = "Choose"
-            guard panel.runModal() == .OK, let url = panel.url else { return }
+            guard panel.runModal() == .OK, let url = panel.url else {
+                toasts.show("Choose an output folder to run", type: .info)
+                return
+            }
             settings.outputFolder = url
         }
         guard let mode = settings.outputMode else { return }
@@ -60,11 +74,19 @@ final class AppModel {
         task = Task { [weak self] in
             let report = await BatchRunner.run(batch, output: format, mode: mode, progress: { update in
                 Task { @MainActor in
-                    if self?.isRunning == true { self?.progress = update }
+                    // Updates can arrive out of order; only move forward.
+                    guard let self, self.isRunning, update.completed > (self.progress?.completed ?? 0) else { return }
+                    self.progress = update
                 }
             })
             self?.finish(report)
         }
+    }
+
+    private static func isExistingDirectory(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 
     func cancel() { task?.cancel() }

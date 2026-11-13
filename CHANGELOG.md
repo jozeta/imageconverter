@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Fixes from the milestone 1 review: correct progress count, large folder drops no longer freeze the window, menu commands (Add Images… ⌘O, Run ⌘R, Cancel Run ⌘.), a missing output folder is asked for again.
 - Batch conversion: drop images or folders, choose JPEG/PNG/HEIC/TIFF (and GIF/BMP/JPEG 2000 where available), quality, three output modes, progress and cancel; unreadable files are skipped and listed.
 - Design agreed: batch pipeline (resize, crop, rotate/flip, canvas, color profile, watermark,
   metadata, rename, output format), presets, layout with collapsible pipeline and preview. See

@@ -8,7 +8,7 @@ on your Mac: no uploads, no network access at all.
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 0.1.0 · **Status:** early development (design agreed, features not built yet).
+**Version:** 0.1.0 · **Status:** early development (milestone 1, batch conversion, works; the pipeline steps are coming).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -81,8 +81,9 @@ In this mode, when the format or name changes (for example HEIC → JPEG), the n
 and the original is **moved to the Trash**. In "New folder" mode, dropped folders keep their
 subfolder structure.
 
-The app is sandboxed. It can only touch files and folders you drop or pick. When you drop loose
-files and write next to them, it asks once per folder for access and remembers your answer.
+Planned for the signed 1.0 release: the app will be sandboxed, so it can only touch files and
+folders you drop or pick. When you drop loose files and write next to them, it will ask once per
+folder for access and remember your answer. Until then it runs unsandboxed.
 
 ## How to
 

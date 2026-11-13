@@ -30,6 +30,17 @@ final class FileCommitterTests: XCTestCase {
         var all: [URL] { lock.lock(); defer { lock.unlock() }; return urls }
     }
 
+    func testRejectsPlanThatBothReplacesAndTrashesSource() throws {
+        let source = dir.appendingPathComponent("in.jpg")
+        try Data("orig".utf8).write(to: source)
+        XCTAssertThrowsError(try FileCommitter.commit(
+            Data("new".utf8), for: plan(source: source, destination: source, replaces: true, trashes: true),
+            trash: { _ in XCTFail("must not trash") })) { error in
+            XCTAssertEqual(error as? ConversionError, .writeFailed("Invalid output plan"))
+        }
+        XCTAssertEqual(try Data(contentsOf: source), Data("orig".utf8))
+    }
+
     func testWritesNewFileAndCreatesFolders() throws {
         let dest = dir.appendingPathComponent("a/b/out.png")
         try FileCommitter.commit(Data("new".utf8),
