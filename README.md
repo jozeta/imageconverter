@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- Zoom the before/after preview with a trackpad pinch (or ⌘+ / ⌘− / ⌘0); both sides stay in sync, so encoder artifacts are easy to compare.
 - Presets (save, save as, rename, delete, reset; three built-ins) and a collapsible before/after preview with a filmstrip of the batch.
 - Watermark step: text (font, colour) or image (e.g. a logo), with position, size relative to the image, opacity and margin.
 - Metadata step (remove location, camera details or everything; set artist, copyright and description) and Rename step with tokens ({date}, {camera}, {counter:000}, …) and a live example.
@@ -46,7 +47,7 @@ Started 2026-11-13. The full design is in
     with a live example
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
 - **Live preview** of the selected image before and after the pipeline, with its new name and
-  size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and a filmstrip of the batch (click a thumbnail or use ← →). Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
+  size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and a filmstrip of the batch (click a thumbnail or use ← →); pinch to zoom both sides in sync. Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
   half-written files, and name collisions resolved with `_2`, `_3`, …
 
@@ -158,6 +159,14 @@ folder for access and remember your answer. Until then it runs unsandboxed.
    be rendered, the reason is shown instead of the "after" image. The preview shows the name for
    that image alone; numbers like `_2` that avoid clashes within a batch appear only when you run it.
 4. Hide the preview with the handle on its edge or ⌥⌘P (View menu); the window shrinks to the sidebar. While a batch runs, the progress bar and Cancel sit above the table.
+5. Zoom in to compare quality: pinch on either image (both zoom around the pinch point and always
+   show the same region), pan with two fingers or by dragging, double-click to switch between fit and
+   100 % (one image pixel per screen pixel) at that point. View › Zoom In (⌘+ or ⌘=), Zoom Out (⌘−),
+   Zoom to Fit (⌘0) and Actual Size (⌥⌘0) do the same from the keyboard. Zoom goes up to 800 %; the
+   level shows next to the "Preview" title. Once the size estimate is ready, the zoomed view shows the
+   full-size original and the really encoded result (above 100 % without smoothing), so JPEG blocks
+   and other artifacts are visible. Selecting another image resets to fit; changing settings keeps
+   the zoomed region.
 
 ### Build a pipeline
 

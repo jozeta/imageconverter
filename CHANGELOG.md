@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Preview zoom: pinch on the trackpad to zoom the before and after images together (up to 800 % actual pixels), pan with two fingers or a drag, double-click for fit ↔ 100 %, and View › Zoom In (⌘+/⌘=), Zoom Out (⌘−), Zoom to Fit (⌘0), Actual Size (⌥⌘0). Zoomed in, the full-size original and the encoded result are shown so encoder artifacts can be compared.
 - Window: grab handles on the panel edges replace the "Show/Hide preview" and "Collapse" buttons (also View > Hide Preview ⌥⌘P and Collapse Pipeline ⌥⌘L); the window resizes smoothly when the preview or the pipeline is toggled. With the preview hidden the window is exactly the sidebar's size; with it open the window can be resized (at least 780 × 560 pt) and the sidebar panel stretches to its height, so there is no empty space around the panels. Full screen is off for the main window.
 - Pipeline rows: drag handle with an insertion line replaces the actions menu (Move Up/Down stay in the context menu and as accessibility actions), a small remove button, "+ Add step" above the steps (new steps start collapsed), switched-off steps collapse and cannot be expanded, and tighter spacing.
 - Output row: a "Save to" dropdown replaces the Settings window (⌘, is gone), an "Original → about" size estimate, a Rename step that is greyed out while overwriting, and find and replace (plain or regular expression) in the Rename step. The same-folder suffix now defaults to `_new`.

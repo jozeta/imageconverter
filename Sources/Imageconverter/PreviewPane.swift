@@ -22,6 +22,14 @@ struct PreviewPane: View {
                     images(stacked: geometry.size.width < Self.stackedBelow)
                 }
                 .overlay { if model.isRenderingPreview { spinner } }
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Before and after")
+                .accessibilityZoomAction { action in
+                    switch action.direction {
+                    case .zoomIn: model.zoom.zoomIn()
+                    case .zoomOut: model.zoom.zoomOut()
+                    }
+                }
                 runProgress
                 infoTable
                 Filmstrip(model: model)
@@ -32,10 +40,20 @@ struct PreviewPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .lgBackdrop()
         .lgCompact()
+        .onChange(of: selectedSource, initial: true) { _, source in model.zoom.track(item: source) }
     }
 
+    private var selectedSource: URL? { model.selectedItemIndex.map { model.items[$0].source } }
+
     private var header: some View {
-        Text("Preview").font(LadaGlass.Typography.subtitle)
+        HStack {
+            Text("Preview").font(LadaGlass.Typography.subtitle)
+            Spacer()
+            if let percent = model.zoom.percent {
+                LGChip("\(percent) %", status: .neutral)
+                    .accessibilityLabel("Zoom \(percent) percent")
+            }
+        }
     }
 
     private var spinner: some View {
@@ -49,19 +67,30 @@ struct PreviewPane: View {
     @ViewBuilder private func images(stacked: Bool) -> some View {
         let layout = stacked ? AnyLayout(VStackLayout(spacing: LadaGlass.Spacing.m))
                              : AnyLayout(HStackLayout(spacing: LadaGlass.Spacing.m))
+        let result = model.previewResult
+        let after = model.previewFailure == nil ? result?.after : nil
+        // Full-size images for zooming, only when they belong to the image on screen.
+        let full = model.sizeEstimate.flatMap { $0.item == result?.source ? $0.full : nil }
         layout {
-            side(title: "Before", image: model.previewResult?.before, failure: nil)
-            side(title: "After", image: model.previewFailure == nil ? model.previewResult?.after : nil,
-                 failure: model.previewFailure)
+            side(title: "Before", image: result?.before, full: full?.original,
+                 pixelSize: result.map { CGSize(width: $0.sourceSize.0, height: $0.sourceSize.1) },
+                 isReference: after == nil, failure: nil)
+            side(title: "After", image: after, full: full?.encoded,
+                 pixelSize: result.map { CGSize(width: $0.outputSize.0, height: $0.outputSize.1) },
+                 isReference: true, failure: model.previewFailure)
         }
     }
 
-    private func side(title: String, image: CGImage?, failure: String?) -> some View {
+    // swiftlint:disable:next function_parameter_count
+    private func side(title: String, image: CGImage?, full: CGImage?, pixelSize: CGSize?,
+                      isReference: Bool, failure: String?) -> some View {
         VStack(spacing: LadaGlass.Spacing.xs) {
             LGChip(title, status: .neutral)
             ZStack {
                 if let image {
-                    Image(image, scale: 1, label: Text("\(title) image")).resizable().scaledToFit()
+                    ZoomableImage(image: image, fullImage: full,
+                                  pixelSize: pixelSize ?? CGSize(width: image.width, height: image.height),
+                                  label: "\(title) image", isReference: isReference, zoom: model.zoom)
                 } else if let failure {
                     Text(failure)
                         .font(LadaGlass.Typography.body)

@@ -31,6 +31,8 @@ struct ImageconverterApp: App {
                     .keyboardShortcut("p", modifiers: [.option, .command])
                 Button(model.pipelineCollapsed ? "Expand Pipeline" : "Collapse Pipeline") { model.togglePipeline() }
                 .keyboardShortcut("l", modifiers: [.option, .command])
+                Divider()
+                zoomCommands
             }
             CommandGroup(replacing: .newItem) {
                 Button("Add Images…") { model.chooseInputs() }
@@ -44,6 +46,25 @@ struct ImageconverterApp: App {
                     .disabled(!model.isRunning)
             }
         }
+    }
+}
+
+extension ImageconverterApp {
+    /// Zoom the before/after preview; ⌘= also zooms in (see `ZoomController.installKeyMonitor`).
+    @ViewBuilder private var zoomCommands: some View {
+        let disabled = !model.zoom.canZoom || model.previewCollapsed || model.previewResult == nil
+        Button("Zoom In") { model.zoom.zoomIn() }
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(disabled)
+        Button("Zoom Out") { model.zoom.zoomOut() }
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(disabled)
+        Button("Zoom to Fit") { model.zoom.zoomToFit() }
+            .keyboardShortcut("0", modifiers: .command)
+            .disabled(disabled)
+        Button("Actual Size") { model.zoom.actualSize() }
+            .keyboardShortcut("0", modifiers: [.option, .command])
+            .disabled(disabled)
     }
 }
 
@@ -74,7 +95,29 @@ private struct MainWindowContent: View {
                alignment: .topLeading)
         .clipped()
         .background(WindowAccessor { sizer.attach($0) })
+        .onAppear {
+            model.zoom.installKeyMonitor()
+            #if DEBUG
+            applyDebugArguments()
+            #endif
+        }
     }
+
+    #if DEBUG
+    /// Debug-only launch options for screenshots: `-debugAddFiles <path>…` adds images at launch and
+    /// `-debugZoom <scale>` starts the preview zoomed (scale relative to fit).
+    private func applyDebugArguments() {
+        let arguments = CommandLine.arguments
+        if let start = arguments.firstIndex(of: "-debugAddFiles") {
+            let paths = arguments[(start + 1)...].prefix { !$0.hasPrefix("-") }
+            model.add(paths.map { URL(fileURLWithPath: $0) })
+        }
+        if let index = arguments.firstIndex(of: "-debugZoom"), index + 1 < arguments.count,
+           let scale = Double(arguments[index + 1]) {
+            model.zoom.pendingScale = CGFloat(scale)
+        }
+    }
+    #endif
 
     /// Centred on the sidebar/preview border, or just inside the window's right edge when the preview is hidden.
     private var previewHandle: some View {

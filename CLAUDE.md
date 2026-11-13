@@ -20,6 +20,8 @@ decisions in it marked "(Johan)" are the user's and must not be changed without 
 ```sh
 swift run           # opens the app window (or: claude-update)
 swift build
+# Debug builds only, for screenshots: add images at launch and start the preview zoomed (× fit)
+.build/debug/Imageconverter -debugAddFiles /path/a.jpg /path/b.png -debugZoom 4
 ```
 
 Tests:
@@ -40,6 +42,7 @@ swiftlint           # if installed (brew install swiftlint)
     `FileStepEditors.swift` (Metadata and Rename rows and editors; the live rename example is computed in `AppModel`),
     `PresetBar.swift` and `AppModel+Presets.swift` (preset picker, save/rename/delete),
     `PreviewPane.swift` (before/after, Original | Result table, run progress bar), `Filmstrip.swift` (thumbnails, ←/→),
+    `ZoomableComparison.swift` (`ZoomController` on the model: synced zoom shared by both preview sides and the View menu; pinch/scroll/drag NSView overlay),
     `AppModel+Preview.swift` (selection, 300 ms debounced render task with a generation counter, thumbnail cache).
     `WindowSizer.swift` (applies `WindowLayout`: fixed 360 pt sidebar; preview hidden → window = sidebar content height,
     preview open → resizable, min 780 × 560, sidebar panel stretches; animated toggles via `NSAnimationContext`; the
@@ -53,7 +56,7 @@ swiftlint           # if installed (brew install swiftlint)
     `FileCommitter` (atomic writes, trash replaced originals), `BatchRunner` (parallel run, progress, cancel),
     `Pipeline` (steps, options, `apply`), `FileSteps` (`MetadataOptions`, `RenameOptions`), `MetadataOps` (metadata stripping/setting),
     `RenameTemplate` (tokens, sanitising), `StepSummary` (one-line step descriptions), `Geometry` (size maths),
-    `ImageOps` (resize, crop, rotate/flip, canvas, color profile, watermark), `Watermark` (options, placement maths), `WatermarkAssets` (image watermarks loaded once per batch), `WorkWindow` (memory-aware batch scheduling), `Presets`/`PresetSession` (preset files, built-ins, unsaved-change tracking), `PreviewRenderer` (actor: before/after for one item, caches the decoded source), `WindowLayout` (main window size rules and frame maths), `NameReplacement` (find/replace in names, plain or regex), `SizeEstimator` (encodes a full-size render for the size estimate)
+    `ImageOps` (resize, crop, rotate/flip, canvas, color profile, watermark), `Watermark` (options, placement maths), `WatermarkAssets` (image watermarks loaded once per batch), `WorkWindow` (memory-aware batch scheduling), `Presets`/`PresetSession` (preset files, built-ins, unsaved-change tracking), `PreviewRenderer` (actor: before/after for one item, caches the decoded source), `ZoomMath` (`ZoomState`, zoom around an anchor, pan, clamping), `WindowLayout` (main window size rules and frame maths), `NameReplacement` (find/replace in names, plain or regex), `SizeEstimator` (encodes a full-size render for the size estimate)
 - `Tests/ImageconverterCoreTests/`: tests (operations on small generated images, rename tokens,
   resize/crop maths, collisions, preset round-trip and rejection, metadata really stripped)
 - `docs/superpowers/specs/`: design documents; `docs/superpowers/plans/`: implementation plans

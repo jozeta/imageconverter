@@ -26,6 +26,8 @@ final class AppModel {
     private(set) var pendingAdds = 0
     var isAdding: Bool { pendingAdds > 0 }
     let toasts = LGToastCenter()
+    /// The before/after zoom, shared by both preview sides and the View menu.
+    let zoom = ZoomController()
     /// "Example: name.ext" for the Rename editor; see `refreshRenameExample()`.
     private(set) var renameExample = ""
 
