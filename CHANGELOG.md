@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Output row: a "Save to" dropdown replaces the Settings window (⌘, is gone), an "Original → about" size estimate, a Rename step that is greyed out while overwriting, and find and replace (plain or regular expression) in the Rename step. The same-folder suffix now defaults to `_new`.
 - Preview and preset fixes: a failed preview no longer shows the previous image, the preview toggle (⌥⌘P) resizes the main window, ⌘S is disabled while running, preset names ignore look-alike spaces, skipped preset files give specific reasons, and images whose originals were trashed are removed with a notice.
 - Presets (save, save as, rename, delete, reset; three built-ins) and a collapsible before/after preview with a filmstrip of the batch.
 - Watermark fixes: an unreadable watermark image now fails the batch immediately without decoding the photos, large logos are downsampled on load (4096 px), tall glyphs and emoji stay inside the watermark's box, line breaks in the text become spaces, image watermarks default to 20 % size when loading older settings, and an empty text shows a hint.

@@ -32,7 +32,7 @@ final class AppSettings {
         self.defaults = defaults
         modeKind = defaults.string(forKey: Key.modeKind).flatMap(OutputModeKind.init(rawValue:)) ?? .newFolder
         outputFolder = defaults.string(forKey: Key.folder).map { URL(fileURLWithPath: $0, isDirectory: true) }
-        sameFolderSuffix = defaults.string(forKey: Key.suffix) ?? "_converted"
+        sameFolderSuffix = defaults.string(forKey: Key.suffix) ?? OutputPlanner.defaultSuffix
     }
 
     /// Nil only when the kind is "new folder" and no folder has been chosen yet.
@@ -41,15 +41,6 @@ final class AppSettings {
         case .newFolder: return outputFolder.map { OutputMode.newFolder($0) }
         case .sameFolder: return .sameFolder(suffix: sameFolderSuffix)
         case .overwrite: return .overwrite
-        }
-    }
-
-    /// One line for the sidebar. `renaming`: the Rename step is on, so same-folder mode names by pattern.
-    func summary(renaming: Bool = false) -> String {
-        switch modeKind {
-        case .newFolder: return outputFolder.map { "New folder: \($0.lastPathComponent)" } ?? "New folder (not chosen yet)"
-        case .sameFolder: return renaming ? "Same folder, renamed" : "Same folder, suffix \(sameFolderSuffix)"
-        case .overwrite: return "Overwrite originals"
         }
     }
 }

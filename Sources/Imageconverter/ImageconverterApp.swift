@@ -25,6 +25,7 @@ struct ImageconverterApp: App {
             .background(WindowAccessor { model.mainWindow = $0 })
             .onChange(of: PreviewRequest(model: model, mode: settings.outputMode), initial: true) { _, request in
                 model.schedulePreview(mode: request.mode)
+                model.scheduleEstimate()
             }
         }
         .commands {
@@ -48,9 +49,6 @@ struct ImageconverterApp: App {
                     .keyboardShortcut(".", modifiers: .command)
                     .disabled(!model.isRunning)
             }
-        }
-        Settings {
-            SettingsView(settings: settings)
         }
     }
 }

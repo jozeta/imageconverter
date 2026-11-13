@@ -10,31 +10,39 @@ struct FileStepRow<Content: View>: View {
     let summary: String
     @Binding var isEnabled: Bool
     @Binding var isExpanded: Bool
+    /// When set, the row is greyed out, its toggle shows off and it can't be expanded. The stored
+    /// `isEnabled` is left alone so unlocking restores it.
+    var lockedHelp: String?
     @ViewBuilder var content: Content
 
+    private var locked: Bool { lockedHelp != nil }
+    private var shownEnabled: Bool { isEnabled && !locked }
+
     var body: some View {
-        DisclosureGroup(isExpanded: $isExpanded) {
+        DisclosureGroup(isExpanded: locked ? .constant(false) : $isExpanded) {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) { content }
                 .padding(.top, LadaGlass.Spacing.s)
         } label: {
             HStack(spacing: LadaGlass.Spacing.s) {
-                Toggle("Enabled", isOn: $isEnabled)
+                Toggle("Enabled", isOn: locked ? .constant(false) : $isEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .accessibilityLabel("\(title) enabled")
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title).font(LadaGlass.Typography.subtitle)
-                    Text(summary)
+                    Text(lockedHelp ?? summary)
                         .font(LadaGlass.Typography.label)
                         .foregroundStyle(LadaGlass.Colors.muted)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
-            .opacity(isEnabled ? 1 : 0.5)
+            .opacity(shownEnabled ? 1 : 0.5)
             .contentShape(Rectangle())
         }
+        .disabled(locked)
+        .help(lockedHelp ?? "")
         .font(LadaGlass.Typography.body)
         .padding(LadaGlass.Spacing.m)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -114,6 +122,23 @@ struct RenameEditor: View {
             }
             .fixedSize()
             .accessibilityLabel("Insert token")
+        }
+        FieldRow {
+            TextField("Find", text: $options.findText)
+                .textFieldStyle(.roundedBorder)
+                .font(LadaGlass.Typography.mono)
+                .accessibilityLabel("Find in name")
+            TextField("Replace with", text: $options.replaceText)
+                .textFieldStyle(.roundedBorder)
+                .font(LadaGlass.Typography.mono)
+                .accessibilityLabel("Replace with")
+        }
+        Toggle("Regular expression", isOn: $options.useRegex)
+            .accessibilityLabel("Regular expression")
+        if options.useRegex, !options.findText.isEmpty, let error = NameReplacement.regexError(options.findText) {
+            Text(error)
+                .font(LadaGlass.Typography.label)
+                .foregroundStyle(LadaGlass.Colors.badText)
         }
         NumberField(title: "Counter starts at", value: $options.counterStart, minimum: RenameOptions.counterRange.lowerBound,
                     maximum: RenameOptions.counterRange.upperBound, suffix: "")

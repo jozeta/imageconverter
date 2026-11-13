@@ -33,7 +33,7 @@ swiftlint           # if installed (brew install swiftlint)
 
 - `Package.swift`: SwiftPM manifest (macOS 14+)
 - `Sources/Imageconverter/`: the SwiftUI app; `DesignSystem/LadaGlass.swift` is the copied Låda Glass file
-  - `ImageconverterApp.swift` (scenes), `SidebarView.swift` (main window), `SettingsView.swift` (⌘,),
+  - `ImageconverterApp.swift` (scenes), `SidebarView.swift` (main window), `AppModel+Estimate.swift` (debounced size estimate; there is no Settings window, the Output row holds "Save to"),
     `AppModel.swift` (items, pipeline persisted as JSON under `currentPipeline`, run/cancel, toasts),
     `AppSettings.swift` (output mode, persisted in UserDefaults), `PipelineSection.swift` (step rows,
     reorder, add, fixed Output row), `StepEditors.swift` (one editor per step kind), `WatermarkEditor.swift` (watermark step editor, sliders, thumbnail), `StepControls.swift` (shared controls),

@@ -38,6 +38,12 @@ final class AppModel {
     /// The name of the item whose render failed, shown when there is no result for it.
     var previewFailureName: String?
     var isRenderingPreview = false
+    /// Original and estimated output size of the selected item (see `AppModel+Estimate.swift`).
+    var sizeEstimate: SizeEstimate?
+    /// True while the estimate for the selected item is being computed.
+    var isEstimating = false
+    /// Set when the last estimate failed (shown as a dash).
+    var estimateFailed = false
     /// Bumped when a filmstrip thumbnail has loaded, so cells refresh (see `AppModel+Preview.swift`).
     var thumbnailTick = 0
     var previewCollapsed: Bool {
@@ -50,6 +56,8 @@ final class AppModel {
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored var previewTask: Task<Void, Never>?
     @ObservationIgnored var previewGeneration = 0
+    @ObservationIgnored var estimateTask: Task<Void, Never>?
+    @ObservationIgnored var estimateKey: EstimateKey?
     @ObservationIgnored var expandedWindowWidth: CGFloat?
     /// The main window, captured by `WindowAccessor`; the preview toggle resizes this one.
     @ObservationIgnored weak var mainWindow: NSWindow?
@@ -167,6 +175,7 @@ final class AppModel {
         thumbnailCache.removeAllObjects()
         thumbnailsFailed = []
         resetPreview()
+        cancelEstimate()
         progress = nil
         lastReport = nil
     }
@@ -203,6 +212,7 @@ final class AppModel {
         let pipeline = self.pipeline
         isRunning = true
         resetPreview()
+        cancelEstimate()
         lastReport = nil
         progress = BatchProgress(completed: 0, failed: 0, total: batch.count)
         task = Task { [weak self] in
@@ -230,6 +240,7 @@ final class AppModel {
         task = nil
         Task { await previewRenderer.purge() }
         schedulePreview(mode: previewMode)
+        scheduleEstimate()
         lastReport = report
         progress = nil
         dropMissingItems()

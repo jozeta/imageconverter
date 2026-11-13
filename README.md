@@ -77,7 +77,7 @@ Requires macOS 14 (Sonoma) or later.
 
 ## Configuration
 
-Settings (⌘,). The three output settings below work now. The pipeline itself (steps and output format) is edited in the sidebar and saved automatically (UserDefaults key `currentPipeline`); if it cannot be read at launch you start with an empty pipeline and the default output.
+The output settings are in the Output row of the sidebar (there is no Settings window). The pipeline itself (steps and output format) is edited in the sidebar and saved automatically (UserDefaults key `currentPipeline`); if it cannot be read at launch you start with an empty pipeline and the default output.
 
 | Setting | Options | Default |
 |---------|---------|---------|
@@ -180,8 +180,8 @@ Your pipeline is kept between launches.
 2. Under **Output** (the last row of the pipeline), pick a format (JPEG, PNG, HEIC, TIFF, plus GIF, BMP and JPEG 2000 where your
    Mac can write them). JPEG, HEIC and JPEG 2000 have a quality slider; TIFF has a compression
    choice.
-3. Check the one-line output summary. **Change…** opens Settings (⌘,) to switch between *New
-   folder*, *Same folder, new name* and *Overwrite originals*.
+3. Under the quality slider, check the size estimate, then use **Save to** to pick *Overwrite original
+   files*, *Same folder as original* or *New folder*.
 4. Press **Run on N images** (⌘R). In *New folder* mode with no folder chosen yet, you are asked to
    pick one first. Cancel with ⌘. at any time; files already finished stay, and no half-written
    files are left.
