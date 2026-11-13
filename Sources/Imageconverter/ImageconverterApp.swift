@@ -133,14 +133,14 @@ private struct MainWindowContent: View {
     }
     #endif
 
-    /// Centred on the sidebar/preview border, or just inside the window's right edge when the preview is hidden.
+    /// In the sidebar's trailing padding, at the same spot whether the preview is shown or hidden
+    /// (so it never jumps under the pointer), fully inside the window when the preview is hidden.
     private var previewHandle: some View {
         let collapsed = model.previewCollapsed
         let halfWidth = EdgeHandle.thickness / 2 + EdgeHandle.hitMargin
         return EdgeHandle(edge: .trailing, pointsOutward: collapsed,
                           label: collapsed ? "Show preview" : "Hide preview") { model.togglePreview() }
-            .offset(x: collapsed ? halfWidth - LadaGlass.Spacing.m / 2 : halfWidth)
-            .animation(.easeInOut(duration: WindowSizer.animationDuration), value: collapsed)
+            .offset(x: halfWidth - LadaGlass.Spacing.m / 2)
     }
 }
 
