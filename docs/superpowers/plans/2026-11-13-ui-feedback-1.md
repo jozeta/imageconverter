@@ -469,3 +469,37 @@ Example to support end to end: watched folder "Incoming Images" → resize 2048 
 - URL scheme `imageconverter://`: `open`, `preset?name=…` (selects a preset), `add?path=…` (adds files; paths must exist and be readable), `jobs/run?name=…`. URLs are untrusted (any web page can open them): never start a conversion, write or overwrite without an in-app confirmation sheet naming what will happen; reject unknown hosts/params; cap lengths.
 - Verification of Services/AppleScript/URL registration happens in milestone 6 with the real bundle; here unit-test the URL parser and the script command logic.
 - [ ] Commit `feat(app): Finder quick action via Services, AppleScript commands and URL scheme`.
+
+## Performance round (Johan, 2026-11-14: "performance should be a priority")
+
+Already present: parallel batch (TaskGroup), memory-weighted scheduling (`WorkWindow`, peak pixels), NSCache thumbnails, header-only reads, 250 MP guard, cancellation, overall progress, preview cache rules.
+
+### Task 33: Engine: pause/resume, per-image events, adaptive workers, low-memory mode, decode-time downsampling, retry, journal, priority (Core)
+
+**Files:** `BatchRunner.swift`, `WorkWindow.swift`, `ImageLoader.swift`, `Pipeline.swift` (a `decodeHint`), `Adjustments.swift` (+ any CI user: one shared Metal-backed `CIContext`); Create `Sources/ImageconverterCore/BatchControl.swift`, `Sources/ImageconverterCore/RunJournal.swift`, `Sources/ImageconverterCore/SharedCIContext.swift`; Tests `BatchControlTests.swift`, `RunJournalTests.swift`, `ImageLoaderTests.swift`, `BatchRunnerTests.swift`
+- `BatchControl` (actor or lock-protected class passed to `BatchRunner.run`): `pause()`, `resume()`, `isPaused`, `prioritize(_ sources: [URL])` (moves not-yet-started items to the front), `setLowMemory(Bool)`. Paused = no new items start; in-flight items finish (never interrupt a commit). Cancellation unchanged.
+- Per-image events: `ItemEvent { index, source, stage: queued|decoding|processing|encoding|writing|done|failed(reason)|skipped, inputBytes?, outputBytes?, duration? }` delivered through a new `events:` callback (keep `progress:` for compatibility, derived from events).
+- Adaptive workers: max concurrency = active cores; reduced to half when `ProcessInfo.thermalState` is `.serious`, to 1 at `.critical`; a `DispatchSource.makeMemoryPressureSource` warning halves the memory budget, critical drops to 1 worker until normal; low-memory mode = 2 workers, budget ÷ 4, no full-size caching anywhere. Re-evaluated between items.
+- Decode-time downsampling: when the pipeline's first geometry-changing step is a resize that only shrinks (no crop/rotate-by-angle/perspective/trim before it, and no step before it that reads pixels at full size), decode with `CGImageSourceCreateThumbnailAtIndex` at `kCGImageSourceThumbnailMaxPixelSize` = 2 × the resize's target long edge (capped at the source size) with transform, then let the resize step finish with the chosen resampler. Results must match the non-downsampled path within a small tolerance (test with PSNR > 40 dB); metadata still comes from the original source.
+- Retry: a file that fails with an out-of-memory/decoding/encoding error (not "unreadable", not "can't get under size", not a watermark error) is retried once at the end of the batch with concurrency 1 and low-memory decode; the report notes "Succeeded on retry".
+- `RunJournal`: written at run start to `Application Support/imageconverter/journal.json` (sources, pipeline, output mode, completed indices, updated every ≤ 1 s / 20 items), deleted on normal finish or cancel; `RunJournal.pending()` returns an interrupted run on next launch. Also: before planning, delete stale `.imageconverter-*.tmp` files older than 1 hour in the destination folders of the run (only files matching the exact temp pattern).
+- One shared Metal-backed `CIContext` (`MTLCreateSystemDefaultDevice`, fallback software; `cacheIntermediates: false`, working space linear extended sRGB) used by all Core Image steps.
+- [ ] Tests: `testPauseStopsNewItemsResumeContinues`, `testPrioritizeMovesItemsForward`, `testEventsStageOrder`, `testLowMemoryLimitsConcurrency`, `testDecodeDownsampleMatchesFullPath` (PSNR > 40 dB, peak memory lower: compare decoded pixel counts), `testDownsampleNotUsedWhenCropFirst`, `testRetrySucceedsOnTransientFailure` (inject a failing-once encoder hook), `testJournalWrittenAndClearedAndRecovered`, `testStaleTempFilesRemovedOnlyByPattern`.
+- [ ] Commit `perf(core): pause/resume, per-image events, adaptive workers, low-memory mode, decode-time downsampling, retry and run journal`.
+
+### Task 34: Metrics: CPU, memory, throughput, ETA (Core)
+
+**Files:** Create `Sources/ImageconverterCore/RunMetrics.swift`, `Sources/ImageconverterCore/ResourceSampler.swift`; Tests `RunMetricsTests.swift`
+- `ResourceSampler.sample() -> (cpuPercent: Double /* this process, all cores, via task_info thread times delta */, memoryBytes: UInt64 /* phys_footprint from task_vm_info */)`.
+- `RunMetrics` fed by `ItemEvent`s: images/s and megapixels/s (exponential moving average, 10 s window), elapsed, ETA = remaining source megapixels ÷ recent megapixels/s (falls back to item count before 3 items finish; nil until then), bytes in/out so far, saving %.
+- [ ] Tests with an injected clock: `testETAFromPixelsThroughput`, `testETANilUntilThreeItems`, `testThroughputMovingAverage`, `testSamplerReturnsPlausibleValues`. Commit `feat(core): run metrics and resource sampling`.
+
+### Task 35: Performance UI
+
+**Files:** `SidebarView.swift`, `PreviewPane.swift` (progress area), `AppModel.swift`, list view from Task 28 (per-item stage), `ImageconverterApp.swift`
+- Progress area: overall bar, "12 / 124 · 3.4 img/s · about 2 min left", Pause/Resume and Cancel buttons (⌘. cancel; ⌥⌘. pause/resume menu item); per-item stage shown in the list view and as a small ring on filmstrip/grid thumbnails (queued/working/done/failed).
+- A "Performance" disclosure (in the progress area, also after a run): CPU %, memory, workers in use, img/s, MP/s, elapsed; sampled every 1 s while running only.
+- Settings-like toggle "Low-memory mode" in the View or File menu and in the performance disclosure (persisted).
+- On launch, if `RunJournal.pending()` exists: a sheet "The last batch was interrupted (37 of 124 done). Resume / Discard" (resume re-adds the pending items, pipeline and output mode; files still missing are reported).
+- Preview/estimate tasks run at `.userInitiated`, batch work at `.utility` so the UI stays responsive; selected-item preview gets priority while a batch runs (the preview is no longer reset during a run when memory allows, i.e. not in low-memory mode).
+- [ ] Build/test/lint, screenshots (a 30-image batch via `-debugAddFiles` with a synthetic folder), README "Performance" section, commit `feat(app): pause/resume, ETA, per-image progress, performance panel, low-memory mode, resume interrupted batches`.
