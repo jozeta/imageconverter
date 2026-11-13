@@ -58,9 +58,8 @@ final class AppModel {
     @ObservationIgnored var previewGeneration = 0
     @ObservationIgnored var estimateTask: Task<Void, Never>?
     @ObservationIgnored var estimateKey: EstimateKey?
-    @ObservationIgnored var expandedWindowWidth: CGFloat?
-    /// The main window, captured by `WindowAccessor`; the preview toggle resizes this one.
-    @ObservationIgnored weak var mainWindow: NSWindow?
+    /// Sizes the main window to its panels and animates the preview and pipeline toggles.
+    @ObservationIgnored let windowSizer: WindowSizer
     @ObservationIgnored var previewMode: OutputMode?
     @ObservationIgnored let previewRenderer = PreviewRenderer()
     @ObservationIgnored let thumbnailCache: NSCache<NSURL, CGImageBox> = {
@@ -85,6 +84,7 @@ final class AppModel {
         self.presetStore = presetStore
         previewCollapsed = defaults.bool(forKey: Self.previewCollapsedKey)
         pipelineCollapsed = defaults.bool(forKey: Self.pipelineCollapsedKey)
+        windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey))
         let saved = Self.loadPipeline(from: defaults)
         session = PresetSession(selected: nil, pipeline: saved)
         let result = presetStore.loadAll()

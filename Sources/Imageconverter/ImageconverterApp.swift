@@ -13,21 +13,13 @@ struct ImageconverterApp: App {
 
     var body: some Scene {
         WindowGroup("imageconverter") {
-            HStack(spacing: 0) {
-                SidebarView(model: model, settings: settings)
-                    .frame(minWidth: 340, idealWidth: 360, maxWidth: 380)
-                if !model.previewCollapsed {
-                    PreviewPane(model: model)
-                        .frame(minWidth: 420)
+            MainWindowContent(model: model, settings: settings)
+                .onChange(of: PreviewRequest(model: model, mode: settings.outputMode), initial: true) { _, request in
+                    model.schedulePreview(mode: request.mode)
+                    model.scheduleEstimate()
                 }
-            }
-            .frame(minHeight: 420)
-            .background(WindowAccessor { model.mainWindow = $0 })
-            .onChange(of: PreviewRequest(model: model, mode: settings.outputMode), initial: true) { _, request in
-                model.schedulePreview(mode: request.mode)
-                model.scheduleEstimate()
-            }
         }
+        .windowResizability(.contentSize)
         .commands {
             CommandGroup(after: .saveItem) {
                 Button("Save Preset") { model.saveCurrent() }
@@ -37,6 +29,10 @@ struct ImageconverterApp: App {
             CommandGroup(after: .toolbar) {
                 Button(model.previewCollapsed ? "Show Preview" : "Hide Preview") { model.togglePreview() }
                     .keyboardShortcut("p", modifiers: [.option, .command])
+                Button(model.pipelineCollapsed ? "Expand Pipeline" : "Collapse Pipeline") {
+                    model.pipelineCollapsed.toggle()
+                }
+                .keyboardShortcut("l", modifiers: [.option, .command])
             }
             CommandGroup(replacing: .newItem) {
                 Button("Add Images…") { model.chooseInputs() }
@@ -50,6 +46,57 @@ struct ImageconverterApp: App {
                     .disabled(!model.isRunning)
             }
         }
+    }
+}
+
+/// The sidebar and the preview side by side, sized by `WindowSizer`: the sidebar has a fixed width,
+/// the preview fills the rest, and the window edge clips the preview while it slides in or out.
+private struct MainWindowContent: View {
+    @Bindable var model: AppModel
+    var settings: AppSettings
+
+    var body: some View {
+        let sizer = model.windowSizer
+        let frozen = sizer.previewFrozenWidth
+        HStack(spacing: 0) {
+            SidebarView(model: model, settings: settings)
+                .frame(width: WindowSizer.sidebarWidth)
+                .overlay(alignment: .trailing) { previewHandle }
+                .overlay(alignment: .bottom) { pipelineHandle }
+                // Above the preview, so the handle on the shared border is drawn and clickable.
+                .zIndex(1)
+            if sizer.previewMounted {
+                PreviewPane(model: model)
+                    .frame(width: frozen)
+                    .frame(minWidth: frozen ?? WindowSizer.previewMinWidth, maxWidth: frozen ?? .infinity)
+            }
+        }
+        .frame(minWidth: sizer.widthRange.lowerBound, maxWidth: sizer.widthRange.upperBound,
+               minHeight: sizer.heightRange.lowerBound, maxHeight: sizer.heightRange.upperBound,
+               alignment: .topLeading)
+        .clipped()
+        .background(WindowAccessor { sizer.attach($0) })
+    }
+
+    /// Centred on the sidebar/preview border, or just inside the window's right edge when the preview is hidden.
+    private var previewHandle: some View {
+        let collapsed = model.previewCollapsed
+        let halfWidth = EdgeHandle.thickness / 2 + EdgeHandle.hitMargin
+        return EdgeHandle(edge: .trailing, pointsOutward: collapsed,
+                          label: collapsed ? "Show preview" : "Hide preview") { model.togglePreview() }
+            .offset(x: collapsed ? halfWidth - LadaGlass.Spacing.m / 2 : halfWidth)
+            .animation(.easeInOut(duration: WindowSizer.animationDuration), value: collapsed)
+    }
+
+    /// Centred in the padding under the sidebar panel, on the window's bottom edge.
+    private var pipelineHandle: some View {
+        let collapsed = model.pipelineCollapsed
+        let halfHeight = EdgeHandle.thickness / 2 + EdgeHandle.hitMargin
+        return EdgeHandle(edge: .bottom, pointsOutward: collapsed,
+                          label: collapsed ? "Expand pipeline" : "Collapse pipeline") {
+            model.pipelineCollapsed.toggle()
+        }
+        .offset(y: halfHeight - LadaGlass.Spacing.m / 2)
     }
 }
 
@@ -70,7 +117,7 @@ private struct PreviewRequest: Equatable {
     }
 }
 
-/// Hands the hosting window to `onWindow` once the view is in one, so the model knows which window is the main one.
+/// Hands the hosting window to `onWindow` once the view is in one, so `WindowSizer` knows which window to size.
 private struct WindowAccessor: NSViewRepresentable {
     let onWindow: (NSWindow?) -> Void
 

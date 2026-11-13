@@ -34,13 +34,7 @@ struct PreviewPane: View {
     }
 
     private var header: some View {
-        HStack {
-            Text("Preview").font(LadaGlass.Typography.subtitle)
-            Spacer()
-            Button("Hide preview") { model.togglePreview() }
-                .buttonStyle(.lg(.ghost))
-                .accessibilityLabel("Hide the preview")
-        }
+        Text("Preview").font(LadaGlass.Typography.subtitle)
     }
 
     private var spinner: some View {

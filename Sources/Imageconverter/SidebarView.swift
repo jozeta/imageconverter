@@ -19,7 +19,11 @@ struct SidebarView: View {
             }
             .lgPanel()
             .padding(LadaGlass.Spacing.m)
+            .background {
+                GeometryReader { Color.clear.preference(key: SidebarContentHeightKey.self, value: $0.size.height) }
+            }
         }
+        .onPreferenceChange(SidebarContentHeightKey.self) { model.windowSizer.contentHeightChanged($0) }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .lgBackdrop()
         .lgCompact()
@@ -54,11 +58,6 @@ struct SidebarView: View {
         HStack {
             LGChip("\(model.items.count) \(model.items.count == 1 ? "image" : "images")", status: .neutral)
             Spacer()
-            if model.previewCollapsed {
-                Button("Show preview") { model.togglePreview() }
-                    .buttonStyle(.lg(.ghost))
-                    .accessibilityLabel("Show the preview")
-            }
             Button("Clear") { model.clear() }
                 .buttonStyle(.lg(.ghost))
                 .disabled(model.items.isEmpty || model.isRunning)
@@ -107,4 +106,10 @@ struct SidebarView: View {
             .font(LadaGlass.Typography.body)
         }
     }
+}
+
+/// The natural height of the sidebar's content (panel plus outer padding); the window height follows it.
+private struct SidebarContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
 }

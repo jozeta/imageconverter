@@ -7,7 +7,6 @@ extension AppModel {
     /// Wait after the last change before a preview render starts.
     static let previewDebounce = Duration.milliseconds(300)
     nonisolated static let thumbnailPixels = 64
-    static let sidebarWidth: CGFloat = 360
 
     /// The selected image's index, kept inside `items` (nil when the batch is empty).
     var selectedItemIndex: Int? {
@@ -20,23 +19,11 @@ extension AppModel {
         selectedIndex = min(max(current + offset, 0), items.count - 1)
     }
 
-    /// Flips the preview pane, then moves the window edge: hiding shrinks the window to the sidebar,
-    /// showing restores the width it had before.
+    /// Flips the preview pane; `WindowSizer` animates the window edge (hiding shrinks the window to the
+    /// sidebar, showing restores the preview width it had before).
     func togglePreview() {
-        let window = mainWindow
-        let before = window?.frame.width ?? 0
-        if !previewCollapsed, before > 0 { expandedWindowWidth = before }
         previewCollapsed.toggle()
-        let target = previewCollapsed ? Self.sidebarWidth : (expandedWindowWidth ?? before + 440)
-        // Wait a runloop so SwiftUI has applied the new minimum size before the frame is set.
-        DispatchQueue.main.async {
-            guard let window else { return }
-            var frame = window.frame
-            var width = target
-            if let visible = window.screen?.visibleFrame { width = min(width, visible.width) }
-            frame.size.width = max(width, window.minSize.width)
-            window.setFrame(frame, display: true, animate: true)
-        }
+        windowSizer.setPreviewShown(!previewCollapsed)
     }
 
     /// After a run, forgets items whose file is gone (overwrite mode trashes originals when the format changes).

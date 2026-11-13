@@ -73,15 +73,9 @@ struct PipelineSection: View {
     }
 
     private var header: some View {
-        HStack {
-            Text("Pipeline · \(enabledCount) \(enabledCount == 1 ? "step" : "steps")")
-                .font(LadaGlass.Typography.label)
-                .foregroundStyle(LadaGlass.Colors.muted)
-            Spacer()
-            Button(isCollapsed ? "Expand" : "Collapse") { model.pipelineCollapsed.toggle() }
-                .buttonStyle(.lg(.ghost))
-                .accessibilityLabel(isCollapsed ? "Expand the pipeline" : "Collapse the pipeline")
-        }
+        Text("Pipeline · \(enabledCount) \(enabledCount == 1 ? "step" : "steps")")
+            .font(LadaGlass.Typography.label)
+            .foregroundStyle(LadaGlass.Colors.muted)
     }
 
     private var addMenu: some View {

@@ -41,6 +41,9 @@ swiftlint           # if installed (brew install swiftlint)
     `PresetBar.swift` and `AppModel+Presets.swift` (preset picker, save/rename/delete),
     `PreviewPane.swift` (before/after, name and size line), `Filmstrip.swift` (thumbnails, ←/→),
     `AppModel+Preview.swift` (selection, 300 ms debounced render task with a generation counter, thumbnail cache).
+    `WindowSizer.swift` (window size fits the panels: fixed 360 pt sidebar, height = measured sidebar content,
+    animated preview/pipeline toggles via `NSAnimationContext`; the root view applies its ranges with
+    `.windowResizability(.contentSize)`), `EdgeHandle.swift` (grab handles on the panel edges).
     `previewCollapsed` and `pipelineCollapsed` are persisted in UserDefaults
 - `Sources/ImageconverterCore/`: all logic: the pipeline model, each operation as a pure function
   (`CGImage → CGImage`, metadata → metadata), rename templating, collision naming, presets
