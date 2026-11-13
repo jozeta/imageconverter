@@ -8,7 +8,7 @@ on your Mac: no uploads, no network access at all.
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 0.1.0 · **Status:** early development (design agreed, features not built yet).
+**Version:** 0.1.0 · **Status:** early development (milestone 1, batch conversion, works; the pipeline steps are coming).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -68,7 +68,7 @@ Requires macOS 14 (Sonoma) or later.
 
 ## Configuration
 
-Settings (⌘,), as planned for 1.0:
+Settings (⌘,). The three output settings below work now; everything else in this README is planned.
 
 | Setting | Options | Default |
 |---------|---------|---------|
@@ -81,13 +81,29 @@ In this mode, when the format or name changes (for example HEIC → JPEG), the n
 and the original is **moved to the Trash**. In "New folder" mode, dropped folders keep their
 subfolder structure.
 
-The app is sandboxed. It can only touch files and folders you drop or pick. When you drop loose
-files and write next to them, it asks once per folder for access and remembers your answer.
+Planned for the signed 1.0 release: the app will be sandboxed, so it can only touch files and
+folders you drop or pick. When you drop loose files and write next to them, it will ask once per
+folder for access and remember your answer. Until then it runs unsandboxed.
 
 ## How to
 
-(Short how-tos for each main task once the features exist: convert a batch, build and save a
-preset, rename by date and camera, strip GPS before sharing, add a watermark.)
+### Convert a batch
+
+1. Drop images or folders onto the window, or press **Add…** (⌘O). Folders are searched
+   recursively; unreadable files are skipped later, not at this step.
+2. Under **Output**, pick a format (JPEG, PNG, HEIC, TIFF, plus GIF, BMP and JPEG 2000 where your
+   Mac can write them). JPEG, HEIC and JPEG 2000 have a quality slider; TIFF has a compression
+   choice.
+3. Check the one-line output summary. **Change…** opens Settings (⌘,) to switch between *New
+   folder*, *Same folder, new name* and *Overwrite originals*.
+4. Press **Run on N images** (⌘R). In *New folder* mode with no folder chosen yet, you are asked to
+   pick one first. Cancel with ⌘. at any time; files already finished stay, and no half-written
+   files are left.
+5. When it ends, a notice shows the result. Files that could not be converted are listed in the
+   sidebar (name and reason) until the next run.
+
+(More how-tos once the features exist: build and save a preset, rename by date and camera, strip
+GPS before sharing, add a watermark.)
 
 ## Tests
 

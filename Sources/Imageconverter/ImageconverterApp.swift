@@ -3,6 +3,9 @@ import ImageconverterCore
 
 @main
 struct ImageconverterApp: App {
+    @State private var model = AppModel()
+    @State private var settings = AppSettings()
+
     init() {
         // A SwiftPM executable starts as a background process; make it a regular app with a window.
         NSApplication.shared.setActivationPolicy(.regular)
@@ -10,23 +13,24 @@ struct ImageconverterApp: App {
 
     var body: some Scene {
         WindowGroup("imageconverter") {
-            ContentView()
-                .frame(minWidth: 520, minHeight: 340)
+            SidebarView(model: model, settings: settings)
+                .frame(minWidth: 340, minHeight: 420)
         }
-    }
-}
-
-struct ContentView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
-            Text("imageconverter").font(LadaGlass.Typography.title)
-            Text(greeting(for: "world")).foregroundStyle(LadaGlass.Colors.muted)
-            LGChip("Ready", status: .ok)
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("Add Images…") { model.chooseInputs() }
+                    .keyboardShortcut("o", modifiers: .command)
+                    .disabled(model.isRunning)
+                Button("Run") { model.run(settings: settings) }
+                    .keyboardShortcut("r", modifiers: .command)
+                    .disabled(model.items.isEmpty || model.isRunning || model.isAdding)
+                Button("Cancel Run") { model.cancel() }
+                    .keyboardShortcut(".", modifiers: .command)
+                    .disabled(!model.isRunning)
+            }
         }
-        .lgPanel()
-        .padding(LadaGlass.Spacing.l)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .lgBackdrop()
-        .lgCompact()
+        Settings {
+            SettingsView(settings: settings)
+        }
     }
 }
