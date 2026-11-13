@@ -77,4 +77,28 @@ final class FileStepsModelTests: XCTestCase {
         try Data("not an image".utf8).write(to: url)
         XCTAssertNil(ImageLoader.header(of: url))
     }
+
+    func testUnknownStepKindIsSkipped() throws {
+        let first = PipelineStep(operation: .colorProfile(.sRGB))
+        let last = PipelineStep(operation: .rotateFlip(RotateFlipOptions()))
+        let encoder = JSONEncoder()
+        let one = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(first)))
+        let two = try XCTUnwrap(JSONSerialization.jsonObject(with: encoder.encode(last)))
+        let bogus: [String: Any] = ["id": UUID().uuidString, "isEnabled": true, "operation": ["sparkle": ["amount": 3]]]
+        let json: [String: Any] = ["steps": [one, bogus, two]]
+        let data = try JSONSerialization.data(withJSONObject: json)
+        let decoded = try JSONDecoder().decode(Pipeline.self, from: data)
+        XCTAssertEqual(decoded.steps, [first, last])
+    }
+
+    func testPartialNestedObjectsTakeDefaults() throws {
+        let json = """
+        {"metadata": {"isEnabled": true}, "rename": {"pattern": "{date}"}, "output": {"format": "png"}}
+        """
+        let decoded = try JSONDecoder().decode(Pipeline.self, from: Data(json.utf8))
+        XCTAssertEqual(decoded.metadata, MetadataOptions(isEnabled: true))
+        XCTAssertEqual(decoded.rename, RenameOptions(pattern: "{date}"))
+        XCTAssertEqual(decoded.output, OutputSettings(format: .png))
+        XCTAssertEqual(decoded.output.quality, 0.82)
+    }
 }

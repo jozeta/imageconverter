@@ -205,10 +205,19 @@ public struct Pipeline: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
-        steps = try container.decodeIfPresent([PipelineStep].self, forKey: .steps) ?? []
+        // Element by element: a step this version can't read is skipped, the others are kept in order.
+        steps = (try container.decodeIfPresent([LossyStep].self, forKey: .steps) ?? []).compactMap(\.step)
         output = try container.decodeIfPresent(OutputSettings.self, forKey: .output) ?? OutputSettings()
         metadata = try container.decodeIfPresent(MetadataOptions.self, forKey: .metadata) ?? MetadataOptions()
         rename = try container.decodeIfPresent(RenameOptions.self, forKey: .rename) ?? RenameOptions()
+    }
+}
+
+private struct LossyStep: Decodable {
+    let step: PipelineStep?
+
+    init(from decoder: Decoder) throws {
+        step = try? PipelineStep(from: decoder)
     }
 }
 
