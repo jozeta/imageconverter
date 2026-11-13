@@ -59,26 +59,12 @@ public struct CropOptions: Codable, Equatable, Sendable {
     }
 }
 
-public enum Rotation: Int, Codable, CaseIterable, Sendable {
-    case none = 0, cw90 = 90, cw180 = 180, cw270 = 270
-}
-
-public struct RotateFlipOptions: Codable, Equatable, Sendable {
-    public var rotation: Rotation
-    public var flipHorizontal: Bool
-    public var flipVertical: Bool
-
-    public init(rotation: Rotation = .cw90, flipHorizontal: Bool = false, flipVertical: Bool = false) {
-        self.rotation = rotation
-        self.flipHorizontal = flipHorizontal
-        self.flipVertical = flipVertical
-    }
-}
-
 public enum CanvasMode: Codable, Equatable, Sendable {
     case padding(pixels: Int)
     case paddingPercent(Double)
     case size(width: Int, height: Int)
+    /// Grows the canvas (never crops) to this aspect ratio.
+    case aspect(width: Double, height: Double)
 }
 
 public struct CanvasOptions: Codable, Equatable, Sendable {
@@ -107,13 +93,15 @@ public enum ColorProfile: String, Codable, CaseIterable, Sendable {
 }
 
 public enum StepKind: String, Codable, CaseIterable, Sendable {
-    case resize, crop, rotateFlip, canvas, colorProfile, adjust, watermark
+    case resize, crop, rotateFlip, perspective, trim, canvas, colorProfile, adjust, watermark
 
     public var displayName: String {
         switch self {
         case .resize: return "Resize"
         case .crop: return "Crop"
         case .rotateFlip: return "Rotate / flip"
+        case .perspective: return "Perspective"
+        case .trim: return "Trim"
         case .canvas: return "Canvas / padding"
         case .colorProfile: return "Color profile"
         case .adjust: return "Adjust"
@@ -126,6 +114,8 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .resize: return .resize(ResizeOptions())
         case .crop: return .crop(CropOptions())
         case .rotateFlip: return .rotateFlip(RotateFlipOptions())
+        case .perspective: return .perspective(PerspectiveOptions())
+        case .trim: return .trim(TrimOptions())
         case .canvas: return .canvas(CanvasOptions())
         case .colorProfile: return .colorProfile(.sRGB)
         case .adjust: return .adjust(AdjustOptions())
@@ -138,6 +128,8 @@ public enum ImageOperation: Codable, Equatable, Sendable {
     case resize(ResizeOptions)
     case crop(CropOptions)
     case rotateFlip(RotateFlipOptions)
+    case perspective(PerspectiveOptions)
+    case trim(TrimOptions)
     case canvas(CanvasOptions)
     case colorProfile(ColorProfile)
     case adjust(AdjustOptions)
@@ -148,6 +140,8 @@ public enum ImageOperation: Codable, Equatable, Sendable {
         case .resize: return .resize
         case .crop: return .crop
         case .rotateFlip: return .rotateFlip
+        case .perspective: return .perspective
+        case .trim: return .trim
         case .canvas: return .canvas
         case .colorProfile: return .colorProfile
         case .adjust: return .adjust
@@ -217,16 +211,22 @@ extension Pipeline {
             case .resize(let options): current = try ImageOps.resize(current, options)
             case .crop(let options): current = try ImageOps.crop(current, options)
             case .rotateFlip(let options): current = try ImageOps.rotateFlip(current, options)
+            case .perspective(let options): current = try Perspective.apply(options, to: current)
+            case .trim(let options): current = try Trim.apply(options, to: current)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
             case .colorProfile(let profile): current = try ImageOps.convertColor(current, to: profile)
             case .adjust(let options): current = try Adjustments.apply(options, to: current)
             case .watermark(let options):
-                var asset: CGImage?
-                if case .image(let watermark) = options.content { asset = assets.image(for: watermark.path) }
-                current = try ImageOps.watermark(current, options, asset: asset)
+                current = try ImageOps.watermark(current, options, asset: Self.asset(for: options, in: assets))
             }
         }
         return current
+    }
+
+    /// The loaded image of an image watermark; nil for text.
+    private static func asset(for options: WatermarkOptions, in assets: WatermarkAssets) -> CGImage? {
+        guard case .image(let watermark) = options.content else { return nil }
+        return assets.image(for: watermark.path)
     }
 }
 
@@ -237,10 +237,12 @@ extension Pipeline {
         var peak = 0
         walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { size, operation in
             let pixels = Self.pixels(size)
-            // Core Image keeps intermediates: count an adjust step as 3 working copies of its input.
-            if case .adjust(let options) = operation, !options.isNeutral {
-                let (tripled, overflow) = pixels.multipliedReportingOverflow(by: 3)
-                peak = max(peak, overflow ? Int.max : tripled)
+            // Core Image keeps intermediates: count its steps as 3 working copies of the input.
+            // Trim scans an 8-bit copy of its input next to the input itself.
+            let copies = operation.map { Self.workingCopies($0) } ?? 1
+            if copies > 1 {
+                let (product, overflow) = pixels.multipliedReportingOverflow(by: copies)
+                peak = max(peak, overflow ? Int.max : product)
             }
             if case .resize(let options) = operation {
                 peak = max(peak, Self.resizeWorkingPixels(input: size, options: options))
@@ -280,12 +282,25 @@ extension Pipeline {
         case .crop(let options):
             return Geometry.cropRect(source: size, options: options).size
         case .rotateFlip(let options):
-            let swapped = options.rotation == .cw90 || options.rotation == .cw270
-            return swapped ? CGSize(width: size.height, height: size.width) : size
+            return Geometry.rotated(source: size, options: options)
+        case .perspective(let options):
+            // Auto correction depends on the content; the manual keystone is planned from the size alone.
+            return Geometry.perspectiveCrop(source: size, options: options)?.size ?? size
         case .canvas(let options):
             return Geometry.canvas(source: size, options: options).canvas
-        case .colorProfile, .adjust, .watermark:
+        case .trim, .colorProfile, .adjust, .watermark:
+            // Trim only ever shrinks, by an amount that depends on the content: the input is an upper bound.
             return size
+        }
+    }
+
+    /// How many input-sized images a step holds at once beyond its output (1 for plain drawing).
+    static func workingCopies(_ operation: ImageOperation) -> Int {
+        switch operation {
+        case .adjust(let options): return options.isNeutral ? 1 : 3
+        case .perspective(let options): return options == PerspectiveOptions() ? 1 : 3
+        case .trim: return 2
+        default: return 1
         }
     }
 

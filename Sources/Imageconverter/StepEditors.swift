@@ -34,6 +34,11 @@ struct StepEditor: View {
             AdjustEditor(options: Binding(
                 get: { if case .adjust(let opts) = operation { return opts } else { return AdjustOptions() } },
                 set: { operation = .adjust($0) }))
+        case .perspective, .trim:
+            // Placeholder until the editors for these steps arrive.
+            Text("Settings arrive in the next update")
+                .font(LadaGlass.Typography.label)
+                .foregroundStyle(LadaGlass.Colors.muted)
         case .watermark:
             WatermarkEditor(options: Binding(
                 get: { if case .watermark(let opts) = operation { return opts } else { return WatermarkOptions() } },
@@ -146,7 +151,7 @@ private struct CanvasEditor: View {
     @Binding var options: CanvasOptions
 
     private enum Kind: String, CaseIterable {
-        case padding = "Padding px", percent = "Padding %", size = "Canvas size"
+        case padding = "Padding px", percent = "Padding %", size = "Canvas size", aspect = "Aspect"
     }
 
     private var kind: Kind {
@@ -154,6 +159,7 @@ private struct CanvasEditor: View {
         case .padding: return .padding
         case .paddingPercent: return .percent
         case .size: return .size
+        case .aspect: return .aspect
         }
     }
 
@@ -172,6 +178,7 @@ private struct CanvasEditor: View {
                     case .padding: options.mode = .padding(pixels: pixels)
                     case .percent: options.mode = .paddingPercent(percent)
                     case .size: options.mode = .size(width: size.wide, height: size.high)
+                    case .aspect: options.mode = .aspect(width: 1, height: 1)
                     }
                 })) {
                 ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
@@ -199,6 +206,11 @@ private struct CanvasEditor: View {
                     Text("Anchor").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                     AnchorPicker(anchor: $options.anchor)
                 }
+            case .aspect:
+                // Placeholder until the aspect fields arrive.
+                Text("Settings arrive in the next update")
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
             }
             Toggle("Transparent", isOn: Binding(
                 get: { options.background.alpha == 0 },

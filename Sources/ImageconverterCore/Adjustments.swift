@@ -121,7 +121,7 @@ public struct AdjustOptions: Codable, Equatable, Sendable {
 public enum Adjustments {
     /// Created once; `CIContext` is thread-safe. Linear extended sRGB keeps out-of-gamut and HDR values.
     /// No intermediate cache: each image is rendered once, and a parallel batch would only pile up memory.
-    private static let context: CIContext = {
+    static let context: CIContext = {
         var options: [CIContextOption: Any] = [.useSoftwareRenderer: false, .workingFormat: CIFormat.RGBAh,
                                                .cacheIntermediates: false]
         if let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) { options[.workingColorSpace] = linear }
@@ -138,20 +138,25 @@ public enum Adjustments {
         // Clamped so blur-based filters see edge pixels instead of transparent black outside the image.
         let source = CIImage(cgImage: image).clampedToExtent()
         let output = filtered(source, options, shortSide: Double(min(image.width, image.height))).cropped(to: extent)
+        return try render(output, from: extent, like: image, step: step)
+    }
 
+    /// Renders the `rect` part of `output` into a bitmap like `image`'s, so the bit depth, colour space and
+    /// alpha match it. Shared by every Core Image step.
+    static func render(_ output: CIImage, from rect: CGRect, like image: CGImage, step: String) throws -> CGImage {
         let alpha = ImageOps.hasAlpha(image)
         // Core Image renders RGBA only: non-RGB sources (gray, CMYK, indexed) come out in sRGB.
         let space = image.colorSpace?.model == .rgb ? image.colorSpace : CGColorSpace(name: CGColorSpace.sRGB)
-        guard let ctx = ImageOps.makeContext(width: image.width, height: image.height, like: image, space: space,
-                                             alpha: alpha),
+        let width = Int(rect.width)
+        let height = Int(rect.height)
+        guard let ctx = ImageOps.makeContext(width: width, height: height, like: image, space: space, alpha: alpha),
               let target = ctx.colorSpace,
-              let rendered = context.createCGImage(output, from: extent,
+              let rendered = context.createCGImage(output, from: rect,
                                                    format: ctx.bitsPerComponent > 8 ? .RGBA16 : .RGBA8,
                                                    colorSpace: target) else {
             throw ConversionError.processingFailed(step)
         }
-        // Drawn into a context like the source's, so the bit depth, colour space and alpha match it.
-        ctx.draw(rendered, in: extent)
+        ctx.draw(rendered, in: CGRect(x: 0, y: 0, width: width, height: height))
         guard let result = ctx.makeImage() else { throw ConversionError.processingFailed(step) }
         return result
     }

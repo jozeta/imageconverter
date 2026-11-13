@@ -7,6 +7,8 @@ extension ImageOperation {
         case .resize(let options): return Self.summary(of: options)
         case .crop(let options): return Self.summary(of: options.mode) + " · " + options.anchor.displayName
         case .rotateFlip(let options): return Self.summary(of: options)
+        case .perspective(let options): return Self.summary(of: options)
+        case .trim(let options): return Self.summary(of: options)
         case .canvas(let options): return Self.summary(of: options.mode)
         case .colorProfile(let profile): return profile.displayName
         case .adjust(let options): return options.summary
@@ -61,6 +63,11 @@ extension ImageOperation {
         case (false, true): parts.append("flip V")
         case (false, false): break
         }
+        let angle = options.effectiveAngle
+        if angle != 0 {
+            let verb = options.angleFill == .cropToFit ? "straighten" : "rotate"
+            parts.append("\(verb) \(signed(angle, plus: false))°")
+        }
         return parts.isEmpty ? "no change" : parts.joined(separator: " · ")
     }
 
@@ -69,7 +76,41 @@ extension ImageOperation {
         case .padding(let pixels): return "+\(pixels) px"
         case .paddingPercent(let percent): return "+\(number(percent)) %"
         case .size(let width, let height): return "\(width) × \(height)"
+        case .aspect(let width, let height): return "\(number(width)):\(number(height))"
         }
+    }
+
+    private static func summary(of options: PerspectiveOptions) -> String {
+        var parts: [String] = []
+        if options.auto { parts.append("auto") }
+        let vertical = PerspectiveOptions.clamped(options.vertical)
+        let horizontal = PerspectiveOptions.clamped(options.horizontal)
+        if vertical != 0 { parts.append("vertical " + signed(vertical)) }
+        if horizontal != 0 { parts.append("horizontal " + signed(horizontal)) }
+        return parts.isEmpty ? "no change" : parts.joined(separator: " · ")
+    }
+
+    private static func summary(of options: TrimOptions) -> String {
+        var parts: [String]
+        switch options.mode {
+        case .transparent: parts = ["transparent"]
+        case .edgeColor: parts = ["edge color"]
+        case .color(let color): parts = [hex(color)]
+        }
+        parts.append("\(number(TrimOptions.clampedTolerance(options.tolerance))) %")
+        if options.padding > 0 { parts.append("+\(options.padding) px") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// `+20` / `−10` (a real minus sign); `plus: false` leaves positive numbers bare.
+    private static func signed(_ value: Double, plus: Bool = true) -> String {
+        if value < 0 { return "−" + number(-value) }
+        return (plus ? "+" : "") + number(value)
+    }
+
+    private static func hex(_ color: RGBAColor) -> String {
+        let byte: (Double) -> Int = { Int((($0.isFinite ? min(1, max(0, $0)) : 0) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", byte(color.red), byte(color.green), byte(color.blue))
     }
 
     /// Whole numbers without decimals, others with the minimal decimals.

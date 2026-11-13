@@ -171,6 +171,13 @@ public enum Geometry {
         case .size(let wide, let high):
             let canvas = CGSize(width: dimension(wide), height: dimension(high))
             return (canvas, options.anchor.origin(content: content, container: canvas))
+        case .aspect(let wide, let high):
+            // Only one side grows, so the image is never cropped.
+            let ratio = aspectPart(wide) / aspectPart(high)
+            let canvas = srcW / srcH < ratio
+                ? CGSize(width: max(srcW, round(srcH * ratio)), height: srcH)
+                : CGSize(width: srcW, height: max(srcH, round(srcW / ratio)))
+            return (canvas, options.anchor.origin(content: content, container: canvas))
         }
     }
 

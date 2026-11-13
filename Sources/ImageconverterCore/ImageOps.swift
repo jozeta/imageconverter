@@ -44,40 +44,6 @@ public enum ImageOps {
         return cropped
     }
 
-    public static func rotateFlip(_ image: CGImage, _ options: RotateFlipOptions) throws -> CGImage {
-        if options.rotation == .none && !options.flipHorizontal && !options.flipVertical { return image }
-        let step = StepKind.rotateFlip.displayName
-        let wide = CGFloat(image.width)
-        let high = CGFloat(image.height)
-        let swapped = options.rotation == .cw90 || options.rotation == .cw270
-        let out = swapped ? CGSize(width: high, height: wide) : CGSize(width: wide, height: high)
-        let ctx = try context(out, like: image, step: step, alpha: hasAlpha(image))
-        // Flips act on the rotated result, so they are applied to the CTM first.
-        if options.flipHorizontal {
-            ctx.translateBy(x: out.width, y: 0)
-            ctx.scaleBy(x: -1, y: 1)
-        }
-        if options.flipVertical {
-            ctx.translateBy(x: 0, y: out.height)
-            ctx.scaleBy(x: 1, y: -1)
-        }
-        switch options.rotation {
-        case .none:
-            break
-        case .cw90:
-            ctx.translateBy(x: 0, y: wide)
-            ctx.rotate(by: -.pi / 2)
-        case .cw180:
-            ctx.translateBy(x: wide, y: high)
-            ctx.rotate(by: .pi)
-        case .cw270:
-            ctx.translateBy(x: high, y: 0)
-            ctx.rotate(by: .pi / 2)
-        }
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: wide, height: high))
-        return try finish(ctx, step: step)
-    }
-
     public static func canvas(_ image: CGImage, _ options: CanvasOptions) throws -> CGImage {
         let step = StepKind.canvas.displayName
         let plan = Geometry.canvas(source: CGSize(width: image.width, height: image.height), options: options)
@@ -212,8 +178,8 @@ public enum ImageOps {
         return (Int(size.width), Int(size.height))
     }
 
-    private static func context(_ size: CGSize, like image: CGImage, step: String, alpha: Bool,
-                                keepFloat: Bool = false) throws -> CGContext {
+    static func context(_ size: CGSize, like image: CGImage, step: String, alpha: Bool,
+                        keepFloat: Bool = false) throws -> CGContext {
         let (width, height) = try pixels(size, step: step)
         guard let ctx = makeContext(width: width, height: height, like: image, alpha: alpha,
                                     keepFloat: keepFloat) else {
@@ -222,7 +188,7 @@ public enum ImageOps {
         return ctx
     }
 
-    private static func finish(_ ctx: CGContext, step: String) throws -> CGImage {
+    static func finish(_ ctx: CGContext, step: String) throws -> CGImage {
         guard let image = ctx.makeImage() else { throw ConversionError.processingFailed(step) }
         return image
     }
@@ -270,7 +236,7 @@ public enum ImageOps {
                                                        clamp(color.alpha)]) ?? CGColor(gray: 1, alpha: 1)
     }
 
-    private static func fill(_ ctx: CGContext, color: RGBAColor) {
+    static func fill(_ ctx: CGContext, color: RGBAColor) {
         let cgColor = cgColor(color)
         ctx.setBlendMode(.copy)
         ctx.setFillColor(cgColor)
