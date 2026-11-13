@@ -152,7 +152,8 @@ public struct RenameTemplate: Equatable, Sendable {
     }
 
     /// The base name (no extension), sanitised; the context's own name if the result is empty.
-    public func render(_ context: RenameContext) -> String {
+    /// `transform` runs on the raw joined name before sanitising, so it cannot add unsafe characters.
+    public func render(_ context: RenameContext, transform: (String) -> String = { $0 }) -> String {
         var out = ""
         var lastIsLiteral = false
         var dropNextSeparator = false
@@ -181,7 +182,7 @@ public struct RenameTemplate: Equatable, Sendable {
                 }
             }
         }
-        let cleaned = Self.sanitize(out)
+        let cleaned = Self.sanitize(transform(out))
         if !cleaned.isEmpty { return cleaned }
         let fallback = Self.sanitize(context.name)
         return fallback.isEmpty ? "image" : fallback

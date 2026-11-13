@@ -45,18 +45,26 @@ public struct RenameOptions: Codable, Equatable, Sendable {
     public var isEnabled: Bool
     public var pattern: String
     public var counterStart: Int
+    /// Find and replace on the rendered name; empty `findText` does nothing.
+    public var findText: String
+    public var replaceText: String
+    public var useRegex: Bool
 
     /// The counter start is limited to 0...999_999_999 when decoded.
     public static let counterRange = 0...999_999_999
 
-    public init(isEnabled: Bool = false, pattern: String = "{name}", counterStart: Int = 1) {
+    public init(isEnabled: Bool = false, pattern: String = "{name}", counterStart: Int = 1,
+                findText: String = "", replaceText: String = "", useRegex: Bool = false) {
         self.isEnabled = isEnabled
         self.pattern = pattern
         self.counterStart = counterStart
+        self.findText = findText
+        self.replaceText = replaceText
+        self.useRegex = useRegex
     }
 
     private enum CodingKeys: String, CodingKey {
-        case isEnabled, pattern, counterStart
+        case isEnabled, pattern, counterStart, findText, replaceText, useRegex
     }
 
     /// Lenient: a missing field takes its default.
@@ -66,5 +74,8 @@ public struct RenameOptions: Codable, Equatable, Sendable {
         pattern = try container.decodeIfPresent(String.self, forKey: .pattern) ?? "{name}"
         let start = try container.decodeIfPresent(Int.self, forKey: .counterStart) ?? 1
         counterStart = min(max(start, Self.counterRange.lowerBound), Self.counterRange.upperBound)
+        findText = try container.decodeIfPresent(String.self, forKey: .findText) ?? ""
+        replaceText = try container.decodeIfPresent(String.self, forKey: .replaceText) ?? ""
+        useRegex = try container.decodeIfPresent(Bool.self, forKey: .useRegex) ?? false
     }
 }

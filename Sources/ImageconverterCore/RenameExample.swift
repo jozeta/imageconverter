@@ -35,6 +35,6 @@ public enum RenameExample {
         } else {
             context = RenameContext.sample(format: format, outputSize: output, counter: counter)
         }
-        return "\(template.render(context)).\(context.ext)"
+        return "\(template.render(context, transform: pipeline.rename.replacing(in:))).\(context.ext)"
     }
 }
