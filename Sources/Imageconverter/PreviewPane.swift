@@ -128,6 +128,10 @@ struct PreviewPane: View {
     @ViewBuilder private var infoTable: some View {
         let result = model.previewResult
         let failed = model.previewFailure != nil
+        let selected = model.selectedItemIndex.map { model.items[$0].source }
+        let source = result?.source ?? selected
+        // The previous result stays up until the next render lands, so only trust an estimate for this item.
+        let estimate = model.sizeEstimate.flatMap { $0.item == source ? $0 : nil }
         if result != nil || failed {
             Grid(alignment: .leading, horizontalSpacing: LadaGlass.Spacing.m, verticalSpacing: LadaGlass.Spacing.xs) {
                 GridRow {
@@ -141,26 +145,27 @@ struct PreviewPane: View {
                     if let failure = model.previewFailure {
                         Text(failure).font(LadaGlass.Typography.mono)
                             .foregroundStyle(LadaGlass.Colors.warnText)
-                            .lineLimit(2).gridCellColumns(1)
+                            .lineLimit(2)
                     } else {
                         cell(result?.outputName ?? "—")
                     }
                 }
-                if !failed, let result {
+                if let source {
                     GridRow {
                         label("Folder")
-                        folderCell(result.source.deletingLastPathComponent())
-                        folderCell(result.outputURL.deletingLastPathComponent())
+                        folderCell(source.deletingLastPathComponent())
+                        if let result { folderCell(result.outputURL.deletingLastPathComponent()) } else { cell("—") }
                     }
                     GridRow {
                         label("Dimensions")
-                        cell("\(result.sourceSize.0) × \(result.sourceSize.1)")
-                        cell("\(result.outputSize.0) × \(result.outputSize.1)")
+                        cell(result.map { "\($0.sourceSize.0) × \($0.sourceSize.1)" } ?? "—")
+                        cell(failed ? "—" : result.map { "\($0.outputSize.0) × \($0.outputSize.1)" } ?? "—")
                     }
                     GridRow {
                         label("Size")
-                        cell(Self.bytes(model.sizeEstimate?.original ?? result.sourceFileSize))
-                        cell(resultSize)
+                        cell(Self.bytes(estimate?.original ?? result?.sourceFileSize
+                                        ?? (try? source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize))
+                        cell(failed ? "—" : resultSize(estimate))
                     }
                 }
             }
@@ -168,9 +173,9 @@ struct PreviewPane: View {
         }
     }
 
-    private var resultSize: String {
-        if model.isEstimating { return "Estimating…" }
-        return Self.bytes(model.sizeEstimate?.output)
+    private func resultSize(_ estimate: SizeEstimate?) -> String {
+        guard let estimate else { return model.estimateFailed ? "—" : "Estimating…" }
+        return Self.bytes(estimate.output)
     }
 
     private static func bytes(_ count: Int?) -> String {

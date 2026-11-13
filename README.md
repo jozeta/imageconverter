@@ -16,6 +16,12 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- **Save to** dropdown in the Output row (new folder, same folder, overwrite originals) replaces the Settings window; the Rename step is unavailable while overwriting, and the same-folder suffix defaults to `_new`.
+- Find and replace (plain text or regular expression) in the Rename step.
+- Size estimate ("Original → about") under the quality slider.
+- Grab handles on the panel edges and View > Hide Preview (⌥⌘P) / Collapse Pipeline (⌥⌘L); the window resizes with them.
+- Original | Result table under the preview (name, folder, dimensions, size); progress bar and Cancel above it during a run.
+- Pipeline rows reorder with a drag handle (Move Up/Down in the context menu).
 - Zoom the before/after preview with a trackpad pinch (or ⌘+ / ⌘− / ⌘0); both sides stay in sync, so encoder artifacts are easy to compare.
 - Presets (save, save as, rename, delete, reset; three built-ins) and a collapsible before/after preview with a filmstrip of the batch.
 - Watermark step: text (font, colour) or image (e.g. a logo), with position, size relative to the image, opacity and margin.
@@ -84,7 +90,7 @@ The output settings are in the Output row of the sidebar (there is no Settings w
 |---------|---------|---------|
 | Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row) | New folder |
 | Output folder | Any folder (used by "New folder") | asked on first run |
-| Same-folder suffix | Name suffix used by "Same folder" when no Rename step is on | `_new` |
+| Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
 
 Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 
@@ -174,11 +180,11 @@ folder for access and remember your answer. Until then it runs unsandboxed.
    Color profile. The step is added at the end and opens so you can set it.
 2. Open or close a step by clicking its row; its settings (size, anchor, colour, profile, ...) are
    inside. The muted line under the name summarises them. The header shows how many steps are on.
-3. Reorder by dragging the handle, or with the keyboard: the **⋯** menu (also the right-click
-   menu) has **Move Up**, **Move Down** and **Remove**.
+3. Reorder by dragging the handle, or with the keyboard: the right-click menu has
+   **Move Up**, **Move Down** and **Remove**.
 4. Switch a step off with its toggle to skip it without losing its settings; it is dimmed.
 5. Steps run top to bottom on every image. The **Output** row is always last: format, quality and
-   where files go. **Collapse** in the header hides the whole list.
+   where files go. The handle on the pipeline's bottom edge (or ⌥⌘L) hides the whole list.
 
 Your pipeline is kept between launches.
 
@@ -191,7 +197,7 @@ Your pipeline is kept between launches.
    Mac can write them). JPEG, HEIC and JPEG 2000 have a quality slider; TIFF has a compression
    choice.
 3. Under the quality slider, the size estimate shows "Original → about" for the selected image. Use **Save to** to pick *Overwrite original
-   files* (originals that are renamed or change format go to the Trash; Rename is unavailable), *Same folder as original* (adds the suffix, default `_new`, or the Rename pattern) or *New folder*.
+   files* (originals that are renamed or change format go to the Trash; Rename is unavailable), *Same folder as original* (the suffix, default `_new`, is added only if the output would have the same name as the original; or the Rename pattern applies) or *New folder*.
 4. Press **Run on N images** (⌘R). In *New folder* mode with no folder chosen yet, you are asked to
    pick one first. Cancel with ⌘. at any time; files already finished stay, and no half-written
    files are left.

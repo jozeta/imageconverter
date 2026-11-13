@@ -86,9 +86,12 @@ struct SidebarView: View {
                     Text("\(progress.completed) / \(progress.total)")
                         .font(LadaGlass.Typography.mono)
                 }
-                Button("Cancel") { model.cancel() }
-                    .buttonStyle(.lg(.secondary))
-                    .accessibilityLabel("Cancel the conversion")
+                // With the preview open, Cancel sits next to the progress bar in the pane instead.
+                if model.previewCollapsed {
+                    Button("Cancel") { model.cancel() }
+                        .buttonStyle(.lg(.secondary))
+                        .accessibilityLabel("Cancel the conversion")
+                }
             }
         } else {
             Button("Run on \(model.items.count) \(model.items.count == 1 ? "image" : "images")") {
