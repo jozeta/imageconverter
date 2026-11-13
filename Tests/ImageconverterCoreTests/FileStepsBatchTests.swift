@@ -114,6 +114,20 @@ final class FileStepsBatchTests: XCTestCase {
         return pipeline
     }
 
+    func testBuiltInPresetsStillStripLocation() async throws {
+        for preset in PresetStore.builtIns where preset.pipeline.metadata.isActive {
+            try? FileManager.default.removeItem(at: out)
+            let url = try source("loc.jpg", properties: locationProps)
+            let report = await BatchRunner.run(
+                InputCollector.collect([url]), pipeline: preset.pipeline, mode: .newFolder(out))
+            XCTAssertEqual(report.failures, [], preset.name)
+            let data = try Data(contentsOf: try XCTUnwrap(report.written.first))
+            XCTAssertFalse(contains(data, "SECRETPLACE-42"), preset.name)
+            XCTAssertNil(try TestImages.properties(of: data)[kCGImagePropertyGPSDictionary as String], preset.name)
+        }
+        XCTAssertEqual(PresetStore.builtIns.filter { $0.pipeline.metadata.isActive }.count, 2)
+    }
+
     func testExcludedStepsDoNothingInBatch() async throws {
         let url = try source("keep.jpg", properties: cameraProps)
         var pipeline = Pipeline(output: .init(format: .jpeg))

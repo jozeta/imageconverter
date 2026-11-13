@@ -35,6 +35,7 @@ struct FileStepRow<Content: View>: View {
                         .foregroundStyle(LadaGlass.Colors.muted)
                         .lineLimit(1)
                 }
+                .help(lockedHelp ?? "")
                 Spacer(minLength: 0)
                 RemoveStepButton(label: title, action: remove)
             }
@@ -44,7 +45,6 @@ struct FileStepRow<Content: View>: View {
         } content: {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) { content }
         }
-        .help(lockedHelp ?? "")
     }
 }
 
