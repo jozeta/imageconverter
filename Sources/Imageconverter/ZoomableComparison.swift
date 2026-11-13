@@ -2,19 +2,8 @@ import AppKit
 import SwiftUI
 import ImageconverterCore
 
-/// One side's zoom geometry: the image's full pixel size, the side's view size and the display's pixels per point.
-struct ZoomGeometry: Equatable {
-    var imagePixels: CGSize
-    var view: CGSize
-    var pixelsPerPoint: CGFloat
-
-    var maxScale: CGFloat { ZoomMath.maxScale(imagePixels: imagePixels, view: view, pixelsPerPoint: pixelsPerPoint) }
-    var actualScale: CGFloat {
-        ZoomMath.actualPixelsScale(imagePixels: imagePixels, view: view, pixelsPerPoint: pixelsPerPoint)
-    }
-    /// The zoom level as a percentage of actual pixels (100 % = one image pixel per screen pixel).
-    func percent(at scale: CGFloat) -> CGFloat { scale / actualScale * 100 }
-}
+/// Which preview side an input or a geometry comes from.
+enum ZoomSide { case before, after }
 
 /// The before/after zoom, shared by both sides so they always show the same region. Kept on the model
 /// (not in the pane) so the View menu can reach it.
@@ -24,6 +13,7 @@ final class ZoomController {
     /// The After side's geometry (the Before side's when there is no After image); the menu, the chip and
     /// the scale range use it. Nil while no preview image is on screen.
     private(set) var reference: ZoomGeometry?
+    @ObservationIgnored private var referenceSide: ZoomSide?
     @ObservationIgnored private var item: URL?
     @ObservationIgnored private var keyMonitor: Any?
     /// DEBUG launch option `-debugZoom <scale>`: applied once the first preview is on screen.
@@ -44,9 +34,10 @@ final class ZoomController {
         state = .fit
     }
 
-    func setReference(_ geometry: ZoomGeometry?) {
+    /// Called by the side that is the reference (After, or Before when there is no After image).
+    func setReference(_ geometry: ZoomGeometry, from side: ZoomSide) {
         reference = geometry
-        guard let geometry else { return }
+        referenceSide = side
         if let pending = pendingScale {
             pendingScale = nil
             zoom(to: pending, anchor: .zero, in: geometry)
@@ -56,36 +47,39 @@ final class ZoomController {
         }
     }
 
+    /// Only the side that set the reference clears it, so a disappearing After cannot wipe the reference
+    /// Before has just taken over.
+    func clearReference(from side: ZoomSide) {
+        guard referenceSide == side else { return }
+        reference = nil
+        referenceSide = nil
+    }
+
+    /// `geometry` is the side the input came from; the range and 100 % always come from the reference.
     func zoom(to scale: CGFloat, anchor: CGPoint, in geometry: ZoomGeometry? = nil) {
-        guard let geometry = geometry ?? reference else { return }
-        let next = ZoomMath.zoom(state, to: ZoomMath.clampScale(scale, max: geometry.maxScale), anchor: anchor,
-                                 imagePixels: geometry.imagePixels, view: geometry.view)
-        if next != state { state = next }
+        guard let side = geometry ?? reference else { return }
+        update(state.zoomed(to: scale, anchor: anchor, side: side, reference: reference))
     }
 
     func pan(by delta: CGSize, in geometry: ZoomGeometry) {
-        guard state.isZoomed else { return }
-        let next = ZoomMath.pan(state, by: delta, imagePixels: geometry.imagePixels, view: geometry.view)
-        if next != state { state = next }
+        update(state.panned(by: delta, side: geometry))
     }
 
     func zoomIn() { zoom(to: state.scale * Self.step, anchor: .zero) }
     func zoomOut() { zoom(to: state.scale / Self.step, anchor: .zero) }
-    func zoomToFit() { state = .fit }
+    func zoomToFit() { update(.fit) }
     func actualSize() {
         guard let reference else { return }
         zoom(to: reference.actualScale, anchor: .zero)
     }
 
-    /// Double-click: fit when zoomed, otherwise 100 % actual pixels at the click point (or the maximum
-    /// for a tiny image that already shows larger than actual pixels at fit).
+    /// Double-click: fit when zoomed, otherwise 100 % actual pixels at the click point.
     func toggleActual(at anchor: CGPoint, in geometry: ZoomGeometry) {
-        if state.isZoomed {
-            state = .fit
-        } else {
-            let target = geometry.actualScale > 1.01 ? geometry.actualScale : geometry.maxScale
-            zoom(to: target, anchor: anchor, in: geometry)
-        }
+        update(state.toggled(at: anchor, side: geometry, reference: reference))
+    }
+
+    private func update(_ next: ZoomState) {
+        if next != state { state = next }
     }
 
     /// ⌘+ is the menu shortcut; on most layouts that needs Shift, so plain ⌘= zooms in as well.
@@ -94,7 +88,10 @@ final class ZoomController {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad])
             guard flags == .command, event.charactersIgnoringModifiers == "=",
-                  let self, MainActor.assumeIsolated({ self.canZoom }) else { return event }
+                  let self, MainActor.assumeIsolated({ self.canZoom }),
+                  // Only in the main window (not a sheet) and not while a text field is being edited.
+                  let window = event.window, window === NSApp.mainWindow, window.isKeyWindow,
+                  !(window.firstResponder is NSText) else { return event }
             MainActor.assumeIsolated { self.zoomIn() }
             return nil
         }
@@ -109,6 +106,7 @@ struct ZoomableImage: View {
     let fullImage: CGImage?
     let pixelSize: CGSize
     let label: String
+    let side: ZoomSide
     let isReference: Bool
     let zoom: ZoomController
     @Environment(\.displayScale) private var displayScale
@@ -126,6 +124,8 @@ struct ZoomableImage: View {
                     // Past actual pixels every image pixel is a crisp square, so artifacts are easy to see.
                     .interpolation(geometry.percent(at: state.scale) > 100.5 ? .none : .high)
                     .frame(width: shown.width, height: shown.height)
+                    // The enlarged image reaches far outside the clipped box; only the event view takes input.
+                    .allowsHitTesting(false)
                     .position(x: proxy.size.width / 2 + (0.5 - center.x) * shown.width,
                               y: proxy.size.height / 2 + (0.5 - center.y) * shown.height)
                 ZoomEventView(
@@ -134,13 +134,20 @@ struct ZoomableImage: View {
                     onPan: { zoom.pan(by: $0, in: geometry) },
                     onToggle: { zoom.toggleActual(at: $0, in: geometry) })
             }
-            .onChange(of: geometry, initial: true) { _, new in
-                if isReference { zoom.setReference(new) }
+            .onChange(of: ReferenceKey(geometry: geometry, isReference: isReference), initial: true) { _, key in
+                if key.isReference { zoom.setReference(key.geometry, from: side) } else { zoom.clearReference(from: side) }
             }
-            .onDisappear { if isReference { zoom.setReference(nil) } }
+            .onDisappear { zoom.clearReference(from: side) }
         }
         .clipped()
+        .contentShape(Rectangle())
     }
+}
+
+/// Changes when the side's size changes or it becomes (or stops being) the reference.
+private struct ReferenceKey: Equatable {
+    let geometry: ZoomGeometry
+    let isReference: Bool
 }
 
 /// Catches pinch, two-finger scroll, drag and double-click for one side. At fit, scroll events go on to

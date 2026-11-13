@@ -72,26 +72,25 @@ struct PreviewPane: View {
         // Full-size images for zooming, only when they belong to the image on screen.
         let full = model.sizeEstimate.flatMap { $0.item == result?.source ? $0.full : nil }
         layout {
-            side(title: "Before", image: result?.before, full: full?.original,
-                 pixelSize: result.map { CGSize(width: $0.sourceSize.0, height: $0.sourceSize.1) },
-                 isReference: after == nil, failure: nil)
-            side(title: "After", image: after, full: full?.encoded,
-                 pixelSize: result.map { CGSize(width: $0.outputSize.0, height: $0.outputSize.1) },
-                 isReference: true, failure: model.previewFailure)
+            side(PreviewSide(kind: .before, title: "Before", image: result?.before, full: full?.original,
+                             pixelSize: result.map { CGSize(width: $0.sourceSize.0, height: $0.sourceSize.1) },
+                             isReference: after == nil, failure: nil))
+            side(PreviewSide(kind: .after, title: "After", image: after, full: full?.encoded,
+                             pixelSize: result.map { CGSize(width: $0.outputSize.0, height: $0.outputSize.1) },
+                             isReference: true, failure: model.previewFailure))
         }
     }
 
-    // swiftlint:disable:next function_parameter_count
-    private func side(title: String, image: CGImage?, full: CGImage?, pixelSize: CGSize?,
-                      isReference: Bool, failure: String?) -> some View {
+    private func side(_ side: PreviewSide) -> some View {
         VStack(spacing: LadaGlass.Spacing.xs) {
-            LGChip(title, status: .neutral)
+            LGChip(side.title, status: .neutral)
             ZStack {
-                if let image {
-                    ZoomableImage(image: image, fullImage: full,
-                                  pixelSize: pixelSize ?? CGSize(width: image.width, height: image.height),
-                                  label: "\(title) image", isReference: isReference, zoom: model.zoom)
-                } else if let failure {
+                if let image = side.image {
+                    ZoomableImage(image: image, fullImage: side.full,
+                                  pixelSize: side.pixelSize ?? CGSize(width: image.width, height: image.height),
+                                  label: "\(side.title) image", side: side.kind, isReference: side.isReference,
+                                  zoom: model.zoom)
+                } else if let failure = side.failure {
                     Text(failure)
                         .font(LadaGlass.Typography.body)
                         .foregroundStyle(LadaGlass.Colors.warnText)
@@ -203,4 +202,17 @@ struct PreviewPane: View {
             .truncationMode(.middle)
             .help(path)
     }
+}
+
+/// What one side of the before/after comparison shows.
+private struct PreviewSide {
+    let kind: ZoomSide
+    let title: String
+    let image: CGImage?
+    /// The full-size bitmap for zooming, when it is ready.
+    let full: CGImage?
+    /// The image's full pixel size (the drawn bitmap may be smaller).
+    let pixelSize: CGSize?
+    let isReference: Bool
+    let failure: String?
 }

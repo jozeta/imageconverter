@@ -104,9 +104,15 @@ private struct MainWindowContent: View {
     }
 
     #if DEBUG
-    /// Debug-only launch options for screenshots: `-debugAddFiles <path>…` adds images at launch and
-    /// `-debugZoom <scale>` starts the preview zoomed (scale relative to fit).
+    private static var debugArgumentsApplied = false
+
+    /// Debug-only launch options for screenshots: `-debugAddFiles <path>…` adds images at launch,
+    /// `-debugZoom <scale>` starts the preview zoomed (scale relative to fit) and `-debugWindowWidth <points>`
+    /// widens the window once it has its first size.
     private func applyDebugArguments() {
+        // Once per launch, not every time the window reappears.
+        guard !Self.debugArgumentsApplied else { return }
+        Self.debugArgumentsApplied = true
         let arguments = CommandLine.arguments
         if let start = arguments.firstIndex(of: "-debugAddFiles") {
             let paths = arguments[(start + 1)...].prefix { !$0.hasPrefix("-") }
@@ -115,6 +121,15 @@ private struct MainWindowContent: View {
         if let index = arguments.firstIndex(of: "-debugZoom"), index + 1 < arguments.count,
            let scale = Double(arguments[index + 1]) {
             model.zoom.pendingScale = CGFloat(scale)
+        }
+        if let index = arguments.firstIndex(of: "-debugWindowWidth"), index + 1 < arguments.count,
+           let width = Double(arguments[index + 1]) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                guard let window = NSApp.mainWindow ?? NSApp.windows.first else { return }
+                var frame = window.frame
+                frame.size.width = CGFloat(width)
+                window.setFrame(frame, display: true)
+            }
         }
     }
     #endif

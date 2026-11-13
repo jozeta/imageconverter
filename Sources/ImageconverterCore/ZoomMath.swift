@@ -84,3 +84,51 @@ public enum ZoomMath {
         return ZoomState(scale: state.scale, center: clampCenter(center, displayed: shown, view: view))
     }
 }
+
+/// One side's zoom geometry: the image's full pixel size, the side's view size (points) and the display's
+/// pixels per point.
+public struct ZoomGeometry: Equatable, Sendable {
+    public var imagePixels: CGSize
+    public var view: CGSize
+    public var pixelsPerPoint: CGFloat
+
+    public init(imagePixels: CGSize, view: CGSize, pixelsPerPoint: CGFloat) {
+        self.imagePixels = imagePixels
+        self.view = view
+        self.pixelsPerPoint = pixelsPerPoint
+    }
+
+    public var maxScale: CGFloat {
+        ZoomMath.maxScale(imagePixels: imagePixels, view: view, pixelsPerPoint: pixelsPerPoint)
+    }
+    public var actualScale: CGFloat {
+        ZoomMath.actualPixelsScale(imagePixels: imagePixels, view: view, pixelsPerPoint: pixelsPerPoint)
+    }
+    /// The zoom level as a percentage of actual pixels (100 % = one image pixel per screen pixel).
+    public func percent(at scale: CGFloat) -> CGFloat { scale / actualScale * 100 }
+}
+
+/// Input handling on the shared state. `side` is the geometry of the side the input came from (used to turn
+/// anchor and pan points into image coordinates); `reference` (the After side) sets the scale range and what
+/// 100 % means, so both sides and the menu behave the same. Without a reference the side's own geometry is used.
+public extension ZoomState {
+    func zoomed(to scale: CGFloat, anchor: CGPoint, side: ZoomGeometry, reference: ZoomGeometry?) -> ZoomState {
+        let limit = (reference ?? side).maxScale
+        return ZoomMath.zoom(self, to: ZoomMath.clampScale(scale, max: limit), anchor: anchor,
+                             imagePixels: side.imagePixels, view: side.view)
+    }
+
+    /// Double-click: fit when zoomed, otherwise 100 % of the reference at the anchor (or the maximum for a
+    /// tiny image that already shows larger than actual pixels at fit).
+    func toggled(at anchor: CGPoint, side: ZoomGeometry, reference: ZoomGeometry?) -> ZoomState {
+        if isZoomed { return .fit }
+        let range = reference ?? side
+        let target = range.actualScale > 1.01 ? range.actualScale : range.maxScale
+        return zoomed(to: target, anchor: anchor, side: side, reference: reference)
+    }
+
+    func panned(by delta: CGSize, side: ZoomGeometry) -> ZoomState {
+        guard isZoomed else { return self }
+        return ZoomMath.pan(self, by: delta, imagePixels: side.imagePixels, view: side.view)
+    }
+}

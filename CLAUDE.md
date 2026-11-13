@@ -20,8 +20,8 @@ decisions in it marked "(Johan)" are the user's and must not be changed without 
 ```sh
 swift run           # opens the app window (or: claude-update)
 swift build
-# Debug builds only, for screenshots: add images at launch and start the preview zoomed (× fit)
-.build/debug/Imageconverter -debugAddFiles /path/a.jpg /path/b.png -debugZoom 4
+# Debug builds only, for screenshots: add images at launch, start the preview zoomed (× fit), widen the window
+.build/debug/Imageconverter -debugAddFiles /path/a.jpg /path/b.png -debugZoom 4 -debugWindowWidth 1300
 ```
 
 Tests:

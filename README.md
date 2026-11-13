@@ -172,7 +172,9 @@ folder for access and remember your answer. Until then it runs unsandboxed.
    level shows next to the "Preview" title. Once the size estimate is ready, the zoomed view shows the
    full-size original and the really encoded result (above 100 % without smoothing), so JPEG blocks
    and other artifacts are visible. Selecting another image resets to fit; changing settings keeps
-   the zoomed region.
+   the zoomed region. Both sides show the same region when the pipeline has no Crop, Rotate / flip
+   or Canvas step (resize and format changes are fine); with those steps the two sides are zoomed to
+   the same relative position, which is not yet the same part of the photo.
 
 ### Build a pipeline
 

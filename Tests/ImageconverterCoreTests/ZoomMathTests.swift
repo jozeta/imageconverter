@@ -47,3 +47,39 @@ final class ZoomMathTests: XCTestCase {
         XCTAssertEqual(zoomed, .fit)
     }
 }
+
+final class ZoomStateInputTests: XCTestCase {
+    // Before is the 4000 px source, After a 1000 px resize; both sides have the same box.
+    private let before = ZoomGeometry(imagePixels: CGSize(width: 4000, height: 3000),
+                                      view: CGSize(width: 400, height: 300), pixelsPerPoint: 2)
+    private let after = ZoomGeometry(imagePixels: CGSize(width: 1000, height: 750),
+                                     view: CGSize(width: 400, height: 300), pixelsPerPoint: 2)
+
+    func testRangeComesFromReferenceWhicheverSideIsUsed() {
+        // After: fit 0.4 pt/px, actual pixels at 1.25× fit, maximum 10× fit; Before alone would allow 40×.
+        XCTAssertEqual(after.maxScale, 10, accuracy: 1e-9)
+        let viaBefore = ZoomState.fit.zoomed(to: 100, anchor: .zero, side: before, reference: after)
+        let viaAfter = ZoomState.fit.zoomed(to: 100, anchor: .zero, side: after, reference: after)
+        XCTAssertEqual(viaBefore.scale, 10, accuracy: 1e-9)
+        XCTAssertEqual(viaAfter.scale, 10, accuracy: 1e-9)
+        // Without a reference the side's own range applies.
+        XCTAssertEqual(ZoomState.fit.zoomed(to: 100, anchor: .zero, side: before, reference: nil).scale, 40, accuracy: 1e-9)
+    }
+
+    func testToggleGoesToReferenceActualPixelsAndBack() {
+        let zoomed = ZoomState.fit.toggled(at: .zero, side: before, reference: after)
+        XCTAssertEqual(zoomed.scale, after.actualScale, accuracy: 1e-9)
+        XCTAssertEqual(after.percent(at: zoomed.scale), 100, accuracy: 1e-9)
+        XCTAssertEqual(zoomed.toggled(at: .zero, side: before, reference: after), .fit)
+        // A tiny image already above 100 % at fit goes to its maximum instead.
+        let tiny = ZoomGeometry(imagePixels: CGSize(width: 100, height: 75), view: after.view, pixelsPerPoint: 2)
+        let tinyZoom = ZoomState.fit.toggled(at: .zero, side: tiny, reference: tiny)
+        XCTAssertEqual(tinyZoom.scale, tiny.maxScale, accuracy: 1e-9)
+    }
+
+    func testPanDoesNothingAtFit() {
+        XCTAssertEqual(ZoomState.fit.panned(by: CGSize(width: 50, height: 50), side: after), .fit)
+        let zoomed = ZoomState(scale: 4)
+        XCTAssertNotEqual(zoomed.panned(by: CGSize(width: 50, height: 0), side: after), zoomed)
+    }
+}
