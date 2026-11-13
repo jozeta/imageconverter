@@ -194,3 +194,39 @@ Behaviour:
 - [ ] Step 2: Implement the view.
 - [ ] Step 3: Build/test/lint; launch and screenshot with the menu zoom commands; quit the app.
 - [ ] Step 4: Commit `feat(app): synced pinch zoom and pan in the before/after preview`.
+
+### Task 9: Adjust step (tone, colour, detail)
+
+**Files:**
+- Create: `Sources/ImageconverterCore/Adjustments.swift` (options model + the Core Image render), `Sources/Imageconverter/AdjustEditor.swift`
+- Modify: `Sources/ImageconverterCore/Pipeline.swift` (`StepKind.adjust`, operation case, `apply`, `peakPixels`), `Sources/ImageconverterCore/StepSummary.swift`, `Sources/Imageconverter/StepEditors.swift` (route to the editor), README/CHANGELOG/CLAUDE.md
+- Test: `Tests/ImageconverterCoreTests/AdjustmentsTests.swift`
+
+Johan (2026-11-13): "add a new pipeline item; it should give the user the ability to edit contrast, hue, saturation, exposure, brilliance, highlights, shadows, brightness, black point, vibrance, warmth, tint, sharpness, definition, noise reduction".
+
+**Interfaces:**
+- Produces: `public struct AdjustOptions: Codable, Equatable, Sendable` with these `Double` fields, every one defaulting to 0 (neutral) and clamped to its range on decode (lenient: missing → 0): `exposure` (−100…100), `brilliance` (−100…100), `highlights` (−100…100), `shadows` (−100…100), `contrast` (−100…100), `brightness` (−100…100), `blackPoint` (−100…100), `saturation` (−100…100), `vibrance` (−100…100), `warmth` (−100…100), `tint` (−100…100), `hue` (−180…180, degrees), `sharpness` (0…100), `definition` (0…100), `noiseReduction` (0…100). `public var isNeutral: Bool`. `public static let ranges` (field → range) for the editor.
+- Produces: `StepKind.adjust` (display name "Adjust"), operation case `.adjust(AdjustOptions)`; `public enum Adjustments { public static func apply(_ options: AdjustOptions, to image: CGImage) throws -> CGImage }`.
+
+Rendering (Core Image, one `CIContext` per call or a shared one created once; working space linear extended sRGB; output rendered back to **the input image's colour space and bit depth**, alpha preserved, opaque stays opaque; neutral options return the input unchanged without rendering). Fixed order and mapping (v = slider value):
+1. Exposure: `CIExposureAdjust` EV = v / 50 (±2 EV).
+2. Highlights / shadows: `CIHighlightShadowAdjust` highlightAmount = 1 − max(0, −v)/100·… — use: highlights v<0 recovers (highlightAmount = 1 + v/100 → 0…1), v>0 boosts via a tone curve lift of the top quarter; shadows v (−100…100) → shadowAmount = v/100.
+3. Brilliance: a balanced tone curve: lifts shadows and compresses highlights by v/200 each (`CIToneCurve`), negative does the opposite.
+4. Black point: `CIToneCurve` first point x = max(0, v/100·0.15) mapping to 0 for v>0 (deeper blacks); v<0 lifts y0 = −v/100·0.15.
+5. Contrast / brightness / saturation: `CIColorControls` contrast = 1 + v/100·0.5 (0.5…1.5), brightness = v/100·0.25, saturation = 1 + v/100 (0…2).
+6. Vibrance: `CIVibrance` amount = v/100.
+7. Warmth / tint: `CITemperatureAndTint` neutral (6500, 0) → targetNeutral (6500 − warmth·20, tint·1.0) (warmth +100 = warmer, i.e. lower target temperature is the CI convention to warm; verify direction with a test).
+8. Hue: `CIHueAdjust` angle = v degrees in radians.
+9. Noise reduction: `CINoiseReduction` noiseLevel = v/100·0.04, sharpness 0.4.
+10. Definition: `CIUnsharpMask` radius = 0.02·min(w,h) (local contrast), intensity = v/100·0.6.
+11. Sharpness: `CISharpenLuminance` sharpness = v/100·1.5, radius 1.5.
+Mapping constants may be tuned if a test or a screenshot shows them clearly wrong; record any change in the report.
+
+`peakPixels`: count an adjust step as 3 working copies of its input size (CI intermediates).
+
+- [ ] Step 1: Failing tests: `testNeutralReturnsSameImage` (identity: same object or same pixels), `testExposurePositiveBrightens` (mean luminance up), `testSaturationMinus100IsGray` (R≈G≈B within 2/255), `testWarmthPositiveIsWarmer` (R/B ratio rises on a gray image), `testHue180SwapsRedTowardsCyan`, `testKeepsSizeColorSpaceAndAlpha` (P3 16-bit with alpha in → same size, P3, 16 bpc, alpha kept; opaque in → opaque out), `testDecodesClampsAndDefaults` (missing keys → 0, out-of-range clamped), `testPipelineRunsAdjustStep` (through `Pipeline.apply`).
+- [ ] Step 2: Run, expect failures.
+- [ ] Step 3: Implement Core.
+- [ ] Step 4: Editor: a compact list of labelled sliders grouped "Light" (Exposure, Brilliance, Highlights, Shadows, Contrast, Brightness, Black point), "Colour" (Saturation, Vibrance, Warmth, Tint, Hue), "Detail" (Sharpness, Definition, Noise reduction); each row: label, slider, value text, and double-click on the label (plus a small reset button per group) resets to 0; VoiceOver label and value per slider; slider changes feed the existing debounced preview. Summary line: the non-neutral fields, e.g. "exposure +20, contrast +10" or "no changes".
+- [ ] Step 5: Build/test/lint; screenshot the editor and a preview with a few adjustments (use the DEBUG `-debugAddFiles` argument if Task 8 added it); docs.
+- [ ] Step 6: Commit `feat: Adjust step (exposure, brilliance, highlights, shadows, contrast, brightness, black point, saturation, vibrance, warmth, tint, hue, sharpness, definition, noise reduction)`.
