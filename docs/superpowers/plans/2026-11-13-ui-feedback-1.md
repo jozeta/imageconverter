@@ -546,3 +546,19 @@ Already by design: no network code, no telemetry, local-only processing, skip-on
 - After a run, the sidebar "Report" section (Task 12) shows the summary cards (processed, succeeded, failed, skipped, original → output, saved, average ratio, average time) and "Export ▸ CSV / JSON / HTML…" (save panel) plus "Show error log".
 - A "History" window (Window menu, ⌥⌘H): runs list (date, preset/job, counts, saved), detail = the same ReportView with per-image table (sortable), export, "Reveal outputs", delete entry, "Clear history"; a filter by job gives job summaries; the Jobs window links to them.
 - [ ] Build/test/lint, screenshots, README "Reports and history", commit `feat(app): run reports with exports, error log and processing history`.
+### Task 40: Metadata and Rename are optional steps (Johan, 2026-11-14)
+
+Johan: "remove the metadata and rename pipeline items from the default pipeline, they should be in the add step dropdown. if none of the always-last pipeline items is used, hide the 'always last' text."
+
+**Files:** `Sources/ImageconverterCore/FileSteps.swift` (`MetadataOptions`, `RenameOptions`), `Sources/Imageconverter/PipelineSection.swift`, `Sources/Imageconverter/FileStepEditors.swift`, presets built-ins if they rely on the rows (`Presets.swift`), README/CHANGELOG; tests in `FileStepsModelTests.swift`, `PresetStoreTests.swift` as needed.
+
+Rules:
+- Add `isIncluded: Bool` to `MetadataOptions` and `RenameOptions` (whether the step is in the pipeline). Lenient decode: missing → `isEnabled` (so older saved pipelines/presets that had the step switched on still show it; switched-off ones disappear). Defaults for a new pipeline: not included, not enabled.
+- The batch/preview/estimate treat a step as active only when `isIncluded && isEnabled` (put this in one computed property, e.g. `isActive`, and use it everywhere `isEnabled` is used for these two steps in Core — grep `metadata.isEnabled`, `rename.isEnabled`).
+- "+ Add step" menu: the image steps as now, then a divider and a section "Always last" with "Metadata" and "Rename", each shown only when not included. Choosing one sets `isIncluded = true, isEnabled = true` and adds the row (collapsed, like new image steps).
+- The Metadata/Rename rows are shown only when included; each row gets a remove button (same `xmark` style and VoiceOver label as image steps, plus context-menu "Remove") which sets `isIncluded = false, isEnabled = false` and keeps the other settings (so re-adding restores them).
+- The "Always last" label shows only when at least one of Metadata/Rename is included. The Output row is always shown (it is not a step).
+- Rename stays disabled in overwrite mode as before (Task 4), and in overwrite mode the "Rename" add-menu item is disabled with the help text "Not available when overwriting originals".
+- Built-in presets that use metadata stripping (e.g. Web export) must set `isIncluded = true`.
+Tests: `testOldJSONIncludedFollowsEnabled`, `testNewPipelineHasNoFileSteps`, `testActiveRequiresIncludedAndEnabled` (batch with included=false, enabled=true → no rename/metadata change), built-in presets still strip what they did.
+Commit `feat: Metadata and Rename are added from the step menu; "Always last" only when used`.
