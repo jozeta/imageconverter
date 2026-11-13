@@ -114,8 +114,9 @@ public enum Geometry {
     public static func fillCropSourceRect(source: CGSize, scaled: CGSize, crop: CGSize) -> CGRect {
         let srcW = max(1, source.width)
         let srcH = max(1, source.height)
-        let size = CGSize(width: min(srcW, round(crop.width * srcW / max(1, scaled.width))),
-                          height: min(srcH, round(crop.height * srcH / max(1, scaled.height))))
+        // At least one pixel each way, so extreme aspect ratios never round the kept region away.
+        let size = CGSize(width: min(srcW, max(1, round(crop.width * srcW / max(1, scaled.width)))),
+                          height: min(srcH, max(1, round(crop.height * srcH / max(1, scaled.height)))))
         return CGRect(origin: Anchor.center.origin(content: size, container: CGSize(width: srcW, height: srcH)),
                       size: size)
     }
