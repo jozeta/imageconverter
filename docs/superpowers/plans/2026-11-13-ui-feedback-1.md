@@ -432,3 +432,40 @@ Already present: before/after side by side, synced pinch zoom/pan, Zoom to Fit �
 - Batch browser below the preview with a picker: **Filmstrip** (current), **Grid** (adaptive thumbnail grid in a resizable area, selection, arrow keys in 2D), **List** (Table: name, dimensions, file size, estimated output size when known — computed lazily only for visible rows' selected item, otherwise "—" —, status after a run: written/skipped/failed). Mode persisted in UserDefaults.
 - "Compare quality…" button (formats with quality only) opens a panel below the images: four tiles at qualities 40/60/80/95 % showing the same zoomed region (shares the zoom state) with size and saving %; clicking a tile sets the Output quality to it. Rendered off the main actor, cancelled when the selection or pipeline changes.
 - [ ] Build/test/lint, screenshots of each mode with `-debugAddFiles` (one image with transparency), README (preview section), commit `feat(app): split, difference and single comparison, checkerboard, grid and list views, quality compare`.
+
+## Automation round (Johan, 2026-11-13; SwiftPM only: no App Intents/Share/Finder extensions; Shortcuts via the CLI)
+
+Example to support end to end: watched folder "Incoming Images" → resize 2048 px → convert (AVIF/JPEG; WebP isn't writable) → remove GPS → quality 85 % → save to "Processed Images" → write a report, with no manual steps.
+
+### Task 29: Jobs, folder watching, schedules, reports (Core)
+
+**Files:** Create `Sources/ImageconverterCore/Jobs.swift` (model + store), `FolderWatcher.swift`, `JobRunner.swift`, `ProcessingReport.swift`; Tests `JobsTests.swift`, `FolderWatcherTests.swift`, `JobRunnerTests.swift`, `ProcessingReportTests.swift`
+- `Job { id: UUID, name: String, pipeline: Pipeline /* a copy, or */ presetID: UUID?, inputs: [URL] (folders), recursive: Bool, output: OutputMode, trigger: JobTrigger { manual, watch, schedule(every: TimeInterval /* ≥ 300 s */) }, report: ReportFormat? { csv, json, text } , isEnabled: Bool, schemaVersion: 1 }`, stored via the generic `TemplateStore` (Task 19/21) in `jobs/`. When `presetID` is set, the preset's current pipeline is used at run time (preset automation); else the job's own pipeline (job template / export profile).
+- Processed-file ledger per job (`jobs/<id>.ledger.json`, capped at 100 000 entries, oldest dropped): key = path + size + modification date; a file is processed once unless it changes. Output folders inside an input folder are excluded from watching (no loops); files the job wrote are never inputs.
+- `FolderWatcher` (FSEventStream, file-level events, 1 s latency) emits candidate files; a file is ready when its size and modification date are unchanged for 2 s and it's readable (partially copied files wait). Hidden files and `.imageconverter-*.tmp` are ignored.
+- `JobRunner.run(job, files:) async -> BatchReport` = `InputCollector` + `BatchRunner` + ledger update + report file written to the output folder as `imageconverter-report-<yyyy-MM-dd_HHmmss>.<ext>` (columns: source, destination, status, input bytes, output bytes, saving %, note/reason) plus totals.
+- [ ] Tests: `testJobRoundTrip`, `testLedgerSkipsUnchangedAndRedoesChanged`, `testWatcherIgnoresTempAndHidden`, `testFileReadyAfterStable` (inject a clock), `testOutputInsideInputExcluded`, `testReportCSVColumnsAndTotals`, `testPresetLinkedJobUsesCurrentPreset`, the example job end to end in a temp dir (drop 2 files → processed outputs + report; GPS removed; ≤ 2048 px).
+- [ ] Commit `feat(core): jobs with folder watching, schedules, ledgers and reports`.
+
+### Task 30: Command-line tool
+
+**Files:** `Package.swift` (new executable target `imageconverter-cli`, product name `imageconverter`), `Sources/ImageconverterCLI/main.swift` (+ small files), Tests `Tests/ImageconverterCLITests/` (argument parsing as a pure function in Core or a small library target)
+- No third-party argument parser: a small hand-written parser. Commands: `imageconverter convert <files/folders…> [--preset NAME | --pipeline FILE.json] [--out DIR | --same-folder [--suffix S] | --overwrite --yes] [--format jpeg|png|heic|avif|tiff|…] [--quality 0-100] [--max-size 500KB] [--resize-long PX] [--strip-gps] [--strip-all] [--report csv|json|text] [--dry-run] [--quiet|--json]`; `imageconverter presets list`; `imageconverter jobs list|run NAME`; `imageconverter --version` (from the same version source as the app) and `--help`. Overrides apply on top of the preset/pipeline. Exit codes: 0 all ok, 1 some files failed, 2 usage error, 3 nothing to do. `--overwrite` without `--yes` refuses. Progress to stderr, results to stdout (`--json` = machine readable for Shortcuts). Pipeline JSON files are validated like presets (size cap, schema).
+- README section "Command line and Shortcuts" with a Shortcuts "Run Shell Script" example.
+- [ ] Tests: parser cases incl. errors, `--dry-run` writes nothing, end-to-end convert in a temp dir via the library entry point. Commit `feat: imageconverter command-line tool`.
+
+### Task 31: Jobs UI and background running (app)
+
+**Files:** Create `Sources/Imageconverter/JobsView.swift`, `AppModel+Jobs.swift`; Modify `ImageconverterApp.swift`
+- A "Jobs" window (Window menu, ⌘J): list (name, trigger, inputs, last run, status), "New job from current pipeline", edit sheet (name, preset link or own pipeline, input folders with add/remove, recursive, output mode reusing the Save to control, trigger Manual/Watch/Every N minutes/hours, report format, enabled), Run now, open last report, reveal output.
+- Watching/schedules run while the app is running. Setting "Keep running in the menu bar when the window is closed" (default off): a `MenuBarExtra` with job status, pause all, open window, quit. Notifications (UserNotifications, ask permission on first enable) when a watched job processes files or fails.
+- [ ] Build/test/lint, screenshots, README how-to "Process a folder automatically", commit `feat(app): jobs window, folder watching and schedules, menu bar mode`.
+
+### Task 32: Finder Quick Action (Services), AppleScript, URL scheme
+
+**Files:** Create `Sources/Imageconverter/ServicesProvider.swift`, `Sources/Imageconverter/Scripting.swift`, `Resources/imageconverter.sdef` (copied into the bundle by milestone 6's release script; document), `Sources/Imageconverter/URLActions.swift`; `Info.plist` fragments documented for milestone 6 (`NSServices`, `NSAppleScriptEnabled`, `OSAScriptingDefinition`, `CFBundleURLTypes`).
+- Services: "Convert with imageconverter" (adds the selected files and shows the window) and "Convert with Preset ▸ <name>" for up to 5 pinned presets (runs immediately with the global output mode; overwrite mode always asks first).
+- AppleScript: `convert {alias…} using preset "Name" [to folder alias]` → list of output files; `add files {…}`; `run`; `presets` (names). Cocoa scripting via `NSScriptCommand` subclasses.
+- URL scheme `imageconverter://`: `open`, `preset?name=…` (selects a preset), `add?path=…` (adds files; paths must exist and be readable), `jobs/run?name=…`. URLs are untrusted (any web page can open them): never start a conversion, write or overwrite without an in-app confirmation sheet naming what will happen; reject unknown hosts/params; cap lengths.
+- Verification of Services/AppleScript/URL registration happens in milestone 6 with the real bundle; here unit-test the URL parser and the script command logic.
+- [ ] Commit `feat(app): Finder quick action via Services, AppleScript commands and URL scheme`.
