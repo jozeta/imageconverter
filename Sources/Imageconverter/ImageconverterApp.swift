@@ -3,8 +3,8 @@ import ImageconverterCore
 
 @main
 struct ImageconverterApp: App {
-    @State private var model = AppModel()
-    @State private var settings = AppSettings()
+    @State private var model = AppModel(defaults: AppDefaults.store, presetStore: PresetStore(directory: AppDefaults.presetsDirectory))
+    @State private var settings = AppSettings(defaults: AppDefaults.store)
 
     init() {
         // A SwiftPM executable starts as a background process; make it a regular app with a window.
