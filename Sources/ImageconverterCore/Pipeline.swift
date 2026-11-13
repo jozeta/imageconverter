@@ -128,7 +128,7 @@ public enum ColorProfile: String, Codable, CaseIterable, Sendable {
 }
 
 public enum StepKind: String, Codable, CaseIterable, Sendable {
-    case resize, crop, rotateFlip, canvas, colorProfile
+    case resize, crop, rotateFlip, canvas, colorProfile, watermark
 
     public var displayName: String {
         switch self {
@@ -137,6 +137,7 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .rotateFlip: return "Rotate / flip"
         case .canvas: return "Canvas / padding"
         case .colorProfile: return "Color profile"
+        case .watermark: return "Watermark"
         }
     }
 
@@ -147,6 +148,7 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .rotateFlip: return .rotateFlip(RotateFlipOptions())
         case .canvas: return .canvas(CanvasOptions())
         case .colorProfile: return .colorProfile(.sRGB)
+        case .watermark: return .watermark(WatermarkOptions())
         }
     }
 }
@@ -157,6 +159,7 @@ public enum ImageOperation: Codable, Equatable, Sendable {
     case rotateFlip(RotateFlipOptions)
     case canvas(CanvasOptions)
     case colorProfile(ColorProfile)
+    case watermark(WatermarkOptions)
 
     public var kind: StepKind {
         switch self {
@@ -165,6 +168,7 @@ public enum ImageOperation: Codable, Equatable, Sendable {
         case .rotateFlip: return .rotateFlip
         case .canvas: return .canvas
         case .colorProfile: return .colorProfile
+        case .watermark: return .watermark
         }
     }
 }
@@ -223,7 +227,7 @@ private struct LossyStep: Decodable {
 
 extension Pipeline {
     /// Runs the enabled steps in order on `image`.
-    public func apply(to image: CGImage) throws -> CGImage {
+    public func apply(to image: CGImage, assets: WatermarkAssets = .empty) throws -> CGImage {
         var current = image
         for step in steps where step.isEnabled {
             switch step.operation {
@@ -232,6 +236,10 @@ extension Pipeline {
             case .rotateFlip(let options): current = try ImageOps.rotateFlip(current, options)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
             case .colorProfile(let profile): current = try ImageOps.convertColor(current, to: profile)
+            case .watermark(let options):
+                var asset: CGImage?
+                if case .image(let watermark) = options.content { asset = assets.image(for: watermark.path) }
+                current = try ImageOps.watermark(current, options, asset: asset)
             }
         }
         return current
@@ -280,7 +288,7 @@ extension Pipeline {
             return swapped ? CGSize(width: size.height, height: size.width) : size
         case .canvas(let options):
             return Geometry.canvas(source: size, options: options).canvas
-        case .colorProfile:
+        case .colorProfile, .watermark:
             return size
         }
     }

@@ -30,6 +30,10 @@ struct StepEditor: View {
                 ForEach(ColorProfile.allCases, id: \.self) { Text($0.displayName).tag($0) }
             }
             .accessibilityLabel("Color profile")
+        case .watermark:
+            WatermarkEditor(options: Binding(
+                get: { if case .watermark(let opts) = operation { return opts } else { return WatermarkOptions() } },
+                set: { operation = .watermark($0) }))
         }
     }
 }

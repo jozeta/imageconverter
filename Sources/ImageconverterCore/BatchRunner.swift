@@ -62,6 +62,9 @@ public enum BatchRunner {
         if baseNames == nil, pipeline.rename.isEnabled { return BatchReport(cancelled: true) }
         let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode, baseNames: baseNames)
         let total = plans.count
+        if Task.isCancelled { return BatchReport(cancelled: true) }
+        let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)
+        let missingAsset = assets.hasMissing(for: pipeline)
         var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
         var weights = [Int](repeating: 1, count: total)
         var outcomes = [Result<URL, ConversionError>?](repeating: nil, count: total)
@@ -91,7 +94,10 @@ public enum BatchRunner {
                     next += 1
                     inFlight += 1
                     group.addTask {
-                        (index, convert(plan, pipeline: pipeline, maxPixels: maxPixels, trash: trash))
+                        // A watermark image that can't be read fails every file, before any source is decoded.
+                        if missingAsset { return (index, .failure(.watermarkImageUnreadable)) }
+                        return (index, convert(plan, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
+                                               trash: trash))
                     }
                 }
                 if cancelled { next = total }
@@ -151,12 +157,12 @@ public enum BatchRunner {
     }
 
     private static func convert(
-        _ plan: PlannedOutput, pipeline: Pipeline, maxPixels: Int, trash: Trasher
+        _ plan: PlannedOutput, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int, trash: Trasher
     ) -> Result<URL, ConversionError> {
         autoreleasepool {
             do {
                 let loaded = try ImageLoader.load(plan.item.source, maxPixels: maxPixels)
-                let image = try pipeline.apply(to: loaded.image)
+                let image = try pipeline.apply(to: loaded.image, assets: assets)
                 let properties = MetadataOps.apply(pipeline.metadata, to: loaded.properties)
                 let data = try ImageEncoder.encode(image, properties: properties, settings: pipeline.output)
                 try FileCommitter.commit(data, for: plan, trash: trash)

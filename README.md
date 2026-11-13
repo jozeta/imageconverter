@@ -8,7 +8,7 @@ on your Mac: no uploads, no network access at all.
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 0.1.0 · **Status:** early development (milestone 1, batch conversion, works; the image steps resize, crop, rotate/flip, canvas and color profile, plus metadata and rename, are available; watermark and presets are coming).
+**Version:** 0.1.0 · **Status:** early development (milestone 1, batch conversion, works; the image steps resize, crop, rotate/flip, canvas and color profile, plus metadata and rename, are available; the watermark step is available; presets are coming).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- Watermark step: text (font, colour) or image (e.g. a logo), with position, size relative to the image, opacity and margin.
 - Metadata step (remove location, camera details or everything; set artist, copyright and description) and Rename step with tokens ({date}, {camera}, {counter:000}, …) and a live example.
 - Wide-colour (Display P3) photos keep their colour when resized and saved as JPEG; opaque images stay opaque through steps; memory use accounts for enlargement.
 - Pipeline steps: resize, crop, rotate/flip, canvas/padding and color profile; steps can be reordered, switched off and removed; the pipeline is kept between launches. Large images are scheduled by memory use; file types macOS can't read (e.g. SVG) are ignored when adding folders.
@@ -24,7 +25,7 @@ Started 2026-11-13. The full design is in
 
 - Project created. Older versions are listed in [CHANGELOG.md](CHANGELOG.md).
 
-## Features (all but watermark and presets available now; the rest planned for 1.0)
+## Features (all but presets available now; the rest planned for 1.0)
 
 - **Reads** every format macOS can decode: HEIC, JPEG, PNG, TIFF, GIF, BMP, WebP, AVIF, PSD, camera
   RAW, JPEG 2000, ICNS and more. Animated and multi-page files are read using their first frame.
@@ -37,7 +38,7 @@ Started 2026-11-13. The full design is in
   - (available) **Rotate / flip**
   - (available) **Canvas / padding**: with a background colour
   - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original
-  - **Watermark**: text or image, with position, size and opacity controls
+  - (available) **Watermark**: text or image, with position, size, opacity and margin controls
   - (available) **Metadata** (always last, above Output): strip everything, location only or camera
     details, or set artist, copyright and description; the color profile is always kept
   - (available) **Rename** (always last): a pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`,
@@ -96,10 +97,25 @@ Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 | Pattern | Rename pattern, see the token table below | `{name}` |
 | Counter starts at | First `{counter}` value, 0 to 999 999 999 | 1 |
 
+Watermark (pipeline step, saved with the pipeline):
+
+| Option | What it does | Default |
+|--------|--------------|---------|
+| Content | Text or Image | Text (a new step starts with `© ` and your full name) |
+| Text | The text to draw | `©` |
+| Font | Helvetica Bold, Helvetica, Avenir Next Demi Bold, Georgia Bold, Menlo Bold or System bold | Helvetica-Bold |
+| Color | Text colour (with transparency) | white |
+| Image | A logo or picture to draw | none |
+| Position | One of nine anchor points | bottom right |
+| Size | Percent of the shorter side of the photo (1 to 100 %) | 4 % for text, 20 % for an image |
+| Opacity | 0 to 100 % | 65 % |
+| Margin | Distance from the edges, percent of the shorter side (0 to 25 %) | 3 % |
+
 In *Overwrite originals* mode, a rename that only changes letter case keeps the original name.
 
-Gray, CMYK and indexed-colour sources are converted to sRGB by pixel steps (colour-managed, so
-they look the same). Wide-colour (Display P3) images keep their colour space.
+CMYK and indexed-colour sources are converted to sRGB by pixel steps (colour-managed, so they
+look the same). Gray images stay gray (with or without transparency), and wide-colour (Display P3)
+images keep their colour space.
 
 Choosing **Overwrite originals** shows a warning once, when you select it, and never during runs.
 In this mode, when the format or name changes (for example HEIC → JPEG), the new file is written
@@ -186,7 +202,21 @@ Metadata is untrusted, so names are sanitised: `/` and `:` become `-`; control, 
 space); leading dots and separators at the ends are trimmed; names are capped at 200 characters
 and 240 bytes; and an empty result falls back to the original name (or `image`).
 
-(More how-tos once the features exist: build and save a preset, add a watermark.)
+### Add a watermark
+
+1. Press **+ Add step** and pick **Watermark**. A new step is text and starts with `© ` and your full name.
+2. Choose **Text** (edit the text, font and colour) or **Image** (**Choose image…**, for example a
+   logo with a transparent background; **Remove** clears it). Switching back and forth keeps what you entered.
+3. Pick a **Position** in the 3 x 3 grid.
+4. Set **Size**: it is a percentage of the photo's *shorter* side, so the mark looks the same on
+   landscape and portrait photos. For an image it is the watermark's width; for text it is the height of a line of text.
+   Defaults are 4 % for text and 20 % for an image (switching content switches the size too, unless you changed it).
+5. Set **Opacity** and **Margin** (distance from the edges, also a percentage of the shorter side).
+   The mark is always scaled down to fit inside the photo with twice the margin removed, so it is never cut off.
+6. Put the step after resizing and cropping if the mark should be sized to the final image. If an
+   image watermark can't be read when the batch runs, those files are skipped and listed.
+
+(More how-tos once the features exist: build and save a preset.)
 
 ## Tests
 

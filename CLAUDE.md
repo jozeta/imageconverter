@@ -36,7 +36,7 @@ swiftlint           # if installed (brew install swiftlint)
   - `ImageconverterApp.swift` (scenes), `SidebarView.swift` (main window), `SettingsView.swift` (⌘,),
     `AppModel.swift` (items, pipeline persisted as JSON under `currentPipeline`, run/cancel, toasts),
     `AppSettings.swift` (output mode, persisted in UserDefaults), `PipelineSection.swift` (step rows,
-    reorder, add, fixed Output row), `StepEditors.swift` (one editor per step kind), `StepControls.swift` (shared controls),
+    reorder, add, fixed Output row), `StepEditors.swift` (one editor per step kind), `WatermarkEditor.swift` (watermark step editor, sliders, thumbnail), `StepControls.swift` (shared controls),
     `FileStepEditors.swift` (Metadata and Rename rows and editors; the live rename example is computed in `AppModel`)
 - `Sources/ImageconverterCore/`: all logic: the pipeline model, each operation as a pure function
   (`CGImage → CGImage`, metadata → metadata), rename templating, collision naming, presets
@@ -46,7 +46,7 @@ swiftlint           # if installed (brew install swiftlint)
     `FileCommitter` (atomic writes, trash replaced originals), `BatchRunner` (parallel run, progress, cancel),
     `Pipeline` (steps, options, `apply`), `FileSteps` (`MetadataOptions`, `RenameOptions`), `MetadataOps` (metadata stripping/setting),
     `RenameTemplate` (tokens, sanitising), `StepSummary` (one-line step descriptions), `Geometry` (size maths),
-    `ImageOps` (resize, crop, rotate/flip, canvas, color profile), `WorkWindow` (memory-aware batch scheduling)
+    `ImageOps` (resize, crop, rotate/flip, canvas, color profile, watermark), `Watermark` (options, placement maths), `WatermarkAssets` (image watermarks loaded once per batch), `WorkWindow` (memory-aware batch scheduling)
 - `Tests/ImageconverterCoreTests/`: tests (operations on small generated images, rename tokens,
   resize/crop maths, collisions, preset round-trip and rejection, metadata really stripped)
 - `docs/superpowers/specs/`: design documents; `docs/superpowers/plans/`: implementation plans
