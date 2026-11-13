@@ -230,3 +230,63 @@ Mapping constants may be tuned if a test or a screenshot shows them clearly wron
 - [ ] Step 4: Editor: a compact list of labelled sliders grouped "Light" (Exposure, Brilliance, Highlights, Shadows, Contrast, Brightness, Black point), "Colour" (Saturation, Vibrance, Warmth, Tint, Hue), "Detail" (Sharpness, Definition, Noise reduction); each row: label, slider, value text, and double-click on the label (plus a small reset button per group) resets to 0; VoiceOver label and value per slider; slider changes feed the existing debounced preview. Summary line: the non-neutral fields, e.g. "exposure +20, contrast +10" or "no changes".
 - [ ] Step 5: Build/test/lint; screenshot the editor and a preview with a few adjustments (use the DEBUG `-debugAddFiles` argument if Task 8 added it); docs.
 - [ ] Step 6: Commit `feat: Adjust step (exposure, brilliance, highlights, shadows, contrast, brightness, black point, saturation, vibrance, warmth, tint, hue, sharpness, definition, noise reduction)`.
+
+---
+
+## Compression round (Johan, 2026-11-13; WebP output and chroma subsampling skipped: they need third-party encoders)
+
+### Task 10: Encoder options: full quality range, progressive JPEG, PNG optimisation, AVIF
+
+**Files:** Modify `Sources/ImageconverterCore/OutputFormat.swift`, `Sources/ImageconverterCore/ImageEncoder.swift`; Test `Tests/ImageconverterCoreTests/ImageEncoderTests.swift`, `OutputFormatTests.swift`
+
+**Interfaces:**
+- `OutputFormat.avif` (UTType `public.avif`, extension `avif`, display "AVIF", `supportsQuality`), listed by `available()` only when `CGImageDestinationCopyTypeIdentifiers()` contains it (as for the other optional formats). HEIC-like handling (alpha kept).
+- `OutputSettings.progressive: Bool` (default false; JPEG only: `kCGImagePropertyJFIFDictionary` → `kCGImagePropertyJFIFIsProgressive`), `OutputSettings.optimizePNG: Bool` (default true; PNG only: encode with each of the ImageIO PNG filter choices `IMAGEIO_PNG_FILTER_NONE`, `_SUB`, `_UP`, `_AVG`, `_PAETH`, `IMAGEIO_PNG_ALL_FILTERS` via `kCGImagePropertyPNGCompressionFilter` and keep the smallest; lossless, pixels identical). Lenient decode (missing → default). Quality range is now 0…1 everywhere (slider 0–100 %).
+- [ ] Tests: `testProgressiveJPEGFlag` (re-read JFIF IsProgressive true), `testOptimizedPNGNotLargerAndIdenticalPixels`, `testAVIFRoundTripWhenAvailable` (skip with `XCTSkip` when unavailable), `testQualityZeroEncodes`, `testDecodesOldOutputSettings`.
+- [ ] Implement, `swift test`, commit `feat(core): progressive JPEG, PNG optimisation, AVIF output, full quality range`.
+
+### Task 11: Compression modes: quality, target size, maximum size, smart
+
+**Files:** Create `Sources/ImageconverterCore/CompressionSearch.swift`, `Sources/ImageconverterCore/ImageSimilarity.swift`; Modify `OutputFormat.swift` (`OutputSettings`), `BatchRunner.swift` (`encodeItem` uses the search so batch and estimate agree); Test `CompressionSearchTests.swift`, `ImageSimilarityTests.swift`
+
+**Interfaces:**
+- `public enum CompressionMode: Codable, Equatable, Sendable { case quality; case targetSize(bytes: Int); case maxSize(bytes: Int); case smart }` on `OutputSettings.compression` (default `.quality`; lenient decode). Applies only to formats with `supportsQuality`; other formats ignore it.
+- `public enum CompressionSearch { public static func encode(_ image: CGImage, properties: [String: Any], settings: OutputSettings) throws -> (data: Data, quality: Double?, note: String?) }`.
+- Rules: `.quality` = one encode at `settings.quality`. `.targetSize(b)`: binary search quality in 0…1 (at most 8 encodes, tolerance 1 %) for the highest quality whose size ≤ b; if even quality 0 is larger, write quality 0 and return note "Couldn't reach <size>; smallest is <size>". `.maxSize(b)`: encode at `settings.quality`; if > b, binary search downwards as above; if quality 0 is still > b the file **fails** with `ConversionError.encodeFailed`-style reason "Can't get under <size> (smallest is <size>)". `.smart`: binary search (≤ 7 encodes) the lowest quality in 0.40…0.95 whose decoded result has SSIM ≥ 0.985 against the pre-encode image (luma, both downsampled to ≤ 1024 px long edge); `ImageSimilarity.ssim(_:_:) -> Double`.
+- `BatchReport` per-file notes surface in the failure/notes list (a note is not a failure). `SizeEstimator`/`EncodedPreview` gain `quality: Double?` (the chosen quality) and `note: String?`.
+- [ ] Tests: `testTargetSizeHitsBelowTarget`, `testTargetSizeUnreachableReturnsNote`, `testMaxSizeKeepsQualityWhenSmallEnough`, `testMaxSizeFailsWhenImpossible`, `testSmartPicksLowerQualityForFlatImage` (flat gradient → lower quality than a noisy image), `testSSIMIdenticalIsOne`, `testSSIMNoisyLower`, `testEstimateEqualsBatchWithTargetSize`.
+- [ ] Implement, commit `feat(core): target size, maximum size and smart compression`.
+
+### Task 12: Compression report and percentages
+
+**Files:** Modify `BatchRunner.swift` (`BatchReport.inputBytes`, `.outputBytes` summed over written files; per-file `BatchResultEntry { source, destination, inputBytes, outputBytes, note }`), `SidebarView.swift`/`PreviewPane.swift`/`PipelineSection.swift` (app), `AppModel.swift`; Test `BatchRunnerTests.swift`
+- Size line under the quality controls and the preview table's Size row show the change as a percentage: `4.2 MB → about 1.1 MB (−74 %)` (or `+12 %`).
+- After a run: toast "Converted 24 images · saved 31.2 MB (62 %)" (or "grew by …"), and a collapsible "Report" section in the sidebar (where the skipped list is) with totals and one row per file (name, before → after, %), notes included; it stays until the next run or Clear.
+- [ ] Test `testReportCountsBytes`; implement; commit `feat: compression report and size percentages`.
+
+### Task 13: Output row UI for compression
+
+**Files:** Modify `Sources/Imageconverter/PipelineSection.swift` (Output row; split into `OutputRow.swift` if it grows past ~250 lines)
+- Quality slider 0–100 %. For quality formats a "Compression" picker: "Quality", "Target size", "Maximum size", "Smart"; Target/Maximum show a number field + unit picker (KB/MB, 1 KB = 1000 B as Finder shows) ; Smart shows a muted note "Picks the lowest quality that still looks the same". "Progressive" toggle for JPEG; "Optimise PNG" toggle for PNG; AVIF appears in the format list when available. The size estimate line shows the chosen quality when the mode searches ("about 1.1 MB at 74 %"). VoiceOver labels on all.
+- [ ] Build/test/lint, screenshot each mode, commit `feat(app): compression modes in the Output row`.
+
+## Resize round (Johan, 2026-11-13)
+
+### Task 14: Resize model: new modes, presets, DPI, resampling
+
+**Files:** Modify `Sources/ImageconverterCore/Pipeline.swift` (resize/crop options), `Geometry.swift`, `ImageOps.swift`, `StepSummary.swift`; Create `Sources/ImageconverterCore/SizePresets.swift`, `Sources/ImageconverterCore/Resampler.swift`; Test `GeometryTests.swift`, `ImageOpsTests.swift`, `SizePresetsTests.swift`
+
+**Interfaces / rules** (existing modes stay and keep decoding):
+- New `ResizeMode` cases: `.percent(Double)` (1…1000 %), `.longestEdge(Int)`, `.shortestEdge(Int)`, `.minimum(width: Int, height: Int)` (scale up so both sides are at least these, keeping aspect; never shrinks), `.maxBox(width: Int, height: Int)` already = fit inside (keep), `.physical(width: Double?, height: Double?, unit: PhysicalUnit, dpi: Double)` with `PhysicalUnit { inch, centimetre }` → pixels = value / (unit == .centimetre ? 2.54 : 1) × dpi, rounded; one of width/height may be nil (keep aspect). "Don't enlarge" applies to all shrinking-oriented modes as today, not to `.minimum`.
+- `ResizeOptions.resampling: Resampling { lanczos, bicubic, bilinear, nearest }` (default `.lanczos`). `Resampler.scale(_ image: CGImage, to: (Int, Int), method:) throws -> CGImage`: lanczos = vImage `vImageScale_ARGB8888`/`_ARGB16U`/`_ARGBFFFF` with `kvImageHighQualityResampling` (convert via `vImageBuffer_InitWithCGImage` keeping the colour space and bit depth); bicubic = Core Image `CIBicubicScaleTransform` (B 0, C 0.75); bilinear = `CGContext` interpolation `.low`; nearest = `CGContext` interpolation `.none`. Keep colour space, bit depth, alpha/opaque rules of the current resize.
+- DPI: `ResizeOptions.dpi: Double?` (nil = keep); when set (or with `.physical`), write `kCGImagePropertyDPIWidth/Height` (and TIFF/JFIF resolution) into the output properties without resampling. Applied through the metadata properties path so it works for every format that stores it.
+- Crop aspect presets: `CropOptions` keeps `.aspect(width:height:)`; `SizePresets.aspectRatios` = 1:1, 4:5, 4:3, 3:2, 5:4, 16:9, 9:16, 21:9, 2:3, 3:4.
+- `SizePresets.social: [SizePreset]` (name, width, height, mode = fill and crop): Instagram square 1080×1080, Instagram portrait 1080×1350, Instagram landscape 1080×566, Instagram/Facebook/TikTok story 1080×1920, Facebook post 1200×630, Facebook cover 851×315, LinkedIn post 1200×627, LinkedIn cover 1584×396, X post 1600×900, X header 1500×500, YouTube thumbnail 1280×720, Pinterest pin 1000×1500. `SizePresets.resolutions` (fit inside, don't enlarge): 720p 1280×720, 1080p 1920×1080, 1440p 2560×1440, 4K 3840×2160, 8K 7680×4320.
+- [ ] Tests: each new mode's target size (`testPercent50`, `testLongestEdgePortraitAndLandscape`, `testShortestEdge`, `testMinimumUpscalesOnlyWhenSmaller`, `testPhysicalCentimetresAt300DPI` (10 cm → 1181 px), `testPhysicalOneSideKeepsAspect`), `testResamplersKeepSizeColorSpaceAndDepth` (all four, P3 16-bit), `testNearestKeepsHardEdges`, `testDPIWrittenWithoutResampling` (re-read DPIWidth 300, pixel size unchanged), `testOldResizeJSONDecodes`, `testPresetsValid` (positive sizes, unique names).
+- [ ] Implement, commit `feat(core): resize by percent, edges, minimum, physical size; resampling choice; DPI; size presets`.
+
+### Task 15: Resize and crop editors
+
+**Files:** Modify `Sources/Imageconverter/StepEditors.swift` (split into `ResizeEditor.swift` if large)
+- Resize editor: mode picker grouped "Pixels" (Max width, Max height, Fit inside, Exact size, Longest edge, Shortest edge, Minimum size), "Scale" (Percentage), "Print" (Physical size: width/height fields, unit cm/in, DPI); exact size keeps the fill choice (Stretch / Fit and pad / Fill and crop) with clear labels ("Stretch (ignore aspect ratio)", "Fit inside, pad", "Fill, crop edges"); "Keep aspect ratio" is implied by every mode except Stretch, say so in the help text. A "Presets" menu: Social media (fills Exact size + Fill and crop) and Resolutions (fills Fit inside + don't enlarge). Resampling picker (Lanczos, Bicubic, Bilinear, Nearest neighbour). "Set DPI" toggle + field (default 300 when switched on). Crop editor: aspect presets menu.
+- [ ] Build/test/lint, screenshot, commit `feat(app): resize modes, presets, resampling and DPI in the editors`.
