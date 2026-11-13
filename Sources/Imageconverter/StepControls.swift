@@ -146,7 +146,7 @@ struct AccordionCard<Header: View, Content: View>: View {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
                         .rotationEffect(.degrees(showsContent ? 90 : 0))
-                        .frame(width: 14, height: 14)
+                        .frame(width: 24, height: 24)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -155,6 +155,7 @@ struct AccordionCard<Header: View, Content: View>: View {
                 .disabled(!canExpand)
                 .accessibilityLabel(showsContent ? "Collapse \(title)" : "Expand \(title)")
                 header
+                    .onTapGesture { if canExpand { isExpanded.toggle() } }
             }
             if showsContent {
                 content.padding(.top, LadaGlass.Spacing.xs)

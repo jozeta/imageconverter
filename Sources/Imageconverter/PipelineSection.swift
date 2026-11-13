@@ -8,6 +8,8 @@ struct PipelineSection: View {
     var settings: AppSettings
     private var isCollapsed: Bool { model.pipelineCollapsed }
     @State private var expanded: Set<PipelineStep.ID> = []
+    /// Set when a drag starts, so rows can show the slot a drop will land in.
+    @State private var draggedID: PipelineStep.ID?
     @State private var metadataExpanded = false
     @State private var renameExpanded = false
     @State private var pendingOverwrite = false
@@ -32,6 +34,8 @@ struct PipelineSection: View {
                             expanded.remove(step.id)
                             model.removeStep(step.id)
                         },
+                        dropEdge: { dropEdge(for: step.id) },
+                        dragStarted: { draggedID = step.id },
                         dropped: { model.moveStep($0, to: step.id) })
                     .disabled(model.isRunning)
                 }
@@ -40,6 +44,16 @@ struct PipelineSection: View {
                 outputRow
             }
         }
+    }
+
+    /// moveStep(_:to:) puts the dragged step at the target's index: above it when coming from below,
+    /// below it when coming from above. Nil on the dragged row itself.
+    private func dropEdge(for id: PipelineStep.ID) -> VerticalEdge? {
+        let steps = model.pipeline.steps
+        guard let dragged = draggedID, dragged != id,
+              let from = steps.firstIndex(where: { $0.id == dragged }),
+              let target = steps.firstIndex(where: { $0.id == id }) else { return nil }
+        return from > target ? .top : .bottom
     }
 
     private var fileSteps: some View {
@@ -234,8 +248,11 @@ private struct StepRow: View {
     let canMoveDown: Bool
     let move: (Int) -> Void
     let remove: () -> Void
+    let dropEdge: () -> VerticalEdge?
+    let dragStarted: () -> Void
     let dropped: (PipelineStep.ID) -> Bool
     @State private var isTargeted = false
+    @State private var handleHovered = false
 
     private var name: String { step.operation.kind.displayName }
 
@@ -267,9 +284,10 @@ private struct StepRow: View {
         } content: {
             StepEditor(operation: $step.operation)
         }
-        .overlay(alignment: .top) {
-            if isTargeted {
-                Capsule().fill(LadaGlass.accent.color).frame(height: 2).offset(y: -1)
+        .overlay(alignment: dropEdge() == .bottom ? .bottom : .top) {
+            if isTargeted, let edge = dropEdge() {
+                Capsule().fill(LadaGlass.accent.color).frame(height: 2)
+                    .offset(y: edge == .bottom ? 1 : -1)
             }
         }
         .dropDestination(for: String.self) { ids, _ in
@@ -285,18 +303,30 @@ private struct StepRow: View {
             .foregroundStyle(LadaGlass.Colors.muted)
             .frame(width: 20, height: 24)
             .contentShape(Rectangle())
-            .onHover { inside in
-                if inside { NSCursor.openHand.push() } else { NSCursor.pop() }
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    handleHovered = true
+                    NSCursor.openHand.set()
+                case .ended:
+                    handleHovered = false
+                    NSCursor.arrow.set()
+                }
             }
+            .onDisappear { if handleHovered { NSCursor.arrow.set() } }
             .draggable(step.id.uuidString) {
+                dragPreview.onAppear(perform: dragStarted)
+            }
+            .help("Drag to reorder")
+            .accessibilityHidden(true)
+    }
+
+    private var dragPreview: some View {
                 Text(name)
                     .font(LadaGlass.Typography.subtitle)
                     .padding(.horizontal, LadaGlass.Spacing.m)
                     .padding(.vertical, LadaGlass.Spacing.s)
                     .lgSurface()
-            }
-            .help("Drag to reorder")
-            .accessibilityHidden(true)
     }
 
     @ViewBuilder private var actions: some View {
