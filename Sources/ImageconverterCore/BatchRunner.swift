@@ -119,26 +119,13 @@ public enum BatchRunner {
     /// The header and creation date are only read when the template uses them.
     private static func renderedBaseNames(_ items: [InputItem], pipeline: Pipeline) -> [String]? {
         guard pipeline.rename.isEnabled else { return nil }
-        let template = RenameTemplate(pipeline.rename.pattern)
         var names: [String] = []
         for (index, item) in items.enumerated() {
             if Task.isCancelled { return nil }
-            let header = template.needsHeader ? ImageLoader.header(of: item.source) : nil
-            let upright = header?.uprightSize ?? (width: 1, height: 1)
-            let size = pipeline.outputSize(sourceWidth: upright.width, sourceHeight: upright.height)
-            let created = template.needsDate
-                ? (try? item.source.resourceValues(forKeys: [.creationDateKey]))?.creationDate : nil
-            let context = RenameContext.make(
-                source: item.source, header: header, outputSize: size, format: pipeline.output.format,
-                counter: Self.saturatingAdd(pipeline.rename.counterStart, index), fileCreationDate: created)
-            names.append(template.render(context))
+            guard let name = RenameRendering.baseName(for: item, index: index, pipeline: pipeline) else { return nil }
+            names.append(name)
         }
         return names
-    }
-
-    private static func saturatingAdd(_ base: Int, _ offset: Int) -> Int {
-        let (sum, overflow) = base.addingReportingOverflow(offset)
-        return overflow ? Int.max : sum
     }
 
     private static func makeReport(
