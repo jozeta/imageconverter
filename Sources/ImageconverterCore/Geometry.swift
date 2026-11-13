@@ -45,11 +45,15 @@ public enum Geometry {
         }
         guard let factor = scaleFactor(options.mode, width: srcW, height: srcH) else { return .unchanged }
         let ratio: Double
-        if case .minimum = options.mode {
+        switch options.mode {
+        case .minimum:
             // Only ever enlarges, so "don't enlarge" doesn't apply.
             guard factor > 1 else { return .unchanged }
             ratio = factor
-        } else {
+        case .percent, .physical:
+            // Explicit sizes: "don't enlarge" doesn't apply.
+            ratio = factor
+        default:
             ratio = options.allowEnlarge ? factor : min(factor, 1)
         }
         return scalePlan(CGSize(width: round(srcW * ratio), height: round(srcH * ratio)), source: source)
@@ -103,6 +107,17 @@ public enum Geometry {
             if crop == scaledSize { return scalePlan(scaledSize, source: source) }
             return .fillAndCrop(scaled: scaledSize, crop: crop)
         }
+    }
+
+    /// The part of the source that a fill-and-crop plan keeps, centred, in source pixels (top-left
+    /// origin). Scaling only this region to `crop` avoids building the whole scaled image.
+    public static func fillCropSourceRect(source: CGSize, scaled: CGSize, crop: CGSize) -> CGRect {
+        let srcW = max(1, source.width)
+        let srcH = max(1, source.height)
+        let size = CGSize(width: min(srcW, round(crop.width * srcW / max(1, scaled.width))),
+                          height: min(srcH, round(crop.height * srcH / max(1, scaled.height))))
+        return CGRect(origin: Anchor.center.origin(content: size, container: CGSize(width: srcW, height: srcH)),
+                      size: size)
     }
 
     /// Pixels for a print length: `value` in `unit` at `dpi`, rounded. Nil for a non-finite or

@@ -4,8 +4,8 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 
 /// Scales images with a chosen interpolation. Every method keeps the source's RGB colour space
-/// (sRGB for other models), 8 or 16 bits per component (float stays float for Lanczos) and
-/// stays opaque when the source has no alpha, like the other steps.
+/// (sRGB for other models), 8 or 16 bits per component (32-bit float stays float) and stays
+/// opaque when the source has no alpha, like the other steps.
 public enum Resampler {
     public static func scale(_ image: CGImage, to size: (Int, Int), method: Resampling) throws -> CGImage {
         let (width, height) = size
@@ -30,7 +30,7 @@ public enum Resampler {
     private static func drawn(_ image: CGImage, _ width: Int, _ height: Int,
                               _ quality: CGInterpolationQuality) -> CGImage? {
         guard let ctx = ImageOps.makeContext(width: width, height: height, like: image,
-                                             alpha: ImageOps.hasAlpha(image)) else { return nil }
+                                             alpha: ImageOps.hasAlpha(image), keepFloat: true) else { return nil }
         ctx.interpolationQuality = quality
         ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         return ctx.makeImage()
@@ -53,10 +53,9 @@ public enum Resampler {
         let rect = CGRect(x: 0, y: 0, width: width, height: height)
         guard let output = filter.outputImage,
               let ctx = ImageOps.makeContext(width: width, height: height, like: image,
-                                             alpha: ImageOps.hasAlpha(image)),
+                                             alpha: ImageOps.hasAlpha(image), keepFloat: true),
               let space = ctx.colorSpace,
-              let rendered = ciContext.createCGImage(output, from: rect,
-                                                     format: ctx.bitsPerComponent > 8 ? .RGBA16 : .RGBA8,
+              let rendered = ciContext.createCGImage(output, from: rect, format: ciFormat(bits: ctx.bitsPerComponent),
                                                      colorSpace: space) else { return nil }
         // Same size: this only puts the pixels into the agreed format (depth, opacity).
         ctx.interpolationQuality = .none
@@ -64,12 +63,19 @@ public enum Resampler {
         return ctx.makeImage()
     }
 
+    private static func ciFormat(bits: Int) -> CIFormat {
+        switch bits {
+        case 32: return .RGBAf
+        case 16: return .RGBA16
+        default: return .RGBA8
+        }
+    }
+
     // MARK: vImage (Lanczos)
 
     private static func lanczos(_ image: CGImage, width: Int, height: Int) -> CGImage? {
         let alpha = ImageOps.hasAlpha(image)
-        let isFloat = image.bitsPerComponent == 32 && image.bitmapInfo.contains(.floatComponents)
-        let bits = isFloat ? 32 : (image.bitsPerComponent > 8 ? 16 : 8)
+        let bits = ImageOps.isFloat(image) ? 32 : (image.bitsPerComponent > 8 ? 16 : 8)
         var spaces: [CGColorSpace] = []
         if let own = image.colorSpace, own.model == .rgb { spaces.append(own) }
         if let srgb = CGColorSpace(name: CGColorSpace.sRGB) { spaces.append(srgb) }
@@ -112,19 +118,31 @@ public enum Resampler {
         return try? target.createCGImage(format: format)
     }
 
+    /// Clamps every premultiplied pixel to 0 ≤ colour ≤ alpha ≤ 1 (16-bit and float: SIMD per pixel,
+    /// since vImage has no 16-bit clip and its float clip lets negatives through).
     private static func clipToAlpha(_ buffer: inout vImage_Buffer, bits: Int) {
+        let width = Int(buffer.width)
         switch bits {
-        case 8: _ = vImageClipToAlpha_RGBA8888(&buffer, &buffer, vImage_Flags(kvImageNoFlags))
+        case 8:
+            _ = vImageClipToAlpha_RGBA8888(&buffer, &buffer, vImage_Flags(kvImageNoFlags))
         case 16:
-            // vImage has no 16-bit clip.
             for row in 0..<Int(buffer.height) {
-                let pixels = buffer.data.advanced(by: row * buffer.rowBytes).assumingMemoryBound(to: UInt16.self)
-                for offset in stride(from: 0, to: Int(buffer.width) * 4, by: 4) {
-                    let alpha = pixels[offset + 3]
-                    for channel in 0..<3 where pixels[offset + channel] > alpha { pixels[offset + channel] = alpha }
+                let pixels = buffer.data.advanced(by: row * buffer.rowBytes).assumingMemoryBound(to: SIMD4<UInt16>.self)
+                for index in 0..<width {
+                    let pixel = pixels[index]
+                    pixels[index] = pointwiseMin(pixel, SIMD4(repeating: pixel.w))
                 }
             }
-        default: _ = vImageClipToAlpha_RGBAFFFF(&buffer, &buffer, vImage_Flags(kvImageNoFlags))
+        default:
+            let zero = SIMD4<Float>(repeating: 0)
+            for row in 0..<Int(buffer.height) {
+                let pixels = buffer.data.advanced(by: row * buffer.rowBytes).assumingMemoryBound(to: SIMD4<Float>.self)
+                for index in 0..<width {
+                    let pixel = pixels[index]
+                    let alpha = min(max(pixel.w, 0), 1)
+                    pixels[index] = pixel.clamped(lowerBound: zero, upperBound: SIMD4(repeating: alpha))
+                }
+            }
         }
     }
 }

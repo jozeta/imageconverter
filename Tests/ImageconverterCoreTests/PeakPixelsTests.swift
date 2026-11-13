@@ -7,13 +7,24 @@ final class PeakPixelsTests: XCTestCase {
     }
 
     func testDownscaleKeepsSourceAsPeak() {
-        let pipe = pipeline(.resize(ResizeOptions(mode: .maxWidth(100))))
+        let pipe = pipeline(.resize(ResizeOptions(mode: .maxWidth(100), resampling: .bilinear)))
         XCTAssertEqual(pipe.peakPixels(sourceWidth: 4000, sourceHeight: 3000), 12_000_000)
     }
 
     func testEnlargementCounts() {
-        let options = ResizeOptions(mode: .exactSize(width: 8000, height: 8000, fill: .stretch), allowEnlarge: true)
+        let options = ResizeOptions(mode: .exactSize(width: 8000, height: 8000, fill: .stretch), allowEnlarge: true,
+                                    resampling: .bicubic)
         XCTAssertEqual(pipeline(.resize(options)).peakPixels(sourceWidth: 100, sourceHeight: 100), 64_000_000)
+    }
+
+    func testLanczosCountsItsCopies() {
+        // Source + vImage copy of it + target buffer + its image copy.
+        let down = pipeline(.resize(ResizeOptions(mode: .maxWidth(100))))
+        XCTAssertEqual(down.peakPixels(sourceWidth: 4000, sourceHeight: 3000), 24_015_000)
+        // Fill and crop scales only the kept region: 30 000 x 200 into 1080 x 1080 keeps 200 x 200 of the source.
+        let crop = pipeline(.resize(ResizeOptions(mode: .exactSize(width: 1080, height: 1080, fill: .fillAndCrop),
+                                                  allowEnlarge: true)))
+        XCTAssertEqual(crop.peakPixels(sourceWidth: 30_000, sourceHeight: 200), 6_000_000 + 40_000 + 2 * 1_166_400)
     }
 
     func testCanvasPaddingCounts() {

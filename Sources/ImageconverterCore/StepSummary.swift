@@ -24,35 +24,24 @@ extension ImageOperation {
         return parts.joined(separator: " · ")
     }
 
+    // One case per mode keeps every summary in one place.
+    // swiftlint:disable:next cyclomatic_complexity
     private static func summary(of mode: ResizeMode) -> String {
         switch mode {
-        case .percent, .longestEdge, .shortestEdge, .minimum, .physical: return scaleSummary(of: mode)
         case .maxWidth(let width): return "max width \(width) px"
         case .maxHeight(let height): return "max height \(height) px"
         case .fitBox(let width, let height): return "fit \(width) × \(height)"
         case .exactWidth(let width): return "width \(width) px"
         case .exactHeight(let height): return "height \(height) px"
-        case .exactSize(let width, let height, let fill):
-            let fillName: String
-            switch fill {
-            case .stretch: fillName = "stretch"
-            case .fitAndPad: fillName = "pad"
-            case .fillAndCrop: fillName = "crop"
-            }
-            return "\(width) × \(height) · \(fillName)"
-        }
-    }
-
-    private static func scaleSummary(of mode: ResizeMode) -> String {
-        switch mode {
+        case .exactSize(let width, let height, let fill): return "\(width) × \(height) · \(fill.summaryName)"
         case .percent(let percent): return "\(number(percent)) %"
         case .longestEdge(let edge): return "longest edge \(edge) px"
         case .shortestEdge(let edge): return "shortest edge \(edge) px"
         case .minimum(let width, let height): return "at least \(width) × \(height)"
         case .physical(let width, let height, let unit, let dpi):
+            // Two sides fit inside the print size, keeping the aspect ratio.
             let side: (Double?) -> String = { $0.map { number($0) } ?? "auto" }
             return "\(side(width)) × \(side(height)) \(unit.displayName) at \(number(dpi)) dpi"
-        default: return summary(of: mode)
         }
     }
 
@@ -146,5 +135,15 @@ extension WatermarkOptions {
         let size = clampedSizePercent.formatted(.number.locale(Locale(identifier: "en_US_POSIX"))
             .precision(.fractionLength(0...2)).grouping(.never))
         return "\(name) · \(anchor.displayName) · \(size) %"
+    }
+}
+
+private extension ExactFill {
+    var summaryName: String {
+        switch self {
+        case .stretch: return "stretch"
+        case .fitAndPad: return "pad"
+        case .fillAndCrop: return "crop"
+        }
     }
 }

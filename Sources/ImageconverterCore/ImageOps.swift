@@ -17,31 +17,23 @@ public enum ImageOps {
         case .unchanged:
             return image
         case .scale(let size):
-            return try Resampler.scale(image, to: pixels(size), method: options.resampling)
+            return try Resampler.scale(image, to: pixels(size, step: step), method: options.resampling)
         case .fitAndPad(let content, let canvas):
-            let scaled = try Resampler.scale(image, to: pixels(content), method: options.resampling)
+            let scaled = try Resampler.scale(image, to: pixels(content, step: step), method: options.resampling)
             let ctx = try context(canvas, like: image, step: step,
-                                  alpha: hasAlpha(image) || options.padColor.alpha < 1)
+                                  alpha: hasAlpha(image) || options.padColor.alpha < 1, keepFloat: true)
             fill(ctx, color: options.padColor)
             let origin = Anchor.center.origin(content: content, container: canvas)
             draw(scaled, at: origin, size: content, in: ctx)
             return try finish(ctx, step: step)
         case .fillAndCrop(let scaledSize, let crop):
-            let scaled = try Resampler.scale(image, to: pixels(scaledSize), method: options.resampling)
-            let ctx = try context(crop, like: image, step: step, alpha: hasAlpha(image))
-            let origin = Anchor.center.origin(content: scaledSize, container: crop)
-            draw(scaled, at: origin, size: scaledSize, in: ctx)
-            return try finish(ctx, step: step)
+            // Scale only the part that is kept, so the full scaled image is never built.
+            let region = Geometry.fillCropSourceRect(source: source, scaled: scaledSize, crop: crop)
+            guard let kept = image.cropping(to: region) else { throw ConversionError.processingFailed(step) }
+            let target = try pixels(crop, step: step)
+            if kept.width == target.0, kept.height == target.1 { return kept }
+            return try Resampler.scale(kept, to: target, method: options.resampling)
         }
-    }
-
-    /// Whole pixel dimensions of a planned size, or a throw when it can't be a bitmap.
-    private static func pixels(_ size: CGSize) throws -> (Int, Int) {
-        guard size.width.isFinite, size.height.isFinite, size.width >= 1, size.height >= 1,
-              size.width <= Double(maxPixels), size.height <= Double(maxPixels) else {
-            throw ConversionError.processingFailed(StepKind.resize.displayName)
-        }
-        return (Int(size.width), Int(size.height))
     }
 
     public static func crop(_ image: CGImage, _ options: CropOptions) throws -> CGImage {
@@ -183,30 +175,48 @@ public enum ImageOps {
     /// A bitmap context in `space` (default: the image's color space); 16 bpc when the source has more than 8.
     /// Opaque (no alpha channel) unless `alpha` is true, so opaque photos stay opaque through a step.
     static func makeContext(width: Int, height: Int, like image: CGImage, space target: CGColorSpace? = nil,
-                            alpha: Bool = true) -> CGContext? {
+                            alpha: Bool = true, keepFloat: Bool = false) -> CGContext? {
         guard width >= 1, height >= 1, width <= maxPixels / height else { return nil }
-        let bits = image.bitsPerComponent > 8 ? 16 : 8
+        // (bits per component, extra bitmap info), best first.
+        var formats: [(Int, CGBitmapInfo)] = [(image.bitsPerComponent > 8 ? 16 : 8, [])]
+        if keepFloat, isFloat(image) { formats.insert((32, [.floatComponents, .byteOrder32Little]), at: 0) }
         var infos = [CGImageAlphaInfo.premultipliedLast.rawValue]
         if !alpha { infos.insert(CGImageAlphaInfo.noneSkipLast.rawValue, at: 0) }
         var spaces: [CGColorSpace] = []
         if let own = target ?? image.colorSpace { spaces.append(own) }
         if let srgb = CGColorSpace(name: CGColorSpace.sRGB) { spaces.append(srgb) }
-        for space in spaces {
-            for info in infos {
-                if let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: bits,
-                                       bytesPerRow: 0, space: space, bitmapInfo: info) {
-                    ctx.interpolationQuality = .high
-                    return ctx
+        for (bits, extra) in formats {
+            for space in spaces {
+                for info in infos {
+                    if let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: bits,
+                                           bytesPerRow: 0, space: space, bitmapInfo: info | extra.rawValue) {
+                        ctx.interpolationQuality = .high
+                        return ctx
+                    }
                 }
             }
         }
         return nil
     }
 
-    private static func context(_ size: CGSize, like image: CGImage, step: String, alpha: Bool) throws -> CGContext {
+    static func isFloat(_ image: CGImage) -> Bool {
+        image.bitsPerComponent == 32 && image.bitmapInfo.contains(.floatComponents)
+    }
+
+    /// Whole pixel dimensions of a planned size, or a throw when it can't be a bitmap.
+    private static func pixels(_ size: CGSize, step: String) throws -> (Int, Int) {
         guard size.width.isFinite, size.height.isFinite, size.width >= 1, size.height >= 1,
-              size.width <= Double(maxPixels), size.height <= Double(maxPixels),
-              let ctx = makeContext(width: Int(size.width), height: Int(size.height), like: image, alpha: alpha) else {
+              size.width <= Double(maxPixels), size.height <= Double(maxPixels) else {
+            throw ConversionError.processingFailed(step)
+        }
+        return (Int(size.width), Int(size.height))
+    }
+
+    private static func context(_ size: CGSize, like image: CGImage, step: String, alpha: Bool,
+                                keepFloat: Bool = false) throws -> CGContext {
+        let (width, height) = try pixels(size, step: step)
+        guard let ctx = makeContext(width: width, height: height, like: image, alpha: alpha,
+                                    keepFloat: keepFloat) else {
             throw ConversionError.processingFailed(step)
         }
         return ctx

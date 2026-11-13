@@ -231,21 +231,6 @@ extension Pipeline {
 }
 
 extension Pipeline {
-    /// The DPI written to the output: the last enabled resize step that sets one wins.
-    public var outputDPI: Double? {
-        steps.reversed().lazy.compactMap { step -> Double? in
-            guard step.isEnabled, case .resize(let options) = step.operation else { return nil }
-            return options.effectiveDPI
-        }.first
-    }
-
-    /// The metadata written with the output: the metadata options applied to `source`, then the DPI.
-    public func outputProperties(from source: [String: Any]) -> [String: Any] {
-        MetadataOps.setDPI(outputDPI, format: output.format, in: MetadataOps.apply(metadata, to: source))
-    }
-}
-
-extension Pipeline {
     /// The largest pixel count any enabled step produces for a `sourceWidth` x `sourceHeight` image
     /// (the source included). Saturates instead of overflowing.
     public func peakPixels(sourceWidth: Int, sourceHeight: Int) -> Int {
@@ -256,6 +241,9 @@ extension Pipeline {
             if case .adjust(let options) = operation, !options.isNeutral {
                 let (tripled, overflow) = pixels.multipliedReportingOverflow(by: 3)
                 peak = max(peak, overflow ? Int.max : tripled)
+            }
+            if case .resize(let options) = operation {
+                peak = max(peak, Self.resizeWorkingPixels(input: size, options: options))
             }
             peak = max(peak, pixels)
         }
@@ -280,7 +268,7 @@ extension Pipeline {
         visit(size, nil)
     }
 
-    private static func size(after operation: ImageOperation, from size: CGSize) -> CGSize {
+    static func size(after operation: ImageOperation, from size: CGSize) -> CGSize {
         switch operation {
         case .resize(let options):
             switch Geometry.resizePlan(source: size, options: options) {
@@ -306,7 +294,7 @@ extension Pipeline {
         value.isFinite ? min(max(Double(value), 1), Double(Int32.max)) : 1
     }
 
-    private static func pixels(_ size: CGSize) -> Int {
+    static func pixels(_ size: CGSize) -> Int {
         let wide = clamped(size.width)
         let high = clamped(size.height)
         let (product, overflow) = Int(wide).multipliedReportingOverflow(by: Int(high))

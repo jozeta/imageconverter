@@ -260,7 +260,8 @@ public enum BatchRunner {
         if assets.hasMissing(for: pipeline) { throw ConversionError.watermarkImageUnreadable }
         let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
         let image = try pipeline.apply(to: loaded.image, assets: assets)
-        let properties = pipeline.outputProperties(from: loaded.properties)
+        let properties = pipeline.outputProperties(from: loaded.properties, sourceWidth: loaded.image.width,
+                                                   sourceHeight: loaded.image.height)
         let result = try CompressionSearch.encode(image, properties: properties, settings: pipeline.output)
         return EncodedItem(data: result.data, source: loaded.image, quality: result.quality, note: result.note)
     }
