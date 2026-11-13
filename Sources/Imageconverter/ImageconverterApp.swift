@@ -20,7 +20,7 @@ struct ContentView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
             Text("imageconverter").font(LadaGlass.Typography.title)
-            Text(greeting(for: "world")).foregroundStyle(LadaGlass.Colors.muted)
+            Text("Batch image converter").foregroundStyle(LadaGlass.Colors.muted)
             LGChip("Ready", status: .ok)
         }
         .lgPanel()
