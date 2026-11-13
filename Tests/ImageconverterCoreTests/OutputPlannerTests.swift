@@ -48,6 +48,20 @@ final class OutputPlannerTests: XCTestCase {
         XCTAssertEqual(plans.map(\.replacesSource), [true, false])
     }
 
+    func testSameFolderEmptySuffixNeverTargetsOriginal() {
+        let plans = OutputPlanner.plan([item("IMG.jpg")], format: .jpeg,
+                                       mode: .sameFolder(suffix: ""), fileExists: { _ in false })
+        XCTAssertEqual(plans.map(\.destination.path), ["/src/IMG_2.jpg"])
+    }
+
+    func testSameFolderSuffixWhenRenamedToOriginalNameDifferentCase() {
+        let plans = OutputPlanner.plan([item("IMG.jpg")], format: .jpeg,
+                                       mode: .sameFolder(suffix: "_new"), baseNames: ["img"],
+                                       fileExists: { _ in false })
+        XCTAssertEqual(plans.map(\.destination.path), ["/src/img_new.jpg"])
+        XCTAssertNotEqual(plans[0].destination.path.lowercased(), "/src/img.jpg")
+    }
+
     func testDefaultSuffix() { XCTAssertEqual(OutputPlanner.defaultSuffix, "_new") }
 
     func testNewFolderIgnoresSubfolders() {

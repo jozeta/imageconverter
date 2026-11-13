@@ -65,14 +65,17 @@ public enum OutputPlanner {
         var claimed = Set<String>()
 
         func sourceName(_ item: InputItem) -> String { item.source.deletingPathExtension().lastPathComponent }
-        // In place means same name and same extension; a new base name makes it a different file.
+        // In place means overwrite mode and the source already has the output format's extension
+        // (names are ignored when overwriting).
         func inPlace(_ index: Int) -> Bool {
             let item = items[index]
             guard isOverwrite, format.fileExtensions.contains(item.source.pathExtension.lowercased()) else { return false }
-            return names.map { $0[index].lowercased() == sourceName(item).lowercased() } ?? true
+            return true
         }
         // Pre-claim in-place targets so no other item can take them, whatever `fileExists` says.
         for index in items.indices where inPlace(index) { claimed.insert(key(items[index].source)) }
+        // Outside overwrite mode no plan may ever target a source file, even with an empty suffix.
+        if !isOverwrite { for item in items { claimed.insert(key(item.source)) } }
 
         var plans: [PlannedOutput] = []
         for (index, item) in items.enumerated() {
