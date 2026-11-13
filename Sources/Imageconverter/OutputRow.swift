@@ -24,26 +24,14 @@ enum CompressionKind: String, CaseIterable {
     }
 }
 
-enum SizeUnit: String, CaseIterable {
-    case kilobytes = "KB", megabytes = "MB"
-    /// Decimal like Finder (1 KB = 1000 bytes).
-    var bytes: Double { self == .kilobytes ? 1000 : 1_000_000 }
-}
-
-/// Parses a size field: a positive finite number, comma or point as the separator.
-func parseSizeBytes(_ text: String, unit: SizeUnit) -> Int? {
-    let cleaned = text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: ".")
-    guard let value = Double(cleaned), value.isFinite, value > 0 else { return nil }
-    let bytes = (value * unit.bytes).rounded()
-    return bytes >= 1 && bytes < 1e12 ? Int(bytes) : nil
-}
-
 /// Format, quality and compression controls of the Output row.
 struct OutputFormatControls: View {
     @Binding var output: OutputSettings
     @State private var sizeText = ""
     @State private var unit: SizeUnit = .kilobytes
     @FocusState private var sizeFocused: Bool
+    /// The last size of each size mode, so Target -> Quality -> Target keeps it.
+    @State private var lastBytes: Int?
 
     private static let defaultBytes = 500_000
 
@@ -111,7 +99,7 @@ struct OutputFormatControls: View {
                 .textFieldStyle(.roundedBorder)
                 .frame(maxWidth: 90)
                 .focused($sizeFocused)
-                .accessibilityLabel(output.compression == .quality ? "Size" : sizeLabel)
+                .accessibilityLabel(sizeLabel)
                 .onChange(of: sizeText) { _, text in
                     if let bytes = parseSizeBytes(text, unit: unit) { setBytes(bytes) }
                 }
@@ -128,6 +116,10 @@ struct OutputFormatControls: View {
             }
         }
         .onAppear { syncText(chooseUnit: true) }
+        // A preset load or reset can change the bytes while this mode stays selected.
+        .onChange(of: currentBytes) { _, bytes in
+            if let bytes, parseSizeBytes(sizeText, unit: unit) != bytes { syncText(chooseUnit: true) }
+        }
     }
 
     private var sizeLabel: String {
@@ -159,7 +151,8 @@ struct OutputFormatControls: View {
         Binding(
             get: { CompressionKind(output.compression) },
             set: { kind in
-                let bytes = currentBytes ?? Self.defaultBytes
+                let bytes = currentBytes ?? lastBytes ?? Self.defaultBytes
+                if let current = currentBytes { lastBytes = current }
                 switch kind {
                 case .quality: output.compression = .quality
                 case .target: output.compression = .targetSize(bytes: bytes)

@@ -20,12 +20,6 @@ private struct EstimateOutcome: Sendable {
     let failure: String?
 }
 
-/// " at 74 %" for modes that searched for a quality (plain Quality mode already shows its slider), else empty.
-func qualitySuffix(_ quality: Double?, mode: CompressionMode) -> String {
-    if mode == .quality { return "" }
-    return quality.map { " at \(Int(($0 * 100).rounded())) %" } ?? ""
-}
-
 /// What an estimate depends on; an unchanged key needs no new computation.
 struct EstimateKey: Equatable {
     let item: URL
@@ -69,7 +63,8 @@ extension AppModel {
             // Wait for the superseded render so two full-size renders never overlap.
             await previous?.value
             guard !Task.isCancelled else { return }
-            let outcome = await Task.detached(priority: .userInitiated) { () -> EstimateOutcome? in
+            // A detached task doesn't inherit cancellation, so forward it: a superseded search must stop.
+            let worker = Task.detached(priority: .userInitiated) { () -> EstimateOutcome? in
                 if Task.isCancelled { return nil }
                 let original = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
                 do {
@@ -80,7 +75,8 @@ extension AppModel {
                 } catch {
                     return EstimateOutcome(original: original, preview: nil, failure: nil)
                 }
-            }.value
+            }
+            let outcome = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
             guard let self, !Task.isCancelled, self.estimateKey == key, let outcome else { return }
             isEstimating = false
             estimateFailed = outcome.preview == nil
