@@ -43,16 +43,16 @@ final class FileStepsModelTests: XCTestCase {
         options.removeAll = true
         XCTAssertEqual(options.summary, "strip all")
         options = MetadataOptions(removeLocation: true, removeCamera: false)
-        XCTAssertEqual(options.summary, "strip GPS")
+        XCTAssertEqual(options.summary, "strip location")
         options = MetadataOptions(removeLocation: false, removeCamera: true)
         XCTAssertEqual(options.summary, "strip camera")
         options = MetadataOptions(removeLocation: true, removeCamera: true)
-        XCTAssertEqual(options.summary, "strip GPS + camera")
+        XCTAssertEqual(options.summary, "strip location + camera")
         options.artist = "Me"
         options.copyright = ""
-        XCTAssertEqual(options.summary, "strip GPS + camera · set artist, copyright")
+        XCTAssertEqual(options.summary, "strip location + camera · set artist, copyright")
         options.description = "x"
-        XCTAssertEqual(options.summary, "strip GPS + camera · set artist, copyright, description")
+        XCTAssertEqual(options.summary, "strip location + camera · set artist, copyright, description")
         XCTAssertEqual(RenameOptions(pattern: "{name}-{counter}").summary, "{name}-{counter}")
     }
 

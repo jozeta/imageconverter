@@ -251,7 +251,7 @@ extension Pipeline {
     public func outputSize(sourceWidth: Int, sourceHeight: Int) -> (width: Int, height: Int) {
         var last = CGSize(width: max(1, sourceWidth), height: max(1, sourceHeight))
         walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { last = $0 }
-        return (Int(last.width.rounded()), Int(last.height.rounded()))
+        return (Int(Self.clamped(last.width).rounded()), Int(Self.clamped(last.height).rounded()))
     }
 
     /// Calls `visit` with the source size, then with the size after each enabled step.
@@ -285,9 +285,14 @@ extension Pipeline {
         }
     }
 
+    /// A dimension limited to 1...Int32.max (1 when not finite), safe to convert to `Int`.
+    private static func clamped(_ value: CGFloat) -> Double {
+        value.isFinite ? min(max(Double(value), 1), Double(Int32.max)) : 1
+    }
+
     private static func pixels(_ size: CGSize) -> Int {
-        let wide = size.width.isFinite ? min(max(size.width, 1), Double(Int32.max)) : 1
-        let high = size.height.isFinite ? min(max(size.height, 1), Double(Int32.max)) : 1
+        let wide = clamped(size.width)
+        let high = clamped(size.height)
         let (product, overflow) = Int(wide).multipliedReportingOverflow(by: Int(high))
         return overflow ? Int.max : product
     }

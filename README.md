@@ -38,7 +38,7 @@ Started 2026-11-13. The full design is in
   - (available) **Canvas / padding**: with a background colour
   - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original
   - **Watermark**: text or image, with position, size and opacity controls
-  - (available) **Metadata** (always last, above Output): strip everything, GPS only or camera
+  - (available) **Metadata** (always last, above Output): strip everything, location only or camera
     details, or set artist, copyright and description; the color profile is always kept
   - (available) **Rename** (always last): a pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`,
     with a live example
@@ -82,6 +82,21 @@ Settings (⌘,). The three output settings below work now. The pipeline itself (
 | Output mode | New folder · Same folder, new name · Overwrite originals | New folder |
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Same-folder suffix | Name suffix used when no Rename step is on | `_converted` |
+
+Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
+
+| Option | What it does | Default |
+|--------|--------------|---------|
+| Metadata | Switches the Metadata step on | off |
+| Remove all metadata | Strips all metadata (the color profile is kept) | off |
+| Remove location (GPS) | Removes the GPS block and the IPTC city, sub-location, region/state, country and location fields | on |
+| Remove camera details | Removes make, model, software, host computer, lens, serial numbers, owner name, maker notes, image unique ID, Exif aux and RAW/DNG/CIFF camera data | off |
+| Set artist / copyright / description | Writes the text after the removal (an empty text removes the field) | off |
+| Rename | Switches the Rename step on | off |
+| Pattern | Rename pattern, see the token table below | `{name}` |
+| Counter starts at | First `{counter}` value, 0 to 999 999 999 | 1 |
+
+In *Overwrite originals* mode, a rename that only changes letter case keeps the original name.
 
 Gray, CMYK and indexed-colour sources are converted to sRGB by pixel steps (colour-managed, so
 they look the same). Wide-colour (Display P3) images keep their colour space.

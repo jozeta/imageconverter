@@ -192,36 +192,14 @@ final class AppModel {
     nonisolated private static func renderExample(
         url: URL?, known: RenameSource?, pipeline: Pipeline
     ) -> (RenameSource, String) {
-        let format = pipeline.output.format
-        let template = RenameTemplate(pipeline.rename.pattern)
-        let counter = pipeline.rename.counterStart
-        let context: RenameContext
         var info = known ?? RenameSource(header: nil, created: nil)
-        if let url {
-            if known == nil {
-                info = RenameSource(
-                    header: ImageLoader.header(of: url),
-                    created: (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate)
-            }
-            let size = info.header?.uprightSize ?? (width: 4032, height: 3024)
-            let output = pipeline.outputSize(sourceWidth: size.width, sourceHeight: size.height)
-            context = RenameContext.make(
-                source: url, header: info.header, outputSize: (output.width, output.height), format: format,
-                counter: counter, fileCreationDate: template.needsDate ? info.created : nil)
-        } else {
-            var calendar = Calendar(identifier: .gregorian)
-            calendar.timeZone = TimeZone(identifier: "GMT") ?? .current
-            let date = calendar.date(from: DateComponents(
-                year: 2026, month: 11, day: 13, hour: 14, minute: 5, second: 9))
-            let output = pipeline.outputSize(sourceWidth: 4032, sourceHeight: 3024)
-            context = RenameContext(
-                name: "IMG_0001", ext: format.fileExtensions.first ?? "", format: format.displayName,
-                folder: "Photos", date: date, make: "Apple", model: "iPhone 15 Pro",
-                lens: "iPhone 15 Pro back camera 6.765mm f/1.78", iso: 80,
-                width: output.width, height: output.height, counter: counter)
+        if let url, known == nil {
+            info = RenameSource(
+                header: ImageLoader.header(of: url),
+                created: (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate)
         }
-        let name = template.render(context)
-        return (info, "Example: \(name).\(context.ext)")
+        let name = RenameExample.render(source: url, header: info.header, created: info.created, pipeline: pipeline)
+        return (info, "Example: \(name)")
     }
 }
 

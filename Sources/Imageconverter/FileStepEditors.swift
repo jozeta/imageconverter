@@ -111,7 +111,8 @@ struct RenameEditor: View {
             .fixedSize()
             .accessibilityLabel("Insert token")
         }
-        NumberField(title: "Counter starts at", value: $options.counterStart, minimum: 0, suffix: "")
+        NumberField(title: "Counter starts at", value: $options.counterStart, minimum: RenameOptions.counterRange.lowerBound,
+                    maximum: RenameOptions.counterRange.upperBound, suffix: "")
         if !unknown.isEmpty {
             Text(unknown.map { "Unknown token: {\($0)}" }.joined(separator: " · "))
                 .font(LadaGlass.Typography.label)

@@ -46,6 +46,9 @@ public struct RenameOptions: Codable, Equatable, Sendable {
     public var pattern: String
     public var counterStart: Int
 
+    /// The counter start is limited to 0...999_999_999 when decoded.
+    public static let counterRange = 0...999_999_999
+
     public init(isEnabled: Bool = false, pattern: String = "{name}", counterStart: Int = 1) {
         self.isEnabled = isEnabled
         self.pattern = pattern
@@ -61,6 +64,7 @@ public struct RenameOptions: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
         pattern = try container.decodeIfPresent(String.self, forKey: .pattern) ?? "{name}"
-        counterStart = try container.decodeIfPresent(Int.self, forKey: .counterStart) ?? 1
+        let start = try container.decodeIfPresent(Int.self, forKey: .counterStart) ?? 1
+        counterStart = min(max(start, Self.counterRange.lowerBound), Self.counterRange.upperBound)
     }
 }

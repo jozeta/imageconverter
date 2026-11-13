@@ -91,7 +91,7 @@ public struct RenameTemplate: Equatable, Sendable {
         case token(name: String, arg: String?, raw: String)
     }
 
-    private static let knownTokens: Set<String> = [
+    static let knownTokens: Set<String> = [
         "name", "ext", "date", "time", "camera", "make", "lens", "iso",
         "width", "height", "format", "folder", "counter",
     ]

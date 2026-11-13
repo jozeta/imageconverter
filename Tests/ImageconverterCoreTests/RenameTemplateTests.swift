@@ -181,4 +181,14 @@ final class RenameTemplateTests: XCTestCase {
     func testUnsanitisableNameFallsBackToImage() {
         XCTAssertEqual(RenameTemplate("{lens}").render(context(name: "...")), "image")
     }
+
+    func testTokenExamplesAreConsistentWithKnownTokens() {
+        var seen = Set<String>()
+        for example in RenameTemplate.tokenExamples {
+            XCTAssertEqual(RenameTemplate(example).unknownTokens, [], example)
+            let inner = example.dropFirst().dropLast()
+            seen.insert(String(inner.split(separator: ":", maxSplits: 1)[0]))
+        }
+        XCTAssertEqual(seen, RenameTemplate.knownTokens)
+    }
 }

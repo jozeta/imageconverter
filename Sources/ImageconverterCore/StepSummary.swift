@@ -70,8 +70,8 @@ extension MetadataOptions {
         var text: String
         switch (removeAll, removeLocation, removeCamera) {
         case (true, _, _): text = "strip all"
-        case (false, true, true): text = "strip GPS + camera"
-        case (false, true, false): text = "strip GPS"
+        case (false, true, true): text = "strip location + camera"
+        case (false, true, false): text = "strip location"
         case (false, false, true): text = "strip camera"
         case (false, false, false): text = "keep"
         }

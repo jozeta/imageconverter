@@ -59,25 +59,51 @@ final class FileStepsBatchTests: XCTestCase {
         XCTAssertFalse(contains(data, "SECRETCITY"), file: file, line: line)
     }
 
-    func testGPSNeverLeaks() async throws {
-        try await assertNoLocationLeak(options: MetadataOptions(isEnabled: true, removeLocation: true), format: .jpeg)
-        try? FileManager.default.removeItem(at: out)
-        try await assertNoLocationLeak(options: MetadataOptions(isEnabled: true, removeAll: true), format: .heic)
+    private var cameraProps: [String: Any] {
+        [kCGImagePropertyTIFFDictionary as String: [
+            kCGImagePropertyTIFFModel as String: "SECRETCAM", kCGImagePropertyTIFFMake as String: "SECRETMAKE"
+        ]]
+    }
+
+    private static let leakFormats: [OutputFormat] = [.jpeg, .heic, .png, .tiff, .gif]
+
+    func testLocationNeverLeaks() async throws {
+        let available = OutputFormat.available()
+        for format in Self.leakFormats {
+            guard available.contains(format) else {
+                print("SKIP \(format): not available on this system")
+                continue
+            }
+            for options in [MetadataOptions(isEnabled: true, removeLocation: true),
+                            MetadataOptions(isEnabled: true, removeAll: true)] {
+                try? FileManager.default.removeItem(at: out)
+                try await assertNoLocationLeak(options: options, format: format)
+            }
+        }
     }
 
     func testCameraNeverLeaks() async throws {
-        let props: [String: Any] = [kCGImagePropertyTIFFDictionary as String: [
-            kCGImagePropertyTIFFModel as String: "SECRETCAM", kCGImagePropertyTIFFMake as String: "SECRETMAKE"
-        ]]
-        let url = try source("cam.jpg", properties: props)
-        XCTAssertTrue(contains(try Data(contentsOf: url), "SECRETCAM"))
-        var pipeline = Pipeline(output: .init(format: .jpeg))
-        pipeline.metadata = MetadataOptions(isEnabled: true, removeLocation: false, removeCamera: true)
-        let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: pipeline, mode: .newFolder(out))
-        XCTAssertEqual(report.failures, [])
-        let data = try Data(contentsOf: try XCTUnwrap(report.written.first))
-        XCTAssertFalse(contains(data, "SECRETCAM"))
-        XCTAssertFalse(contains(data, "SECRETMAKE"))
+        let available = OutputFormat.available()
+        for format in Self.leakFormats {
+            guard available.contains(format) else {
+                print("SKIP \(format): not available on this system")
+                continue
+            }
+            for options in [MetadataOptions(isEnabled: true, removeLocation: false, removeCamera: true),
+                            MetadataOptions(isEnabled: true, removeAll: true)] {
+                try? FileManager.default.removeItem(at: out)
+                let url = try source("cam.jpg", properties: cameraProps)
+                XCTAssertTrue(contains(try Data(contentsOf: url), "SECRETCAM"))
+                var pipeline = Pipeline(output: .init(format: format))
+                pipeline.metadata = options
+                let report = await BatchRunner.run(
+                    InputCollector.collect([url]), pipeline: pipeline, mode: .newFolder(out))
+                XCTAssertEqual(report.failures, [], "\(format)")
+                let data = try Data(contentsOf: try XCTUnwrap(report.written.first))
+                XCTAssertFalse(contains(data, "SECRETCAM"), "\(format)")
+                XCTAssertFalse(contains(data, "SECRETMAKE"), "\(format)")
+            }
+        }
     }
 
     // MARK: rename
@@ -86,6 +112,17 @@ final class FileStepsBatchTests: XCTestCase {
         var pipeline = Pipeline(steps: steps, output: .init(format: .jpeg))
         pipeline.rename = RenameOptions(isEnabled: true, pattern: pattern, counterStart: start)
         return pipeline
+    }
+
+    func testHugeCounterStartDoesNotTrap() async throws {
+        let files = try (1...2).map { try source("big\($0).jpg") }
+        let pipeline = renamePipeline("n{counter}", start: Int.max)
+        let report = await BatchRunner.run(InputCollector.collect(files), pipeline: pipeline, mode: .newFolder(out))
+        XCTAssertEqual(report.failures, [])
+        XCTAssertEqual(report.written.count, 2)
+        let decoded = try JSONDecoder().decode(
+            RenameOptions.self, from: Data(#"{"isEnabled":true,"counterStart":9223372036854775807}"#.utf8))
+        XCTAssertEqual(decoded.counterStart, 999_999_999)
     }
 
     func testRenameWithCounter() async throws {

@@ -12,12 +12,13 @@ struct NumberField: View {
     let title: String
     @Binding var value: Int
     var minimum = 1
+    var maximum = Int.max
     var suffix = "px"
 
     var body: some View {
         HStack(spacing: LadaGlass.Spacing.xs) {
             Text(title).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-            TextField(title, value: Binding(get: { value }, set: { value = max(minimum, $0) }), format: .number)
+            TextField(title, value: Binding(get: { value }, set: { value = min(max(minimum, $0), maximum) }), format: .number)
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 70)

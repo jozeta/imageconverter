@@ -124,10 +124,15 @@ public enum BatchRunner {
                 ? (try? item.source.resourceValues(forKeys: [.creationDateKey]))?.creationDate : nil
             let context = RenameContext.make(
                 source: item.source, header: header, outputSize: size, format: pipeline.output.format,
-                counter: pipeline.rename.counterStart + index, fileCreationDate: created)
+                counter: Self.saturatingAdd(pipeline.rename.counterStart, index), fileCreationDate: created)
             names.append(template.render(context))
         }
         return names
+    }
+
+    private static func saturatingAdd(_ base: Int, _ offset: Int) -> Int {
+        let (sum, overflow) = base.addingReportingOverflow(offset)
+        return overflow ? Int.max : sum
     }
 
     private static func makeReport(
