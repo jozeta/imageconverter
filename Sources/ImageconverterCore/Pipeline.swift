@@ -227,7 +227,7 @@ private struct LossyStep: Decodable {
 
 extension Pipeline {
     /// Runs the enabled steps in order on `image`.
-    public func apply(to image: CGImage) throws -> CGImage {
+    public func apply(to image: CGImage, assets: WatermarkAssets = .empty) throws -> CGImage {
         var current = image
         for step in steps where step.isEnabled {
             switch step.operation {
@@ -236,7 +236,10 @@ extension Pipeline {
             case .rotateFlip(let options): current = try ImageOps.rotateFlip(current, options)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
             case .colorProfile(let profile): current = try ImageOps.convertColor(current, to: profile)
-            case .watermark: break // rendering arrives with the watermark renderer
+            case .watermark(let options):
+                var asset: CGImage?
+                if case .image(let watermark) = options.content { asset = assets.image(for: watermark.path) }
+                current = try ImageOps.watermark(current, options, asset: asset)
             }
         }
         return current
