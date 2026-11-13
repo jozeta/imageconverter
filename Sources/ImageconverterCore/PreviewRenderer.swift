@@ -20,28 +20,64 @@ public enum PreviewOutcome: Sendable {
 /// Renders the preview of one item through the same load and apply path as the batch (no encode).
 /// It keeps the decoded source of the last item and the watermark images of the last pipeline.
 public actor PreviewRenderer {
+    /// Sources above this many pixels are rendered without being cached.
+    static let maxCachedPixels = 50_000_000
+
+    /// Identifies a file's content cheaply: a rewritten file changes its date or size.
+    private struct FileKey: Equatable {
+        let url: URL
+        let modified: Date?
+        let size: Int?
+
+        init(_ url: URL) {
+            let values = try? URL(fileURLWithPath: url.path).resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            self.url = url
+            modified = values?.contentModificationDate
+            size = values?.fileSize
+        }
+    }
+
+    private struct CachedSource {
+        let key: FileKey
+        let image: CGImage
+        let display: CGImage
+    }
+
     private let maxPixels: Int
     private let displayMax: Int
-    private var cachedURL: URL?
-    private var cachedSource: CGImage?
+    private var cachedSource: CachedSource?
     private var cachedAssets: WatermarkAssets?
-    private var cachedAssetPaths: [String]?
+    private var cachedAssetKeys: [FileKey]?
     /// How many times a source was decoded (for tests).
     private(set) var decodeCount = 0
+    /// How many times the watermark images were loaded (for tests).
+    private(set) var assetLoadCount = 0
 
     public init(maxPixels: Int = ImageLoader.defaultMaxPixels, displayMax: Int = 1600) {
         self.maxPixels = maxPixels
         self.displayMax = max(1, displayMax)
     }
 
-    public func render(item: InputItem, index: Int, pipeline: Pipeline) async -> PreviewOutcome {
+    /// Releases the cached source and watermark images (call when a batch starts or finishes).
+    public func purge() {
+        cachedSource = nil
+        cachedAssets = nil
+        cachedAssetKeys = nil
+    }
+
+    /// Renders the before and after of `item`. `outputName` is what `OutputPlanner` would name this
+    /// file for `mode` (nil: new-folder mode with no folder yet, named as if a folder existed). It
+    /// plans the one item alone, so the batch's collision numbers (`_2`) are not shown.
+    public func render(item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode? = nil) async
+        -> PreviewOutcome {
         let cancelled = PreviewOutcome.failed(reason: "Cancelled")
         if Task.isCancelled { return cancelled }
         let assets = watermarkAssets(for: pipeline)
         if assets.hasMissing(for: pipeline) { return .failed(reason: ConversionError.watermarkImageUnreadable.reason) }
         let source: CGImage
+        let before: CGImage
         do {
-            source = try sourceImage(for: item.source)
+            (source, before) = try sourceImages(for: item.source)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)
         } catch {
@@ -50,6 +86,7 @@ public actor PreviewRenderer {
         if Task.isCancelled { return cancelled }
         let result: CGImage
         do {
+            // Synchronous and not interruptible; cancellation is only seen before and after it.
             result = try pipeline.apply(to: source, assets: assets)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)
@@ -57,41 +94,48 @@ public actor PreviewRenderer {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
         if Task.isCancelled { return cancelled }
-        guard let before = fit(source), let after = fit(result) else {
+        guard let after = fit(result) else {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
         return .ready(PreviewResult(
             before: before, after: after, sourceName: item.source.lastPathComponent,
-            outputName: outputName(for: item, index: index, pipeline: pipeline),
+            outputName: outputName(for: item, index: index, pipeline: pipeline, mode: mode),
             sourceSize: (source.width, source.height), outputSize: (result.width, result.height)))
     }
 
-    private func outputName(for item: InputItem, index: Int, pipeline: Pipeline) -> String {
+    private func outputName(for item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode?) -> String {
         let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline)
-            ?? item.source.deletingPathExtension().lastPathComponent
-        let ext = pipeline.output.format.fileExtensions.first ?? ""
-        return ext.isEmpty ? base : "\(base).\(ext)"
+        let plan = OutputPlanner.plan(
+            [item], format: pipeline.output.format,
+            mode: mode ?? .newFolder(FileManager.default.temporaryDirectory),
+            baseNames: base.map { [$0] }, fileExists: { _ in false })
+        return plan.first?.destination.lastPathComponent ?? item.source.lastPathComponent
     }
 
-    private func sourceImage(for url: URL) throws -> CGImage {
-        if cachedURL == url, let cachedSource { return cachedSource }
+    private func sourceImages(for url: URL) throws -> (CGImage, CGImage) {
+        let key = FileKey(url)
+        if let cachedSource, cachedSource.key == key { return (cachedSource.image, cachedSource.display) }
+        cachedSource = nil
         decodeCount += 1
-        let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
-        cachedURL = url
-        cachedSource = loaded.image
-        return loaded.image
+        let image = try ImageLoader.load(url, maxPixels: maxPixels).image
+        guard let display = fit(image) else { throw ConversionError.processingFailed("preview") }
+        if image.width <= Self.maxCachedPixels / max(1, image.height) {
+            cachedSource = CachedSource(key: key, image: image, display: display)
+        }
+        return (image, display)
     }
 
     private func watermarkAssets(for pipeline: Pipeline) -> WatermarkAssets {
-        let paths = pipeline.steps.compactMap { step -> String? in
+        let keys = pipeline.steps.compactMap { step -> FileKey? in
             guard step.isEnabled, case .watermark(let options) = step.operation,
                   case .image(let watermark) = options.content else { return nil }
-            return watermark.path
+            return FileKey(URL(fileURLWithPath: watermark.path))
         }
-        if let cachedAssets, cachedAssetPaths == paths, !cachedAssets.hasMissing(for: pipeline) { return cachedAssets }
+        if let cachedAssets, cachedAssetKeys == keys, !cachedAssets.hasMissing(for: pipeline) { return cachedAssets }
+        assetLoadCount += 1
         let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)
         cachedAssets = assets
-        cachedAssetPaths = paths
+        cachedAssetKeys = keys
         return assets
     }
 

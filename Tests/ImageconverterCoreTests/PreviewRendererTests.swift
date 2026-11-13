@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 import UniformTypeIdentifiers
 import XCTest
 @testable import ImageconverterCore
@@ -109,7 +110,8 @@ final class PreviewRendererTests: XCTestCase {
     func testOverwriteWithWatermarkFileAmongInputs() async throws {
         let red = CGColor(red: 1, green: 0, blue: 0, alpha: 1)
         let logoURL = dir.appendingPathComponent("logo.png")
-        try TestImages.write(TestImages.make(width: 100, height: 50, color: red), to: logoURL, type: .png)
+        let green = CGColor(red: 0, green: 1, blue: 0, alpha: 1)
+        try TestImages.write(Self.patternedLogo(red: red, green: green), to: logoURL, type: .png)
         let other = dir.appendingPathComponent("other.png")
         try TestImages.write(TestImages.make(width: 400, height: 300, color: CGColor(red: 0, green: 0, blue: 1, alpha: 1)),
                              to: other, type: .png)
@@ -122,8 +124,119 @@ final class PreviewRendererTests: XCTestCase {
         XCTAssertTrue(report.failures.isEmpty, "\(report.failures)")
         XCTAssertEqual(report.written.count, 2)
         let data = try Data(contentsOf: other)
-        let pixel = try TestImages.pixel(of: data, x: 399, y: 299)
-        XCTAssertGreaterThan(pixel.red, 200)
-        XCTAssertLessThan(pixel.blue, 60)
+        // The logo is red with a green left half and is stamped bottom-right. Reloaded after being
+        // overwritten with its own stamp, its bottom-right corner would hold a tiny copy of itself
+        // (green on the left), so a point at 91% across and 94% down would be green, not red.
+        let image = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil)
+            .flatMap { CGImageSourceCreateImageAtIndex($0, 0, nil) })
+        var box: CGRect?
+        for row in 0..<image.height { for col in 0..<image.width {
+            let value = TestImages.pixel(of: image, x: col, y: row)
+            guard value.blue < 100 else { continue }
+            let point = CGRect(x: col, y: row, width: 1, height: 1)
+            box = box.map { $0.union(point) } ?? point
+        } }
+        let stamp = try XCTUnwrap(box)
+        XCTAssertGreaterThan(stamp.width, 20)
+        let probe = TestImages.pixel(of: image, x: Int(stamp.minX + stamp.width * 0.91),
+                                     y: Int(stamp.minY + stamp.height * 0.94))
+        XCTAssertGreaterThan(probe.red, 200)
+        XCTAssertLessThan(probe.green, 60)
+        let left = TestImages.pixel(of: image, x: Int(stamp.minX + stamp.width * 0.15),
+                                    y: Int(stamp.minY + stamp.height * 0.5))
+        XCTAssertGreaterThan(left.green, 200)
+    }
+
+    private static func patternedLogo(red: CGColor, green: CGColor) -> CGImage {
+        let base = TestImages.make(width: 100, height: 50, color: red)
+        guard let ctx = CGContext(data: nil, width: 100, height: 50, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            fatalError("Couldn't create a bitmap context")
+        }
+        ctx.draw(base, in: CGRect(x: 0, y: 0, width: 100, height: 50))
+        ctx.setFillColor(green)
+        ctx.fill(CGRect(x: 0, y: 0, width: 50, height: 50))
+        guard let image = ctx.makeImage() else { fatalError("Couldn't make an image") }
+        return image
+    }
+
+    func testOutputNameMatchesPlannerForEachMode() async throws {
+        let jpegItem = InputItem(source: dir.appendingPathComponent("p.jpeg"), relativeDirectory: "")
+        try TestImages.write(TestImages.make(width: 40, height: 30), to: jpegItem.source, type: .jpeg)
+        var renamed = Pipeline(output: .init(format: .jpeg))
+        renamed.rename = RenameOptions(isEnabled: true, pattern: "x_{counter:00}", counterStart: 5)
+        let plain = Pipeline(output: .init(format: .jpeg))
+        let modes: [OutputMode] = [.newFolder(dir.appendingPathComponent("out")), .sameFolder(suffix: "_converted"),
+                                   .overwrite]
+        for pipeline in [plain, renamed] {
+            for mode in modes {
+                let base = RenameRendering.baseName(for: jpegItem, index: 3, pipeline: pipeline)
+                let expected = OutputPlanner.plan([jpegItem], format: .jpeg, mode: mode,
+                                                  baseNames: base.map { [$0] }, fileExists: { _ in false })
+                let result = try ready(await PreviewRenderer().render(item: jpegItem, index: 3, pipeline: pipeline,
+                                                                      mode: mode))
+                XCTAssertEqual(result.outputName, expected[0].destination.lastPathComponent, "\(mode)")
+            }
+        }
+        let sameFolder = try ready(await PreviewRenderer().render(
+            item: jpegItem, index: 0, pipeline: plain, mode: .sameFolder(suffix: "_converted")))
+        XCTAssertEqual(sameFolder.outputName, "p_converted.jpg")
+    }
+
+    func testRewrittenFileIsDecodedAgain() async throws {
+        let source = try item("a.png", width: 800, height: 600)
+        let renderer = PreviewRenderer()
+        let first = try ready(await renderer.render(item: source, index: 0, pipeline: Pipeline()))
+        XCTAssertEqual(first.outputSize.0, 800)
+        try TestImages.write(TestImages.make(width: 320, height: 200), to: source.source, type: .png)
+        let second = try ready(await renderer.render(item: source, index: 0, pipeline: Pipeline()))
+        XCTAssertEqual(second.outputSize.0, 320)
+        let count = await renderer.decodeCount
+        XCTAssertEqual(count, 2)
+    }
+
+    func testRewrittenWatermarkImageIsReloaded() async throws {
+        let logoURL = dir.appendingPathComponent("logo.png")
+        try TestImages.write(TestImages.make(width: 10, height: 10), to: logoURL, type: .png)
+        let options = WatermarkOptions(content: .image(ImageWatermark(path: logoURL.path)))
+        let pipeline = Pipeline(steps: [PipelineStep(operation: .watermark(options))], output: .init(format: .png))
+        let source = try item("a.png")
+        let renderer = PreviewRenderer()
+        _ = await renderer.render(item: source, index: 0, pipeline: pipeline)
+        _ = await renderer.render(item: source, index: 0, pipeline: pipeline)
+        var loads = await renderer.assetLoadCount
+        XCTAssertEqual(loads, 1)
+        try TestImages.write(TestImages.make(width: 30, height: 20), to: logoURL, type: .png)
+        _ = await renderer.render(item: source, index: 0, pipeline: pipeline)
+        loads = await renderer.assetLoadCount
+        XCTAssertEqual(loads, 2)
+    }
+
+    func testPurgeAndFailedDecodeDropTheCache() async throws {
+        let source = try item("a.png")
+        let renderer = PreviewRenderer()
+        _ = await renderer.render(item: source, index: 0, pipeline: Pipeline())
+        await renderer.purge()
+        _ = await renderer.render(item: source, index: 0, pipeline: Pipeline())
+        var count = await renderer.decodeCount
+        XCTAssertEqual(count, 2)
+        let bad = dir.appendingPathComponent("bad.png")
+        try Data("x".utf8).write(to: bad)
+        _ = await renderer.render(item: InputItem(source: bad, relativeDirectory: ""), index: 0, pipeline: Pipeline())
+        _ = await renderer.render(item: source, index: 0, pipeline: Pipeline())
+        count = await renderer.decodeCount
+        XCTAssertEqual(count, 4)
+    }
+
+    func testHugeSourcesAreNotCached() async throws {
+        let source = try item("a.png", width: 100, height: 100)
+        let renderer = PreviewRenderer(maxPixels: 250_000_000)
+        // 100x100 is cached; the threshold itself is checked via the constant.
+        XCTAssertEqual(PreviewRenderer.maxCachedPixels, 50_000_000)
+        _ = await renderer.render(item: source, index: 0, pipeline: Pipeline())
+        _ = await renderer.render(item: source, index: 0, pipeline: Pipeline())
+        let count = await renderer.decodeCount
+        XCTAssertEqual(count, 1)
     }
 }
