@@ -40,7 +40,8 @@ public struct PlannedOutput: Equatable, Sendable {
 
 public enum OutputPlanner {
     /// Plans one destination per item, in input order. An original is only ever replaced or
-    /// trashed in overwrite mode; no other file is replaced, and no two outputs share a path.
+    /// trashed in overwrite mode; no other file is replaced, and no two outputs share a path
+    /// (compared case-insensitively, as macOS volumes usually are).
     public static func plan(
         _ items: [InputItem],
         format: OutputFormat,
@@ -48,21 +49,25 @@ public enum OutputPlanner {
         fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
     ) -> [PlannedOutput] {
         let ext = format.fileExtensions[0]
+        let isOverwrite = mode == .overwrite
         var claimed = Set<String>()
+
+        func inPlace(_ item: InputItem) -> Bool {
+            isOverwrite && format.fileExtensions.contains(item.source.pathExtension.lowercased())
+        }
+        // Pre-claim in-place targets so no other item can take them, whatever `fileExists` says.
+        for item in items where inPlace(item) { claimed.insert(key(item.source)) }
+
         var plans: [PlannedOutput] = []
-
         for item in items {
-            let sourceDir = item.source.deletingLastPathComponent()
-            let name = item.source.deletingPathExtension().lastPathComponent
-            let isOverwrite = mode == .overwrite
-
-            if isOverwrite, format.fileExtensions.contains(item.source.pathExtension.lowercased()) {
-                claimed.insert(item.source.path)
+            if inPlace(item) {
                 plans.append(PlannedOutput(item: item, destination: item.source,
                                            replacesSource: true, trashesSource: false))
                 continue
             }
 
+            let sourceDir = item.source.deletingLastPathComponent()
+            let name = item.source.deletingPathExtension().lastPathComponent
             let directory: URL
             var suffix = ""
             switch mode {
@@ -71,7 +76,7 @@ public enum OutputPlanner {
                     ? root : root.appendingPathComponent(item.relativeDirectory, isDirectory: true)
             case .sameFolder(let value):
                 directory = sourceDir
-                suffix = value
+                suffix = sanitized(value)
             case .overwrite:
                 directory = sourceDir
             }
@@ -82,19 +87,23 @@ public enum OutputPlanner {
                 let base = number == 1 ? "\(name)\(suffix)" : "\(name)\(suffix)_\(number)"
                 candidate = directory.appendingPathComponent("\(base).\(ext)")
                 number += 1
-            } while isTaken(candidate, item: item, claimed: claimed, allowOwnSource: isOverwrite, fileExists: fileExists)
+            } while claimed.contains(key(candidate)) || fileExists(candidate)
 
-            claimed.insert(candidate.path)
+            claimed.insert(key(candidate))
             plans.append(PlannedOutput(item: item, destination: candidate,
                                        replacesSource: false, trashesSource: isOverwrite))
         }
         return plans
     }
 
-    private static func isTaken(_ candidate: URL, item: InputItem, claimed: Set<String>,
-                                allowOwnSource: Bool, fileExists: (URL) -> Bool) -> Bool {
-        if claimed.contains(candidate.path) { return true }
-        if allowOwnSource && candidate.path == item.source.path { return false }
-        return fileExists(candidate)
+    private static func key(_ url: URL) -> String {
+        url.standardizedFileURL.path.lowercased()
+    }
+
+    /// Drops path separators and control characters so a suffix cannot leave the folder.
+    private static func sanitized(_ suffix: String) -> String {
+        String(suffix.unicodeScalars.filter {
+            $0 != "/" && $0 != ":" && !CharacterSet.controlCharacters.contains($0)
+        })
     }
 }
