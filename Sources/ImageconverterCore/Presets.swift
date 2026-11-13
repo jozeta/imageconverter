@@ -46,6 +46,10 @@ public enum PresetError: Error, Equatable {
     case unsupportedVersion(Int)
     case tooLarge
     case unreadable
+    case notRegularFile
+    case invalidJSON
+    case invalidStructure
+    case folderUnreadable
 
     public var reason: String {
         switch self {
@@ -56,6 +60,10 @@ public enum PresetError: Error, Equatable {
             return "This preset was saved by a newer version of the app (format \(version))."
         case .tooLarge: return "The preset file is larger than 1 MB."
         case .unreadable: return "The preset file couldn't be read."
+        case .notRegularFile: return "Not a regular file (links and special files are ignored)."
+        case .invalidJSON: return "The preset file isn't valid JSON."
+        case .invalidStructure: return "The preset file has missing or wrongly typed fields."
+        case .folderUnreadable: return "The presets folder couldn't be read."
         }
     }
 }
@@ -66,6 +74,7 @@ public struct PresetLoadResult {
 }
 
 /// Reads and writes presets as one JSON file per preset, named after the preset's UUID.
+/// Meant to be a single shared instance per directory: its lock only serialises calls on that instance.
 public final class PresetStore: @unchecked Sendable {
     public static let maxFileSize = 1_048_576
     public static let maxNameLength = 80
@@ -134,11 +143,15 @@ public final class PresetStore: @unchecked Sendable {
         guard cleaned.count <= maxNameLength else {
             throw PresetError.invalidName("The name can be at most \(maxNameLength) characters.")
         }
-        let key = cleaned.lowercased()
-        if existing.contains(where: { $0.id != excluding && $0.name.lowercased() == key }) {
+        let key = fold(cleaned)
+        if existing.contains(where: { $0.id != excluding && fold($0.name) == key }) {
             throw PresetError.duplicateName
         }
         return cleaned
+    }
+
+    private static func fold(_ name: String) -> String {
+        name.folding(options: [.caseInsensitive], locale: nil)
     }
 
     // MARK: Loading
@@ -156,13 +169,34 @@ public final class PresetStore: @unchecked Sendable {
     private func loadUnlocked() -> PresetLoadResult {
         var user: [Preset] = []
         var skipped: [(file: String, reason: String)] = []
-        let files = (try? FileManager.default.contentsOfDirectory(
-            at: directory, includingPropertiesForKeys: nil)) ?? []
-        for url in files where url.pathExtension.lowercased() == "json" {
+        var seenNames = Set(Self.builtIns.map { Self.fold($0.name) })
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey]
+        let files: [URL]
+        do {
+            files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: keys)
+        } catch {
+            // A folder that doesn't exist yet is normal; anything else is reported.
+            if FileManager.default.fileExists(atPath: directory.path) {
+                skipped.append((directory.lastPathComponent, PresetError.folderUnreadable.reason))
+            }
+            return PresetLoadResult(presets: Self.builtIns, skipped: skipped)
+        }
+        let candidates = files.filter { $0.pathExtension.lowercased() == "json" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        for url in candidates {
             guard let fileID = UUID(uuidString: url.deletingPathExtension().lastPathComponent) else { continue }
             let file = url.lastPathComponent
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            guard values?.isRegularFile == true, values?.isSymbolicLink != true else {
+                skipped.append((file, PresetError.notRegularFile.reason))
+                continue
+            }
             do {
                 let preset = try Self.read(url, expectedID: fileID)
+                guard seenNames.insert(Self.fold(preset.name)).inserted else {
+                    skipped.append((file, PresetError.duplicateName.reason))
+                    continue
+                }
                 user.append(preset)
             } catch let error as PresetError {
                 skipped.append((file, error.reason))
@@ -178,18 +212,39 @@ public final class PresetStore: @unchecked Sendable {
         return PresetLoadResult(presets: Self.builtIns + user, skipped: skipped)
     }
 
-    private static func read(_ url: URL, expectedID: UUID) throws -> Preset {
-        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
-            throw PresetError.unreadable
+    /// Opens without following links or blocking, checks the open descriptor, and reads at most 1 MB + 1 byte.
+    private static func readData(_ url: URL) throws -> Data {
+        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        guard descriptor >= 0 else { throw PresetError.unreadable }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        var info = stat()
+        guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
+            throw PresetError.notRegularFile
         }
-        guard size <= maxFileSize else { throw PresetError.tooLarge }
-        guard let data = try? Data(contentsOf: url) else { throw PresetError.unreadable }
+        guard info.st_size <= maxFileSize else { throw PresetError.tooLarge }
+        guard let data = try? handle.read(upToCount: maxFileSize + 1) else { throw PresetError.unreadable }
+        guard data.count <= maxFileSize else { throw PresetError.tooLarge }
+        return data
+    }
+
+    private static func decodeError(_ error: Error) -> PresetError {
+        if let decoding = error as? DecodingError, case .dataCorrupted(let context) = decoding,
+           context.underlyingError != nil || context.debugDescription.contains("JSON") {
+            return .invalidJSON
+        }
+        return .invalidStructure
+    }
+
+    private static func read(_ url: URL, expectedID: UUID) throws -> Preset {
+        let data = try readData(url)
         let decoder = JSONDecoder()
-        guard let header = try? decoder.decode(Header.self, from: data) else { throw PresetError.unreadable }
+        let header: Header
+        do { header = try decoder.decode(Header.self, from: data) } catch { throw decodeError(error) }
         let version = header.schemaVersion ?? 1
         guard version <= Preset.schemaVersion else { throw PresetError.unsupportedVersion(version) }
-        guard var preset = try? decoder.decode(Preset.self, from: data),
-              preset.id == expectedID, !isBuiltIn(preset.id) else { throw PresetError.unreadable }
+        var preset: Preset
+        do { preset = try decoder.decode(Preset.self, from: data) } catch { throw decodeError(error) }
+        guard preset.id == expectedID, !isBuiltIn(preset.id) else { throw PresetError.unreadable }
         guard let name = try? validatedName(preset.name, existing: [], excluding: nil) else {
             throw PresetError.invalidName("The preset has no valid name.")
         }
@@ -224,8 +279,12 @@ public final class PresetStore: @unchecked Sendable {
         defer { lock.unlock() }
         guard !Self.isBuiltIn(id) else { throw PresetError.builtInReadOnly }
         let url = fileURL(for: id)
-        guard FileManager.default.fileExists(atPath: url.path) else { return }
-        try FileManager.default.removeItem(at: url)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain
+            && error.code == NSFileNoSuchFileError {
+            return
+        }
     }
 
     private func fileURL(for id: UUID) -> URL {

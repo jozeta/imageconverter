@@ -52,7 +52,6 @@ final class PresetStoreTests: XCTestCase {
         XCTAssertFalse(archive.metadata.isEnabled)
         XCTAssertEqual(archive.output.format, .tiff)
         XCTAssertEqual(archive.output.tiffCompression, .lzw)
-        XCTAssertEqual(PresetStore.builtIns, PresetStore.builtIns)
     }
 
     func testUserPresetsSortedCaseInsensitively() throws {
@@ -165,5 +164,99 @@ final class PresetStoreTests: XCTestCase {
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(object["schemaVersion"] as? Int, 1)
         XCTAssertNil(object["isBuiltIn"])
+    }
+
+    func testSymlinkedFilesAreSkipped() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let target = directory.appendingPathComponent("target.txt")
+        try Data(repeating: 32, count: 2 * 1_048_576).write(to: target)
+        let linkA = UUID().uuidString + ".json"
+        try FileManager.default.createSymbolicLink(at: directory.appendingPathComponent(linkA), withDestinationURL: target)
+        let linkB = UUID().uuidString + ".json"
+        try FileManager.default.createSymbolicLink(atPath: directory.appendingPathComponent(linkB).path,
+                                                   withDestinationPath: "/dev/zero")
+        let start = Date()
+        let result = store.loadAll()
+        XCTAssertLessThan(Date().timeIntervalSince(start), 5)
+        XCTAssertEqual(Set(result.skipped.map(\.file)), [linkA, linkB])
+        XCTAssertEqual(result.presets.count, 3)
+    }
+
+    func testFifoIsSkippedWithoutHanging() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let name = UUID().uuidString + ".json"
+        XCTAssertEqual(mkfifo(directory.appendingPathComponent(name).path, 0o600), 0)
+        let result = store.loadAll()
+        XCTAssertEqual(result.skipped.map(\.file), [name])
+    }
+
+    func testDuplicateNamesInFilesAreSkipped() throws {
+        let ids = [UUID(), UUID()].sorted { $0.uuidString < $1.uuidString }
+        for (index, id) in ids.enumerated() {
+            try writeRaw("{\"schemaVersion\":1,\"id\":\"\(id.uuidString)\",\"name\":\"Same\(index == 0 ? "" : " ")\",\"pipeline\":{}}",
+                         name: id.uuidString + ".json")
+        }
+        let builtInClash = UUID()
+        try writeRaw("{\"id\":\"\(builtInClash.uuidString)\",\"name\":\"WEB EXPORT\",\"pipeline\":{}}",
+                     name: builtInClash.uuidString + ".json")
+        let result = store.loadAll()
+        XCTAssertEqual(result.presets.dropFirst(3).map(\.id), [ids[0]])
+        XCTAssertEqual(Set(result.skipped.map(\.file)),
+                       [ids[1].uuidString + ".json", builtInClash.uuidString + ".json"])
+        XCTAssertTrue(result.skipped.allSatisfy { $0.reason == "A preset with this name already exists." })
+    }
+
+    func testNamesCompareWithUnicodeCaseFolding() {
+        let existing = [Preset(name: "Straße", pipeline: Pipeline())]
+        XCTAssertThrowsError(try PresetStore.validatedName("STRASSE", existing: existing, excluding: nil)) {
+            XCTAssertEqual($0 as? PresetError, .duplicateName)
+        }
+    }
+
+    func testIdAndFileNameMismatchIsSkipped() throws {
+        let name = UUID().uuidString + ".json"
+        try writeRaw("{\"id\":\"\(UUID().uuidString)\",\"name\":\"A\",\"pipeline\":{}}", name: name)
+        XCTAssertEqual(store.loadAll().skipped.map(\.file), [name])
+    }
+
+    func testBuiltInIdInFileIsSkipped() throws {
+        let builtIn = PresetStore.builtIns[0].id
+        let name = builtIn.uuidString + ".json"
+        try writeRaw("{\"id\":\"\(builtIn.uuidString)\",\"name\":\"Other\",\"pipeline\":{}}", name: name)
+        let result = store.loadAll()
+        XCTAssertEqual(result.skipped.map(\.file), [name])
+        XCTAssertEqual(result.presets.count, 3)
+    }
+
+    func testRenameMissingThrows() {
+        XCTAssertThrowsError(try store.rename(id: UUID(), to: "X")) {
+            XCTAssertEqual($0 as? PresetError, .unreadable)
+        }
+    }
+
+    func testDeleteRemovesDanglingSymlink() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let id = UUID()
+        let link = directory.appendingPathComponent("\(id.uuidString).json")
+        try FileManager.default.createSymbolicLink(atPath: link.path, withDestinationPath: "/nonexistent/x")
+        try store.delete(id: id)
+        XCTAssertNil(try? FileManager.default.destinationOfSymbolicLink(atPath: link.path))
+    }
+
+    func testUnreadableFolderIsReported() throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: directory.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path) }
+        let result = store.loadAll()
+        XCTAssertEqual(result.skipped.map(\.reason), ["The presets folder couldn't be read."])
+    }
+
+    func testInvalidJSONAndWrongTypesHaveDistinctReasons() throws {
+        let badJSONID = UUID(), badTypeID = UUID()
+        try writeRaw("{\"id\":", name: badJSONID.uuidString + ".json")
+        try writeRaw("{\"id\":\"\(badTypeID.uuidString)\",\"name\":\"P\",\"pipeline\":5}", name: badTypeID.uuidString + ".json")
+        let skipped = store.loadAll().skipped
+        XCTAssertEqual(skipped.first { $0.file == badJSONID.uuidString + ".json" }?.reason, PresetError.invalidJSON.reason)
+        XCTAssertEqual(skipped.first { $0.file == badTypeID.uuidString + ".json" }?.reason, PresetError.invalidStructure.reason)
     }
 }
