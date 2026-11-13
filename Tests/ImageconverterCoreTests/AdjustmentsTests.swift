@@ -156,7 +156,7 @@ final class AdjustmentsTests: XCTestCase {
                           luminance(TestImages.pixel(of: image, x: 8, y: 8)) - 20)
     }
 
-    func testEveryFieldRendersAndChangesSomething() throws {
+    func testEveryFieldRendersAtRangeEnds() throws {
         let image = TestImages.twoColor(width: 24, height: 24,
                                         left: CGColor(srgbRed: 0.2, green: 0.4, blue: 0.7, alpha: 1),
                                         right: CGColor(srgbRed: 0.9, green: 0.7, blue: 0.3, alpha: 1))

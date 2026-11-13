@@ -120,13 +120,18 @@ public struct AdjustOptions: Codable, Equatable, Sendable {
 /// Renders `AdjustOptions` with Core Image.
 public enum Adjustments {
     /// Created once; `CIContext` is thread-safe. Linear extended sRGB keeps out-of-gamut and HDR values.
+    /// No intermediate cache: each image is rendered once, and a parallel batch would only pile up memory.
     private static let context: CIContext = {
-        var options: [CIContextOption: Any] = [.useSoftwareRenderer: false, .workingFormat: CIFormat.RGBAh]
+        var options: [CIContextOption: Any] = [.useSoftwareRenderer: false, .workingFormat: CIFormat.RGBAh,
+                                               .cacheIntermediates: false]
         if let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) { options[.workingColorSpace] = linear }
         return CIContext(options: options)
     }()
 
-    public static func apply(_ options: AdjustOptions, to image: CGImage) throws -> CGImage {
+    public static func apply(_ raw: AdjustOptions, to image: CGImage) throws -> CGImage {
+        // Callers may build options directly: clamp (NaN → 0) before anything reaches Core Image.
+        var options = raw
+        for field in AdjustOptions.Field.allCases { options[field] = AdjustOptions.clamped(raw[field], to: field) }
         if options.isNeutral { return image }
         let step = StepKind.adjust.displayName
         let extent = CGRect(x: 0, y: 0, width: image.width, height: image.height)
@@ -135,11 +140,14 @@ public enum Adjustments {
         let output = filtered(source, options, shortSide: Double(min(image.width, image.height))).cropped(to: extent)
 
         let alpha = ImageOps.hasAlpha(image)
-        guard let ctx = ImageOps.makeContext(width: image.width, height: image.height, like: image, alpha: alpha),
-              let space = ctx.colorSpace,
+        // Core Image renders RGBA only: non-RGB sources (gray, CMYK, indexed) come out in sRGB.
+        let space = image.colorSpace?.model == .rgb ? image.colorSpace : CGColorSpace(name: CGColorSpace.sRGB)
+        guard let ctx = ImageOps.makeContext(width: image.width, height: image.height, like: image, space: space,
+                                             alpha: alpha),
+              let target = ctx.colorSpace,
               let rendered = context.createCGImage(output, from: extent,
                                                    format: ctx.bitsPerComponent > 8 ? .RGBA16 : .RGBA8,
-                                                   colorSpace: space) else {
+                                                   colorSpace: target) else {
             throw ConversionError.processingFailed(step)
         }
         // Drawn into a context like the source's, so the bit depth, colour space and alpha match it.
@@ -154,17 +162,21 @@ public enum Adjustments {
         detail(colour(tone(input, opts), opts), opts, shortSide: shortSide)
     }
 
-    /// Steps 1-5: exposure, highlights/shadows, brilliance, black point, contrast/brightness/saturation.
+    /// Steps 1-5. Exposure works on linear light. Highlights/shadows and contrast/brightness/saturation run on
+    /// gamma-encoded sRGB, so amounts, the contrast pivot (mid-gray) and the brightness offset are perceptual.
+    /// `CIToneCurve` converts linear to sRGB itself (measured), so the curves run on the linear image.
     private static func tone(_ input: CIImage, _ opts: AdjustOptions) -> CIImage {
         var image = input
         if opts.exposure != 0 {
             image = image.applyingFilter("CIExposureAdjust", parameters: [kCIInputEVKey: opts.exposure / 50])
         }
         if opts.highlights < 0 || opts.shadows != 0 {
-            image = image.applyingFilter("CIHighlightShadowAdjust", parameters: [
-                "inputHighlightAmount": 1 + min(0, opts.highlights) / 100,
-                "inputShadowAmount": opts.shadows / 100
-            ])
+            image = inGamma(image) {
+                $0.applyingFilter("CIHighlightShadowAdjust", parameters: [
+                    "inputHighlightAmount": 1 + min(0, opts.highlights) / 100,
+                    "inputShadowAmount": opts.shadows / 100
+                ])
+            }
         }
         if opts.highlights > 0 {
             let lift = opts.highlights / 100 * 0.1
@@ -177,13 +189,20 @@ public enum Adjustments {
         }
         if opts.blackPoint != 0 { image = toneCurve(image, blackPointCurve(opts.blackPoint)) }
         if opts.contrast != 0 || opts.brightness != 0 || opts.saturation != 0 {
-            image = image.applyingFilter("CIColorControls", parameters: [
-                kCIInputContrastKey: 1 + opts.contrast / 100 * 0.5,
-                kCIInputBrightnessKey: opts.brightness / 100 * 0.25,
-                kCIInputSaturationKey: 1 + opts.saturation / 100
-            ])
+            image = inGamma(image) {
+                $0.applyingFilter("CIColorControls", parameters: [
+                    kCIInputContrastKey: 1 + opts.contrast / 100 * 0.5,
+                    kCIInputBrightnessKey: opts.brightness / 100 * 0.25,
+                    kCIInputSaturationKey: 1 + opts.saturation / 100
+                ])
+            }
         }
         return image
+    }
+
+    /// Runs `filter` on the gamma-encoded (sRGB curve) version of the linear `image` and decodes the result.
+    private static func inGamma(_ image: CIImage, _ filter: (CIImage) -> CIImage) -> CIImage {
+        filter(image.applyingFilter("CILinearToSRGBToneCurve")).applyingFilter("CISRGBToneCurveToLinear")
     }
 
     /// Steps 6-8: vibrance, warmth/tint, hue.
@@ -236,14 +255,12 @@ public enum Adjustments {
         }
     }
 
-    /// A five-point curve applied in gamma-encoded sRGB, so the points mean perceptual tones, not linear light.
+    /// A five-point curve. Points are sRGB-encoded tones: the filter encodes the linear input itself.
     private static func toneCurve(_ image: CIImage, _ points: [(Double, Double)]) -> CIImage {
         var parameters: [String: Any] = [:]
         for (index, point) in points.prefix(5).enumerated() {
             parameters["inputPoint\(index)"] = CIVector(x: point.0, y: point.1)
         }
-        return image.applyingFilter("CILinearToSRGBToneCurve")
-            .applyingFilter("CIToneCurve", parameters: parameters)
-            .applyingFilter("CISRGBToneCurveToLinear")
+        return image.applyingFilter("CIToneCurve", parameters: parameters)
     }
 }

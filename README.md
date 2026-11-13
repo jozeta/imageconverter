@@ -282,7 +282,9 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
 2. Move the sliders in **Light**, **Colour** and **Detail**; the preview updates as you go.
 3. Double-click a slider's label to set it back to 0, or press a group's **Reset** to clear the whole group.
 4. Put the step after resizing if you want sharpening to suit the final size. The step keeps each
-   image's colour space (sRGB, Display P3, …), bit depth and transparency.
+   image's RGB colour space (sRGB, Display P3, …), bit depth and transparency. Gray, CMYK and indexed
+   images come out of the step in sRGB (Core Image works in RGB); add a Color profile step set to Gray
+   after it to get a gray file back.
 
 ### Add a watermark
 

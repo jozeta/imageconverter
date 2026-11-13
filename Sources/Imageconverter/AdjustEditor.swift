@@ -47,8 +47,9 @@ private struct AdjustSlider: View {
     private var shown: Int { Int(AdjustOptions.clamped(value, to: field).rounded()) }
 
     private var valueText: String {
-        let sign = field.range.lowerBound < 0 && shown > 0 ? "+" : ""
-        return sign + "\(shown)" + (field == .hue ? "°" : "")
+        // Signed fields show + and a real minus sign, like the step summary.
+        let number = shown < 0 ? "−\(-shown)" : (field.range.lowerBound < 0 && shown > 0 ? "+\(shown)" : "\(shown)")
+        return number + (field == .hue ? "°" : "")
     }
 
     var body: some View {
