@@ -38,19 +38,25 @@ extension AppModel {
         let pipeline = self.pipeline
         let key = EstimateKey(item: item.source, pipeline: pipeline)
         if key == estimateKey { return }
-        estimateTask?.cancel()
+        let previous = estimateTask
+        previous?.cancel()
         estimateKey = key
-        // Another image is selected: its numbers (and the large images) are not this item's.
-        if sizeEstimate?.item != item.source { sizeEstimate = nil }
+        // Rule: `sizeEstimate` is nil or current. Anything computed for another item or pipeline
+        // (and its large images) goes as soon as the inputs change.
+        sizeEstimate = nil
         isEstimating = true
         estimateFailed = false
         estimateTask = Task { [weak self] in
             do { try await Task.sleep(for: Self.estimateDebounce) } catch { return }
-            let outcome = await Task.detached(priority: .userInitiated) { () -> (Int?, EncodedPreview?) in
+            // Wait for the superseded render so two full-size renders never overlap.
+            await previous?.value
+            guard !Task.isCancelled else { return }
+            let outcome = await Task.detached(priority: .userInitiated) { () -> (Int?, EncodedPreview?)? in
+                if Task.isCancelled { return nil }
                 let original = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
                 return (original, try? SizeEstimator.render(item: item, pipeline: pipeline))
             }.value
-            guard let self, !Task.isCancelled, self.estimateKey == key else { return }
+            guard let self, !Task.isCancelled, self.estimateKey == key, let outcome else { return }
             isEstimating = false
             estimateFailed = outcome.1 == nil
             sizeEstimate = SizeEstimate(item: item.source, original: outcome.0, output: outcome.1?.bytes, full: outcome.1)

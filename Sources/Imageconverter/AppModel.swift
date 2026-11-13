@@ -260,7 +260,9 @@ final class AppModel {
     var renameExampleKey: RenameExampleKey {
         RenameExampleKey(
             exampleItem: selectedItemIndex.map { items[$0].source }, index: selectedItemIndex ?? 0, pattern: pipeline.rename.pattern,
-            counterStart: pipeline.rename.counterStart, format: pipeline.output.format, steps: pipeline.steps)
+            counterStart: pipeline.rename.counterStart,
+            findText: pipeline.rename.findText, replaceText: pipeline.rename.replaceText, useRegex: pipeline.rename.useRegex,
+            format: pipeline.output.format, steps: pipeline.steps)
     }
 
     /// Renders the rename pattern for the selected image (the first by default, or a built-in sample when there are none).
@@ -308,6 +310,9 @@ struct RenameExampleKey: Equatable {
     let index: Int
     let pattern: String
     let counterStart: Int
+    let findText: String
+    let replaceText: String
+    let useRegex: Bool
     let format: OutputFormat
     let steps: [PipelineStep]
 }

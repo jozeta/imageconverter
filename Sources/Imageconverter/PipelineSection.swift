@@ -11,6 +11,8 @@ struct PipelineSection: View {
     @State private var metadataExpanded = false
     @State private var renameExpanded = false
     @State private var pendingOverwrite = false
+    /// Bumped when the overwrite dialog is cancelled, so the menu picker redraws the real mode.
+    @State private var pickerID = 0
 
     private var enabledCount: Int { model.pipeline.steps.filter(\.isEnabled).count }
 
@@ -133,9 +135,12 @@ struct PipelineSection: View {
         .padding(LadaGlass.Spacing.m)
         .frame(maxWidth: .infinity, alignment: .leading)
         .lgSurface()
+        .onChange(of: pendingOverwrite) { _, pending in
+            if !pending, settings.modeKind != .overwrite { pickerID += 1 }
+        }
         .confirmationDialog("Overwrite originals?", isPresented: $pendingOverwrite) {
             Button("Use overwrite") { settings.modeKind = .overwrite }
-            Button("Cancel", role: .cancel) {}
+            Button("Cancel", role: .cancel) { pickerID += 1 }
         } message: {
             Text("Converted images will replace the originals. When the format or name changes, "
                 + "the original is moved to the Trash. You won't be asked again when running.")
@@ -153,8 +158,8 @@ struct PipelineSection: View {
 
     private var estimateText: String {
         if model.items.isEmpty { return "Add images to see the file size" }
-        if model.isEstimating { return "Estimating…" }
-        guard let estimate = model.sizeEstimate, !model.estimateFailed, let output = estimate.output else { return "—" }
+        if model.estimateFailed { return "—" }
+        guard !model.isEstimating, let estimate = model.sizeEstimate, let output = estimate.output else { return "Estimating…" }
         let original = estimate.original.map(Self.bytes) ?? "—"
         return "Original \(original) → about \(Self.bytes(output))"
     }
@@ -172,6 +177,7 @@ struct PipelineSection: View {
                 Text("Same folder as original").tag(OutputModeKind.sameFolder)
                 Text("New folder").tag(OutputModeKind.newFolder)
             }
+            .id(pickerID)
             .accessibilityLabel("Save to")
             switch settings.modeKind {
             case .overwrite:
