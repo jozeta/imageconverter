@@ -411,3 +411,24 @@ Examples from Johan: larger than 4000 px → resize to 2048; PNG with transparen
 **Files:** Create `Sources/Imageconverter/ConditionEditor.swift`; Modify `PipelineSection.swift` (“+ Add step” › "If … then … else"), `StepEditors.swift` routing
 - A condition row in the pipeline shows a one-line summary ("If longest edge > 4000 px → Resize 2048 · else nothing"). Expanded: "Match [all|any] of:" with condition rows (picker for the kind, comparison picker, value field with unit — px, KB/MB —, format picker, yes/no), add/remove buttons; a "Then" and an "Else" list, each with its own "+ Add" menu (image steps, Set output…, Set metadata…, Set rename…, Copy original unchanged, Skip file) and inline editors reusing the existing step editors; actions reorderable by drag like steps. Keyboard/VoiceOver complete. The preview for the selected image shows which branch applies ("Then branch" / "Else branch" chip).
 - [ ] Build/test/lint, screenshots with `-debugAddFiles` (one portrait, one landscape), README how-to "Process images differently by size, format or orientation" with Johan's examples, commit `feat(app): if/then/else condition steps in the pipeline`.
+
+## Preview round (Johan, 2026-11-13)
+
+Already present: before/after side by side, synced pinch zoom/pan, Zoom to Fit ⌘0, Actual Size ⌥⌘0 (100 %), Original | Result table (name, folder, dimensions, size), size estimate, filmstrip. Savings % arrives with Task 12.
+
+### Task 27: Difference image and quality ladder (Core)
+
+**Files:** Create `Sources/ImageconverterCore/ImageDifference.swift`, `Sources/ImageconverterCore/QualityLadder.swift`; Tests `ImageDifferenceTests.swift`, `QualityLadderTests.swift`
+- `ImageDifference.render(before: CGImage, after: CGImage, amplify: Double = 4) -> CGImage?`: nil when the pixel sizes differ; else an sRGB 8-bit image where each pixel is the per-channel absolute difference × amplify, clamped, on black (identical = black); plus `ImageDifference.stats(before:after:) -> (meanAbsError: Double, maxError: Int, psnr: Double)` (PSNR in dB, ∞ for identical).
+- `QualityLadder.render(item: InputItem, pipeline: Pipeline, qualities: [Double] = [0.4, 0.6, 0.8, 0.95], maxPixels:) throws -> [(quality: Double, bytes: Int, image: CGImage)]` — one pipeline apply, then one encode+decode per quality (reuses the shared encode function), only for formats with `supportsQuality`.
+- [ ] Tests: `testIdenticalIsBlackAndInfinitePSNR`, `testDifferentSizesNil`, `testAmplifiedDifference`, `testLadderSizesIncreaseWithQuality`, `testLadderUnsupportedFormatThrowsOrEmpty`.
+- [ ] Commit `feat(core): difference image, PSNR and quality ladder`.
+
+### Task 28: Comparison modes, checkerboard, grid/list browser, quality compare (app)
+
+**Files:** `PreviewPane.swift`, `ZoomableComparison.swift`, `Filmstrip.swift` (→ `BatchBrowser.swift` with three modes), `AppModel+Preview.swift`, `ImageconverterApp.swift` (View menu)
+- A segmented "Compare" control in the preview header: **Side by side** (current), **Split** (one image; a draggable vertical divider wipes between Before (left) and After (right); divider position persisted; works with zoom/pan), **Difference** (the amplified difference image with a PSNR/mean-error line; "Not available: the size changes" when sizes differ), **Single** (large preview of After; hold Space or press B to show Before while held / toggled, labelled). All modes share the zoom state. View menu items with ⌘1…⌘4.
+- Checkerboard behind images wherever an image is drawn (preview, zoom, thumbnails), light/dark aware, 8 pt squares, so transparency is visible.
+- Batch browser below the preview with a picker: **Filmstrip** (current), **Grid** (adaptive thumbnail grid in a resizable area, selection, arrow keys in 2D), **List** (Table: name, dimensions, file size, estimated output size when known — computed lazily only for visible rows' selected item, otherwise "—" —, status after a run: written/skipped/failed). Mode persisted in UserDefaults.
+- "Compare quality…" button (formats with quality only) opens a panel below the images: four tiles at qualities 40/60/80/95 % showing the same zoomed region (shares the zoom state) with size and saving %; clicking a tile sets the Output quality to it. Rendered off the main actor, cancelled when the selection or pipeline changes.
+- [ ] Build/test/lint, screenshots of each mode with `-debugAddFiles` (one image with transparency), README (preview section), commit `feat(app): split, difference and single comparison, checkerboard, grid and list views, quality compare`.
