@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import Observation
 import ImageconverterCore
 
@@ -28,18 +29,44 @@ final class AppModel {
     /// "Example: name.ext" for the Rename editor; see `refreshRenameExample()`.
     private(set) var renameExample = ""
 
+    /// The selected image (index into `items`); see `selectedItemIndex` for the clamped value.
+    var selectedIndex = 0
+    /// The latest preview, kept on screen while the next one renders.
+    var previewResult: PreviewResult?
+    /// Why the last render failed (nil when it succeeded).
+    var previewFailure: String?
+    var isRenderingPreview = false
+    /// Filmstrip thumbnails by file (see `AppModel+Preview.swift`).
+    var thumbnails: [URL: CGImage] = [:]
+    var previewCollapsed: Bool {
+        didSet { defaults.set(previewCollapsed, forKey: Self.previewCollapsedKey) }
+    }
+    var pipelineCollapsed: Bool {
+        didSet { defaults.set(pipelineCollapsed, forKey: Self.pipelineCollapsedKey) }
+    }
+
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored var previewTask: Task<Void, Never>?
+    @ObservationIgnored var previewGeneration = 0
+    @ObservationIgnored var previewMode: OutputMode?
+    @ObservationIgnored let previewRenderer = PreviewRenderer()
+    @ObservationIgnored var thumbnailsLoading: Set<URL> = []
+    @ObservationIgnored var thumbnailsFailed: Set<URL> = []
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var exampleSource: (url: URL, info: RenameSource)?
     @ObservationIgnored private var exampleCache: (key: RenameExampleKey, text: String)?
     @ObservationIgnored let presetStore: PresetStore
     static let pipelineKey = "currentPipeline"
     static let selectedPresetKey = "selectedPresetID"
+    static let previewCollapsedKey = "previewCollapsed"
+    static let pipelineCollapsedKey = "pipelineCollapsed"
 
     init(defaults: UserDefaults = .standard,
          presetStore: PresetStore = PresetStore(directory: PresetStore.defaultDirectory)) {
         self.defaults = defaults
         self.presetStore = presetStore
+        previewCollapsed = defaults.bool(forKey: Self.previewCollapsedKey)
+        pipelineCollapsed = defaults.bool(forKey: Self.pipelineCollapsedKey)
         let saved = Self.loadPipeline(from: defaults)
         session = PresetSession(selected: nil, pipeline: saved)
         let result = presetStore.loadAll()
@@ -126,6 +153,8 @@ final class AppModel {
     func clear() {
         guard !isRunning else { return }
         items = []
+        selectedIndex = 0
+        resetPreview()
         progress = nil
         lastReport = nil
     }
@@ -161,6 +190,7 @@ final class AppModel {
         let batch = items
         let pipeline = self.pipeline
         isRunning = true
+        resetPreview()
         lastReport = nil
         progress = BatchProgress(completed: 0, failed: 0, total: batch.count)
         task = Task { [weak self] in
@@ -186,6 +216,8 @@ final class AppModel {
     private func finish(_ report: BatchReport) {
         isRunning = false
         task = nil
+        Task { await previewRenderer.purge() }
+        schedulePreview(mode: previewMode)
         lastReport = report
         progress = nil
         let done = report.written.count
@@ -203,11 +235,11 @@ final class AppModel {
     /// What the live example depends on; when it changes the example is recomputed.
     var renameExampleKey: RenameExampleKey {
         RenameExampleKey(
-            firstItem: items.first?.source, pattern: pipeline.rename.pattern,
+            exampleItem: selectedItemIndex.map { items[$0].source }, pattern: pipeline.rename.pattern,
             counterStart: pipeline.rename.counterStart, format: pipeline.output.format, steps: pipeline.steps)
     }
 
-    /// Renders the rename pattern for the first image (or a built-in sample when there are none).
+    /// Renders the rename pattern for the selected image (the first by default) (or a built-in sample when there are none).
     /// The file is read off the main actor; the header is kept per file and the result per key.
     func refreshRenameExample() async {
         let key = renameExampleKey
@@ -216,12 +248,12 @@ final class AppModel {
             return
         }
         let pipeline = self.pipeline
-        let known = exampleSource.flatMap { $0.url == key.firstItem ? $0.info : nil }
+        let known = exampleSource.flatMap { $0.url == key.exampleItem ? $0.info : nil }
         let (info, text) = await Task.detached(priority: .userInitiated) {
-            Self.renderExample(url: key.firstItem, known: known, pipeline: pipeline)
+            Self.renderExample(url: key.exampleItem, known: known, pipeline: pipeline)
         }.value
         guard !Task.isCancelled else { return }
-        if let url = key.firstItem { exampleSource = (url, info) }
+        if let url = key.exampleItem { exampleSource = (url, info) }
         exampleCache = (key, text)
         renameExample = text
     }
@@ -247,7 +279,7 @@ struct RenameSource: @unchecked Sendable {
 }
 
 struct RenameExampleKey: Equatable {
-    let firstItem: URL?
+    let exampleItem: URL?
     let pattern: String
     let counterStart: Int
     let format: OutputFormat

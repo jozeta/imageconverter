@@ -37,7 +37,11 @@ swiftlint           # if installed (brew install swiftlint)
     `AppModel.swift` (items, pipeline persisted as JSON under `currentPipeline`, run/cancel, toasts),
     `AppSettings.swift` (output mode, persisted in UserDefaults), `PipelineSection.swift` (step rows,
     reorder, add, fixed Output row), `StepEditors.swift` (one editor per step kind), `WatermarkEditor.swift` (watermark step editor, sliders, thumbnail), `StepControls.swift` (shared controls),
-    `FileStepEditors.swift` (Metadata and Rename rows and editors; the live rename example is computed in `AppModel`)
+    `FileStepEditors.swift` (Metadata and Rename rows and editors; the live rename example is computed in `AppModel`),
+    `PresetBar.swift` and `AppModel+Presets.swift` (preset picker, save/rename/delete),
+    `PreviewPane.swift` (before/after, name and size line), `Filmstrip.swift` (thumbnails, ←/→),
+    `AppModel+Preview.swift` (selection, 300 ms debounced render task with a generation counter, thumbnail cache).
+    `previewCollapsed` and `pipelineCollapsed` are persisted in UserDefaults
 - `Sources/ImageconverterCore/`: all logic: the pipeline model, each operation as a pure function
   (`CGImage → CGImage`, metadata → metadata), rename templating, collision naming, presets
   (JSON, `schemaVersion`), the batch runner. No SwiftUI here. Files so far:
@@ -46,7 +50,7 @@ swiftlint           # if installed (brew install swiftlint)
     `FileCommitter` (atomic writes, trash replaced originals), `BatchRunner` (parallel run, progress, cancel),
     `Pipeline` (steps, options, `apply`), `FileSteps` (`MetadataOptions`, `RenameOptions`), `MetadataOps` (metadata stripping/setting),
     `RenameTemplate` (tokens, sanitising), `StepSummary` (one-line step descriptions), `Geometry` (size maths),
-    `ImageOps` (resize, crop, rotate/flip, canvas, color profile, watermark), `Watermark` (options, placement maths), `WatermarkAssets` (image watermarks loaded once per batch), `WorkWindow` (memory-aware batch scheduling)
+    `ImageOps` (resize, crop, rotate/flip, canvas, color profile, watermark), `Watermark` (options, placement maths), `WatermarkAssets` (image watermarks loaded once per batch), `WorkWindow` (memory-aware batch scheduling), `Presets`/`PresetSession` (preset files, built-ins, unsaved-change tracking), `PreviewRenderer` (actor: before/after for one item, caches the decoded source)
 - `Tests/ImageconverterCoreTests/`: tests (operations on small generated images, rename tokens,
   resize/crop maths, collisions, preset round-trip and rejection, metadata really stripped)
 - `docs/superpowers/specs/`: design documents; `docs/superpowers/plans/`: implementation plans
