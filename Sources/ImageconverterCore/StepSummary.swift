@@ -96,7 +96,8 @@ extension WatermarkOptions {
         let name: String
         switch content {
         case .text(let watermark):
-            name = watermark.text.count > 20 ? String(watermark.text.prefix(20)) + "…" : watermark.text
+            let text = TextWatermark.singleLine(watermark.text)
+            name = text.count > 20 ? String(text.prefix(20)) + "…" : text
         case .image(let watermark):
             name = watermark.path.isEmpty ? "no image" : URL(fileURLWithPath: watermark.path).lastPathComponent
         }

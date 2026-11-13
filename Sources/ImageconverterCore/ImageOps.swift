@@ -125,14 +125,14 @@ public enum ImageOps {
     public static func watermark(_ image: CGImage, _ options: WatermarkOptions, asset: CGImage?) throws -> CGImage {
         let step = StepKind.watermark.displayName
         var line: CTLine?
-        var descent: CGFloat = 0
+        var origin = CGPoint.zero
         let contentSize: CGSize
         switch options.content {
         case .text(let text):
             guard !text.text.isEmpty else { return image }
             guard let built = textLine(text) else { return image }
             line = built.line
-            descent = built.descent
+            origin = built.origin
             contentSize = built.size
         case .image:
             guard let asset else { throw ConversionError.watermarkImageUnreadable }
@@ -148,9 +148,10 @@ public enum ImageOps {
         if let line, case .text(let text) = options.content {
             ctx.saveGState()
             ctx.setFillColor(cgColor(text.color))
-            // The line was measured at `referenceFontSize`; scale it to the rect, baseline above the descent.
+            // The line was measured at `referenceFontSize`; scale it to the rect. `origin` is where the
+            // measured box starts relative to the baseline origin.
             let scale = rect.height / contentSize.height
-            ctx.translateBy(x: rect.minX, y: CGFloat(ctx.height) - rect.maxY + descent * scale)
+            ctx.translateBy(x: rect.minX - origin.x * scale, y: CGFloat(ctx.height) - rect.maxY - origin.y * scale)
             ctx.scaleBy(x: scale, y: scale)
             ctx.textPosition = .zero
             CTLineDraw(line, ctx)
@@ -211,22 +212,27 @@ public enum ImageOps {
 
     private struct TextLine {
         var line: CTLine
-        var descent: CGFloat
+        /// The measured box's bottom-left corner relative to the line's origin (baseline start).
+        var origin: CGPoint
         var size: CGSize
     }
 
-    /// A line for `text` at the reference size, with its typographic size (width, ascent + descent).
+    /// A line for `text` at the reference size, measured as the union of its typographic box and its
+    /// glyph outlines, so tall glyphs (stacked combining marks, emoji) stay inside the rect.
     private static func textLine(_ text: TextWatermark) -> TextLine? {
         // The colour comes from the context, so the opacity and colour apply the same way as for images.
         let attributes = [kCTFontAttributeName: watermarkFont(named: text.fontName),
                           kCTForegroundColorFromContextAttributeName: true] as CFDictionary
-        guard let string = CFAttributedStringCreate(nil, text.text as CFString, attributes) else { return nil }
+        guard let string = CFAttributedStringCreate(nil, TextWatermark.singleLine(text.text) as CFString, attributes) else { return nil }
         let line = CTLineCreateWithAttributedString(string)
         var ascent: CGFloat = 0
         var descent: CGFloat = 0
         var leading: CGFloat = 0
         let width = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
-        return TextLine(line: line, descent: descent, size: CGSize(width: CGFloat(width), height: ascent + descent))
+        let typographic = CGRect(x: 0, y: -descent, width: CGFloat(width), height: ascent + descent)
+        let box = typographic.union(CTLineGetBoundsWithOptions(line, .useGlyphPathBounds))
+        guard box.width.isFinite, box.height.isFinite, box.width > 0, box.height > 0 else { return nil }
+        return TextLine(line: line, origin: box.origin, size: box.size)
     }
 
     /// The named font, or the system bold font when it doesn't exist (CoreText substitutes silently).

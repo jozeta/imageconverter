@@ -45,8 +45,9 @@ final class AppModel {
 
     func addStep(_ kind: StepKind) -> PipelineStep {
         var operation = kind.defaultOperation
-        if case .watermark(var options) = operation, !NSFullUserName().isEmpty {
-            options.content = .text(TextWatermark(text: "© " + NSFullUserName()))
+        let fullName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
+        if case .watermark(var options) = operation, !fullName.isEmpty {
+            options.content = .text(TextWatermark(text: "© " + fullName))
             operation = .watermark(options)
         }
         let step = PipelineStep(operation: operation)

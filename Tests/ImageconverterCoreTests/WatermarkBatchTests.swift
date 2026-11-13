@@ -137,4 +137,56 @@ final class WatermarkBatchTests: XCTestCase {
         XCTAssertNotNil(assets.image(for: path))
         XCTAssertNil(assets.image(for: "/nonexistent/other.png"))
     }
+
+    func testMissingLogoFailsFastWithoutDecodingSources() async throws {
+        // Sources that could never decode: the failure reason must still be the watermark's,
+        // which proves the source files were not opened first.
+        var files: [URL] = []
+        for name in ["j1.png", "j2.png"] {
+            let url = dir.appendingPathComponent(name)
+            try Data("not an image".utf8).write(to: url)
+            files.append(url)
+        }
+        let report = await BatchRunner.run(
+            InputCollector.collect(files), pipeline: pipeline(path: dir.appendingPathComponent("nope.png").path),
+            mode: .newFolder(out))
+        XCTAssertEqual(report.failures.count, 2)
+        XCTAssertEqual(Set(report.failures.map(\.reason)), ["Couldn't read the watermark image"])
+        XCTAssertTrue(report.written.isEmpty)
+    }
+
+    func testHasMissing() throws {
+        let path = try logo()
+        XCTAssertFalse(WatermarkAssets.load(for: pipeline(path: path), maxPixels: 1_000_000)
+            .hasMissing(for: pipeline(path: path)))
+        let missing = pipeline(path: "/nonexistent/x.png")
+        XCTAssertTrue(WatermarkAssets.load(for: missing, maxPixels: 1_000_000).hasMissing(for: missing))
+        let disabled = pipeline(path: "/nonexistent/x.png", enabled: false)
+        XCTAssertFalse(WatermarkAssets.load(for: disabled, maxPixels: 1_000_000).hasMissing(for: disabled))
+        XCTAssertFalse(WatermarkAssets.empty.hasMissing(for: Pipeline(steps: [], output: .init(format: .png))))
+    }
+
+    func testWideLogoIsDownsampledOnLoad() throws {
+        let url = dir.appendingPathComponent("wide.png")
+        try TestImages.write(TestImages.make(width: 8000, height: 100, color: red), to: url, type: .png)
+        let assets = WatermarkAssets.load(for: pipeline(path: url.path), maxPixels: 10_000_000)
+        let image = try XCTUnwrap(assets.image(for: url.path))
+        XCTAssertLessThanOrEqual(image.width, 4096)
+        XCTAssertGreaterThan(image.width, 4000)
+    }
+
+    func testCancelledBeforeAssetLoadReturnsCancelledReport() async throws {
+        let path = try logo()
+        let files = [try input("x.png", width: 40, height: 30)]
+        let pipeline = pipeline(path: path)
+        let task = Task {
+            // Wait until cancelled, so the batch starts with the task already cancelled.
+            while !Task.isCancelled { await Task.yield() }
+            return await BatchRunner.run(InputCollector.collect(files), pipeline: pipeline, mode: .newFolder(out))
+        }
+        task.cancel()
+        let report = await task.value
+        XCTAssertTrue(report.cancelled)
+        XCTAssertTrue(report.written.isEmpty)
+    }
 }

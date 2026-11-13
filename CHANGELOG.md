@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Watermark fixes: an unreadable watermark image now fails the batch immediately without decoding the photos, large logos are downsampled on load (4096 px), tall glyphs and emoji stay inside the watermark's box, line breaks in the text become spaces, image watermarks default to 20 % size when loading older settings, and an empty text shows a hint.
 - Watermark step: text (font, colour) or image (e.g. a logo), with position, size relative to the image, opacity and margin.
 - Metadata step (remove location, camera details or everything; set artist, copyright and description) and Rename step with tokens ({date}, {camera}, {counter:000}, …) and a live example.
 - Wide-colour (Display P3) photos keep their colour when resized and saved as JPEG.

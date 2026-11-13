@@ -11,7 +11,6 @@ struct WatermarkEditor: View {
     @State private var textValues = TextWatermark()
     @State private var imageValues = ImageWatermark()
 
-    private static let sizeDefaultImage = 20.0
     static let fonts: [(name: String, label: String)] = [
         ("Helvetica-Bold", "Helvetica Bold"), ("Helvetica", "Helvetica"),
         ("AvenirNext-DemiBold", "Avenir Next Demi Bold"), ("Georgia-Bold", "Georgia Bold"),
@@ -40,10 +39,10 @@ struct WatermarkEditor: View {
         }
         if useText {
             options.content = .text(textValues)
-            if options.sizePercent == Self.sizeDefaultImage { options.sizePercent = WatermarkOptions.defaultSizePercent }
+            if options.sizePercent == WatermarkOptions.defaultImageSizePercent { options.sizePercent = WatermarkOptions.defaultSizePercent }
         } else {
             options.content = .image(imageValues)
-            if options.sizePercent == WatermarkOptions.defaultSizePercent { options.sizePercent = Self.sizeDefaultImage }
+            if options.sizePercent == WatermarkOptions.defaultSizePercent { options.sizePercent = WatermarkOptions.defaultImageSizePercent }
         }
     }
 
@@ -73,6 +72,10 @@ struct WatermarkEditor: View {
             set: { var value = text; value.text = $0; options.content = .text(value) }))
             .textFieldStyle(.roundedBorder)
             .accessibilityLabel("Watermark text")
+        if text.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            Text("Empty text: nothing is drawn.").font(LadaGlass.Typography.label)
+                .foregroundStyle(LadaGlass.Colors.muted)
+        }
         Picker("Font", selection: Binding(
             get: { text.fontName },
             set: { var value = text; value.fontName = $0; options.content = .text(value) })) {
@@ -172,7 +175,10 @@ private struct WatermarkThumbnail: View {
 
     private static func loadThumbnail(path: String) async -> NSImage? {
         await Task.detached(priority: .utility) { () -> NSImage? in
-            let url = URL(fileURLWithPath: path) as CFURL
+            let fileURL = URL(fileURLWithPath: path)
+            guard let header = ImageLoader.header(of: fileURL),
+                  header.width <= ImageLoader.defaultMaxPixels / header.height else { return nil }
+            let url = fileURL as CFURL
             guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil }
             let options: [CFString: Any] = [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,

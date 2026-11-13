@@ -121,4 +121,21 @@ final class WatermarkModelTests: XCTestCase {
         XCTAssertNil(Geometry.watermarkRect(imageSize: image, contentSize: CGSize(width: 10, height: 10),
                                             options: options(.text(TextWatermark()), size: 0)))
     }
+
+    func testImageContentDefaultsToImageSize() throws {
+        XCTAssertEqual(WatermarkOptions.defaultImageSizePercent, 20)
+        let json = #"{"content":{"image":{"_0":{"path":"/a.png"}}}}"#
+        let image = try JSONDecoder().decode(WatermarkOptions.self, from: Data(json.utf8))
+        XCTAssertEqual(image.sizePercent, 20)
+        let withSize = try JSONDecoder().decode(
+            WatermarkOptions.self, from: Data(#"{"content":{"image":{"_0":{"path":"/a.png"}}},"sizePercent":7}"#.utf8))
+        XCTAssertEqual(withSize.sizePercent, 7)
+        let text = try JSONDecoder().decode(WatermarkOptions.self, from: Data("{}".utf8))
+        XCTAssertEqual(text.sizePercent, 4)
+    }
+
+    func testSummaryShowsNewlinesAsSpaces() {
+        let options = WatermarkOptions(content: .text(TextWatermark(text: "a\nb\rc")))
+        XCTAssertTrue(options.summary.hasPrefix("a b c · "), options.summary)
+    }
 }

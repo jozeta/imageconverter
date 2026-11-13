@@ -117,4 +117,28 @@ final class WatermarkRenderTests: XCTestCase {
         options.sizePercent = 0
         XCTAssertTrue(try ImageOps.watermark(base, options, asset: nil) === base)
     }
+
+    func testTallGlyphsStayInsideTheRect() throws {
+        let base = TestImages.make(width: 400, height: 300, color: black)
+        // A with several stacked combining diaeresis rises above the normal ascent.
+        let text = "A" + String(repeating: "\u{0308}", count: 6)
+        let out = try ImageOps.watermark(base, textOptions(text), asset: nil)
+        // Bottom-left, 9 px margin, 30 px tall: the rect is y 261...291, x from 9.
+        XCTAssertTrue(hasInk(out, x: 0..<200, y: 255..<300, base: 0))
+        XCTAssertFalse(hasInk(out, x: 0..<400, y: 0..<260, base: 0))
+        XCTAssertFalse(hasInk(out, x: 0..<400, y: 292..<300, base: 0))
+        XCTAssertFalse(hasInk(out, x: 0..<8, y: 0..<300, base: 0))
+    }
+
+    func testNewlinesDrawAsSpaces() throws {
+        let base = TestImages.make(width: 400, height: 300, color: black)
+        let withNewline = try ImageOps.watermark(base, textOptions("A\nB\rC"), asset: nil)
+        let withSpaces = try ImageOps.watermark(base, textOptions("A B C"), asset: nil)
+        for row in stride(from: 250, to: 300, by: 3) {
+            for col in stride(from: 0, to: 200, by: 2) {
+                XCTAssertEqual(TestImages.pixel(of: withNewline, x: col, y: row).red,
+                               TestImages.pixel(of: withSpaces, x: col, y: row).red, accuracy: 1)
+            }
+        }
+    }
 }

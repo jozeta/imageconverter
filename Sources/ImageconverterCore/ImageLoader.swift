@@ -53,8 +53,10 @@ public enum ImageLoader {
     }
 
     /// Loads the first frame of `url`, rotated upright according to its EXIF orientation.
-    /// Throws `.tooLarge` before decoding when the image exceeds `maxPixels`.
-    public static func load(_ url: URL, maxPixels: Int = defaultMaxPixels) throws -> LoadedImage {
+    /// Throws `.tooLarge` before decoding when the image exceeds `maxPixels`. With `maxLongSide`, a
+    /// larger image is downsampled so its longer side fits.
+    public static func load(_ url: URL, maxPixels: Int = defaultMaxPixels,
+                            maxLongSide: Int? = nil) throws -> LoadedImage {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
               CGImageSourceGetCount(source) > 0,
@@ -72,7 +74,7 @@ public enum ImageLoader {
         let thumbnailOptions = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(width, height),
+            kCGImageSourceThumbnailMaxPixelSize: min(max(width, height), maxLongSide.map { max(1, $0) } ?? Int.max),
             kCGImageSourceShouldCacheImmediately: true,
         ] as CFDictionary
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions) else {

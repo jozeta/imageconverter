@@ -13,6 +13,12 @@ public struct TextWatermark: Codable, Equatable, Sendable {
         self.color = color
     }
 
+    /// `text` on one line: line breaks become spaces.
+    static func singleLine(_ text: String) -> String {
+        text.replacingOccurrences(of: "\r\n", with: " ").replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+    }
+
     private enum CodingKeys: String, CodingKey { case text, fontName, color }
 
     /// Lenient: a missing field takes its default.
@@ -45,6 +51,7 @@ public enum WatermarkContent: Codable, Equatable, Sendable {
 
 public struct WatermarkOptions: Codable, Equatable, Sendable {
     public static let defaultSizePercent = 4.0
+    public static let defaultImageSizePercent = 20.0
     public static let defaultOpacity = 0.65
     public static let defaultMarginPercent = 3.0
 
@@ -72,7 +79,9 @@ public struct WatermarkOptions: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         content = try container.decodeIfPresent(WatermarkContent.self, forKey: .content) ?? .text(TextWatermark())
         anchor = try container.decodeIfPresent(Anchor.self, forKey: .anchor) ?? .bottomRight
-        sizePercent = try container.decodeIfPresent(Double.self, forKey: .sizePercent) ?? Self.defaultSizePercent
+        let defaultSize: Double
+        if case .image = content { defaultSize = Self.defaultImageSizePercent } else { defaultSize = Self.defaultSizePercent }
+        sizePercent = try container.decodeIfPresent(Double.self, forKey: .sizePercent) ?? defaultSize
         opacity = try container.decodeIfPresent(Double.self, forKey: .opacity) ?? Self.defaultOpacity
         marginPercent = try container.decodeIfPresent(Double.self, forKey: .marginPercent)
             ?? Self.defaultMarginPercent

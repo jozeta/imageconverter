@@ -113,8 +113,9 @@ Watermark (pipeline step, saved with the pipeline):
 
 In *Overwrite originals* mode, a rename that only changes letter case keeps the original name.
 
-Gray, CMYK and indexed-colour sources are converted to sRGB by pixel steps (colour-managed, so
-they look the same). Wide-colour (Display P3) images keep their colour space.
+CMYK and indexed-colour sources are converted to sRGB by pixel steps (colour-managed, so they
+look the same). Gray images stay gray (with or without transparency), and wide-colour (Display P3)
+images keep their colour space.
 
 Choosing **Overwrite originals** shows a warning once, when you select it, and never during runs.
 In this mode, when the format or name changes (for example HEIC → JPEG), the new file is written
