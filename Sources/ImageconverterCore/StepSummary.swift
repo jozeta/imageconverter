@@ -63,3 +63,28 @@ extension ImageOperation {
             .precision(.fractionLength(0...2)).grouping(.never))
     }
 }
+
+extension MetadataOptions {
+    /// One-line description for the pipeline list.
+    public var summary: String {
+        var text: String
+        switch (removeAll, removeLocation, removeCamera) {
+        case (true, _, _): text = "strip all"
+        case (false, true, true): text = "strip GPS + camera"
+        case (false, true, false): text = "strip GPS"
+        case (false, false, true): text = "strip camera"
+        case (false, false, false): text = "keep"
+        }
+        var fields: [String] = []
+        if artist != nil { fields.append("artist") }
+        if copyright != nil { fields.append("copyright") }
+        if description != nil { fields.append("description") }
+        if !fields.isEmpty { text += " · set " + fields.joined(separator: ", ") }
+        return text
+    }
+}
+
+extension RenameOptions {
+    /// One-line description for the pipeline list: the pattern itself.
+    public var summary: String { pattern }
+}

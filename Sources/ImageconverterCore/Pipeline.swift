@@ -185,11 +185,30 @@ public struct Pipeline: Codable, Equatable, Sendable {
     public var schemaVersion: Int
     public var steps: [PipelineStep]
     public var output: OutputSettings
+    public var metadata: MetadataOptions
+    public var rename: RenameOptions
 
-    public init(schemaVersion: Int = 1, steps: [PipelineStep] = [], output: OutputSettings = OutputSettings()) {
+    public init(schemaVersion: Int = 1, steps: [PipelineStep] = [], output: OutputSettings = OutputSettings(),
+                metadata: MetadataOptions = MetadataOptions(), rename: RenameOptions = RenameOptions()) {
         self.schemaVersion = schemaVersion
         self.steps = steps
         self.output = output
+        self.metadata = metadata
+        self.rename = rename
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, steps, output, metadata, rename
+    }
+
+    /// Lenient: pipelines saved by older versions lack newer fields, which take their defaults.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        steps = try container.decodeIfPresent([PipelineStep].self, forKey: .steps) ?? []
+        output = try container.decodeIfPresent(OutputSettings.self, forKey: .output) ?? OutputSettings()
+        metadata = try container.decodeIfPresent(MetadataOptions.self, forKey: .metadata) ?? MetadataOptions()
+        rename = try container.decodeIfPresent(RenameOptions.self, forKey: .rename) ?? RenameOptions()
     }
 }
 
