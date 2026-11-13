@@ -264,3 +264,33 @@ extension PreviewRendererTests {
         XCTAssertEqual(result.sourceFileSize, expected)
     }
 }
+
+extension PreviewRendererTests {
+    private func jpegItem() throws -> InputItem {
+        let url = dir.appendingPathComponent("a.jpg")
+        try TestImages.write(TestImages.make(width: 40, height: 30), to: url, type: .jpeg)
+        return InputItem(source: url, relativeDirectory: "")
+    }
+
+    func testNilModeSameFormatKeepsName() async throws {
+        let item = try jpegItem()
+        let outcome = await PreviewRenderer().render(item: item, index: 0, pipeline: Pipeline(output: .init(format: .jpeg)))
+        guard case .ready(let result) = outcome else { return XCTFail("Expected ready") }
+        XCTAssertEqual(result.outputName, "a.jpg")
+        XCTAssertEqual(result.outputURL, item.source.deletingLastPathComponent().appendingPathComponent("a.jpg"))
+    }
+
+    func testOutputURLSameFolderAndOverwrite() async throws {
+        let item = try jpegItem()
+        let folder = item.source.deletingLastPathComponent()
+        let renderer = PreviewRenderer()
+        let changed = await renderer.render(item: item, index: 0, pipeline: Pipeline(output: .init(format: .png)),
+                                            mode: .sameFolder(suffix: ""))
+        guard case .ready(let first) = changed else { return XCTFail("Expected ready") }
+        XCTAssertEqual(first.outputURL, folder.appendingPathComponent("a.png"))
+        let same = await renderer.render(item: item, index: 0, pipeline: Pipeline(output: .init(format: .jpeg)),
+                                         mode: .overwrite)
+        guard case .ready(let second) = same else { return XCTFail("Expected ready") }
+        XCTAssertEqual(second.outputURL, item.source)
+    }
+}

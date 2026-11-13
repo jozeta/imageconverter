@@ -166,6 +166,8 @@ public enum BatchRunner {
     static func encodeItem(
         _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int
     ) throws -> (data: Data, source: CGImage) {
+        // A watermark image that can't be read fails the file before its source is decoded.
+        if assets.hasMissing(for: pipeline) { throw ConversionError.watermarkImageUnreadable }
         let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
         let image = try pipeline.apply(to: loaded.image, assets: assets)
         let properties = MetadataOps.apply(pipeline.metadata, to: loaded.properties)

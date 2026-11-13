@@ -20,7 +20,6 @@ public enum SizeEstimator {
     ) throws -> EncodedPreview {
         try autoreleasepool {
             let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)
-            if assets.hasMissing(for: pipeline) { throw ConversionError.watermarkImageUnreadable }
             let (data, original) = try BatchRunner.encodeItem(
                 item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
             guard let source = CGImageSourceCreateWithData(data as CFData, nil),

@@ -116,9 +116,12 @@ public actor PreviewRenderer {
         let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline)
         let plan = OutputPlanner.plan(
             [item], format: pipeline.output.format,
-            mode: mode ?? .newFolder(item.source.deletingLastPathComponent()),
+            mode: mode ?? .newFolder(FileManager.default.temporaryDirectory),
             baseNames: base.map { [$0] }, fileExists: { _ in false })
-        return plan.first?.destination ?? item.source
+        guard let destination = plan.first?.destination else { return item.source }
+        // No mode yet: show the name in the source's own folder (planning there would call it `a_2`).
+        if mode == nil { return item.source.deletingLastPathComponent().appendingPathComponent(destination.lastPathComponent) }
+        return destination
     }
 
     private func sourceImages(for url: URL) throws -> (CGImage, CGImage) {
