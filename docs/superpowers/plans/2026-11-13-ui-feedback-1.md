@@ -314,3 +314,30 @@ Already present: rotate 90/180/270, flip horizontal/vertical, crop, padding, can
 - New "Perspective" and "Trim" steps in "+ Add step" with editors (sliders with value text; Auto toggle with help "Finds a document or screen and squares it up"; Trim mode picker with colour well for `.color`).
 - Canvas editor: add "Aspect ratio" mode with the aspect preset menu from Task 14 (`SizePresets.aspectRatios`).
 - [ ] Build/test/lint, screenshots (with `-debugAddFiles`), commit `feat(app): editors for angle, straighten, perspective, trim and canvas aspect`.
+
+## Metadata round (Johan, 2026-11-13)
+
+Already present: remove all / location / camera details; set artist, copyright, description (EXIF/TIFF/IPTC/PNG mirrors).
+
+### Task 18: Metadata editing model (Core)
+
+**Files:** Modify `Sources/ImageconverterCore/FileSteps.swift` (`MetadataOptions`), `MetadataOps.swift`, `ImageEncoder.swift` (write XMP through `CGImageDestinationAddImageAndMetadata` when needed), `FileCommitter.swift` caller in `BatchRunner.swift` (file dates after commit), `StepSummary.swift`; Create `Sources/ImageconverterCore/MetadataFields.swift`; Tests `MetadataOpsTests.swift`, `MetadataFieldsTests.swift`
+
+**Interfaces / rules** (old JSON keeps decoding; every new field defaults to "leave as is"):
+- New `MetadataOptions` fields: `title: String?`; `keywords: [String]?` with `keywordsMode: KeywordsMode { add, replace }` (written to IPTC Keywords and XMP `dc:subject`, de-duplicated case-insensitively, each ≤ 64 chars, ≤ 64 keywords); `location: LocationEdit { keep, remove, set(latitude: Double, longitude: Double, altitude: Double?) }` replacing `removeLocation` (decode old `removeLocation: true` as `.remove`; validate −90…90 / −180…180, written as EXIF GPS with Ref letters and XMP exif:GPS*); `dateTaken: DateEdit { keep, set(Date), shift(seconds: Int) }` applied to EXIF DateTimeOriginal/DateTimeDigitized (+ OffsetTime* untouched), TIFF DateTime, IPTC DateCreated/TimeCreated, XMP xmp:CreateDate/photoshop:DateCreated; `shift` on a file with no date leaves it without one; `setFileDates: Bool` (after the file is written, set its creation and modification date to the resulting date taken, or keep the source's dates when there is none); `custom: [MetadataField]`.
+- `MetadataField { namespace: MetadataNamespace /* exif, iptc, xmp */, key: String, value: String }`. `MetadataFields.writable` is the allowlist the editor offers and the decoder accepts (unknown keys are dropped on decode): EXIF — ImageDescription, Artist, Copyright, Software, Make, Model, LensModel, UserComment, BodySerialNumber (as TIFF/EXIF dictionary keys); IPTC — ObjectName, Headline, Byline, BylineTitle, Credit, Source, CopyrightNotice, CaptionAbstract, City, SubLocation, ProvinceState, CountryName, CountryCode, Writer, SpecialInstructions, OriginalTransmissionReference; XMP — dc:title, dc:creator, dc:description, dc:rights, photoshop:Headline, photoshop:City, photoshop:Country, photoshop:Credit, photoshop:Source, photoshop:Instructions, xmpRights:UsageTerms, xmpRights:WebStatement, Iptc4xmpCore:Location, Iptc4xmpCore:CountryCode. Values: control characters removed, ≤ 2000 chars. Writing XMP: build `CGImageMutableMetadata` from the source metadata, apply removals consistently with the existing strip rules (stripping "all" also clears XMP; "location" also clears XMP GPS), set values with `CGImageMetadataSetValueWithPath` (register namespaces if needed), and encode with `CGImageDestinationAddImageAndMetadata`; PNG/GIF/BMP that can't hold a namespace just skip it.
+- Order: strip first, then set (as today).
+- [ ] Tests (re-read the written file every time): `testSetTitleAndKeywordsAddAndReplace`, `testKeywordsDeduplicated`, `testSetGPSWritesRefs` (−33.86, 151.21 → S/E), `testInvalidGPSRejectedOnDecode`, `testDateSetAndShift` (+3600 s), `testShiftWithoutDateLeavesNone`, `testFileDatesFollowDateTaken`, `testCustomIPTCAndXMPFieldsWritten`, `testUnknownCustomKeyDroppedOnDecode`, `testRemoveAllAlsoClearsXMP`, `testOldMetadataJSONDecodes` (removeLocation true → `.remove`).
+- [ ] Implement, commit `feat(core): edit title, keywords, dates, GPS and EXIF/IPTC/XMP fields`.
+
+### Task 19: Metadata templates (Core)
+
+**Files:** Create `Sources/ImageconverterCore/MetadataTemplates.swift`; Test `MetadataTemplatesTests.swift`
+- `MetadataTemplate { id: UUID, name: String, options: MetadataOptions, schemaVersion: 1 }`, stored one per file in `~/Library/Application Support/imageconverter/metadata-templates/<UUID>.json`, loaded and validated with the **same hardening as PresetStore** (reuse its file-reading helper: O_NOFOLLOW/O_NONBLOCK, fstat regular file, ≤ 1 MB, name folding and uniqueness, skip reasons). `MetadataTemplateStore` with `load()`, `save(_:)`, `delete(_:)`, injected directory for tests. `apply(template, to options) -> MetadataOptions`: fields the template sets override; fields it leaves as "keep" stay as they are; `isEnabled` becomes true.
+- [ ] Tests: round trip, rejection of oversized/symlink/garbage files, `testApplyMergesOnlySetFields`. Commit `feat(core): metadata templates`.
+
+### Task 20: Metadata editor UI
+
+**Files:** `Sources/Imageconverter/FileStepEditors.swift` (move the metadata editor to `MetadataEditor.swift`), `AppModel.swift` (template store)
+- Sections inside the Metadata row (compact, collapsible groups): "Remove" (all / location / camera as now), "Describe" (Title, Artist/Author, Copyright with a "©" insert button, Description, Keywords as a token field with Add/Replace picker), "Date" (Keep / Set (date+time picker) / Shift (± days, hours, minutes)), "Set file dates to date taken" toggle, "Location" (Keep / Remove / Set: latitude, longitude, optional altitude fields with validation text), "More fields" (list of custom rows: namespace + key picker from the allowlist + value, add/remove), "Templates" menu (Apply ▸ names, Save as template…, Delete ▸ names) — Save asks for a name in a sheet like Save as preset.
+- [ ] Build/test/lint, screenshots, docs (README metadata section: every field, the allowlist idea, templates), commit `feat(app): metadata editor with dates, GPS, keywords, custom fields and templates`.
