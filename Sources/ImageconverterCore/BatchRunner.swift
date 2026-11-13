@@ -38,7 +38,11 @@ public struct BatchReport: Equatable, Sendable {
 }
 
 public enum BatchRunner {
-    /// Converts `items` in parallel (at most `concurrency` at a time). A file that fails is
+    /// A quarter of physical memory at about 12 bytes per pixel (a decoded copy plus working copies).
+    public static let defaultMemoryBudgetPixels = Int(ProcessInfo.processInfo.physicalMemory / 4 / 12)
+
+    /// Converts `items` in parallel (at most `concurrency` at a time, and while their combined pixel
+    /// count stays within `memoryBudgetPixels`; a single oversized image still runs, alone). A file that fails is
     /// recorded and skipped; the rest carry on. `progress` is called once per finished item, in
     /// completion order (not input order), from the collecting side of the batch; `completed`
     /// (successes plus failures) increases monotonically. `BatchReport.cancelled` is false if
@@ -50,12 +54,14 @@ public enum BatchRunner {
         mode: OutputMode,
         maxPixels: Int = 250_000_000,
         concurrency: Int = ProcessInfo.processInfo.activeProcessorCount,
+        memoryBudgetPixels: Int = BatchRunner.defaultMemoryBudgetPixels,
         trash: @escaping Trasher = systemTrash,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
     ) async -> BatchReport {
         let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode)
         let total = plans.count
-        let limit = max(1, concurrency)
+        var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
+        var weights = [Int](repeating: 1, count: total)
         var outcomes = [Result<URL, ConversionError>?](repeating: nil, count: total)
         var cancelled = false
 
@@ -66,13 +72,18 @@ public enum BatchRunner {
             var failed = 0
 
             while true {
-                while inFlight < limit, next < total {
+                while next < total {
                     if Task.isCancelled {
                         cancelled = true
                         break
                     }
                     let index = next
                     let plan = plans[index]
+                    // Header-only read; unreadable files weigh 1 and fail later in `convert`.
+                    let weight = max(1, ImageLoader.pixelCount(of: plan.item.source) ?? 1)
+                    guard window.canStart(weight: weight) else { break }
+                    weights[index] = weight
+                    window.start(weight: weight)
                     next += 1
                     inFlight += 1
                     group.addTask {
@@ -82,6 +93,7 @@ public enum BatchRunner {
                 if cancelled { next = total }
                 guard let (index, result) = await group.next() else { break }
                 inFlight -= 1
+                window.finish(weight: weights[index])
                 outcomes[index] = result
                 completed += 1
                 if case .failure = result { failed += 1 }
@@ -89,6 +101,12 @@ public enum BatchRunner {
             }
         }
 
+        return makeReport(plans: plans, outcomes: outcomes, cancelled: cancelled)
+    }
+
+    private static func makeReport(
+        plans: [PlannedOutput], outcomes: [Result<URL, ConversionError>?], cancelled: Bool
+    ) -> BatchReport {
         var report = BatchReport(cancelled: cancelled)
         for (plan, outcome) in zip(plans, outcomes) {
             switch outcome {

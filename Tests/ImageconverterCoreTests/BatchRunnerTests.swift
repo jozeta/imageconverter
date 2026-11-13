@@ -41,6 +41,21 @@ final class BatchRunnerTests: XCTestCase {
         return url
     }
 
+    func testTinyBudgetStillCompletes() async throws {
+        let src = try directory("src")
+        let out = root.appendingPathComponent("out", isDirectory: true)
+        var files: [URL] = []
+        for index in 1...3 {
+            let url = src.appendingPathComponent("img\(index).png")
+            try TestImages.write(TestImages.make(width: 20, height: 20), to: url, type: .png)
+            files.append(url)
+        }
+        let report = await BatchRunner.run(InputCollector.collect(files), pipeline: Pipeline(output: .init(format: .jpeg)),
+                                           mode: .newFolder(out), memoryBudgetPixels: 1)
+        XCTAssertEqual(report.written.count, 3)
+        XCTAssertTrue(report.failures.isEmpty)
+    }
+
     func testConvertsAndSkipsBrokenFiles() async throws {
         let src = try directory("src")
         let out = root.appendingPathComponent("out", isDirectory: true)
