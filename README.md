@@ -133,7 +133,7 @@ Your pipeline is kept between launches.
 2. Leave **Remove location (GPS)** on. Add **Remove camera details** to drop the make, model, lens
    and serial numbers too, or **Remove all metadata** to strip everything.
 3. Optionally tick **Set artist**, **Set copyright** or **Set description** and type the text; it is
-   written after the removal, so it survives. Untick to leave a field as it is.
+   written after the removal, so it survives. Untick to leave a field as it is. A ticked field with empty text removes that field.
 4. Run the batch. The removed information is not in the output files. The color profile is always
    kept, so the images look the same.
 
@@ -144,7 +144,7 @@ Your pipeline is kept between launches.
    **Insert token**, which appends at the end.
 3. The line under the pattern shows an example from the first image in the batch (or a sample
    photo when the batch is empty), such as `Example: 2026-11-13_iPhone 15 Pro_001.jpg`. An
-   unknown token like `{foo}` is flagged in orange and kept as written.
+   unknown token like `{foo}` is flagged with a warning and kept as written (`:` still becomes `-`).
 4. Set **Counter starts at** if numbering should not begin at 1. The counter follows input order.
 5. In *Same folder* mode the pattern replaces the suffix (the summary says "Same folder,
    renamed"). Names that come out identical get `_2`, `_3`, …
@@ -166,9 +166,10 @@ Rename tokens:
 | `{folder}` | Name of the source folder | `Holiday` |
 | `{counter}` / `{counter:000}` | Running number; the zeros set the padding | `1`, `{counter:000}` gives `001` |
 
-Metadata is untrusted, so names are sanitised: `/`, `:` and control characters are removed, leading
-dots are dropped, empty tokens leave no stray separators, names are capped at 200 characters, and
-an empty result falls back to the original name.
+Metadata is untrusted, so names are sanitised: `/` and `:` become `-`; control, bidi and invisible
+(zero-width) characters are removed; an empty token drops one neighbouring separator (`_`, `-` or
+space); leading dots and separators at the ends are trimmed; names are capped at 200 characters
+and 240 bytes; and an empty result falls back to the original name (or `image`).
 
 (More how-tos once the features exist: build and save a preset, add a watermark.)
 

@@ -96,6 +96,12 @@ public struct RenameTemplate: Equatable, Sendable {
         "width", "height", "format", "folder", "counter",
     ]
 
+    /// Every supported token, in menu order; formatted tokens carry an example argument.
+    public static let tokenExamples = [
+        "{name}", "{ext}", "{date:yyyy-MM-dd}", "{time:HHmmss}", "{camera}", "{make}", "{lens}", "{iso}",
+        "{width}", "{height}", "{format}", "{folder}", "{counter:000}",
+    ]
+
     private let parts: [Part]
 
     public init(_ pattern: String) {

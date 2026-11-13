@@ -17,7 +17,7 @@ final class AppModel {
     var isAdding: Bool { pendingAdds > 0 }
     let toasts = LGToastCenter()
     /// "Example: name.ext" for the Rename editor; see `refreshRenameExample()`.
-    private(set) var renameExample = "Example: "
+    private(set) var renameExample = ""
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private let defaults: UserDefaults
@@ -203,7 +203,7 @@ final class AppModel {
                     header: ImageLoader.header(of: url),
                     created: (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate)
             }
-            let size = info.header?.uprightSize ?? (width: 1, height: 1)
+            let size = info.header?.uprightSize ?? (width: 4032, height: 3024)
             let output = pipeline.outputSize(sourceWidth: size.width, sourceHeight: size.height)
             context = RenameContext.make(
                 source: url, header: info.header, outputSize: (output.width, output.height), format: format,

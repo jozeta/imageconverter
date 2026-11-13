@@ -52,30 +52,40 @@ struct MetadataEditor: View {
             .accessibilityLabel("Remove all metadata")
         Toggle("Remove location (GPS)", isOn: options.removeAll ? .constant(true) : $options.removeLocation)
             .disabled(options.removeAll)
-            .accessibilityLabel("Remove location")
+            .accessibilityLabel("Remove location (GPS)")
         Toggle("Remove camera details", isOn: options.removeAll ? .constant(true) : $options.removeCamera)
             .disabled(options.removeAll)
             .accessibilityLabel("Remove camera details")
         Divider()
-        setRow("Artist", text: $options.artist)
-        setRow("Copyright", text: $options.copyright)
-        setRow("Description", text: $options.description)
+        SetFieldRow(title: "Artist", text: $options.artist)
+        SetFieldRow(title: "Copyright", text: $options.copyright)
+        SetFieldRow(title: "Description", text: $options.description)
         Text("The color profile is always kept.")
             .font(LadaGlass.Typography.label)
             .foregroundStyle(LadaGlass.Colors.muted)
     }
+}
 
-    private func setRow(_ title: String, text: Binding<String?>) -> some View {
+/// "Set <field>": a toggle and a text field. Ticked with empty text removes the field; the typed
+/// text is kept in a draft so unticking and reticking does not lose it.
+private struct SetFieldRow: View {
+    let title: String
+    @Binding var text: String?
+    @State private var draft = ""
+
+    var body: some View {
         FieldRow {
             Toggle("Set \(title.lowercased())", isOn: Binding(
-                get: { text.wrappedValue != nil },
-                set: { text.wrappedValue = $0 ? (text.wrappedValue ?? "") : nil }))
+                get: { text != nil },
+                set: { text = $0 ? draft : nil }))
                 .accessibilityLabel("Set \(title.lowercased())")
-            TextField(title, text: Binding(get: { text.wrappedValue ?? "" }, set: { text.wrappedValue = $0 }))
+            TextField(title, text: Binding(get: { text ?? draft }, set: { draft = $0; text = $0 }),
+                      prompt: Text("Leave empty to remove"))
                 .textFieldStyle(.roundedBorder)
-                .disabled(text.wrappedValue == nil)
+                .disabled(text == nil)
                 .accessibilityLabel(title)
         }
+        .onAppear { draft = text ?? "" }
     }
 }
 
@@ -84,12 +94,6 @@ struct MetadataEditor: View {
 struct RenameEditor: View {
     @Binding var options: RenameOptions
     let example: String
-
-    /// The insert-token menu entries; formatted tokens show an example format.
-    static let tokens = [
-        "{name}", "{ext}", "{date:yyyy-MM-dd}", "{time:HHmmss}", "{camera}", "{make}", "{lens}", "{iso}",
-        "{width}", "{height}", "{format}", "{folder}", "{counter:000}",
-    ]
 
     private var unknown: [String] { RenameTemplate(options.pattern).unknownTokens }
 
@@ -100,7 +104,7 @@ struct RenameEditor: View {
                 .font(LadaGlass.Typography.mono)
                 .accessibilityLabel("Rename pattern")
             Menu("Insert token") {
-                ForEach(Self.tokens, id: \.self) { token in
+                ForEach(RenameTemplate.tokenExamples, id: \.self) { token in
                     Button(token) { options.pattern += token }
                 }
             }
@@ -113,11 +117,13 @@ struct RenameEditor: View {
                 .font(LadaGlass.Typography.label)
                 .foregroundStyle(LadaGlass.Colors.warnText)
         }
-        Text(example)
+        if !example.isEmpty {
+            Text(example)
             .font(LadaGlass.Typography.mono)
             .foregroundStyle(LadaGlass.Colors.muted)
             .lineLimit(2)
             .textSelection(.enabled)
             .accessibilityLabel(example)
+        }
     }
 }
