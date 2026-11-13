@@ -43,9 +43,16 @@ Started 2026-11-13. The full design is in
 - **Writes** JPEG, PNG, HEIC and TIFF, plus GIF, BMP and JPEG 2000 where macOS supports them, with
   quality and compression options.
 - **Pipeline** of steps, applied in order to every image. Steps can be switched off and reordered:
-  - (available) **Resize**: max width, max height, fit inside a box, exact width and/or height (stretch, pad
-    or crop to fill), with "don't enlarge" on by default
-  - (available) **Crop**: fixed size or aspect ratio, with an anchor point
+  - (available) **Resize**: a grouped mode picker. *Pixels*: max width, max height, fit inside a box,
+    exact size (stretch, fit and pad, or fill and crop), longest edge, shortest edge, minimum size.
+    *Scale*: percentage (1 to 1000). *Print*: physical size in cm or inches at a DPI (leave one side empty
+    to follow the aspect ratio; with both set the image fits inside). Every mode keeps the aspect ratio
+    except Stretch. "Don't enlarge" is on by default and is hidden for the modes where it makes no sense
+    (percentage, physical size, minimum size, stretch). A **Presets** menu fills the editor: Social media
+    sizes (exact size, fill and crop, enlarging) and Resolutions such as 1080p and 4K (fit inside, don't
+    enlarge). Pick the **resampling** (Lanczos, Bicubic, Bilinear, Nearest neighbour). **Set DPI** (default
+    300) labels the output's print resolution without changing pixels.
+  - (available) **Crop**: fixed size or aspect ratio (a menu of common ratios or a custom one), with an anchor point
   - (available) **Rotate / flip**
   - (available) **Canvas / padding**: with a background colour
   - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original

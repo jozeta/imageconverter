@@ -42,106 +42,13 @@ struct StepEditor: View {
     }
 }
 
-// MARK: - Resize
-
-private struct ResizeEditor: View {
-    @Binding var options: ResizeOptions
-
-    private enum Kind: String, CaseIterable {
-        case maxWidth = "Max width", maxHeight = "Max height", fitBox = "Fit inside"
-        case exactWidth = "Exact width", exactHeight = "Exact height", exactSize = "Exact size"
-    }
-
-    private var values: (width: Int, height: Int) {
-        switch options.mode {
-        case .maxWidth(let side), .maxHeight(let side), .exactWidth(let side), .exactHeight(let side): return (side, side)
-        case .fitBox(let wide, let high), .exactSize(let wide, let high, _): return (wide, high)
-        // The editor for the newer modes comes later; until then they show as a 1600 px box.
-        default: return (1600, 1600)
-        }
-    }
-
-    private var fill: ExactFill {
-        if case .exactSize(_, _, let value) = options.mode { return value }
-        return .stretch
-    }
-
-    private var kind: Kind {
-        switch options.mode {
-        case .maxWidth: return .maxWidth
-        case .maxHeight: return .maxHeight
-        case .fitBox: return .fitBox
-        case .exactWidth: return .exactWidth
-        case .exactHeight: return .exactHeight
-        case .exactSize: return .exactSize
-        default: return .fitBox
-        }
-    }
-
-    private func set(_ kind: Kind, width: Int, height: Int, fill: ExactFill) {
-        switch kind {
-        case .maxWidth: options.mode = .maxWidth(width)
-        case .maxHeight: options.mode = .maxHeight(height)
-        case .fitBox: options.mode = .fitBox(width: width, height: height)
-        case .exactWidth: options.mode = .exactWidth(width)
-        case .exactHeight: options.mode = .exactHeight(height)
-        case .exactSize: options.mode = .exactSize(width: width, height: height, fill: fill)
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Picker("Mode", selection: Binding(
-                get: { kind },
-                set: { set($0, width: values.width, height: values.height, fill: fill) })) {
-                ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .accessibilityLabel("Resize mode")
-            FieldRow {
-                if [.maxWidth, .fitBox, .exactWidth, .exactSize].contains(kind) {
-                    NumberField(title: "Width", value: Binding(
-                        get: { values.width },
-                        set: { set(kind, width: $0, height: values.height, fill: fill) }))
-                }
-                if [.maxHeight, .fitBox, .exactHeight, .exactSize].contains(kind) {
-                    NumberField(title: "Height", value: Binding(
-                        get: { values.height },
-                        set: { set(kind, width: values.width, height: $0, fill: fill) }))
-                }
-            }
-            if kind == .exactSize {
-                Picker("Fill", selection: Binding(
-                    get: { fill },
-                    set: { set(kind, width: values.width, height: values.height, fill: $0) })) {
-                    Text("Stretch").tag(ExactFill.stretch)
-                    Text("Pad").tag(ExactFill.fitAndPad)
-                    Text("Crop").tag(ExactFill.fillAndCrop)
-                }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("Fill mode")
-                if fill == .fitAndPad {
-                    ColorField(title: "Pad color", color: $options.padColor)
-                }
-            }
-            if !(kind == .exactSize && fill == .stretch) {
-                Toggle("Don't enlarge smaller images", isOn: Binding(
-                    get: { !options.allowEnlarge }, set: { options.allowEnlarge = !$0 }))
-            }
-        }
-    }
-}
-
 // MARK: - Crop
 
 private struct CropEditor: View {
     @Binding var options: CropOptions
     @State private var customRatio = false
 
-    private struct Preset { let name: String; let wide: Double; let high: Double }
-    private static let presets = [
-        Preset(name: "1:1", wide: 1, high: 1), Preset(name: "4:5", wide: 4, high: 5),
-        Preset(name: "3:2", wide: 3, high: 2), Preset(name: "16:9", wide: 16, high: 9)
-    ]
+    private static let presets = SizePresets.aspectRatios
 
     private var isAspect: Bool {
         if case .aspect = options.mode { return true }
@@ -161,7 +68,7 @@ private struct CropEditor: View {
     private var presetName: String {
         if customRatio { return "Custom" }
         let current = aspect
-        return Self.presets.first { $0.wide == current.wide && $0.high == current.high }?.name ?? "Custom"
+        return Self.presets.first { $0.width == current.wide && $0.height == current.high }?.name ?? "Custom"
     }
 
     var body: some View {
@@ -181,7 +88,7 @@ private struct CropEditor: View {
                     set: { name in
                         if let preset = Self.presets.first(where: { $0.name == name }) {
                             customRatio = false
-                            options.mode = .aspect(width: preset.wide, height: preset.high)
+                            options.mode = preset.cropMode
                         } else {
                             customRatio = true
                         }
