@@ -18,10 +18,13 @@ public struct BatchProgress: Equatable, Sendable {
 public struct BatchFailure: Equatable, Sendable {
     public let source: URL
     public let reason: String
+    /// Size of the source file, read on the worker before it was touched; nil if it couldn't be read.
+    public let inputBytes: Int?
 
-    public init(source: URL, reason: String) {
+    public init(source: URL, reason: String, inputBytes: Int? = nil) {
         self.source = source
         self.reason = reason
+        self.inputBytes = inputBytes
     }
 }
 
@@ -40,11 +43,12 @@ public struct BatchNote: Equatable, Sendable {
 public struct BatchResultEntry: Equatable, Sendable {
     public let source: URL
     public let destination: URL
-    public let inputBytes: Int
+    /// Nil when the source size couldn't be read.
+    public let inputBytes: Int?
     public let outputBytes: Int
     public let note: String?
 
-    public init(source: URL, destination: URL, inputBytes: Int, outputBytes: Int, note: String? = nil) {
+    public init(source: URL, destination: URL, inputBytes: Int?, outputBytes: Int, note: String? = nil) {
         self.source = source
         self.destination = destination
         self.inputBytes = inputBytes
@@ -62,10 +66,13 @@ public struct BatchReport: Equatable, Sendable {
     /// One entry per written file (same order as `written`).
     public var entries: [BatchResultEntry]
 
-    /// Source bytes of the written files.
-    public var inputBytes: Int { entries.reduce(0) { $0 + $1.inputBytes } }
-    /// Output bytes of the written files.
-    public var outputBytes: Int { entries.reduce(0) { $0 + $1.outputBytes } }
+    /// Every processed file's source, written or failed, in input order (so reports can interleave them).
+    public var order: [URL] = []
+
+    /// Source bytes of the written files whose size is known (files with an unknown size are left out of both totals).
+    public var inputBytes: Int { entries.reduce(0) { $0 + ($1.inputBytes ?? 0) } }
+    /// Output bytes of the same files.
+    public var outputBytes: Int { entries.filter { $0.inputBytes != nil }.reduce(0) { $0 + $1.outputBytes } }
 
     public init(written: [URL] = [], failures: [BatchFailure] = [], notes: [BatchNote] = [], cancelled: Bool = false,
                 entries: [BatchResultEntry] = []) {
@@ -91,7 +98,7 @@ struct EncodedItem {
 struct WrittenItem {
     let url: URL
     let note: String?
-    let inputBytes: Int
+    let inputBytes: Int?
     let outputBytes: Int
 }
 
@@ -127,9 +134,10 @@ public enum BatchRunner {
         var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
         var weights = [Int](repeating: 1, count: total)
         var outcomes = [Result<WrittenItem?, ConversionError>?](repeating: nil, count: total)
+        var inputSizes = [Int?](repeating: nil, count: total)
         var cancelled = false
 
-        await withTaskGroup(of: (Int, Result<WrittenItem?, ConversionError>).self) { group in
+        await withTaskGroup(of: (Int, Result<WrittenItem?, ConversionError>, Int?).self) { group in
             var next = 0
             var completed = 0
             var failed = 0
@@ -149,15 +157,16 @@ public enum BatchRunner {
                     next += 1
                     group.addTask {
                         // A watermark image that can't be read fails every file, before any source is decoded.
-                        if missingAsset { return (index, .failure(.watermarkImageUnreadable)) }
-                        return (index, convert(plan, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
-                                               trash: trash))
+                        if missingAsset { return (index, .failure(.watermarkImageUnreadable), fileSize(plan.item.source)) }
+                        let outcome = convert(plan, pipeline: pipeline, assets: assets, maxPixels: maxPixels, trash: trash)
+                        return (index, outcome.0, outcome.1)
                     }
                 }
                 if cancelled { next = total }
-                guard let (index, result) = await group.next() else { break }
+                guard let (index, result, size) = await group.next() else { break }
                 window.finish(weight: weights[index])
                 outcomes[index] = result
+                inputSizes[index] = size
                 // Nil: cancelled during its compression search, before anything was written.
                 if case .success(nil) = result {
                     cancelled = true
@@ -169,7 +178,7 @@ public enum BatchRunner {
             }
         }
 
-        return makeReport(plans: plans, outcomes: outcomes, cancelled: cancelled)
+        return makeReport(plans: plans, outcomes: outcomes, inputSizes: inputSizes, cancelled: cancelled)
     }
 
     /// Peak pixels of one item, from a header-only read; unreadable files weigh 1 and fail later in `convert`.
@@ -194,19 +203,23 @@ public enum BatchRunner {
     }
 
     private static func makeReport(
-        plans: [PlannedOutput], outcomes: [Result<WrittenItem?, ConversionError>?], cancelled: Bool
+        plans: [PlannedOutput], outcomes: [Result<WrittenItem?, ConversionError>?], inputSizes: [Int?],
+        cancelled: Bool
     ) -> BatchReport {
         var report = BatchReport(cancelled: cancelled)
-        for (plan, outcome) in zip(plans, outcomes) {
+        for (index, (plan, outcome)) in zip(plans, outcomes).enumerated() {
             switch outcome {
             case .success(let item?):
+                report.order.append(plan.item.source)
                 report.written.append(item.url)
                 if let note = item.note { report.notes.append(BatchNote(source: plan.item.source, text: note)) }
                 report.entries.append(BatchResultEntry(
                     source: plan.item.source, destination: item.url, inputBytes: item.inputBytes,
                     outputBytes: item.outputBytes, note: item.note))
             case .failure(let error):
-                report.failures.append(BatchFailure(source: plan.item.source, reason: error.reason))
+                report.order.append(plan.item.source)
+                report.failures.append(BatchFailure(source: plan.item.source, reason: error.reason,
+                                                    inputBytes: inputSizes[index]))
             case .success(nil), nil: break
             }
         }
@@ -215,11 +228,11 @@ public enum BatchRunner {
 
     private static func convert(
         _ plan: PlannedOutput, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int, trash: Trasher
-    ) -> Result<WrittenItem?, ConversionError> {
-        autoreleasepool {
+    ) -> (Result<WrittenItem?, ConversionError>, Int?) {
+        // Read on the worker, before overwrite mode replaces the source.
+        let inputBytes = fileSize(plan.item.source)
+        return (autoreleasepool { () -> Result<WrittenItem?, ConversionError> in
             do {
-                // Read before the commit: overwrite mode replaces the source.
-                let inputBytes = fileSize(plan.item.source)
                 let encoded = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
                 try FileCommitter.commit(encoded.data, for: plan, trash: trash)
                 return .success(WrittenItem(url: plan.destination, note: encoded.note,
@@ -231,11 +244,11 @@ public enum BatchRunner {
             } catch {
                 return .failure(.writeFailed(error.localizedDescription))
             }
-        }
+        }, inputBytes)
     }
 
-    static func fileSize(_ url: URL) -> Int {
-        (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
+    static func fileSize(_ url: URL) -> Int? {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
     }
 
     /// Load, apply, metadata and encode for one file: everything the batch does before it commits.

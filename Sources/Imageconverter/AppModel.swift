@@ -20,10 +20,7 @@ final class AppModel {
     /// Set by Save (⌘S) on a built-in or ad hoc pipeline; the preset bar shows its "Save as" sheet.
     var isSavingAs = false
     var progress: BatchProgress?
-    var lastReport: BatchReport? {
-        didSet { if lastReport == nil { runReport = nil } }
-    }
-    /// The last run in the shared report model (summary plus one entry per file); cleared with `lastReport`.
+    /// The last run in the shared report model (summary plus one entry per file); cleared by a new run or Clear.
     var runReport: ProcessingReport?
     var isRunning = false
     /// Number of drops/pickers still being scanned off the main actor.
@@ -184,7 +181,7 @@ final class AppModel {
         resetPreview()
         cancelEstimate()
         progress = nil
-        lastReport = nil
+        runReport = nil
     }
 
     /// Asks for files and folders to add.
@@ -221,7 +218,7 @@ final class AppModel {
         isRunning = true
         resetPreview()
         cancelEstimate()
-        lastReport = nil
+        runReport = nil
         progress = BatchProgress(completed: 0, failed: 0, total: batch.count)
         task = Task { [weak self] in
             let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, progress: { update in
@@ -249,7 +246,6 @@ final class AppModel {
         Task { await previewRenderer.purge() }
         schedulePreview(mode: previewMode)
         scheduleEstimate()
-        lastReport = report
         runReport = ProcessingReport(batch: report, total: runInfo.total, outputMode: runInfo.mode,
                                      presetName: session.selected?.name, startedAt: runInfo.started)
         progress = nil
@@ -257,7 +253,8 @@ final class AppModel {
         let done = report.written.count
         let skipped = report.failures.count
         let prefix = report.cancelled ? "Cancelled. " : ""
-        let saved = SizeFormat.savedPhrase(input: report.inputBytes, output: report.outputBytes).map { " · \($0)" } ?? ""
+        let totals = runReport?.summary
+        let saved = SizeFormat.savedPhrase(input: totals?.inputBytes ?? 0, output: totals?.outputBytes ?? 0).map { " · \($0)" } ?? ""
         let what = skipped == 0 ? "\(done) \(done == 1 ? "image" : "images")" : "\(done), \(skipped) skipped"
         toasts.show("\(prefix)Converted \(what)\(saved)", type: skipped > 0 ? .bad : (report.cancelled ? .info : .ok))
     }

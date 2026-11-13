@@ -116,10 +116,11 @@ struct SidebarView: View {
     @ViewBuilder private var reportSection: some View {
         if let report = model.runReport {
             let summary = report.summary
-            DisclosureGroup("Report", isExpanded: $showReport) {
-                VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-                    Text(reportTotals(summary)).font(LadaGlass.Typography.label)
-                        .foregroundStyle(LadaGlass.Colors.muted)
+            DisclosureGroup(reportTitle(summary, report), isExpanded: $showReport) {
+                Text(reportTotals(summary)).font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                LazyVStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
                     ForEach(Array(report.entries.enumerated()), id: \.offset) { _, entry in
                         reportRow(entry)
                     }
@@ -129,6 +130,14 @@ struct SidebarView: View {
             .font(LadaGlass.Typography.body)
             .accessibilityLabel("Report")
         }
+    }
+
+    private func reportTitle(_ summary: RunSummary, _ report: ProcessingReport) -> String {
+        var parts = ["\(summary.succeeded) written"]
+        if summary.failed > 0 { parts.append("\(summary.failed) failed") }
+        let notes = report.entries.filter { $0.status == .succeeded && $0.note != nil }.count
+        if notes > 0 { parts.append("\(notes) \(notes == 1 ? "note" : "notes")") }
+        return "Report · " + parts.joined(separator: ", ")
     }
 
     private func reportTotals(_ summary: RunSummary) -> String {
@@ -149,8 +158,10 @@ struct SidebarView: View {
                 Text(entry.note ?? "Skipped").font(LadaGlass.Typography.label)
                     .foregroundStyle(LadaGlass.Colors.badText)
             } else {
-                let change = entry.outputBytes.flatMap { SizeFormat.percentChange(from: entry.inputBytes, to: $0) }
-                Text("\(SizeFormat.bytes(entry.inputBytes)) → \(SizeFormat.bytes(entry.outputBytes ?? 0))"
+                let change = entry.inputBytes.flatMap { input in
+                    entry.outputBytes.flatMap { SizeFormat.percentChange(from: input, to: $0) }
+                }
+                Text("\(entry.inputBytes.map(SizeFormat.bytes) ?? "—") → \(entry.outputBytes.map(SizeFormat.bytes) ?? "—")"
                      + (change.map { " (\($0))" } ?? ""))
                     .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 if let note = entry.note {

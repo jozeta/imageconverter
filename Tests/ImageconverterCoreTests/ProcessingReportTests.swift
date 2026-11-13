@@ -9,7 +9,7 @@ final class ProcessingReportTests: XCTestCase {
 
     func testSummaryMaths() {
         var batch = BatchReport(entries: [entry("a.jpg", 1000, 250), entry("b.jpg", 1000, 750)])
-        batch.failures = [BatchFailure(source: URL(fileURLWithPath: "/in/c.jpg"), reason: "Unreadable")]
+        batch.failures = [BatchFailure(source: URL(fileURLWithPath: "/in/c.jpg"), reason: "Unreadable", inputBytes: 77)]
         let report = ProcessingReport(batch: batch, total: 3, outputMode: "newFolder")
         let summary = report.summary
         XCTAssertEqual(summary.succeeded, 2)
@@ -21,12 +21,27 @@ final class ProcessingReportTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(summary.averageRatio), 0.5, accuracy: 1e-9)
         XCTAssertEqual(report.entries.count, 3)
         XCTAssertEqual(report.entries[2].status, .failed)
+        XCTAssertEqual(report.entries[2].inputBytes, 77)
         XCTAssertEqual(report.entries[2].note, "Unreadable")
     }
 
     func testCancelledCountsUnprocessed() {
         let batch = BatchReport(cancelled: true, entries: [entry("a.jpg", 10, 5)])
         XCTAssertEqual(ProcessingReport(batch: batch, total: 4, outputMode: "x").summary.cancelled, 3)
+    }
+
+    func testUnknownSizesAreLeftOutOfTotals() {
+        let batch = BatchReport(entries: [entry("a.jpg", 1000, 500),
+                                          BatchResultEntry(source: URL(fileURLWithPath: "/in/b.jpg"),
+                                                           destination: URL(fileURLWithPath: "/out/b.jpg"),
+                                                           inputBytes: nil, outputBytes: 900)])
+        let summary = ProcessingReport(batch: batch, total: 2, outputMode: "x").summary
+        XCTAssertEqual(summary.inputBytes, 1000)
+        XCTAssertEqual(summary.outputBytes, 500)
+    }
+
+    func testSamePhrase() {
+        XCTAssertEqual(SizeFormat.savedPhrase(input: 500, output: 500), "same size")
     }
 
     func testEmptyBatchHasNoRatio() {
