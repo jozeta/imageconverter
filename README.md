@@ -8,7 +8,7 @@ on your Mac: no uploads, no network access at all.
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 0.1.0 · **Status:** early development (milestone 1, batch conversion, works; the image steps resize, crop, rotate/flip, canvas and color profile are available; watermark, metadata, rename and presets are coming).
+**Version:** 0.1.0 · **Status:** early development (milestone 1, batch conversion, works; the image steps resize, crop, rotate/flip, canvas and color profile, plus metadata and rename, are available; watermark and presets are coming).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- Metadata step (remove location, camera details or everything; set artist, copyright and description) and Rename step with tokens ({date}, {camera}, {counter:000}, …) and a live example.
 - Wide-colour (Display P3) photos keep their colour when resized and saved as JPEG; opaque images stay opaque through steps; memory use accounts for enlargement.
 - Pipeline steps: resize, crop, rotate/flip, canvas/padding and color profile; steps can be reordered, switched off and removed; the pipeline is kept between launches. Large images are scheduled by memory use; file types macOS can't read (e.g. SVG) are ignored when adding folders.
 
@@ -23,7 +24,7 @@ Started 2026-11-13. The full design is in
 
 - Project created. Older versions are listed in [CHANGELOG.md](CHANGELOG.md).
 
-## Features (image steps available now; the rest planned for 1.0)
+## Features (all but watermark and presets available now; the rest planned for 1.0)
 
 - **Reads** every format macOS can decode: HEIC, JPEG, PNG, TIFF, GIF, BMP, WebP, AVIF, PSD, camera
   RAW, JPEG 2000, ICNS and more. Animated and multi-page files are read using their first frame.
@@ -37,9 +38,10 @@ Started 2026-11-13. The full design is in
   - (available) **Canvas / padding**: with a background colour
   - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original
   - **Watermark**: text or image, with position, size and opacity controls
-  - **Metadata** (always last): strip everything, GPS only or camera details, or set artist,
-    copyright and description
-  - **Rename** (always last): a pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`
+  - (available) **Metadata** (always last, above Output): strip everything, GPS only or camera
+    details, or set artist, copyright and description; the color profile is always kept
+  - (available) **Rename** (always last): a pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`,
+    with a live example
 - **Presets**: save a pipeline under a name, or set up a one-off run without saving.
 - **Live preview** of the selected image before and after the pipeline, with its new name and
   size. The preview and the pipeline can both be collapsed for a compact window.
@@ -125,8 +127,50 @@ Your pipeline is kept between launches.
 5. When it ends, a notice shows the result. Files that could not be converted are listed in the
    sidebar (name and reason) until the next run.
 
-(More how-tos once the features exist: build and save a preset, rename by date and camera, strip
-GPS before sharing, add a watermark.)
+### Strip location before sharing
+
+1. In the pipeline, under **Always last**, open **Metadata** and switch it on.
+2. Leave **Remove location (GPS)** on. Add **Remove camera details** to drop the make, model, lens
+   and serial numbers too, or **Remove all metadata** to strip everything.
+3. Optionally tick **Set artist**, **Set copyright** or **Set description** and type the text; it is
+   written after the removal, so it survives. Untick to leave a field as it is.
+4. Run the batch. The removed information is not in the output files. The color profile is always
+   kept, so the images look the same.
+
+### Rename by date and camera
+
+1. Open **Rename** (under **Always last**) and switch it on.
+2. Type a pattern, for example `{date:yyyy-MM-dd}_{camera}_{counter:000}`, or build it with
+   **Insert token**, which appends at the end.
+3. The line under the pattern shows an example from the first image in the batch (or a sample
+   photo when the batch is empty), such as `Example: 2026-11-13_iPhone 15 Pro_001.jpg`. An
+   unknown token like `{foo}` is flagged in orange and kept as written.
+4. Set **Counter starts at** if numbering should not begin at 1. The counter follows input order.
+5. In *Same folder* mode the pattern replaces the suffix (the summary says "Same folder,
+   renamed"). Names that come out identical get `_2`, `_3`, …
+
+Rename tokens:
+
+| Token | Meaning | Example |
+|-------|---------|---------|
+| `{name}` | Original file name without extension | `IMG_0001` |
+| `{ext}` | Output file extension | `jpg` |
+| `{date}` / `{date:<format>}` | Capture date (EXIF, else file creation date); default `yyyy-MM-dd` | `2026-11-13`, `{date:yyyyMMdd}` gives `20261113` |
+| `{time}` / `{time:<format>}` | Capture time; default `HHmmss` | `140509`, `{time:HH-mm}` gives `14-05` |
+| `{camera}` | Camera model | `iPhone 15 Pro` |
+| `{make}` | Camera maker | `Apple` |
+| `{lens}` | Lens model | `iPhone 15 Pro back camera 6.765mm f/1.78` |
+| `{iso}` | ISO speed | `80` |
+| `{width}` / `{height}` | Pixel size of the output, after the image steps | `1600` / `1200` |
+| `{format}` | Output format | `JPEG` |
+| `{folder}` | Name of the source folder | `Holiday` |
+| `{counter}` / `{counter:000}` | Running number; the zeros set the padding | `1`, `{counter:000}` gives `001` |
+
+Metadata is untrusted, so names are sanitised: `/`, `:` and control characters are removed, leading
+dots are dropped, empty tokens leave no stray separators, names are capped at 200 characters, and
+an empty result falls back to the original name.
+
+(More how-tos once the features exist: build and save a preset, add a watermark.)
 
 ## Tests
 

@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Metadata step (remove location, camera details or everything; set artist, copyright and description) and Rename step with tokens ({date}, {camera}, {counter:000}, …) and a live example.
 - Wide-colour (Display P3) photos keep their colour when resized and saved as JPEG.
 - Pipeline steps: resize, crop, rotate/flip, canvas/padding and color profile; steps can be reordered, switched off and removed; the pipeline is kept between launches. Large images are scheduled by memory use; file types macOS can't read (e.g. SVG) are ignored when adding folders.
 - Fixes from the milestone 1 review: correct progress count, large folder drops no longer freeze the window, menu commands (Add Images… ⌘O, Run ⌘R, Cancel Run ⌘.), a missing output folder is asked for again.

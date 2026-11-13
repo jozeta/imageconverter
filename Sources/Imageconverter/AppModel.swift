@@ -16,9 +16,13 @@ final class AppModel {
     private(set) var pendingAdds = 0
     var isAdding: Bool { pendingAdds > 0 }
     let toasts = LGToastCenter()
+    /// "Example: name.ext" for the Rename editor; see `refreshRenameExample()`.
+    private(set) var renameExample = "Example: "
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var exampleSource: (url: URL, info: RenameSource)?
+    @ObservationIgnored private var exampleCache: (key: RenameExampleKey, text: String)?
     static let pipelineKey = "currentPipeline"
 
     init(defaults: UserDefaults = .standard) {
@@ -156,4 +160,81 @@ final class AppModel {
             toasts.show("\(prefix)Converted \(done), \(skipped) skipped", type: .bad)
         }
     }
+
+    // MARK: Rename example
+
+    /// What the live example depends on; when it changes the example is recomputed.
+    var renameExampleKey: RenameExampleKey {
+        RenameExampleKey(
+            firstItem: items.first?.source, pattern: pipeline.rename.pattern,
+            counterStart: pipeline.rename.counterStart, format: pipeline.output.format, steps: pipeline.steps)
+    }
+
+    /// Renders the rename pattern for the first image (or a built-in sample when there are none).
+    /// The file is read off the main actor; the header is kept per file and the result per key.
+    func refreshRenameExample() async {
+        let key = renameExampleKey
+        if let cached = exampleCache, cached.key == key {
+            renameExample = cached.text
+            return
+        }
+        let pipeline = self.pipeline
+        let known = exampleSource.flatMap { $0.url == key.firstItem ? $0.info : nil }
+        let (info, text) = await Task.detached(priority: .userInitiated) {
+            Self.renderExample(url: key.firstItem, known: known, pipeline: pipeline)
+        }.value
+        guard !Task.isCancelled else { return }
+        if let url = key.firstItem { exampleSource = (url, info) }
+        exampleCache = (key, text)
+        renameExample = text
+    }
+
+    nonisolated private static func renderExample(
+        url: URL?, known: RenameSource?, pipeline: Pipeline
+    ) -> (RenameSource, String) {
+        let format = pipeline.output.format
+        let template = RenameTemplate(pipeline.rename.pattern)
+        let counter = pipeline.rename.counterStart
+        let context: RenameContext
+        var info = known ?? RenameSource(header: nil, created: nil)
+        if let url {
+            if known == nil {
+                info = RenameSource(
+                    header: ImageLoader.header(of: url),
+                    created: (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate)
+            }
+            let size = info.header?.uprightSize ?? (width: 1, height: 1)
+            let output = pipeline.outputSize(sourceWidth: size.width, sourceHeight: size.height)
+            context = RenameContext.make(
+                source: url, header: info.header, outputSize: (output.width, output.height), format: format,
+                counter: counter, fileCreationDate: template.needsDate ? info.created : nil)
+        } else {
+            var calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: "GMT") ?? .current
+            let date = calendar.date(from: DateComponents(
+                year: 2026, month: 11, day: 13, hour: 14, minute: 5, second: 9))
+            let output = pipeline.outputSize(sourceWidth: 4032, sourceHeight: 3024)
+            context = RenameContext(
+                name: "IMG_0001", ext: format.fileExtensions.first ?? "", format: format.displayName,
+                folder: "Photos", date: date, make: "Apple", model: "iPhone 15 Pro",
+                lens: "iPhone 15 Pro back camera 6.765mm f/1.78", iso: 80,
+                width: output.width, height: output.height, counter: counter)
+        }
+        let name = template.render(context)
+        return (info, "Example: \(name).\(context.ext)")
+    }
+}
+
+/// The part of a source image the rename example needs; read once per file.
+struct RenameSource: @unchecked Sendable {
+    let header: ImageHeader?
+    let created: Date?
+}
+
+struct RenameExampleKey: Equatable {
+    let firstItem: URL?
+    let pattern: String
+    let counterStart: Int
+    let format: OutputFormat
+    let steps: [PipelineStep]
 }
