@@ -177,7 +177,10 @@ struct PreviewPane: View {
 
     private func resultSize(_ estimate: SizeEstimate?) -> String {
         guard let estimate else { return model.estimateFailed ? "—" : "Estimating…" }
-        return Self.bytes(estimate.output)
+        guard let output = estimate.output, let original = estimate.original,
+              let change = SizeFormat.percentChange(from: original, to: output)
+        else { return Self.bytes(estimate.output) }
+        return "\(Self.bytes(output)) (\(change))"
     }
 
     private static func bytes(_ count: Int?) -> String {

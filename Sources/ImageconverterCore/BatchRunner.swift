@@ -36,18 +36,44 @@ public struct BatchNote: Equatable, Sendable {
     }
 }
 
+/// One written file with its byte counts.
+public struct BatchResultEntry: Equatable, Sendable {
+    public let source: URL
+    public let destination: URL
+    public let inputBytes: Int
+    public let outputBytes: Int
+    public let note: String?
+
+    public init(source: URL, destination: URL, inputBytes: Int, outputBytes: Int, note: String? = nil) {
+        self.source = source
+        self.destination = destination
+        self.inputBytes = inputBytes
+        self.outputBytes = outputBytes
+        self.note = note
+    }
+}
+
 /// The outcome of a batch: all lists are in input order. A note is not a failure; its file was written.
 public struct BatchReport: Equatable, Sendable {
     public var written: [URL]
     public var failures: [BatchFailure]
     public var notes: [BatchNote]
     public var cancelled: Bool
+    /// One entry per written file (same order as `written`).
+    public var entries: [BatchResultEntry]
 
-    public init(written: [URL] = [], failures: [BatchFailure] = [], notes: [BatchNote] = [], cancelled: Bool = false) {
+    /// Source bytes of the written files.
+    public var inputBytes: Int { entries.reduce(0) { $0 + $1.inputBytes } }
+    /// Output bytes of the written files.
+    public var outputBytes: Int { entries.reduce(0) { $0 + $1.outputBytes } }
+
+    public init(written: [URL] = [], failures: [BatchFailure] = [], notes: [BatchNote] = [], cancelled: Bool = false,
+                entries: [BatchResultEntry] = []) {
         self.written = written
         self.failures = failures
         self.notes = notes
         self.cancelled = cancelled
+        self.entries = entries
     }
 }
 
@@ -65,6 +91,8 @@ struct EncodedItem {
 struct WrittenItem {
     let url: URL
     let note: String?
+    let inputBytes: Int
+    let outputBytes: Int
 }
 
 public enum BatchRunner {
@@ -174,6 +202,9 @@ public enum BatchRunner {
             case .success(let item?):
                 report.written.append(item.url)
                 if let note = item.note { report.notes.append(BatchNote(source: plan.item.source, text: note)) }
+                report.entries.append(BatchResultEntry(
+                    source: plan.item.source, destination: item.url, inputBytes: item.inputBytes,
+                    outputBytes: item.outputBytes, note: item.note))
             case .failure(let error):
                 report.failures.append(BatchFailure(source: plan.item.source, reason: error.reason))
             case .success(nil), nil: break
@@ -187,9 +218,12 @@ public enum BatchRunner {
     ) -> Result<WrittenItem?, ConversionError> {
         autoreleasepool {
             do {
+                // Read before the commit: overwrite mode replaces the source.
+                let inputBytes = fileSize(plan.item.source)
                 let encoded = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
                 try FileCommitter.commit(encoded.data, for: plan, trash: trash)
-                return .success(WrittenItem(url: plan.destination, note: encoded.note))
+                return .success(WrittenItem(url: plan.destination, note: encoded.note,
+                                            inputBytes: inputBytes, outputBytes: encoded.data.count))
             } catch is CancellationError {
                 return .success(nil)
             } catch let error as ConversionError {
@@ -198,6 +232,10 @@ public enum BatchRunner {
                 return .failure(.writeFailed(error.localizedDescription))
             }
         }
+    }
+
+    static func fileSize(_ url: URL) -> Int {
+        (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
     }
 
     /// Load, apply, metadata and encode for one file: everything the batch does before it commits.

@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- Compression report: size percentages in the estimate and preview, a "saved" toast after a run, and a Report section in the sidebar (per-file sizes, skipped files, notes).
 - **Save to** dropdown in the Output row (new folder, same folder, overwrite originals) replaces the Settings window; the Rename step is unavailable while overwriting, and the same-folder suffix defaults to `_new`.
 - Adjust step: exposure, brilliance, highlights, shadows, contrast, brightness, black point, saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction.
 - Find and replace (plain text or regular expression) in the Rename step.

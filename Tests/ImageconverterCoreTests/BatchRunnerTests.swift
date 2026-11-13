@@ -56,6 +56,27 @@ final class BatchRunnerTests: XCTestCase {
         XCTAssertTrue(report.failures.isEmpty)
     }
 
+    func testReportCountsBytes() async throws {
+        let src = try directory("src")
+        let out = root.appendingPathComponent("out", isDirectory: true)
+        var files: [URL] = []
+        for index in 1...2 {
+            let url = src.appendingPathComponent("img\(index).png")
+            try TestImages.write(TestImages.make(width: 30, height: 30), to: url, type: .png)
+            files.append(url)
+        }
+        let report = await BatchRunner.run(InputCollector.collect(files), pipeline: Pipeline(output: .init(format: .jpeg)),
+                                           mode: .newFolder(out))
+        XCTAssertEqual(report.entries.count, 2)
+        for entry in report.entries {
+            XCTAssertEqual(entry.inputBytes, try entry.source.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+            XCTAssertEqual(entry.outputBytes, try entry.destination.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+            XCTAssertGreaterThan(entry.outputBytes, 0)
+        }
+        XCTAssertEqual(report.inputBytes, report.entries.map(\.inputBytes).reduce(0, +))
+        XCTAssertEqual(report.outputBytes, report.entries.map(\.outputBytes).reduce(0, +))
+    }
+
     func testConvertsAndSkipsBrokenFiles() async throws {
         let src = try directory("src")
         let out = root.appendingPathComponent("out", isDirectory: true)

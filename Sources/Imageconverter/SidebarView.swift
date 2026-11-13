@@ -5,7 +5,7 @@ struct SidebarView: View {
     @Bindable var model: AppModel
     var settings: AppSettings
     @State private var targeted = false
-    @State private var showFailures = false
+    @State private var showReport = false
 
     /// Panel padding plus the outer padding, top and bottom.
     private static let verticalChrome = 2 * LadaGlass.Spacing.l * LadaGlass.Density.paddingScale
@@ -21,7 +21,7 @@ struct SidebarView: View {
                     countRow
                     PipelineSection(model: model, settings: settings)
                     runSection
-                    failureList
+                    reportSection
                 }
                 // The natural height (not the stretched one), so the measurement never feeds back on the window.
                 .background {
@@ -112,23 +112,53 @@ struct SidebarView: View {
         }
     }
 
-    @ViewBuilder private var failureList: some View {
-        if let failures = model.lastReport?.failures, !failures.isEmpty {
-            DisclosureGroup("\(failures.count) skipped", isExpanded: $showFailures) {
+    /// Totals, then failures, notes and one row per written file. Stays until the next run or Clear.
+    @ViewBuilder private var reportSection: some View {
+        if let report = model.runReport {
+            let summary = report.summary
+            DisclosureGroup("Report", isExpanded: $showReport) {
                 VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-                    ForEach(Array(failures.enumerated()), id: \.offset) { _, failure in
-                        VStack(alignment: .leading, spacing: 0) {
-                            Text(failure.source.lastPathComponent).font(LadaGlass.Typography.body)
-                            Text(failure.reason).font(LadaGlass.Typography.label)
-                                .foregroundStyle(LadaGlass.Colors.badText)
-                        }
-                        .accessibilityElement(children: .combine)
+                    Text(reportTotals(summary)).font(LadaGlass.Typography.label)
+                        .foregroundStyle(LadaGlass.Colors.muted)
+                    ForEach(Array(report.entries.enumerated()), id: \.offset) { _, entry in
+                        reportRow(entry)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .font(LadaGlass.Typography.body)
+            .accessibilityLabel("Report")
         }
+    }
+
+    private func reportTotals(_ summary: RunSummary) -> String {
+        var parts = ["\(summary.succeeded) converted"]
+        if summary.failed > 0 { parts.append("\(summary.failed) skipped") }
+        if summary.cancelled > 0 { parts.append("\(summary.cancelled) not run") }
+        if summary.succeeded > 0 {
+            let change = SizeFormat.percentChange(from: summary.inputBytes, to: summary.outputBytes).map { " (\($0))" } ?? ""
+            parts.append("\(SizeFormat.bytes(summary.inputBytes)) → \(SizeFormat.bytes(summary.outputBytes))\(change)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func reportRow(_ entry: ReportEntry) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(entry.name).font(LadaGlass.Typography.body).lineLimit(1).truncationMode(.middle)
+            if entry.status == .failed {
+                Text(entry.note ?? "Skipped").font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.badText)
+            } else {
+                let change = entry.outputBytes.flatMap { SizeFormat.percentChange(from: entry.inputBytes, to: $0) }
+                Text("\(SizeFormat.bytes(entry.inputBytes)) → \(SizeFormat.bytes(entry.outputBytes ?? 0))"
+                     + (change.map { " (\($0))" } ?? ""))
+                    .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                if let note = entry.note {
+                    Text(note).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.warnText)
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

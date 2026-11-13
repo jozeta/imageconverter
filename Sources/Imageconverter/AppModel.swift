@@ -20,7 +20,11 @@ final class AppModel {
     /// Set by Save (⌘S) on a built-in or ad hoc pipeline; the preset bar shows its "Save as" sheet.
     var isSavingAs = false
     var progress: BatchProgress?
-    var lastReport: BatchReport?
+    var lastReport: BatchReport? {
+        didSet { if lastReport == nil { runReport = nil } }
+    }
+    /// The last run in the shared report model (summary plus one entry per file); cleared with `lastReport`.
+    var runReport: ProcessingReport?
     var isRunning = false
     /// Number of drops/pickers still being scanned off the main actor.
     private(set) var pendingAdds = 0
@@ -42,6 +46,7 @@ final class AppModel {
     var isRenderingPreview = false
     /// Original and estimated output size of the selected item (see `AppModel+Estimate.swift`).
     var sizeEstimate: SizeEstimate?
+    @ObservationIgnored private var runInfo = (total: 0, started: Date(), mode: "")
     /// True while the estimate for the selected item is being computed.
     var isEstimating = false
     /// Set when the last estimate failed (shown as a dash).
@@ -212,6 +217,7 @@ final class AppModel {
 
         let batch = items
         let pipeline = self.pipeline
+        runInfo = (batch.count, Date(), mode.kind.rawValue)
         isRunning = true
         resetPreview()
         cancelEstimate()
@@ -244,16 +250,16 @@ final class AppModel {
         schedulePreview(mode: previewMode)
         scheduleEstimate()
         lastReport = report
+        runReport = ProcessingReport(batch: report, total: runInfo.total, outputMode: runInfo.mode,
+                                     presetName: session.selected?.name, startedAt: runInfo.started)
         progress = nil
         dropMissingItems()
         let done = report.written.count
         let skipped = report.failures.count
         let prefix = report.cancelled ? "Cancelled. " : ""
-        if skipped == 0 {
-            toasts.show("\(prefix)Converted \(done) \(done == 1 ? "image" : "images")", type: report.cancelled ? .info : .ok)
-        } else {
-            toasts.show("\(prefix)Converted \(done), \(skipped) skipped", type: .bad)
-        }
+        let saved = SizeFormat.savedPhrase(input: report.inputBytes, output: report.outputBytes).map { " · \($0)" } ?? ""
+        let what = skipped == 0 ? "\(done) \(done == 1 ? "image" : "images")" : "\(done), \(skipped) skipped"
+        toasts.show("\(prefix)Converted \(what)\(saved)", type: skipped > 0 ? .bad : (report.cancelled ? .info : .ok))
     }
 
     // MARK: Rename example

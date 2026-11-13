@@ -185,7 +185,8 @@ struct PipelineSection: View {
         if model.estimateFailed { return "—" }
         guard !model.isEstimating, let estimate = model.sizeEstimate, let output = estimate.output else { return "Estimating…" }
         let original = estimate.original.map(Self.bytes) ?? "—"
-        return "Original \(original) → about \(Self.bytes(output))"
+        let change = estimate.original.flatMap { SizeFormat.percentChange(from: $0, to: output) }.map { " (\($0))" } ?? ""
+        return "Original \(original) → about \(Self.bytes(output))\(change)"
     }
 
     private static func bytes(_ count: Int) -> String {
