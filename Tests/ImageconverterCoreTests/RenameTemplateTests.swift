@@ -93,7 +93,10 @@ final class RenameTemplateTests: XCTestCase {
     func testEmptyTokensCollapseSeparators() {
         XCTAssertEqual(RenameTemplate("{camera}_{name}").render(context()), "IMG_1")
         XCTAssertEqual(RenameTemplate("{name}_{camera}_{counter}").render(context()), "IMG_1_1")
-        XCTAssertEqual(RenameTemplate("{name}__{counter}").render(context()), "IMG_1_1")
+        XCTAssertEqual(RenameTemplate("{name}__{counter}").render(context()), "IMG_1__1")
+        XCTAssertEqual(RenameTemplate("{date} - {name}").render(context(date: gmtDate(2024, 6, 1, 1, 1))), "2024-06-01 - IMG_1")
+        XCTAssertEqual(RenameTemplate("{date} - {name}").render(context()), "IMG_1")
+        XCTAssertEqual(RenameTemplate("{make}{camera}-{name}").render(context()), "IMG_1")
     }
 
     func testEmptyResultFallsBackToName() {
@@ -151,5 +154,31 @@ final class RenameTemplateTests: XCTestCase {
     func testSingleSeparatorsKept() {
         let ctx = context(date: gmtDate(2024, 6, 1, 1, 1))
         XCTAssertEqual(RenameTemplate("{date}_{name}").render(ctx), "2024-06-01_IMG_1")
+    }
+
+    func testBidiAndInvisibleScalarsRemoved() {
+        let model = "a\u{202E}b\u{2066}c\u{200F}d\u{FEFF}e\u{2028}f\u{2029}g\u{061C}h\u{2060}i"
+        let out = RenameTemplate("{camera}").render(context(model: model))
+        XCTAssertEqual(out, "abcdefghi")
+    }
+
+    func testJoinersKept() {
+        XCTAssertEqual(RenameTemplate("{camera}").render(context(model: "a\u{200D}b\u{200C}c")), "a\u{200D}b\u{200C}c")
+    }
+
+    func testInvisibleOnlyValueFallsBack() {
+        XCTAssertEqual(RenameTemplate("{camera}").render(context(model: "\u{200B}")), "IMG_1")
+        XCTAssertEqual(RenameTemplate("{camera}").render(context(model: "\u{2028}")), "IMG_1")
+        XCTAssertEqual(RenameTemplate("{camera}").render(context(model: "\u{200D}")), "IMG_1")
+    }
+
+    func testByteLengthCapped() {
+        let out = RenameTemplate(String(repeating: "\u{1F600}", count: 200)).render(context())
+        XCTAssertLessThanOrEqual(out.utf8.count, 240)
+        XCTAssertEqual(out.count, 60)
+    }
+
+    func testUnsanitisableNameFallsBackToImage() {
+        XCTAssertEqual(RenameTemplate("{lens}").render(context(name: "...")), "image")
     }
 }

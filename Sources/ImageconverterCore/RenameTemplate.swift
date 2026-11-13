@@ -133,22 +133,37 @@ public struct RenameTemplate: Equatable, Sendable {
     /// The base name (no extension), sanitised; the context's own name if the result is empty.
     public func render(_ context: RenameContext) -> String {
         var out = ""
+        var lastIsLiteral = false
+        var dropNextSeparator = false
         for part in parts {
             switch part {
-            case let .literal(text):
+            case var .literal(text):
+                if dropNextSeparator, let first = text.first, Self.separators.contains(first) {
+                    text.removeFirst()
+                }
+                dropNextSeparator = false
                 out += text
+                lastIsLiteral = !text.isEmpty || lastIsLiteral
             case let .token(name, arg, raw):
-                if Self.knownTokens.contains(name) {
-                    out += Self.sanitize(Self.value(of: name, arg: arg, context: context))
+                let value = Self.knownTokens.contains(name)
+                    ? Self.sanitize(Self.value(of: name, arg: arg, context: context)) : raw
+                if value.isEmpty {
+                    if lastIsLiteral, let last = out.last, Self.separators.contains(last) {
+                        out.removeLast()
+                    } else {
+                        dropNextSeparator = true
+                    }
                 } else {
-                    out += raw
+                    dropNextSeparator = false
+                    out += value
+                    lastIsLiteral = false
                 }
             }
         }
         let cleaned = Self.sanitize(out)
         if !cleaned.isEmpty { return cleaned }
         let fallback = Self.sanitize(context.name)
-        return fallback.isEmpty ? context.name : fallback
+        return fallback.isEmpty ? "image" : fallback
     }
 
     private static func value(of name: String, arg: String?, context: RenameContext) -> String {
@@ -191,25 +206,35 @@ public struct RenameTemplate: Equatable, Sendable {
 
     private static let separators: Set<Character> = ["_", "-", " "]
 
-    /// Makes untrusted text safe as a file name: no `/`, `:` or control characters, runs of
-    /// separators collapsed, no leading dots or edge separators, at most 200 characters.
+    /// Scalars removed from names: bidi controls, zero-width and line/paragraph separators.
+    private static let invisible: Set<UInt32> = [
+        0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066, 0x2067, 0x2068, 0x2069,
+        0x200E, 0x200F, 0x061C, 0x200B, 0x2060, 0xFEFF, 0x2028, 0x2029,
+    ]
+
+    /// Longest name in UTF-8 bytes (APFS allows 255; leaves room for a suffix and extension).
+    static let maxBytes = 240
+
+    /// Makes untrusted text safe as a file name: no `/`, `:`, control, bidi or zero-width
+    /// characters, no leading dots or edge separators, at most 200 characters and 240 bytes.
+    /// Text with no visible character becomes empty.
     static func sanitize(_ text: String) -> String {
         var scalars = String.UnicodeScalarView()
         for scalar in text.unicodeScalars {
             if scalar == "/" || scalar == ":" {
                 scalars.append("-")
-            } else if scalar.properties.generalCategory != .control {
+            } else if scalar.properties.generalCategory != .control, !invisible.contains(scalar.value) {
                 scalars.append(scalar)
             }
         }
-        var collapsed: [Character] = []
-        for char in String(scalars) {
-            if separators.contains(char), let last = collapsed.last, separators.contains(last) { continue }
-            collapsed.append(char)
+        var result = trim(String(scalars))
+        if result.count > maxLength { result = String(result.prefix(maxLength)) }
+        while result.utf8.count > maxBytes { result.removeLast() }
+        result = trim(result)
+        let visible = result.unicodeScalars.contains {
+            !$0.properties.isWhitespace && $0.properties.generalCategory != .format
         }
-        var result = trim(String(collapsed))
-        if result.count > maxLength { result = trim(String(result.prefix(maxLength))) }
-        return result
+        return visible ? result : ""
     }
 
     private static func trim(_ text: String) -> String {
