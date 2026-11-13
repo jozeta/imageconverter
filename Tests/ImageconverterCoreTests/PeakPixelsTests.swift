@@ -32,4 +32,15 @@ final class PeakPixelsTests: XCTestCase {
         XCTAssertEqual(pipe.peakPixels(sourceWidth: 10, sourceHeight: 10), 100)
         XCTAssertGreaterThan(Pipeline().peakPixels(sourceWidth: Int.max, sourceHeight: Int.max), 0)
     }
+
+    func testOutputSizeNeverTraps() {
+        for mode in [CanvasMode.padding(pixels: Int.max), .paddingPercent(1e300), .paddingPercent(.infinity)] {
+            let size = pipeline(.canvas(CanvasOptions(mode: mode))).outputSize(sourceWidth: 100, sourceHeight: 100)
+            XCTAssertGreaterThanOrEqual(size.width, 1)
+            XCTAssertGreaterThanOrEqual(size.height, 1)
+        }
+        let resize = ResizeOptions(mode: .exactWidth(Int.max), allowEnlarge: true)
+        let size = pipeline(.resize(resize)).outputSize(sourceWidth: 100, sourceHeight: 100)
+        XCTAssertGreaterThanOrEqual(size.width, 1)
+    }
 }

@@ -16,9 +16,13 @@ final class AppModel {
     private(set) var pendingAdds = 0
     var isAdding: Bool { pendingAdds > 0 }
     let toasts = LGToastCenter()
+    /// "Example: name.ext" for the Rename editor; see `refreshRenameExample()`.
+    private(set) var renameExample = ""
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private var exampleSource: (url: URL, info: RenameSource)?
+    @ObservationIgnored private var exampleCache: (key: RenameExampleKey, text: String)?
     static let pipelineKey = "currentPipeline"
 
     init(defaults: UserDefaults = .standard) {
@@ -156,4 +160,59 @@ final class AppModel {
             toasts.show("\(prefix)Converted \(done), \(skipped) skipped", type: .bad)
         }
     }
+
+    // MARK: Rename example
+
+    /// What the live example depends on; when it changes the example is recomputed.
+    var renameExampleKey: RenameExampleKey {
+        RenameExampleKey(
+            firstItem: items.first?.source, pattern: pipeline.rename.pattern,
+            counterStart: pipeline.rename.counterStart, format: pipeline.output.format, steps: pipeline.steps)
+    }
+
+    /// Renders the rename pattern for the first image (or a built-in sample when there are none).
+    /// The file is read off the main actor; the header is kept per file and the result per key.
+    func refreshRenameExample() async {
+        let key = renameExampleKey
+        if let cached = exampleCache, cached.key == key {
+            renameExample = cached.text
+            return
+        }
+        let pipeline = self.pipeline
+        let known = exampleSource.flatMap { $0.url == key.firstItem ? $0.info : nil }
+        let (info, text) = await Task.detached(priority: .userInitiated) {
+            Self.renderExample(url: key.firstItem, known: known, pipeline: pipeline)
+        }.value
+        guard !Task.isCancelled else { return }
+        if let url = key.firstItem { exampleSource = (url, info) }
+        exampleCache = (key, text)
+        renameExample = text
+    }
+
+    nonisolated private static func renderExample(
+        url: URL?, known: RenameSource?, pipeline: Pipeline
+    ) -> (RenameSource, String) {
+        var info = known ?? RenameSource(header: nil, created: nil)
+        if let url, known == nil {
+            info = RenameSource(
+                header: ImageLoader.header(of: url),
+                created: (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate)
+        }
+        let name = RenameExample.render(source: url, header: info.header, created: info.created, pipeline: pipeline)
+        return (info, "Example: \(name)")
+    }
+}
+
+/// The part of a source image the rename example needs; read once per file.
+struct RenameSource: @unchecked Sendable {
+    let header: ImageHeader?
+    let created: Date?
+}
+
+struct RenameExampleKey: Equatable {
+    let firstItem: URL?
+    let pattern: String
+    let counterStart: Int
+    let format: OutputFormat
+    let steps: [PipelineStep]
 }

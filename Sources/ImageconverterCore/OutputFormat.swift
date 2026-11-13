@@ -74,4 +74,16 @@ public struct OutputSettings: Codable, Equatable, Sendable {
         self.quality = quality
         self.tiffCompression = tiffCompression
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case format, quality, tiffCompression
+    }
+
+    /// Lenient: a missing field takes its default.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        format = try container.decodeIfPresent(OutputFormat.self, forKey: .format) ?? .jpeg
+        quality = try container.decodeIfPresent(Double.self, forKey: .quality) ?? 0.82
+        tiffCompression = try container.decodeIfPresent(TIFFCompression.self, forKey: .tiffCompression) ?? .lzw
+    }
 }

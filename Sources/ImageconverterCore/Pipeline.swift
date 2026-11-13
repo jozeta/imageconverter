@@ -185,11 +185,39 @@ public struct Pipeline: Codable, Equatable, Sendable {
     public var schemaVersion: Int
     public var steps: [PipelineStep]
     public var output: OutputSettings
+    public var metadata: MetadataOptions
+    public var rename: RenameOptions
 
-    public init(schemaVersion: Int = 1, steps: [PipelineStep] = [], output: OutputSettings = OutputSettings()) {
+    public init(schemaVersion: Int = 1, steps: [PipelineStep] = [], output: OutputSettings = OutputSettings(),
+                metadata: MetadataOptions = MetadataOptions(), rename: RenameOptions = RenameOptions()) {
         self.schemaVersion = schemaVersion
         self.steps = steps
         self.output = output
+        self.metadata = metadata
+        self.rename = rename
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, steps, output, metadata, rename
+    }
+
+    /// Lenient: pipelines saved by older versions lack newer fields, which take their defaults.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        // Element by element: a step this version can't read is skipped, the others are kept in order.
+        steps = (try container.decodeIfPresent([LossyStep].self, forKey: .steps) ?? []).compactMap(\.step)
+        output = try container.decodeIfPresent(OutputSettings.self, forKey: .output) ?? OutputSettings()
+        metadata = try container.decodeIfPresent(MetadataOptions.self, forKey: .metadata) ?? MetadataOptions()
+        rename = try container.decodeIfPresent(RenameOptions.self, forKey: .rename) ?? RenameOptions()
+    }
+}
+
+private struct LossyStep: Decodable {
+    let step: PipelineStep?
+
+    init(from decoder: Decoder) throws {
+        step = try? PipelineStep(from: decoder)
     }
 }
 
@@ -214,13 +242,26 @@ extension Pipeline {
     /// The largest pixel count any enabled step produces for a `sourceWidth` x `sourceHeight` image
     /// (the source included). Saturates instead of overflowing.
     public func peakPixels(sourceWidth: Int, sourceHeight: Int) -> Int {
+        var peak = 0
+        walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { peak = max(peak, Self.pixels($0)) }
+        return peak
+    }
+
+    /// The size after all enabled image steps, from `Geometry`.
+    public func outputSize(sourceWidth: Int, sourceHeight: Int) -> (width: Int, height: Int) {
+        var last = CGSize(width: max(1, sourceWidth), height: max(1, sourceHeight))
+        walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { last = $0 }
+        return (Int(Self.clamped(last.width).rounded()), Int(Self.clamped(last.height).rounded()))
+    }
+
+    /// Calls `visit` with the source size, then with the size after each enabled step.
+    private func walk(sourceWidth: Int, sourceHeight: Int, _ visit: (CGSize) -> Void) {
         var size = CGSize(width: max(1, sourceWidth), height: max(1, sourceHeight))
-        var peak = Self.pixels(size)
+        visit(size)
         for step in steps where step.isEnabled {
             size = Self.size(after: step.operation, from: size)
-            peak = max(peak, Self.pixels(size))
+            visit(size)
         }
-        return peak
     }
 
     private static func size(after operation: ImageOperation, from size: CGSize) -> CGSize {
@@ -244,9 +285,14 @@ extension Pipeline {
         }
     }
 
+    /// A dimension limited to 1...Int32.max (1 when not finite), safe to convert to `Int`.
+    private static func clamped(_ value: CGFloat) -> Double {
+        value.isFinite ? min(max(Double(value), 1), Double(Int32.max)) : 1
+    }
+
     private static func pixels(_ size: CGSize) -> Int {
-        let wide = size.width.isFinite ? min(max(size.width, 1), Double(Int32.max)) : 1
-        let high = size.height.isFinite ? min(max(size.height, 1), Double(Int32.max)) : 1
+        let wide = clamped(size.width)
+        let high = clamped(size.height)
         let (product, overflow) = Int(wide).multipliedReportingOverflow(by: Int(high))
         return overflow ? Int.max : product
     }

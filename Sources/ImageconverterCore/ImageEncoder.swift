@@ -76,12 +76,20 @@ public enum ImageEncoder {
         if var exif = props[exifKey] as? [String: Any] {
             exif.removeValue(forKey: kCGImagePropertyExifPixelXDimension as String)
             exif.removeValue(forKey: kCGImagePropertyExifPixelYDimension as String)
+            exif.removeValue(forKey: kCGImagePropertyExifColorSpace as String)
             props[exifKey] = exif
         }
         let tiffKey = kCGImagePropertyTIFFDictionary as String
         if var tiff = props[tiffKey] as? [String: Any] {
             tiff[kCGImagePropertyTIFFOrientation as String] = 1
             props[tiffKey] = tiff
+        }
+        let pngKey = kCGImagePropertyPNGDictionary as String
+        if var png = props[pngKey] as? [String: Any] {
+            png.removeValue(forKey: kCGImagePropertyPNGGamma as String)
+            png.removeValue(forKey: kCGImagePropertyPNGChromaticities as String)
+            png.removeValue(forKey: kCGImagePropertyPNGsRGBIntent as String)
+            props[pngKey] = png
         }
         return props
     }

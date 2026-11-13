@@ -46,28 +46,34 @@ public enum OutputPlanner {
         _ items: [InputItem],
         format: OutputFormat,
         mode: OutputMode,
+        baseNames: [String]? = nil,
         fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
     ) -> [PlannedOutput] {
+        let names = baseNames?.count == items.count ? baseNames : nil
         let ext = format.fileExtensions[0]
         let isOverwrite = mode == .overwrite
         var claimed = Set<String>()
 
-        func inPlace(_ item: InputItem) -> Bool {
-            isOverwrite && format.fileExtensions.contains(item.source.pathExtension.lowercased())
+        func sourceName(_ item: InputItem) -> String { item.source.deletingPathExtension().lastPathComponent }
+        // In place means same name and same extension; a new base name makes it a different file.
+        func inPlace(_ index: Int) -> Bool {
+            let item = items[index]
+            guard isOverwrite, format.fileExtensions.contains(item.source.pathExtension.lowercased()) else { return false }
+            return names.map { $0[index].lowercased() == sourceName(item).lowercased() } ?? true
         }
         // Pre-claim in-place targets so no other item can take them, whatever `fileExists` says.
-        for item in items where inPlace(item) { claimed.insert(key(item.source)) }
+        for index in items.indices where inPlace(index) { claimed.insert(key(items[index].source)) }
 
         var plans: [PlannedOutput] = []
-        for item in items {
-            if inPlace(item) {
+        for (index, item) in items.enumerated() {
+            if inPlace(index) {
                 plans.append(PlannedOutput(item: item, destination: item.source,
                                            replacesSource: true, trashesSource: false))
                 continue
             }
 
             let sourceDir = item.source.deletingLastPathComponent()
-            let name = item.source.deletingPathExtension().lastPathComponent
+            let name = names?[index] ?? sourceName(item)
             let directory: URL
             var suffix = ""
             switch mode {
@@ -76,7 +82,7 @@ public enum OutputPlanner {
                     ? root : root.appendingPathComponent(item.relativeDirectory, isDirectory: true)
             case .sameFolder(let value):
                 directory = sourceDir
-                suffix = sanitized(value)
+                suffix = names == nil ? sanitized(value) : ""
             case .overwrite:
                 directory = sourceDir
             }

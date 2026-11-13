@@ -8,6 +8,8 @@ struct PipelineSection: View {
     @Environment(\.openSettings) private var openSettings
     @State private var isCollapsed = false
     @State private var expanded: Set<PipelineStep.ID> = []
+    @State private var metadataExpanded = false
+    @State private var renameExpanded = false
 
     private var enabledCount: Int { model.pipeline.steps.filter(\.isEnabled).count }
 
@@ -31,9 +33,27 @@ struct PipelineSection: View {
                 }
                 addMenu.disabled(model.isRunning)
                 Text("Always last").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                fileSteps
                 outputRow
             }
         }
+    }
+
+    private var fileSteps: some View {
+        Group {
+            FileStepRow(
+                title: "Metadata", summary: model.pipeline.metadata.summary,
+                isEnabled: $model.pipeline.metadata.isEnabled, isExpanded: $metadataExpanded) {
+                MetadataEditor(options: $model.pipeline.metadata)
+            }
+            FileStepRow(
+                title: "Rename", summary: model.pipeline.rename.summary,
+                isEnabled: $model.pipeline.rename.isEnabled, isExpanded: $renameExpanded) {
+                RenameEditor(options: $model.pipeline.rename, example: model.renameExample)
+                    .task(id: model.renameExampleKey) { await model.refreshRenameExample() }
+            }
+        }
+        .disabled(model.isRunning)
     }
 
     /// Looks the step up by id on every access, so a row that outlives its step cannot index out of range.
@@ -106,7 +126,7 @@ struct PipelineSection: View {
             }
             .disabled(model.isRunning)
             HStack {
-                Text(settings.summary)
+                Text(settings.summary(renaming: model.pipeline.rename.isEnabled))
                     .font(LadaGlass.Typography.body)
                     .foregroundStyle(LadaGlass.Colors.muted)
                     .lineLimit(2)

@@ -9,6 +9,20 @@ public struct LoadedImage: @unchecked Sendable {
     public let properties: [String: Any]
 }
 
+/// A file's first-frame size and properties, without decoding pixels.
+public struct ImageHeader: @unchecked Sendable {
+    public let width: Int
+    public let height: Int
+    public let properties: [String: Any]
+
+    /// The size after the EXIF orientation is applied (orientations 5-8 swap width and height),
+    /// which is what `ImageLoader.load` produces.
+    public var uprightSize: (width: Int, height: Int) {
+        let orientation = properties[kCGImagePropertyOrientation as String] as? Int ?? 1
+        return (5...8).contains(orientation) ? (height, width) : (width, height)
+    }
+}
+
 public enum ImageLoader {
     public static let defaultMaxPixels = 250_000_000
 
@@ -19,8 +33,15 @@ public enum ImageLoader {
         return overflow ? Int.max : pixels
     }
 
-    /// The pixel size of the first frame, read from the header only. Nil if unreadable.
+    /// The upright pixel size of the first frame (EXIF orientation applied), read from the header
+    /// only. Nil if unreadable.
     public static func pixelSize(of url: URL) -> (width: Int, height: Int)? {
+        header(of: url)?.uprightSize
+    }
+
+    /// The first frame's size and property dictionary, read from the header only (no decode).
+    /// Nil if unreadable.
+    public static func header(of url: URL) -> ImageHeader? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
               CGImageSourceGetCount(source) > 0,
@@ -28,7 +49,7 @@ public enum ImageLoader {
               let width = properties[kCGImagePropertyPixelWidth as String] as? Int,
               let height = properties[kCGImagePropertyPixelHeight as String] as? Int,
               width > 0, height > 0 else { return nil }
-        return (width, height)
+        return ImageHeader(width: width, height: height, properties: properties)
     }
 
     /// Loads the first frame of `url`, rotated upright according to its EXIF orientation.

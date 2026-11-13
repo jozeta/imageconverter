@@ -44,11 +44,11 @@ final class AppSettings {
         }
     }
 
-    /// One line for the sidebar.
-    var summary: String {
+    /// One line for the sidebar. `renaming`: the Rename step is on, so same-folder mode names by pattern.
+    func summary(renaming: Bool = false) -> String {
         switch modeKind {
         case .newFolder: return outputFolder.map { "New folder: \($0.lastPathComponent)" } ?? "New folder (not chosen yet)"
-        case .sameFolder: return "Same folder, suffix \(sameFolderSuffix)"
+        case .sameFolder: return renaming ? "Same folder, renamed" : "Same folder, suffix \(sameFolderSuffix)"
         case .overwrite: return "Overwrite originals"
         }
     }
