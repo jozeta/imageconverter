@@ -14,6 +14,13 @@ public struct ImageHeader: @unchecked Sendable {
     public let width: Int
     public let height: Int
     public let properties: [String: Any]
+
+    /// The size after the EXIF orientation is applied (orientations 5-8 swap width and height),
+    /// which is what `ImageLoader.load` produces.
+    public var uprightSize: (width: Int, height: Int) {
+        let orientation = properties[kCGImagePropertyOrientation as String] as? Int ?? 1
+        return (5...8).contains(orientation) ? (height, width) : (width, height)
+    }
 }
 
 public enum ImageLoader {
@@ -26,9 +33,10 @@ public enum ImageLoader {
         return overflow ? Int.max : pixels
     }
 
-    /// The pixel size of the first frame, read from the header only. Nil if unreadable.
+    /// The upright pixel size of the first frame (EXIF orientation applied), read from the header
+    /// only. Nil if unreadable.
     public static func pixelSize(of url: URL) -> (width: Int, height: Int)? {
-        header(of: url).map { ($0.width, $0.height) }
+        header(of: url)?.uprightSize
     }
 
     /// The first frame's size and property dictionary, read from the header only (no decode).

@@ -58,8 +58,9 @@ public enum BatchRunner {
         trash: @escaping Trasher = systemTrash,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
     ) async -> BatchReport {
-        let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode,
-                                       baseNames: renderedBaseNames(items, pipeline: pipeline))
+        let baseNames = renderedBaseNames(items, pipeline: pipeline)
+        if baseNames == nil, pipeline.rename.isEnabled { return BatchReport(cancelled: true) }
+        let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode, baseNames: baseNames)
         let total = plans.count
         var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
         var weights = [Int](repeating: 1, count: total)
@@ -108,19 +109,25 @@ public enum BatchRunner {
     }
 
     /// Renders the rename template for every item, serially in input order (the counter depends on
-    /// it). Nil when renaming is off.
+    /// it). Nil when renaming is off, or when the task is cancelled part-way (nothing is written then).
+    /// The header and creation date are only read when the template uses them.
     private static func renderedBaseNames(_ items: [InputItem], pipeline: Pipeline) -> [String]? {
         guard pipeline.rename.isEnabled else { return nil }
         let template = RenameTemplate(pipeline.rename.pattern)
-        return items.enumerated().map { index, item in
-            let header = ImageLoader.header(of: item.source)
-            let size = pipeline.outputSize(sourceWidth: header?.width ?? 1, sourceHeight: header?.height ?? 1)
-            let created = (try? item.source.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+        var names: [String] = []
+        for (index, item) in items.enumerated() {
+            if Task.isCancelled { return nil }
+            let header = template.needsHeader ? ImageLoader.header(of: item.source) : nil
+            let upright = header?.uprightSize ?? (width: 1, height: 1)
+            let size = pipeline.outputSize(sourceWidth: upright.width, sourceHeight: upright.height)
+            let created = template.needsDate
+                ? (try? item.source.resourceValues(forKeys: [.creationDateKey]))?.creationDate : nil
             let context = RenameContext.make(
                 source: item.source, header: header, outputSize: size, format: pipeline.output.format,
                 counter: pipeline.rename.counterStart + index, fileCreationDate: created)
-            return template.render(context)
+            names.append(template.render(context))
         }
+        return names
     }
 
     private static func makeReport(

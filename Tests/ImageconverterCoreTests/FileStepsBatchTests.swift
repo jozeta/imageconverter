@@ -151,4 +151,69 @@ final class FileStepsBatchTests: XCTestCase {
         XCTAssertEqual(size.width, 100)
         XCTAssertEqual(size.height, 50)
     }
+
+    // MARK: fix round 1
+
+    func testWidthTokenUsesUprightSize() async throws {
+        let url = try source("rot.jpg", width: 400, height: 200,
+                             properties: [kCGImagePropertyOrientation as String: 6])
+        let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: renamePipeline("{width}x{height}"),
+                                           mode: .newFolder(out))
+        XCTAssertEqual(names(report), ["200x400.jpg"])
+        let header = try XCTUnwrap(ImageLoader.header(of: try XCTUnwrap(report.written.first)))
+        XCTAssertEqual([header.width, header.height], [200, 400])
+    }
+
+    func testWidthTokenUprightWithCropAndResize() async throws {
+        let url = try source("rot.jpg", width: 400, height: 200,
+                             properties: [kCGImagePropertyOrientation as String: 6])
+        let steps = [
+            PipelineStep(operation: .crop(CropOptions(mode: .aspect(width: 1, height: 2)))),
+            PipelineStep(operation: .resize(ResizeOptions(mode: .maxWidth(100))))
+        ]
+        let report = await BatchRunner.run(InputCollector.collect([url]),
+                                           pipeline: renamePipeline("{width}x{height}", steps: steps),
+                                           mode: .newFolder(out))
+        let header = try XCTUnwrap(ImageLoader.header(of: try XCTUnwrap(report.written.first)))
+        XCTAssertEqual(names(report), ["\(header.width)x\(header.height).jpg"])
+    }
+
+    func testCancelledBeforePlanningWritesNothing() async throws {
+        let files = try (1...3).map { try source("img\($0).jpg") }
+        let task = Task { () -> BatchReport in
+            while !Task.isCancelled { await Task.yield() }
+            return await BatchRunner.run(InputCollector.collect(files), pipeline: renamePipeline("x_{counter}"),
+                                         mode: .newFolder(out))
+        }
+        task.cancel()
+        let report = await task.value
+        XCTAssertTrue(report.cancelled)
+        XCTAssertEqual(report.written, [])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: out.path))
+    }
+
+    func testTemplateNeedsHeader() {
+        XCTAssertFalse(RenameTemplate("trip_{counter}_{name}").needsHeader)
+        XCTAssertTrue(RenameTemplate("{width}").needsHeader)
+        XCTAssertTrue(RenameTemplate("{camera}").needsHeader)
+        XCTAssertTrue(RenameTemplate("{date}").needsDate)
+        XCTAssertFalse(RenameTemplate("{width}").needsDate)
+    }
+
+    func testPlannerOverwriteSameNameReplacesSource() {
+        let items = [InputItem(source: root.appendingPathComponent("a.jpg"), relativeDirectory: "")]
+        let plans = OutputPlanner.plan(items, format: .jpeg, mode: .overwrite, baseNames: ["a"],
+                                       fileExists: { _ in true })
+        XCTAssertTrue(plans[0].replacesSource)
+        XCTAssertFalse(plans[0].trashesSource)
+    }
+
+    func testPlannerOverwriteSwapDoesNotUseOriginalsAsDestinations() {
+        let items = ["2.jpg", "1.jpg"].map { InputItem(source: root.appendingPathComponent($0), relativeDirectory: "") }
+        let existing: Set<String> = ["1.jpg", "2.jpg"].reduce(into: []) { $0.insert(root.appendingPathComponent($1).path) }
+        let plans = OutputPlanner.plan(items, format: .jpeg, mode: .overwrite, baseNames: ["1", "2"],
+                                       fileExists: { existing.contains($0.path) })
+        XCTAssertEqual(plans.map { $0.destination.lastPathComponent }, ["1_2.jpg", "2_2.jpg"])
+        XCTAssertTrue(plans.allSatisfy { $0.trashesSource && !$0.replacesSource })
+    }
 }

@@ -122,6 +122,21 @@ public struct RenameTemplate: Equatable, Sendable {
         self.parts = parts
     }
 
+    private func uses(_ names: Set<String>) -> Bool {
+        parts.contains { part in
+            if case let .token(name, _, _) = part { return names.contains(name) }
+            return false
+        }
+    }
+
+    /// True when the pattern reads the image header (size, camera, lens, ISO or a capture date).
+    public var needsHeader: Bool {
+        uses(["date", "time", "camera", "make", "lens", "iso", "width", "height"])
+    }
+
+    /// True when the pattern uses a date or time (and so the file's creation date as a fallback).
+    public var needsDate: Bool { uses(["date", "time"]) }
+
     /// Token names outside the supported list, in order of appearance. They render literally.
     public var unknownTokens: [String] {
         parts.compactMap { part in
