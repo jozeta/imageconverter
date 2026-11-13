@@ -1,4 +1,5 @@
 import CoreGraphics
+import CoreText
 import Foundation
 
 /// Pixel operations behind the image steps. Inputs from `Geometry` are top-left origin (y down);
@@ -120,6 +121,46 @@ public enum ImageOps {
         }
     }
 
+    /// Draws a text or image watermark. `asset` is the already loaded watermark image (image content only).
+    public static func watermark(_ image: CGImage, _ options: WatermarkOptions, asset: CGImage?) throws -> CGImage {
+        let step = StepKind.watermark.displayName
+        var line: CTLine?
+        var descent: CGFloat = 0
+        let contentSize: CGSize
+        switch options.content {
+        case .text(let text):
+            guard !text.text.isEmpty else { return image }
+            guard let built = textLine(text) else { return image }
+            line = built.line
+            descent = built.descent
+            contentSize = built.size
+        case .image:
+            guard let asset else { throw ConversionError.watermarkImageUnreadable }
+            contentSize = CGSize(width: asset.width, height: asset.height)
+        }
+        let imageSize = CGSize(width: image.width, height: image.height)
+        guard let rect = Geometry.watermarkRect(imageSize: imageSize, contentSize: contentSize, options: options)
+        else { return image }
+
+        let ctx = try context(imageSize, like: image, step: step, alpha: hasAlpha(image))
+        draw(image, at: .zero, size: imageSize, in: ctx)
+        ctx.setAlpha(CGFloat(options.clampedOpacity))
+        if let line, case .text(let text) = options.content {
+            ctx.saveGState()
+            ctx.setFillColor(cgColor(text.color))
+            // The line was measured at `referenceFontSize`; scale it to the rect, baseline above the descent.
+            let scale = rect.height / contentSize.height
+            ctx.translateBy(x: rect.minX, y: CGFloat(ctx.height) - rect.maxY + descent * scale)
+            ctx.scaleBy(x: scale, y: scale)
+            ctx.textPosition = .zero
+            CTLineDraw(line, ctx)
+            ctx.restoreGState()
+        } else if let asset {
+            draw(asset, at: rect.origin, size: rect.size, in: ctx)
+        }
+        return try finish(ctx, step: step)
+    }
+
     // MARK: Helpers
 
     static func hasAlpha(_ image: CGImage) -> Bool {
@@ -166,11 +207,46 @@ public enum ImageOps {
         return image
     }
 
-    private static func fill(_ ctx: CGContext, color: RGBAColor) {
+    private static let referenceFontSize: CGFloat = 100
+
+    private struct TextLine {
+        var line: CTLine
+        var descent: CGFloat
+        var size: CGSize
+    }
+
+    /// A line for `text` at the reference size, with its typographic size (width, ascent + descent).
+    private static func textLine(_ text: TextWatermark) -> TextLine? {
+        // The colour comes from the context, so the opacity and colour apply the same way as for images.
+        let attributes = [kCTFontAttributeName: watermarkFont(named: text.fontName),
+                          kCTForegroundColorFromContextAttributeName: true] as CFDictionary
+        guard let string = CFAttributedStringCreate(nil, text.text as CFString, attributes) else { return nil }
+        let line = CTLineCreateWithAttributedString(string)
+        var ascent: CGFloat = 0
+        var descent: CGFloat = 0
+        var leading: CGFloat = 0
+        let width = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
+        return TextLine(line: line, descent: descent, size: CGSize(width: CGFloat(width), height: ascent + descent))
+    }
+
+    /// The named font, or the system bold font when it doesn't exist (CoreText substitutes silently).
+    private static func watermarkFont(named name: String) -> CTFont {
+        let systemBold = CTFontCreateUIFontForLanguage(.emphasizedSystem, referenceFontSize, nil)
+            ?? CTFontCreateWithName("Helvetica-Bold" as CFString, referenceFontSize, nil)
+        if name == ".SystemBold" { return systemBold }
+        let font = CTFontCreateWithName(name as CFString, referenceFontSize, nil)
+        return CTFontCopyPostScriptName(font) as String == name ? font : systemBold
+    }
+
+    private static func cgColor(_ color: RGBAColor) -> CGColor {
         let clamp: (Double) -> CGFloat = { CGFloat($0.isFinite ? min(1, max(0, $0)) : 0) }
         let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-        let components = [clamp(color.red), clamp(color.green), clamp(color.blue), clamp(color.alpha)]
-        guard let cgColor = CGColor(colorSpace: space, components: components) else { return }
+        return CGColor(colorSpace: space, components: [clamp(color.red), clamp(color.green), clamp(color.blue),
+                                                       clamp(color.alpha)]) ?? CGColor(gray: 1, alpha: 1)
+    }
+
+    private static func fill(_ ctx: CGContext, color: RGBAColor) {
+        let cgColor = cgColor(color)
         ctx.setBlendMode(.copy)
         ctx.setFillColor(cgColor)
         ctx.fill(CGRect(x: 0, y: 0, width: ctx.width, height: ctx.height))
