@@ -22,7 +22,8 @@ struct PreviewPane: View {
                     images(stacked: geometry.size.width < Self.stackedBelow)
                 }
                 .overlay { if model.isRenderingPreview { spinner } }
-                infoLine
+                runProgress
+                infoTable
                 Filmstrip(model: model)
             }
         }
@@ -74,21 +75,98 @@ struct PreviewPane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ViewBuilder private var infoLine: some View {
-        if model.previewFailure != nil {
-            Text(model.previewResult?.sourceName ?? model.previewFailureName ?? "")
-                .font(LadaGlass.Typography.mono)
-                .foregroundStyle(LadaGlass.Colors.muted)
-                .lineLimit(1)
-                .truncationMode(.middle)
-        } else if let result = model.previewResult {
-            Text("\(result.sourceName) \(result.sourceSize.0) × \(result.sourceSize.1) → "
-                 + "\(result.outputName) \(result.outputSize.0) × \(result.outputSize.1)")
-                .font(LadaGlass.Typography.mono)
-                .foregroundStyle(LadaGlass.Colors.muted)
-                .lineLimit(2)
-                .truncationMode(.middle)
-                .textSelection(.enabled)
+    /// Progress bar and Cancel while a batch runs, directly above the table.
+    @ViewBuilder private var runProgress: some View {
+        if model.isRunning {
+            HStack(spacing: LadaGlass.Spacing.s) {
+                if let progress = model.progress {
+                    ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
+                        .accessibilityLabel("Conversion progress")
+                    Text("\(progress.completed) / \(progress.total)")
+                        .font(LadaGlass.Typography.mono)
+                        .foregroundStyle(LadaGlass.Colors.muted)
+                } else {
+                    ProgressView().controlSize(.small)
+                    Spacer()
+                }
+                Button("Cancel") { model.cancel() }
+                    .buttonStyle(.lg(.secondary))
+                    .accessibilityLabel("Cancel the conversion")
+            }
         }
+    }
+
+    @ViewBuilder private var infoTable: some View {
+        let result = model.previewResult
+        let failed = model.previewFailure != nil
+        if result != nil || failed {
+            Grid(alignment: .leading, horizontalSpacing: LadaGlass.Spacing.m, verticalSpacing: LadaGlass.Spacing.xs) {
+                GridRow {
+                    Text("")
+                    cell("Original", muted: true)
+                    cell("Result", muted: true)
+                }
+                GridRow {
+                    label("Name")
+                    cell(result?.sourceName ?? model.previewFailureName ?? "—")
+                    if let failure = model.previewFailure {
+                        Text(failure).font(LadaGlass.Typography.mono)
+                            .foregroundStyle(LadaGlass.Colors.warnText)
+                            .lineLimit(2).gridCellColumns(1)
+                    } else {
+                        cell(result?.outputName ?? "—")
+                    }
+                }
+                if !failed, let result {
+                    GridRow {
+                        label("Folder")
+                        folderCell(result.source.deletingLastPathComponent())
+                        folderCell(result.outputURL.deletingLastPathComponent())
+                    }
+                    GridRow {
+                        label("Dimensions")
+                        cell("\(result.sourceSize.0) × \(result.sourceSize.1)")
+                        cell("\(result.outputSize.0) × \(result.outputSize.1)")
+                    }
+                    GridRow {
+                        label("Size")
+                        cell(Self.bytes(model.sizeEstimate?.original ?? result.sourceFileSize))
+                        cell(resultSize)
+                    }
+                }
+            }
+            .textSelection(.enabled)
+        }
+    }
+
+    private var resultSize: String {
+        if model.isEstimating { return "Estimating…" }
+        return Self.bytes(model.sizeEstimate?.output)
+    }
+
+    private static func bytes(_ count: Int?) -> String {
+        guard let count else { return "—" }
+        return ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
+    }
+
+    private func label(_ text: String) -> some View {
+        Text(text).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+    }
+
+    private func cell(_ text: String, muted: Bool = false) -> some View {
+        Text(text)
+            .font(muted ? LadaGlass.Typography.label : LadaGlass.Typography.mono)
+            .foregroundStyle(muted ? LadaGlass.Colors.muted : LadaGlass.Colors.text)
+            .lineLimit(1)
+            .truncationMode(.middle)
+    }
+
+    private func folderCell(_ url: URL) -> some View {
+        let path = url.path
+        return Text(path)
+            .font(LadaGlass.Typography.mono)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(path)
     }
 }

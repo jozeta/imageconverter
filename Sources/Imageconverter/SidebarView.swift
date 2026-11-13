@@ -80,7 +80,7 @@ struct SidebarView: View {
     @ViewBuilder private var runSection: some View {
         if model.isRunning {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-                if let progress = model.progress {
+                if model.previewCollapsed, let progress = model.progress {
                     ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
                         .accessibilityLabel("Conversion progress")
                     Text("\(progress.completed) / \(progress.total)")

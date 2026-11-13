@@ -46,7 +46,7 @@ Started 2026-11-13. The full design is in
     with a live example
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
 - **Live preview** of the selected image before and after the pipeline, with its new name and
-  size, and a filmstrip of the batch (click a thumbnail or use ← →). Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
+  size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and a filmstrip of the batch (click a thumbnail or use ← →). Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
   half-written files, and name collisions resolved with `_2`, `_3`, …
 
@@ -81,9 +81,9 @@ The output settings are in the Output row of the sidebar (there is no Settings w
 
 | Setting | Options | Default |
 |---------|---------|---------|
-| Output mode | New folder · Same folder, new name · Overwrite originals | New folder |
+| Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row) | New folder |
 | Output folder | Any folder (used by "New folder") | asked on first run |
-| Same-folder suffix | Name suffix used when no Rename step is on | `_converted` |
+| Same-folder suffix | Name suffix used by "Same folder" when no Rename step is on | `_new` |
 
 Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 
@@ -96,6 +96,7 @@ Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 | Set artist / copyright / description | Writes the text after the removal (an empty text removes the field) | off |
 | Rename | Switches the Rename step on | off |
 | Pattern | Rename pattern, see the token table below | `{name}` |
+| Find / Replace | Replaces text in the name after the pattern; plain text or a regular expression | empty |
 | Counter starts at | First `{counter}` value, 0 to 999 999 999 | 1 |
 
 Watermark (pipeline step, saved with the pipeline):
@@ -121,7 +122,7 @@ Presets and preview:
 | Instagram 4:5 (built-in) | Resize exact 1080 × 1350 fill & crop, sRGB, metadata strip location, JPEG 85 % | n/a |
 | Archive TIFF (built-in) | No image steps, metadata off, TIFF LZW | n/a |
 | Show preview | View → Hide Preview / Show Preview (⌥⌘P); UserDefaults key `previewCollapsed` | shown |
-| Pipeline collapsed | The Collapse/Expand button in the sidebar; key `pipelineCollapsed` | expanded |
+| Pipeline collapsed | The handle on the pipeline's edge or View → Collapse Pipeline (⌥⌘L); key `pipelineCollapsed` | expanded |
 
 In *Overwrite originals* mode, a rename that only changes letter case keeps the original name.
 
@@ -151,12 +152,12 @@ folder for access and remember your answer. Until then it runs unsandboxed.
 ### Preview before running
 
 1. Add images; the preview pane on the right shows the first one before and after the pipeline,
-   with `old name → new name` and `W × H → W × H` underneath.
+   with an Original | Result table underneath (name, folder, `W × H`, file size; the result size is estimated and shows "Estimating…" while it is computed).
 2. Click a thumbnail in the filmstrip, or focus it and press ← / →, to look at another image.
 3. Edit a step: the preview updates 300 ms later, and shows a spinner meanwhile. If an image can't
    be rendered, the reason is shown instead of the "after" image. The preview shows the name for
    that image alone; numbers like `_2` that avoid clashes within a batch appear only when you run it.
-4. Hide the preview with the button or ⌥⌘P; the window shrinks to the sidebar.
+4. Hide the preview with the handle on its edge or ⌥⌘P (View menu); the window shrinks to the sidebar. While a batch runs, the progress bar and Cancel sit above the table.
 
 ### Build a pipeline
 
@@ -180,8 +181,8 @@ Your pipeline is kept between launches.
 2. Under **Output** (the last row of the pipeline), pick a format (JPEG, PNG, HEIC, TIFF, plus GIF, BMP and JPEG 2000 where your
    Mac can write them). JPEG, HEIC and JPEG 2000 have a quality slider; TIFF has a compression
    choice.
-3. Under the quality slider, check the size estimate, then use **Save to** to pick *Overwrite original
-   files*, *Same folder as original* or *New folder*.
+3. Under the quality slider, the size estimate shows "Original → about" for the selected image. Use **Save to** to pick *Overwrite original
+   files* (originals that are renamed or change format go to the Trash; Rename is unavailable), *Same folder as original* (adds the suffix, default `_new`, or the Rename pattern) or *New folder*.
 4. Press **Run on N images** (⌘R). In *New folder* mode with no folder chosen yet, you are asked to
    pick one first. Cancel with ⌘. at any time; files already finished stay, and no half-written
    files are left.
@@ -209,6 +210,8 @@ Your pipeline is kept between launches.
 4. Set **Counter starts at** if numbering should not begin at 1. The counter follows input order.
 5. In *Same folder* mode the pattern replaces the suffix (the summary says "Same folder,
    renamed"). Names that come out identical get `_2`, `_3`, …
+6. Optionally fill **Find** and **Replace** to change text in the resulting name; tick the regular
+   expression option for patterns. The Rename step is greyed out while *Overwrite original files* is selected.
 
 Rename tokens:
 
