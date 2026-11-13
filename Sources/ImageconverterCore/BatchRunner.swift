@@ -89,7 +89,7 @@ public enum BatchRunner {
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
     ) async -> BatchReport {
         let baseNames = renderedBaseNames(items, pipeline: pipeline)
-        if baseNames == nil, pipeline.rename.isEnabled { return BatchReport(cancelled: true) }
+        if baseNames == nil, pipeline.rename.isActive { return BatchReport(cancelled: true) }
         let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode, baseNames: baseNames)
         let total = plans.count
         if Task.isCancelled { return BatchReport(cancelled: true) }
@@ -148,7 +148,7 @@ public enum BatchRunner {
     /// it). Nil when renaming is off, or when the task is cancelled part-way (nothing is written then).
     /// The header and creation date are only read when the template uses them.
     private static func renderedBaseNames(_ items: [InputItem], pipeline: Pipeline) -> [String]? {
-        guard pipeline.rename.isEnabled else { return nil }
+        guard pipeline.rename.isActive else { return nil }
         var names: [String] = []
         for (index, item) in items.enumerated() {
             if Task.isCancelled { return nil }
