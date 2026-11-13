@@ -81,8 +81,8 @@ struct PreviewPane: View {
     }
 
     @ViewBuilder private var infoLine: some View {
-        if let result = model.previewResult, model.previewFailure != nil {
-            Text(result.sourceName)
+        if model.previewFailure != nil {
+            Text(model.previewResult?.sourceName ?? model.previewFailureName ?? "")
                 .font(LadaGlass.Typography.mono)
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .lineLimit(1)

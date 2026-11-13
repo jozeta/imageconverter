@@ -6,6 +6,8 @@ import Foundation
 public struct PreviewResult: @unchecked Sendable {
     public let before: CGImage
     public let after: CGImage
+    /// The rendered item's file, so a caller can tell which item this result belongs to.
+    public let source: URL
     public let sourceName: String
     public let outputName: String
     public let sourceSize: (Int, Int)
@@ -98,7 +100,7 @@ public actor PreviewRenderer {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
         return .ready(PreviewResult(
-            before: before, after: after, sourceName: item.source.lastPathComponent,
+            before: before, after: after, source: item.source, sourceName: item.source.lastPathComponent,
             outputName: outputName(for: item, index: index, pipeline: pipeline, mode: mode),
             sourceSize: (source.width, source.height), outputSize: (result.width, result.height)))
     }

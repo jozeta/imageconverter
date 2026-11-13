@@ -154,7 +154,8 @@ folder for access and remember your answer. Until then it runs unsandboxed.
    with `old name → new name` and `W × H → W × H` underneath.
 2. Click a thumbnail in the filmstrip, or focus it and press ← / →, to look at another image.
 3. Edit a step: the preview updates 300 ms later, and shows a spinner meanwhile. If an image can't
-   be rendered, the reason is shown instead of the "after" image.
+   be rendered, the reason is shown instead of the "after" image. The preview shows the name for
+   that image alone; numbers like `_2` that avoid clashes within a batch appear only when you run it.
 4. Hide the preview with the button or ⌥⌘P; the window shrinks to the sidebar.
 
 ### Build a pipeline

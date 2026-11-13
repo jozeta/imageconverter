@@ -216,7 +216,20 @@ final class PresetStoreTests: XCTestCase {
     func testIdAndFileNameMismatchIsSkipped() throws {
         let name = UUID().uuidString + ".json"
         try writeRaw("{\"id\":\"\(UUID().uuidString)\",\"name\":\"A\",\"pipeline\":{}}", name: name)
-        XCTAssertEqual(store.loadAll().skipped.map(\.file), [name])
+        let skipped = store.loadAll().skipped
+        XCTAssertEqual(skipped.map(\.file), [name])
+        XCTAssertEqual(skipped.first?.reason, "The preset's id doesn't match its file name.")
+    }
+
+    func testWhitespaceVariantsCollideWithBuiltIn() throws {
+        XCTAssertThrowsError(try PresetStore.validatedName(
+            "Web\u{00A0}export", existing: PresetStore.builtIns, excluding: nil)) {
+            XCTAssertEqual($0 as? PresetError, .duplicateName)
+        }
+        XCTAssertThrowsError(try PresetStore.validatedName(
+            "web   \t export", existing: PresetStore.builtIns, excluding: nil))
+        XCTAssertEqual(try PresetStore.validatedName(
+            "My\u{00A0}\u{00A0} preset", existing: [], excluding: nil), "My preset")
     }
 
     func testBuiltInIdInFileIsSkipped() throws {
@@ -225,6 +238,7 @@ final class PresetStoreTests: XCTestCase {
         try writeRaw("{\"id\":\"\(builtIn.uuidString)\",\"name\":\"Other\",\"pipeline\":{}}", name: name)
         let result = store.loadAll()
         XCTAssertEqual(result.skipped.map(\.file), [name])
+        XCTAssertEqual(result.skipped.first?.reason, "The preset uses a built-in preset's id.")
         XCTAssertEqual(result.presets.count, 3)
     }
 

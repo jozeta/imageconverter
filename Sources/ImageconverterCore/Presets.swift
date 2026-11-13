@@ -50,6 +50,8 @@ public enum PresetError: Error, Equatable {
     case invalidJSON
     case invalidStructure
     case folderUnreadable
+    case idMismatch
+    case builtInID
 
     public var reason: String {
         switch self {
@@ -64,6 +66,8 @@ public enum PresetError: Error, Equatable {
         case .invalidJSON: return "The preset file isn't valid JSON."
         case .invalidStructure: return "The preset file has missing or wrongly typed fields."
         case .folderUnreadable: return "The presets folder couldn't be read."
+        case .idMismatch: return "The preset's id doesn't match its file name."
+        case .builtInID: return "The preset uses a built-in preset's id."
         }
     }
 }
@@ -136,9 +140,10 @@ public final class PresetStore: @unchecked Sendable {
 
     /// Control characters are removed, the result is trimmed, 1...80 characters, unique ignoring case.
     public static func validatedName(_ raw: String, existing: [Preset], excluding: UUID?) throws -> String {
-        let cleaned = String(String.UnicodeScalarView(raw.unicodeScalars.filter {
+        let stripped = String(String.UnicodeScalarView(raw.unicodeScalars.filter {
             !CharacterSet.controlCharacters.contains($0) && !CharacterSet.newlines.contains($0)
-        })).trimmingCharacters(in: .whitespaces)
+        }))
+        let cleaned = normalizeWhitespace(stripped)
         guard !cleaned.isEmpty else { throw PresetError.invalidName("Enter a name for the preset.") }
         guard cleaned.count <= maxNameLength else {
             throw PresetError.invalidName("The name can be at most \(maxNameLength) characters.")
@@ -150,8 +155,25 @@ public final class PresetStore: @unchecked Sendable {
         return cleaned
     }
 
+    /// Every Unicode whitespace character (non-breaking space included) becomes one space; runs
+    /// collapse and the ends are trimmed, so look-alike names can't coexist.
+    private static func normalizeWhitespace(_ text: String) -> String {
+        var result = String.UnicodeScalarView()
+        var pendingSpace = false
+        for scalar in text.unicodeScalars {
+            if CharacterSet.whitespaces.contains(scalar) || scalar.properties.isWhitespace {
+                pendingSpace = !result.isEmpty
+            } else {
+                if pendingSpace { result.append(" ") }
+                pendingSpace = false
+                result.append(scalar)
+            }
+        }
+        return String(result)
+    }
+
     private static func fold(_ name: String) -> String {
-        name.folding(options: [.caseInsensitive], locale: nil)
+        normalizeWhitespace(name).folding(options: [.caseInsensitive], locale: nil)
     }
 
     // MARK: Loading
@@ -244,7 +266,8 @@ public final class PresetStore: @unchecked Sendable {
         guard version <= Preset.schemaVersion else { throw PresetError.unsupportedVersion(version) }
         var preset: Preset
         do { preset = try decoder.decode(Preset.self, from: data) } catch { throw decodeError(error) }
-        guard preset.id == expectedID, !isBuiltIn(preset.id) else { throw PresetError.unreadable }
+        guard preset.id == expectedID else { throw PresetError.idMismatch }
+        guard !isBuiltIn(preset.id) else { throw PresetError.builtInID }
         guard let name = try? validatedName(preset.name, existing: [], excluding: nil) else {
             throw PresetError.invalidName("The preset has no valid name.")
         }

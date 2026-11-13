@@ -23,9 +23,9 @@ extension AppModel {
     /// Flips the preview pane, then moves the window edge: hiding shrinks the window to the sidebar,
     /// showing restores the width it had before.
     func togglePreview() {
-        let window = NSApp.keyWindow
+        let window = mainWindow
         let before = window?.frame.width ?? 0
-        if !previewCollapsed { expandedWindowWidth = before }
+        if !previewCollapsed, before > 0 { expandedWindowWidth = before }
         previewCollapsed.toggle()
         let target = previewCollapsed ? Self.sidebarWidth : (expandedWindowWidth ?? before + 440)
         // Wait a runloop so SwiftUI has applied the new minimum size before the frame is set.
@@ -40,12 +40,23 @@ extension AppModel {
     }
 
     /// After a run, forgets items whose file is gone (overwrite mode trashes originals when the format changes).
+    /// The file checks run off the main actor; the result is applied (and announced) back on it.
     func dropMissingItems() {
-        let kept = items.filter { FileManager.default.fileExists(atPath: $0.source.path) }
-        guard kept.count != items.count else { return }
-        items = kept
-        selectedIndex = min(selectedIndex, max(kept.count - 1, 0))
-        resetPreview()
+        let sources = items.map(\.source)
+        Task { [weak self] in
+            let missing = await Task.detached(priority: .utility) {
+                Set(sources.filter { !FileManager.default.fileExists(atPath: $0.path) })
+            }.value
+            guard let self, !missing.isEmpty else { return }
+            let kept = items.filter { !missing.contains($0.source) }
+            let removed = items.count - kept.count
+            guard removed > 0 else { return }
+            items = kept
+            selectedIndex = min(selectedIndex, max(kept.count - 1, 0))
+            resetPreview()
+            toasts.show("Removed \(removed) \(removed == 1 ? "image" : "images") whose "
+                        + "\(removed == 1 ? "original was" : "originals were") moved to the Trash", type: .info)
+        }
     }
 
     /// Drops the shown preview and frees the renderer's caches (batch start, clear).
@@ -54,6 +65,7 @@ extension AppModel {
         previewGeneration += 1
         previewResult = nil
         previewFailure = nil
+        previewFailureName = nil
         isRenderingPreview = false
         Task { await previewRenderer.purge() }
     }
@@ -70,6 +82,7 @@ extension AppModel {
             if items.isEmpty {
                 previewResult = nil
                 previewFailure = nil
+                previewFailureName = nil
             }
             return
         }
@@ -86,10 +99,13 @@ extension AppModel {
             case .ready(let result):
                 previewResult = result
                 previewFailure = nil
+                previewFailureName = nil
             case .failed(let reason):
                 // A cancelled render belongs to a newer request that is already on its way.
                 if reason == "Cancelled" { return }
-                // The last Before image and name stay; only the After side shows the reason.
+                // The previous image stays only when it belongs to this same item.
+                if previewResult?.source != item.source { previewResult = nil }
+                previewFailureName = item.source.lastPathComponent
                 previewFailure = reason
             }
         }

@@ -22,6 +22,7 @@ struct ImageconverterApp: App {
                 }
             }
             .frame(minHeight: 420)
+            .background(WindowAccessor { model.mainWindow = $0 })
             .onChange(of: PreviewRequest(model: model, mode: settings.outputMode), initial: true) { _, request in
                 model.schedulePreview(mode: request.mode)
             }
@@ -30,6 +31,7 @@ struct ImageconverterApp: App {
             CommandGroup(after: .saveItem) {
                 Button("Save Preset") { model.saveCurrent() }
                     .keyboardShortcut("s", modifiers: .command)
+                    .disabled(model.isRunning)
             }
             CommandGroup(after: .toolbar) {
                 Button(model.previewCollapsed ? "Show Preview" : "Hide Preview") { model.togglePreview() }
@@ -67,5 +69,20 @@ private struct PreviewRequest: Equatable {
         self.mode = mode
         collapsed = model.previewCollapsed
         itemCount = model.items.count
+    }
+}
+
+/// Hands the hosting window to `onWindow` once the view is in one, so the model knows which window is the main one.
+private struct WindowAccessor: NSViewRepresentable {
+    let onWindow: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async { [weak view] in onWindow(view?.window) }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async { [weak view] in onWindow(view?.window) }
     }
 }

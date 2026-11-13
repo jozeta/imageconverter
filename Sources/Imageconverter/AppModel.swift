@@ -35,6 +35,8 @@ final class AppModel {
     var previewResult: PreviewResult?
     /// Why the last render failed (nil when it succeeded).
     var previewFailure: String?
+    /// The name of the item whose render failed, shown when there is no result for it.
+    var previewFailureName: String?
     var isRenderingPreview = false
     /// Bumped when a filmstrip thumbnail has loaded, so cells refresh (see `AppModel+Preview.swift`).
     var thumbnailTick = 0
@@ -49,6 +51,8 @@ final class AppModel {
     @ObservationIgnored var previewTask: Task<Void, Never>?
     @ObservationIgnored var previewGeneration = 0
     @ObservationIgnored var expandedWindowWidth: CGFloat?
+    /// The main window, captured by `WindowAccessor`; the preview toggle resizes this one.
+    @ObservationIgnored weak var mainWindow: NSWindow?
     @ObservationIgnored var previewMode: OutputMode?
     @ObservationIgnored let previewRenderer = PreviewRenderer()
     @ObservationIgnored let thumbnailCache: NSCache<NSURL, CGImageBox> = {
@@ -248,7 +252,7 @@ final class AppModel {
             counterStart: pipeline.rename.counterStart, format: pipeline.output.format, steps: pipeline.steps)
     }
 
-    /// Renders the rename pattern for the selected image (the first by default) (or a built-in sample when there are none).
+    /// Renders the rename pattern for the selected image (the first by default, or a built-in sample when there are none).
     /// The file is read off the main actor; the header is kept per file and the result per key.
     func refreshRenameExample() async {
         let key = renameExampleKey

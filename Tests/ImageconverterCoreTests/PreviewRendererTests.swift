@@ -30,13 +30,15 @@ final class PreviewRendererTests: XCTestCase {
         let pipeline = Pipeline(steps: [PipelineStep(operation: .resize(ResizeOptions(mode: .maxWidth(400))))],
                                 output: .init(format: .jpeg))
         let renderer = PreviewRenderer(displayMax: 300)
-        let result = try ready(await renderer.render(item: try item("a.png"), index: 0, pipeline: pipeline))
+        let item = try item("a.png")
+        let result = try ready(await renderer.render(item: item, index: 0, pipeline: pipeline))
         XCTAssertEqual(result.outputSize.0, 400)
         XCTAssertEqual(result.outputSize.1, 300)
         XCTAssertEqual(result.sourceSize.0, 800)
         XCTAssertLessThanOrEqual(max(result.after.width, result.after.height), 300)
         XCTAssertLessThanOrEqual(max(result.before.width, result.before.height), 300)
         XCTAssertEqual(result.sourceName, "a.png")
+        XCTAssertEqual(result.source, item.source)
         XCTAssertEqual(result.outputName, "a.jpg")
     }
 
@@ -55,6 +57,14 @@ final class PreviewRendererTests: XCTestCase {
         let outcome = await PreviewRenderer().render(item: try item("a.png"), index: 0, pipeline: pipeline)
         guard case .failed(let reason) = outcome else { return XCTFail("Expected failure") }
         XCTAssertEqual(reason, "Couldn't read the watermark image")
+    }
+
+    func testPixelGuardFailsWithTooLargeReason() async throws {
+        let outcome = await PreviewRenderer(maxPixels: 100).render(
+            item: try item("big.png", width: 20, height: 20), index: 0, pipeline: Pipeline())
+        guard case .failed(let reason) = outcome else { return XCTFail("Expected failure") }
+        XCTAssertEqual(reason, ConversionError.tooLarge(pixels: 400).reason)
+        XCTAssertTrue(reason.contains("too large"))
     }
 
     func testUnreadableSourceFailsWithLoaderReason() async throws {
