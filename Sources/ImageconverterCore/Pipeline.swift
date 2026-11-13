@@ -128,7 +128,7 @@ public enum ColorProfile: String, Codable, CaseIterable, Sendable {
 }
 
 public enum StepKind: String, Codable, CaseIterable, Sendable {
-    case resize, crop, rotateFlip, canvas, colorProfile, watermark
+    case resize, crop, rotateFlip, canvas, colorProfile, adjust, watermark
 
     public var displayName: String {
         switch self {
@@ -137,6 +137,7 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .rotateFlip: return "Rotate / flip"
         case .canvas: return "Canvas / padding"
         case .colorProfile: return "Color profile"
+        case .adjust: return "Adjust"
         case .watermark: return "Watermark"
         }
     }
@@ -148,6 +149,7 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .rotateFlip: return .rotateFlip(RotateFlipOptions())
         case .canvas: return .canvas(CanvasOptions())
         case .colorProfile: return .colorProfile(.sRGB)
+        case .adjust: return .adjust(AdjustOptions())
         case .watermark: return .watermark(WatermarkOptions())
         }
     }
@@ -159,6 +161,7 @@ public enum ImageOperation: Codable, Equatable, Sendable {
     case rotateFlip(RotateFlipOptions)
     case canvas(CanvasOptions)
     case colorProfile(ColorProfile)
+    case adjust(AdjustOptions)
     case watermark(WatermarkOptions)
 
     public var kind: StepKind {
@@ -168,6 +171,7 @@ public enum ImageOperation: Codable, Equatable, Sendable {
         case .rotateFlip: return .rotateFlip
         case .canvas: return .canvas
         case .colorProfile: return .colorProfile
+        case .adjust: return .adjust
         case .watermark: return .watermark
         }
     }
@@ -236,6 +240,7 @@ extension Pipeline {
             case .rotateFlip(let options): current = try ImageOps.rotateFlip(current, options)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
             case .colorProfile(let profile): current = try ImageOps.convertColor(current, to: profile)
+            case .adjust(let options): current = try Adjustments.apply(options, to: current)
             case .watermark(let options):
                 var asset: CGImage?
                 if case .image(let watermark) = options.content { asset = assets.image(for: watermark.path) }
@@ -251,25 +256,34 @@ extension Pipeline {
     /// (the source included). Saturates instead of overflowing.
     public func peakPixels(sourceWidth: Int, sourceHeight: Int) -> Int {
         var peak = 0
-        walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { peak = max(peak, Self.pixels($0)) }
+        walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { size, operation in
+            let pixels = Self.pixels(size)
+            // Core Image keeps intermediates: count an adjust step as 3 working copies of its input.
+            if case .adjust(let options) = operation, !options.isNeutral {
+                let (tripled, overflow) = pixels.multipliedReportingOverflow(by: 3)
+                peak = max(peak, overflow ? Int.max : tripled)
+            }
+            peak = max(peak, pixels)
+        }
         return peak
     }
 
     /// The size after all enabled image steps, from `Geometry`.
     public func outputSize(sourceWidth: Int, sourceHeight: Int) -> (width: Int, height: Int) {
         var last = CGSize(width: max(1, sourceWidth), height: max(1, sourceHeight))
-        walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { last = $0 }
+        walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { size, _ in last = size }
         return (Int(Self.clamped(last.width).rounded()), Int(Self.clamped(last.height).rounded()))
     }
 
-    /// Calls `visit` with the source size, then with the size after each enabled step.
-    private func walk(sourceWidth: Int, sourceHeight: Int, _ visit: (CGSize) -> Void) {
+    /// Calls `visit` with the source size, then for each enabled step with its input size and operation,
+    /// and finally with the output size (operation `nil` for the source and the result).
+    private func walk(sourceWidth: Int, sourceHeight: Int, _ visit: (CGSize, ImageOperation?) -> Void) {
         var size = CGSize(width: max(1, sourceWidth), height: max(1, sourceHeight))
-        visit(size)
         for step in steps where step.isEnabled {
+            visit(size, step.operation)
             size = Self.size(after: step.operation, from: size)
-            visit(size)
         }
+        visit(size, nil)
     }
 
     private static func size(after operation: ImageOperation, from size: CGSize) -> CGSize {
@@ -288,7 +302,7 @@ extension Pipeline {
             return swapped ? CGSize(width: size.height, height: size.width) : size
         case .canvas(let options):
             return Geometry.canvas(source: size, options: options).canvas
-        case .colorProfile, .watermark:
+        case .colorProfile, .adjust, .watermark:
             return size
         }
     }

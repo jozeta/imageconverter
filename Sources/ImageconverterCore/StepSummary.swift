@@ -9,6 +9,7 @@ extension ImageOperation {
         case .rotateFlip(let options): return Self.summary(of: options)
         case .canvas(let options): return Self.summary(of: options.mode)
         case .colorProfile(let profile): return profile.displayName
+        case .adjust(let options): return options.summary
         case .watermark(let options): return options.summary
         }
     }
@@ -82,6 +83,20 @@ extension MetadataOptions {
         if description != nil { fields.append("description") }
         if !fields.isEmpty { text += " · set " + fields.joined(separator: ", ") }
         return text
+    }
+}
+
+extension AdjustOptions {
+    /// One-line description for the pipeline list: `exposure +20, contrast +10`, or `no changes`.
+    public var summary: String {
+        let parts = Field.allCases.compactMap { field -> String? in
+            let value = Int(self[field].rounded())
+            guard value != 0 else { return nil }
+            // Signed fields show their sign (a real minus sign); 0…100 fields are plain amounts.
+            let number = field.range.lowerBound < 0 ? (value > 0 ? "+\(value)" : "−\(-value)") : "\(value)"
+            return field.displayName.lowercased() + " " + number + (field == .hue ? "°" : "")
+        }
+        return parts.isEmpty ? "no changes" : parts.joined(separator: ", ")
     }
 }
 

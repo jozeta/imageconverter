@@ -8,7 +8,7 @@ on your Mac: no uploads, no network access at all.
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 0.1.0 · **Status:** early development (milestone 1, batch conversion, works; the image steps resize, crop, rotate/flip, canvas and color profile, plus metadata and rename, are available; the watermark step is available; presets and the before/after preview are available).
+**Version:** 0.1.0 · **Status:** early development (milestone 1, batch conversion, works; the image steps resize, crop, rotate/flip, canvas and color profile, plus metadata and rename, are available; the adjust and watermark steps are available; presets and the before/after preview are available).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -17,6 +17,7 @@ Started 2026-11-13. The full design is in
 ### Unreleased
 
 - **Save to** dropdown in the Output row (new folder, same folder, overwrite originals) replaces the Settings window; the Rename step is unavailable while overwriting, and the same-folder suffix defaults to `_new`.
+- Adjust step: exposure, brilliance, highlights, shadows, contrast, brightness, black point, saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction.
 - Find and replace (plain text or regular expression) in the Rename step.
 - Size estimate ("Original → about") under the quality slider.
 - Grab handles on the panel edges and View > Hide Preview (⌥⌘P) / Collapse Pipeline (⌥⌘L); the window resizes with them.
@@ -46,6 +47,8 @@ Started 2026-11-13. The full design is in
   - (available) **Rotate / flip**
   - (available) **Canvas / padding**: with a background colour
   - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original
+  - (available) **Adjust**: exposure, brilliance, highlights, shadows, contrast, brightness, black point,
+    saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction
   - (available) **Watermark**: text or image, with position, size, opacity and margin controls
   - (available) **Metadata** (always last, above Output): strip everything, location only or camera
     details, or set artist, copyright and description; the color profile is always kept
@@ -105,6 +108,27 @@ Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 | Pattern | Rename pattern, see the token table below | `{name}` |
 | Find / Replace | Replaces text in the name after the pattern; plain text or a regular expression | empty |
 | Counter starts at | First `{counter}` value, 0 to 999 999 999 | 1 |
+
+Adjust (pipeline step, saved with the pipeline). Every slider defaults to 0 (no change); the step is applied in
+this fixed order whatever order the sliders are moved in:
+
+| Option | What it does | Range |
+|--------|--------------|-------|
+| Exposure | Brightens or darkens the whole image (±2 stops) | −100 to +100 |
+| Highlights | Negative recovers bright areas, positive lifts them | −100 to +100 |
+| Shadows | Positive opens up dark areas, negative deepens them | −100 to +100 |
+| Brilliance | Positive lifts shadows and softens highlights, negative does the opposite | −100 to +100 |
+| Black point | Positive deepens the blacks, negative lifts them to grey | −100 to +100 |
+| Contrast | Lower or higher contrast | −100 to +100 |
+| Brightness | Shifts all tones darker or lighter | −100 to +100 |
+| Saturation | −100 is black and white, +100 doubles the colour | −100 to +100 |
+| Vibrance | Like saturation, but mostly affects muted colours | −100 to +100 |
+| Warmth | Positive is warmer (more yellow), negative cooler (more blue) | −100 to +100 |
+| Tint | Positive is more magenta, negative more green | −100 to +100 |
+| Hue | Rotates every colour around the colour wheel | −180° to +180° |
+| Noise reduction | Smooths fine grain | 0 to 100 |
+| Definition | Local contrast (a wide, gentle unsharp mask) | 0 to 100 |
+| Sharpness | Sharpens fine detail | 0 to 100 |
 
 Watermark (pipeline step, saved with the pipeline):
 
@@ -251,6 +275,14 @@ Metadata is untrusted, so names are sanitised: `/` and `:` become `-`; control, 
 (zero-width) characters are removed; an empty token drops one neighbouring separator (`_`, `-` or
 space); leading dots and separators at the ends are trimmed; names are capped at 200 characters
 and 240 bytes; and an empty result falls back to the original name (or `image`).
+
+### Adjust tone and colour
+
+1. Press **+ Add step** and pick **Adjust**, then open the step.
+2. Move the sliders in **Light**, **Colour** and **Detail**; the preview updates as you go.
+3. Double-click a slider's label to set it back to 0, or press a group's **Reset** to clear the whole group.
+4. Put the step after resizing if you want sharpening to suit the final size. The step keeps each
+   image's colour space (sRGB, Display P3, …), bit depth and transparency.
 
 ### Add a watermark
 

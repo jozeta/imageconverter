@@ -44,6 +44,14 @@ struct PipelineSection: View {
                 outputRow
             }
         }
+        #if DEBUG
+        // Screenshot aid: `-debugExpandSteps` opens every step's editor at launch.
+        .onAppear {
+            if CommandLine.arguments.contains("-debugExpandSteps") {
+                expanded = Set(model.pipeline.steps.map(\.id))
+            }
+        }
+        #endif
     }
 
     /// moveStep(_:to:) puts the dragged step at the target's index: above it when coming from below,
