@@ -41,9 +41,9 @@ swiftlint           # if installed (brew install swiftlint)
     `PresetBar.swift` and `AppModel+Presets.swift` (preset picker, save/rename/delete),
     `PreviewPane.swift` (before/after, name and size line), `Filmstrip.swift` (thumbnails, ←/→),
     `AppModel+Preview.swift` (selection, 300 ms debounced render task with a generation counter, thumbnail cache).
-    `WindowSizer.swift` (window size fits the panels: fixed 360 pt sidebar, height = measured sidebar content,
-    animated preview/pipeline toggles via `NSAnimationContext`; the root view applies its ranges with
-    `.windowResizability(.contentSize)`), `EdgeHandle.swift` (grab handles on the panel edges).
+    `WindowSizer.swift` (applies `WindowLayout`: fixed 360 pt sidebar; preview hidden → window = sidebar content height,
+    preview open → resizable, min 780 × 560, sidebar panel stretches; animated toggles via `NSAnimationContext`; the
+    root view applies its ranges with `.windowResizability(.contentSize)`; full screen is off), `EdgeHandle.swift` (grab handles on the panel edges).
     `previewCollapsed` and `pipelineCollapsed` are persisted in UserDefaults
 - `Sources/ImageconverterCore/`: all logic: the pipeline model, each operation as a pure function
   (`CGImage → CGImage`, metadata → metadata), rename templating, collision naming, presets
@@ -53,7 +53,7 @@ swiftlint           # if installed (brew install swiftlint)
     `FileCommitter` (atomic writes, trash replaced originals), `BatchRunner` (parallel run, progress, cancel),
     `Pipeline` (steps, options, `apply`), `FileSteps` (`MetadataOptions`, `RenameOptions`), `MetadataOps` (metadata stripping/setting),
     `RenameTemplate` (tokens, sanitising), `StepSummary` (one-line step descriptions), `Geometry` (size maths),
-    `ImageOps` (resize, crop, rotate/flip, canvas, color profile, watermark), `Watermark` (options, placement maths), `WatermarkAssets` (image watermarks loaded once per batch), `WorkWindow` (memory-aware batch scheduling), `Presets`/`PresetSession` (preset files, built-ins, unsaved-change tracking), `PreviewRenderer` (actor: before/after for one item, caches the decoded source)
+    `ImageOps` (resize, crop, rotate/flip, canvas, color profile, watermark), `Watermark` (options, placement maths), `WatermarkAssets` (image watermarks loaded once per batch), `WorkWindow` (memory-aware batch scheduling), `Presets`/`PresetSession` (preset files, built-ins, unsaved-change tracking), `PreviewRenderer` (actor: before/after for one item, caches the decoded source), `WindowLayout` (main window size rules and frame maths)
 - `Tests/ImageconverterCoreTests/`: tests (operations on small generated images, rename tokens,
   resize/crop maths, collisions, preset round-trip and rejection, metadata really stripped)
 - `docs/superpowers/specs/`: design documents; `docs/superpowers/plans/`: implementation plans

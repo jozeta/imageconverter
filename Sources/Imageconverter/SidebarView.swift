@@ -7,20 +7,32 @@ struct SidebarView: View {
     @State private var targeted = false
     @State private var showFailures = false
 
+    /// Panel padding plus the outer padding, top and bottom.
+    private static let verticalChrome = 2 * LadaGlass.Spacing.l * LadaGlass.Density.paddingScale
+        + 2 * LadaGlass.Spacing.m
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
-                PresetBar(model: model)
-                dropZone
-                countRow
-                PipelineSection(model: model, settings: settings)
-                runSection
-                failureList
-            }
-            .lgPanel()
-            .padding(LadaGlass.Spacing.m)
-            .background {
-                GeometryReader { Color.clear.preference(key: SidebarContentHeightKey.self, value: $0.size.height) }
+        GeometryReader { viewport in
+            ScrollView {
+                VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
+                    PresetBar(model: model)
+                    dropZone
+                    countRow
+                    PipelineSection(model: model, settings: settings)
+                    runSection
+                    failureList
+                }
+                // The natural height (not the stretched one), so the measurement never feeds back on the window.
+                .background {
+                    GeometryReader {
+                        Color.clear.preference(key: SidebarContentHeightKey.self,
+                                               value: $0.size.height + Self.verticalChrome)
+                    }
+                }
+                // With the preview open the window can be taller than the content: the panel fills it.
+                .frame(minHeight: max(viewport.size.height - Self.verticalChrome, 0), alignment: .top)
+                .lgPanel()
+                .padding(LadaGlass.Spacing.m)
             }
         }
         .onPreferenceChange(SidebarContentHeightKey.self) { model.windowSizer.contentHeightChanged($0) }
@@ -108,7 +120,7 @@ struct SidebarView: View {
     }
 }
 
-/// The natural height of the sidebar's content (panel plus outer padding); the window height follows it.
+/// The natural height of the sidebar's content plus its paddings; the window height follows it.
 private struct SidebarContentHeightKey: PreferenceKey {
     static let defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }

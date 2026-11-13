@@ -29,9 +29,7 @@ struct ImageconverterApp: App {
             CommandGroup(after: .toolbar) {
                 Button(model.previewCollapsed ? "Show Preview" : "Hide Preview") { model.togglePreview() }
                     .keyboardShortcut("p", modifiers: [.option, .command])
-                Button(model.pipelineCollapsed ? "Expand Pipeline" : "Collapse Pipeline") {
-                    model.pipelineCollapsed.toggle()
-                }
+                Button(model.pipelineCollapsed ? "Expand Pipeline" : "Collapse Pipeline") { model.togglePipeline() }
                 .keyboardShortcut("l", modifiers: [.option, .command])
             }
             CommandGroup(replacing: .newItem) {
@@ -60,7 +58,7 @@ private struct MainWindowContent: View {
         let frozen = sizer.previewFrozenWidth
         HStack(spacing: 0) {
             SidebarView(model: model, settings: settings)
-                .frame(width: WindowSizer.sidebarWidth)
+                .frame(width: WindowLayout.sidebarWidth)
                 .overlay(alignment: .trailing) { previewHandle }
                 .overlay(alignment: .bottom) { pipelineHandle }
                 // Above the preview, so the handle on the shared border is drawn and clickable.
@@ -68,7 +66,7 @@ private struct MainWindowContent: View {
             if sizer.previewMounted {
                 PreviewPane(model: model)
                     .frame(width: frozen)
-                    .frame(minWidth: frozen ?? WindowSizer.previewMinWidth, maxWidth: frozen ?? .infinity)
+                    .frame(minWidth: frozen ?? WindowLayout.previewMinWidth, maxWidth: frozen ?? .infinity)
             }
         }
         .frame(minWidth: sizer.widthRange.lowerBound, maxWidth: sizer.widthRange.upperBound,
@@ -93,9 +91,7 @@ private struct MainWindowContent: View {
         let collapsed = model.pipelineCollapsed
         let halfHeight = EdgeHandle.thickness / 2 + EdgeHandle.hitMargin
         return EdgeHandle(edge: .bottom, pointsOutward: collapsed,
-                          label: collapsed ? "Expand pipeline" : "Collapse pipeline") {
-            model.pipelineCollapsed.toggle()
-        }
+                          label: collapsed ? "Expand pipeline" : "Collapse pipeline") { model.togglePipeline() }
         .offset(y: halfHeight - LadaGlass.Spacing.m / 2)
     }
 }

@@ -13,19 +13,20 @@ struct EdgeHandle: View {
     let action: () -> Void
 
     @State private var hovering = false
+    @FocusState private var focused: Bool
     static let length: CGFloat = 44
     static let thickness: CGFloat = 6
-    /// Extra clickable margin around the thin capsule.
-    static let hitMargin: CGFloat = 4
+    /// Extra clickable margin around the thin capsule: the hit target is 20 × 58 pt.
+    static let hitMargin: CGFloat = 7
 
     var body: some View {
         Button(action: action) {
             ZStack {
                 Capsule()
-                    .fill(hovering ? LadaGlass.accent.color : LadaGlass.Colors.border)
+                    .fill(highlighted ? LadaGlass.accent.color : LadaGlass.Colors.muted)
                 Image(systemName: chevron)
                     .font(.system(size: 7, weight: .heavy))
-                    .foregroundStyle(hovering ? LadaGlass.Colors.onAccent : LadaGlass.Colors.muted)
+                    .foregroundStyle(highlighted ? LadaGlass.Colors.onAccent : LadaGlass.Colors.bg)
             }
             .frame(width: isVertical ? Self.thickness : Self.length,
                    height: isVertical ? Self.length : Self.thickness)
@@ -33,11 +34,14 @@ struct EdgeHandle: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .focused($focused)
         .onHover { hovering = $0 }
-        .animation(LadaGlass.Motion.quick, value: hovering)
+        .animation(LadaGlass.Motion.quick, value: highlighted)
         .help(label)
         .accessibilityLabel(label)
     }
+
+    private var highlighted: Bool { hovering || focused }
 
     private var isVertical: Bool { edge == .trailing }
 
