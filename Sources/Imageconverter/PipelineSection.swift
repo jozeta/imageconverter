@@ -126,7 +126,7 @@ struct PipelineSection: View {
             .accessibilityLabel("Output format")
             if model.pipeline.output.format.supportsQuality {
                 HStack {
-                    Slider(value: $model.pipeline.output.quality, in: 0.1...1, step: 0.01)
+                    Slider(value: $model.pipeline.output.quality, in: 0...1, step: 0.01)
                         .accessibilityLabel("Quality")
                         .accessibilityValue("\(Int((model.pipeline.output.quality * 100).rounded())) percent")
                     Text("\(Int((model.pipeline.output.quality * 100).rounded())) %")
