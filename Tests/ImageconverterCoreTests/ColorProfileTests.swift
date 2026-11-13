@@ -98,4 +98,17 @@ final class WideGamutThroughStepsTests: XCTestCase {
         let hasAlpha = try TestImages.properties(of: data)[kCGImagePropertyHasAlpha as String] as? Bool
         XCTAssertEqual(hasAlpha, true)
     }
+
+    func testExtendedRangeImageWithAlphaEncodesToJPEG() throws {
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: 16, bytesPerRow: 0,
+                                          space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                                          | CGBitmapInfo.byteOrder16Little.rawValue
+                                          | CGBitmapInfo.floatComponents.rawValue))
+        ctx.setFillColor(CGColor(colorSpace: space, components: [0.5, 0.2, 0.1, 0.5]) ?? CGColor(gray: 0.5, alpha: 0.5))
+        ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        let image = try XCTUnwrap(ctx.makeImage())
+        XCTAssertTrue(ImageOps.hasAlpha(image))
+        XCTAssertNoThrow(try ImageEncoder.encode(image, properties: [:], settings: jpeg()))
+    }
 }

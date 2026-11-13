@@ -43,18 +43,22 @@ public enum ImageEncoder {
     }
 
     private static func flattenedOnWhite(_ image: CGImage) -> CGImage? {
-        // Keep the image's own RGB color space (wide gamut); sRGB only for other color models.
-        var space = CGColorSpace(name: CGColorSpace.sRGB)
-        if let own = image.colorSpace, own.model == .rgb { space = own }
-        guard let space,
-              let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
-                                  bytesPerRow: 0, space: space,
-                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
-        let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
-        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
-        ctx.fill(rect)
-        ctx.draw(image, in: rect)
-        return ctx.makeImage()
+        // Prefer the image's own RGB color space (wide gamut); extended-range spaces can't back an
+        // 8-bit context, so fall back to sRGB.
+        var spaces: [CGColorSpace] = []
+        if let own = image.colorSpace, own.model == .rgb { spaces.append(own) }
+        if let srgb = CGColorSpace(name: CGColorSpace.sRGB) { spaces.append(srgb) }
+        for space in spaces {
+            guard let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { continue }
+            let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fill(rect)
+            ctx.draw(image, in: rect)
+            return ctx.makeImage()
+        }
+        return nil
     }
 
     /// Copy of `properties` with orientation 1 and without stale pixel dimensions or color description.
