@@ -180,7 +180,7 @@ struct PreviewPane: View {
         guard let output = estimate.output, let original = estimate.original,
               let change = SizeFormat.percentChange(from: original, to: output)
         else { return Self.bytes(estimate.output) }
-        return "\(Self.bytes(output)) (\(change))"
+        return "\(Self.bytes(output))\(qualitySuffix(estimate.quality, mode: model.pipeline.output.compression)) (\(change))"
     }
 
     private static func bytes(_ count: Int?) -> String {

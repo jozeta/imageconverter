@@ -48,6 +48,8 @@ final class AppModel {
     var isEstimating = false
     /// Set when the last estimate failed (shown as a dash).
     var estimateFailed = false
+    /// Why the last estimate failed, when it is worth telling (e.g. a maximum size that can't be met).
+    var estimateFailure: String?
     /// Bumped when a filmstrip thumbnail has loaded, so cells refresh (see `AppModel+Preview.swift`).
     var thumbnailTick = 0
     var previewCollapsed: Bool {

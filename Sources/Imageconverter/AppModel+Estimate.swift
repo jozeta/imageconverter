@@ -8,6 +8,22 @@ struct SizeEstimate {
     let original: Int?
     let output: Int?
     let full: EncodedPreview?
+    /// The quality a searching compression mode chose.
+    let quality: Double?
+    let note: String?
+}
+
+/// What the background render returned: the original's file size, the encode, or why there is none.
+private struct EstimateOutcome: Sendable {
+    let original: Int?
+    let preview: EncodedPreview?
+    let failure: String?
+}
+
+/// " at 74 %" for modes that searched for a quality (plain Quality mode already shows its slider), else empty.
+func qualitySuffix(_ quality: Double?, mode: CompressionMode) -> String {
+    if mode == .quality { return "" }
+    return quality.map { " at \(Int(($0 * 100).rounded())) %" } ?? ""
 }
 
 /// What an estimate depends on; an unchanged key needs no new computation.
@@ -26,6 +42,7 @@ extension AppModel {
         sizeEstimate = nil
         isEstimating = false
         estimateFailed = false
+        estimateFailure = nil
     }
 
     /// Recomputes the size estimate 400 ms after the last change, off the main actor.
@@ -46,20 +63,31 @@ extension AppModel {
         sizeEstimate = nil
         isEstimating = true
         estimateFailed = false
+        estimateFailure = nil
         estimateTask = Task { [weak self] in
             do { try await Task.sleep(for: Self.estimateDebounce) } catch { return }
             // Wait for the superseded render so two full-size renders never overlap.
             await previous?.value
             guard !Task.isCancelled else { return }
-            let outcome = await Task.detached(priority: .userInitiated) { () -> (Int?, EncodedPreview?)? in
+            let outcome = await Task.detached(priority: .userInitiated) { () -> EstimateOutcome? in
                 if Task.isCancelled { return nil }
                 let original = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-                return (original, try? SizeEstimator.render(item: item, pipeline: pipeline))
+                do {
+                    let preview = try SizeEstimator.render(item: item, pipeline: pipeline)
+                    return EstimateOutcome(original: original, preview: preview, failure: nil)
+                } catch let error as ConversionError {
+                    return EstimateOutcome(original: original, preview: nil, failure: error.reason)
+                } catch {
+                    return EstimateOutcome(original: original, preview: nil, failure: nil)
+                }
             }.value
             guard let self, !Task.isCancelled, self.estimateKey == key, let outcome else { return }
             isEstimating = false
-            estimateFailed = outcome.1 == nil
-            sizeEstimate = SizeEstimate(item: item.source, original: outcome.0, output: outcome.1?.bytes, full: outcome.1)
+            estimateFailed = outcome.preview == nil
+            estimateFailure = outcome.failure
+            sizeEstimate = SizeEstimate(
+                item: item.source, original: outcome.original, output: outcome.preview?.bytes, full: outcome.preview,
+                quality: outcome.preview?.quality, note: outcome.preview?.note)
         }
     }
 }

@@ -128,30 +128,8 @@ struct PipelineSection: View {
     private var outputRow: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
             Text("Output").font(LadaGlass.Typography.subtitle)
-            Group {
-            Picker("Format", selection: $model.pipeline.output.format) {
-                ForEach(OutputFormat.available(), id: \.self) { Text($0.displayName).tag($0) }
-            }
-            .accessibilityLabel("Output format")
-            if model.pipeline.output.format.supportsQuality {
-                HStack {
-                    Slider(value: $model.pipeline.output.quality, in: 0...1, step: 0.01)
-                        .accessibilityLabel("Quality")
-                        .accessibilityValue("\(Int((model.pipeline.output.quality * 100).rounded())) percent")
-                    Text("\(Int((model.pipeline.output.quality * 100).rounded())) %")
-                        .font(LadaGlass.Typography.mono)
-                        .frame(minWidth: 44, alignment: .trailing)
-                }
-            }
-            if model.pipeline.output.format == .tiff {
-                Picker("Compression", selection: $model.pipeline.output.tiffCompression) {
-                    Text("None").tag(TIFFCompression.none)
-                    Text("LZW").tag(TIFFCompression.lzw)
-                }
-                .accessibilityLabel("TIFF compression")
-            }
-            }
-            .disabled(model.isRunning)
+            OutputFormatControls(output: $model.pipeline.output)
+                .disabled(model.isRunning)
             estimateLine
             saveToControls
         }
@@ -182,11 +160,14 @@ struct PipelineSection: View {
 
     private var estimateText: String {
         if model.items.isEmpty { return "Add images to see the file size" }
+        if let reason = model.estimateFailure { return reason }
         if model.estimateFailed { return "—" }
         guard !model.isEstimating, let estimate = model.sizeEstimate, let output = estimate.output else { return "Estimating…" }
         let original = estimate.original.map(Self.bytes) ?? "—"
         let change = estimate.original.flatMap { SizeFormat.percentChange(from: $0, to: output) }.map { " (\($0))" } ?? ""
-        return "Original \(original) → about \(Self.bytes(output))\(change)"
+        let quality = qualitySuffix(estimate.quality, mode: model.pipeline.output.compression)
+        let note = estimate.note.map { ". \($0)" } ?? ""
+        return "Original \(original) → about \(Self.bytes(output))\(quality)\(change)\(note)"
     }
 
     private static func bytes(_ count: Int) -> String {

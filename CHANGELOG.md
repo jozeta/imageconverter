@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Output row: a Compression picker (Quality, Target size, Maximum size, Smart) with a size field in KB or MB (1 KB = 1000 bytes; invalid input keeps the previous value), Progressive toggle for JPEG, Optimise PNG toggle, AVIF in the format list; the size estimate (and the preview's Size row) shows the chosen quality ("at 74 %") and explains an impossible maximum size.
 - Resize model (Core): scale by percent, longest or shortest edge, a minimum size (only enlarges) or a print size in inches or centimetres at a DPI; a choice of resampling (Lanczos by default, also bicubic, bilinear and nearest neighbour) that keeps colour space, bit depth and opacity; an optional DPI written into the file without resampling (the last resize step with one wins); crop aspect presets (1:1 … 21:9) and social media and screen resolution size presets. Existing resize steps keep working and now resample with Lanczos.
 - Compression report: the size estimate and the preview's Size row show the change ("−74 %"), the after-run toast says how much was saved, and a Report section in the sidebar lists totals, skipped files with reasons, notes and before → after per file.
 
