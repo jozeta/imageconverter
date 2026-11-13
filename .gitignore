@@ -24,3 +24,6 @@ build/
 xcuserdata/
 *.xcuserstate
 Local.xcconfig
+
+# Brainstorm mockups (superpowers visual companion)
+.superpowers/
