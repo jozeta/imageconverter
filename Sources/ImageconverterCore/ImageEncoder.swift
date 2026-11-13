@@ -36,23 +36,28 @@ public enum ImageEncoder {
             props[jfifKey] = jfif
         }
 
-        if format == .png, settings.optimizePNG {
-            // Filter choice only changes size, never pixels; keep the smallest result.
-            let pngKey = kCGImagePropertyPNGDictionary as String
-            // Raw values of IMAGEIO_PNG_FILTER_* (the "all" macro isn't importable into Swift).
-            let filters = [0x08, 0x10, 0x20, 0x40, 0x80, 0xF8]
-            var best: Data?
-            for filter in filters {
-                var candidate = props
+        if format == .png, settings.optimizePNG, let best = smallestPNG(source, props: props) { return best }
+        return try write(source, props: props, type: format)
+    }
+
+    /// The smallest of the PNG filter candidates. Filter choice only changes size, never pixels.
+    private static func smallestPNG(_ image: CGImage, props: [String: Any]) -> Data? {
+        let pngKey = kCGImagePropertyPNGDictionary as String
+        // Raw values of IMAGEIO_PNG_FILTER_* (the "all" macro isn't importable into Swift);
+        // nil is ImageIO's own default choice, which is sometimes the smallest.
+        let filters: [Int?] = [nil, 0x08, 0x10, 0x20, 0x40, 0x80, 0xF8]
+        var best: Data?
+        for filter in filters {
+            var candidate = props
+            if let filter {
                 var png = candidate[pngKey] as? [String: Any] ?? [:]
                 png[kCGImagePropertyPNGCompressionFilter as String] = filter
                 candidate[pngKey] = png
-                guard let data = try? write(source, props: candidate, type: format) else { continue }
-                if best == nil || data.count < best!.count { best = data }
             }
-            if let best { return best }
+            guard let data = try? write(image, props: candidate, type: .png) else { continue }
+            if best == nil || data.count < best!.count { best = data }
         }
-        return try write(source, props: props, type: format)
+        return best
     }
 
     private static func write(_ image: CGImage, props: [String: Any], type format: OutputFormat) throws -> Data {

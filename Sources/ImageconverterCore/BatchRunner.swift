@@ -25,17 +25,46 @@ public struct BatchFailure: Equatable, Sendable {
     }
 }
 
-/// The outcome of a batch: both lists are in input order.
+/// Something worth telling about a file that was written (e.g. a target size it couldn't reach).
+public struct BatchNote: Equatable, Sendable {
+    public let source: URL
+    public let text: String
+
+    public init(source: URL, text: String) {
+        self.source = source
+        self.text = text
+    }
+}
+
+/// The outcome of a batch: all lists are in input order. A note is not a failure; its file was written.
 public struct BatchReport: Equatable, Sendable {
     public var written: [URL]
     public var failures: [BatchFailure]
+    public var notes: [BatchNote]
     public var cancelled: Bool
 
-    public init(written: [URL] = [], failures: [BatchFailure] = [], cancelled: Bool = false) {
+    public init(written: [URL] = [], failures: [BatchFailure] = [], notes: [BatchNote] = [], cancelled: Bool = false) {
         self.written = written
         self.failures = failures
+        self.notes = notes
         self.cancelled = cancelled
     }
+}
+
+/// What one item encodes to, before it is committed.
+struct EncodedItem {
+    let data: Data
+    /// The upright full-size image as loaded.
+    let source: CGImage
+    /// The quality the compression mode chose; nil for formats without one.
+    let quality: Double?
+    let note: String?
+}
+
+/// A written file and its note, if any.
+struct WrittenItem {
+    let url: URL
+    let note: String?
 }
 
 public enum BatchRunner {
@@ -68,10 +97,10 @@ public enum BatchRunner {
         let missingAsset = assets.hasMissing(for: pipeline)
         var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
         var weights = [Int](repeating: 1, count: total)
-        var outcomes = [Result<URL, ConversionError>?](repeating: nil, count: total)
+        var outcomes = [Result<WrittenItem, ConversionError>?](repeating: nil, count: total)
         var cancelled = false
 
-        await withTaskGroup(of: (Int, Result<URL, ConversionError>).self) { group in
+        await withTaskGroup(of: (Int, Result<WrittenItem, ConversionError>).self) { group in
             var next = 0
             var inFlight = 0
             var completed = 0
@@ -130,12 +159,14 @@ public enum BatchRunner {
     }
 
     private static func makeReport(
-        plans: [PlannedOutput], outcomes: [Result<URL, ConversionError>?], cancelled: Bool
+        plans: [PlannedOutput], outcomes: [Result<WrittenItem, ConversionError>?], cancelled: Bool
     ) -> BatchReport {
         var report = BatchReport(cancelled: cancelled)
         for (plan, outcome) in zip(plans, outcomes) {
             switch outcome {
-            case .success(let url): report.written.append(url)
+            case .success(let item):
+                report.written.append(item.url)
+                if let note = item.note { report.notes.append(BatchNote(source: plan.item.source, text: note)) }
             case .failure(let error):
                 report.failures.append(BatchFailure(source: plan.item.source, reason: error.reason))
             case nil: break
@@ -146,12 +177,12 @@ public enum BatchRunner {
 
     private static func convert(
         _ plan: PlannedOutput, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int, trash: Trasher
-    ) -> Result<URL, ConversionError> {
+    ) -> Result<WrittenItem, ConversionError> {
         autoreleasepool {
             do {
-                let data = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels).data
-                try FileCommitter.commit(data, for: plan, trash: trash)
-                return .success(plan.destination)
+                let encoded = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
+                try FileCommitter.commit(encoded.data, for: plan, trash: trash)
+                return .success(WrittenItem(url: plan.destination, note: encoded.note))
             } catch let error as ConversionError {
                 return .failure(error)
             } catch {
@@ -162,16 +193,15 @@ public enum BatchRunner {
 
     /// Load, apply, metadata and encode for one file: everything the batch does before it commits.
     /// The size estimate shares it so the estimate can't drift from what is written.
-    /// `source` is the upright full-size image as loaded.
     static func encodeItem(
         _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int
-    ) throws -> (data: Data, source: CGImage) {
+    ) throws -> EncodedItem {
         // A watermark image that can't be read fails the file before its source is decoded.
         if assets.hasMissing(for: pipeline) { throw ConversionError.watermarkImageUnreadable }
         let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
         let image = try pipeline.apply(to: loaded.image, assets: assets)
         let properties = MetadataOps.apply(pipeline.metadata, to: loaded.properties)
-        let data = try ImageEncoder.encode(image, properties: properties, settings: pipeline.output)
-        return (data, loaded.image)
+        let result = try CompressionSearch.encode(image, properties: properties, settings: pipeline.output)
+        return EncodedItem(data: result.data, source: loaded.image, quality: result.quality, note: result.note)
     }
 }

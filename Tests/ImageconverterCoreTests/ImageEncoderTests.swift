@@ -107,3 +107,25 @@ final class ImageEncoderTests: XCTestCase {
         XCTAssertFalse(data.isEmpty)
     }
 }
+
+extension ImageEncoderTests {
+    func testOptimizedPNGOnStructuredImage() throws {
+        let img = CompressionImages.gradient(width: 160, height: 96)
+        let plain = try ImageEncoder.encode(img, properties: [:], settings: .init(format: .png, optimizePNG: false))
+        let opt = try ImageEncoder.encode(img, properties: [:], settings: .init(format: .png, optimizePNG: true))
+        XCTAssertLessThanOrEqual(opt.count, plain.count)
+        XCTAssertEqual(try CompressionImages.rgbaBytes(of: opt), try CompressionImages.rgbaBytes(of: plain))
+    }
+
+    func testProgressiveIgnoredForNonJPEG() throws {
+        let img = TestImages.noise(width: 48, height: 32)
+        for format in [OutputFormat.png, .tiff] {
+            let plain = try ImageEncoder.encode(img, properties: [:],
+                                                settings: .init(format: format, progressive: false, optimizePNG: false))
+            let prog = try ImageEncoder.encode(img, properties: [:],
+                                               settings: .init(format: format, progressive: true, optimizePNG: false))
+            XCTAssertEqual(plain, prog, "\(format)")
+            XCTAssertNil(try TestImages.properties(of: prog)[kCGImagePropertyJFIFDictionary as String], "\(format)")
+        }
+    }
+}
