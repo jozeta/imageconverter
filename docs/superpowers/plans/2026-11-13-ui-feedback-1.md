@@ -290,3 +290,27 @@ Mapping constants may be tuned if a test or a screenshot shows them clearly wron
 **Files:** Modify `Sources/Imageconverter/StepEditors.swift` (split into `ResizeEditor.swift` if large)
 - Resize editor: mode picker grouped "Pixels" (Max width, Max height, Fit inside, Exact size, Longest edge, Shortest edge, Minimum size), "Scale" (Percentage), "Print" (Physical size: width/height fields, unit cm/in, DPI); exact size keeps the fill choice (Stretch / Fit and pad / Fill and crop) with clear labels ("Stretch (ignore aspect ratio)", "Fit inside, pad", "Fill, crop edges"); "Keep aspect ratio" is implied by every mode except Stretch, say so in the help text. A "Presets" menu: Social media (fills Exact size + Fill and crop) and Resolutions (fills Fit inside + don't enlarge). Resampling picker (Lanczos, Bicubic, Bilinear, Nearest neighbour). "Set DPI" toggle + field (default 300 when switched on). Crop editor: aspect presets menu.
 - [ ] Build/test/lint, screenshot, commit `feat(app): resize modes, presets, resampling and DPI in the editors`.
+
+## Geometry round (Johan, 2026-11-13)
+
+Already present: rotate 90/180/270, flip horizontal/vertical, crop, padding, canvas size, anchor (centre by default).
+
+### Task 16: Arbitrary rotation, straighten, perspective, trim, canvas aspect (Core)
+
+**Files:** Modify `Pipeline.swift` (options, `StepKind`, `apply`, `peakPixels`), `ImageOps.swift`, `StepSummary.swift`; Create `Sources/ImageconverterCore/Perspective.swift`, `Sources/ImageconverterCore/Trim.swift`; Tests `ImageOpsTests.swift`, `PerspectiveTests.swift`, `TrimTests.swift`
+
+**Interfaces / rules** (old JSON keeps decoding, new fields default to "no change"):
+- `RotateFlipOptions.angle: Double` (−180…180, default 0, applied after the 90° rotation and flips, clockwise positive) and `RotateFlipOptions.angleFill: AngleFill { case expand(background: RGBAColor) /* default, white; transparent kept when the output can hold alpha */, case cropToFit }`. `cropToFit` = the largest axis-aligned rectangle with the original aspect ratio that fits entirely inside the rotated image, centred (no empty corners). Straighten = small angle + `cropToFit` (the editor offers it as "Straighten", ±45°). Interpolation high, colour space/depth kept.
+- `StepKind.perspective` ("Perspective"), `PerspectiveOptions { vertical: Double (−100…100), horizontal: Double (−100…100), auto: Bool }`: manual keystone via `CIPerspectiveTransform` (vertical +100 pulls the top edge in by 25 % of the width per side; horizontal likewise for the right edge), then crop to the largest inner rectangle with no empty areas. `auto`: `VNDetectRectanglesRequest` (min confidence 0.8, min size 0.3, max 1 result) → `CIPerspectiveCorrection` to that quad; if nothing is found the image is unchanged (and, once Task 11's notes exist, a note "No document edges found"). Auto runs before the manual sliders.
+- `StepKind.trim` ("Trim"), `TrimOptions { mode: TrimMode /* .transparent (default), .color(RGBAColor), .edgeColor (colour of the top-left pixel) */, tolerance: Double (0…100, default 10; % per channel, alpha threshold for transparent), padding: Int (px kept around the content, default 0) }`. Fully trimmed (blank) image → unchanged.
+- `CanvasMode.aspect(width: Double, height: Double)`: grow the canvas (never crop) to the aspect ratio, image at the anchor (centre default).
+- [ ] Tests: `testAngle0IsIdentity`, `testAngle45ExpandSize` (100×100 → 142×142), `testCropToFitHasNoEmptyCorners` (rotate a solid red opaque image 10° with cropToFit; all four corners red, aspect equals original ±1 px), `testPerspectiveZeroIsIdentity`, `testPerspectiveVerticalKeepsNoTransparentCorners`, `testAutoPerspectiveFindsRectangle` (draw a white quadrilateral on black, auto → output aspect close to the drawn rectangle's; `XCTSkip` if Vision is unavailable), `testTrimTransparentBorders` (100×100 with content at 20…79 → 60×60), `testTrimEdgeColorWithTolerance`, `testTrimPadding`, `testTrimBlankUnchanged`, `testCanvasAspectSquare` (300×200 → 300×300 centred), `testOldRotateFlipJSONDecodes`.
+- [ ] Implement, commit `feat(core): arbitrary rotation and straighten, perspective correction, trim, canvas aspect`.
+
+### Task 17: Geometry editors
+
+**Files:** `StepEditors.swift` (or new `GeometryEditors.swift`), `AppModel.swift` if `StepKind` defaults need it
+- Rotate/flip editor: 90° buttons as now; "Angle" slider (−45…45 with a number field accepting −180…180) and an "Fill corners / Crop to fit (straighten)" picker; flip toggles labelled "Mirror (flip horizontally)" and "Flip vertically".
+- New "Perspective" and "Trim" steps in "+ Add step" with editors (sliders with value text; Auto toggle with help "Finds a document or screen and squares it up"; Trim mode picker with colour well for `.color`).
+- Canvas editor: add "Aspect ratio" mode with the aspect preset menu from Task 14 (`SizePresets.aspectRatios`).
+- [ ] Build/test/lint, screenshots (with `-debugAddFiles`), commit `feat(app): editors for angle, straighten, perspective, trim and canvas aspect`.
