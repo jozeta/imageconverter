@@ -107,4 +107,29 @@ public enum MetadataOps {
             store(pngDict, at: pngKey, in: &props)
         }
     }
+
+    /// Sets the resolution to `dpi` (nil leaves `properties` alone): the generic DPI keys, the TIFF
+    /// resolution (also read from Exif-style containers) and, for JPEG, the JFIF density.
+    public static func setDPI(_ dpi: Double?, format: OutputFormat, in properties: [String: Any]) -> [String: Any] {
+        guard let dpi, dpi.isFinite, dpi > 0 else { return properties }
+        var props = properties
+        props[kCGImagePropertyDPIWidth as String] = dpi
+        props[kCGImagePropertyDPIHeight as String] = dpi
+        var tiff = props[tiffKey] as? [String: Any] ?? [:]
+        tiff[kCGImagePropertyTIFFXResolution as String] = dpi
+        tiff[kCGImagePropertyTIFFYResolution as String] = dpi
+        tiff[kCGImagePropertyTIFFResolutionUnit as String] = 2 // inches
+        props[tiffKey] = tiff
+        if format == .jpeg {
+            let jfifKey = kCGImagePropertyJFIFDictionary as String
+            var jfif = props[jfifKey] as? [String: Any] ?? [:]
+            // JFIF densities are 16-bit integers.
+            let density = Int(min(dpi.rounded(), Double(UInt16.max)))
+            jfif[kCGImagePropertyJFIFXDensity as String] = density
+            jfif[kCGImagePropertyJFIFYDensity as String] = density
+            jfif[kCGImagePropertyJFIFDensityUnit as String] = 1 // dots per inch
+            props[jfifKey] = jfif
+        }
+        return props
+    }
 }

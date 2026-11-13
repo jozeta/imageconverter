@@ -39,41 +39,80 @@ public enum Geometry {
     public static func resizePlan(source: CGSize, options: ResizeOptions) -> ResizePlan {
         let srcW = max(1, source.width)
         let srcH = max(1, source.height)
-        let enlarge = options.allowEnlarge
-
-        func scaled(by factor: Double) -> ResizePlan {
-            let ratio = enlarge ? factor : min(factor, 1)
-            return scalePlan(CGSize(width: round(srcW * ratio), height: round(srcH * ratio)), source: source)
+        if case .exactSize(let wide, let high, let fill) = options.mode {
+            return exactPlan(source: source, target: CGSize(width: dimension(wide), height: dimension(high)),
+                             fill: fill, enlarge: options.allowEnlarge)
         }
+        guard let factor = scaleFactor(options.mode, width: srcW, height: srcH) else { return .unchanged }
+        let ratio: Double
+        if case .minimum = options.mode {
+            // Only ever enlarges, so "don't enlarge" doesn't apply.
+            guard factor > 1 else { return .unchanged }
+            ratio = factor
+        } else {
+            ratio = options.allowEnlarge ? factor : min(factor, 1)
+        }
+        return scalePlan(CGSize(width: round(srcW * ratio), height: round(srcH * ratio)), source: source)
+    }
 
-        switch options.mode {
+    /// The uniform scale factor a keep-aspect mode asks for, before the enlarge rule; nil for no change.
+    private static func scaleFactor(_ mode: ResizeMode, width srcW: Double, height srcH: Double) -> Double? {
+        switch mode {
         case .maxWidth(let wide), .exactWidth(let wide):
-            return scaled(by: dimension(wide) / srcW)
+            return dimension(wide) / srcW
         case .maxHeight(let high), .exactHeight(let high):
-            return scaled(by: dimension(high) / srcH)
+            return dimension(high) / srcH
         case .fitBox(let wide, let high):
-            return scaled(by: min(dimension(wide) / srcW, dimension(high) / srcH))
-        case .exactSize(let wide, let high, let fill):
-            let target = CGSize(width: dimension(wide), height: dimension(high))
-            switch fill {
-            case .stretch:
-                return scalePlan(target, source: source)
-            case .fitAndPad:
-                let ratio = min(target.width / srcW, target.height / srcH)
-                let capped = enlarge ? ratio : min(ratio, 1)
-                let content = CGSize(width: round(srcW * capped), height: round(srcH * capped))
-                if content == target { return scalePlan(content, source: source) }
-                return .fitAndPad(content: content, canvas: target)
-            case .fillAndCrop:
-                let ratio = max(target.width / srcW, target.height / srcH)
-                let capped = enlarge ? ratio : min(ratio, 1)
-                let scaledSize = CGSize(width: round(srcW * capped), height: round(srcH * capped))
-                let crop = CGSize(width: min(target.width, scaledSize.width),
-                                  height: min(target.height, scaledSize.height))
-                if crop == scaledSize { return scalePlan(scaledSize, source: source) }
-                return .fillAndCrop(scaled: scaledSize, crop: crop)
-            }
+            return min(dimension(wide) / srcW, dimension(high) / srcH)
+        case .percent(let percent):
+            return percent.isFinite ? min(max(percent, 1), 1000) / 100 : nil
+        case .longestEdge(let edge):
+            return dimension(edge) / max(srcW, srcH)
+        case .shortestEdge(let edge):
+            return dimension(edge) / min(srcW, srcH)
+        case .minimum(let wide, let high):
+            return max(dimension(wide) / srcW, dimension(high) / srcH)
+        case .physical(let wide, let high, let unit, let dpi):
+            // Two sides fit inside; one side keeps the aspect ratio.
+            let pixels = { (side: Double?) in side.flatMap { physicalPixels($0, unit: unit, dpi: dpi) } }
+            return [pixels(wide).map { Double($0) / srcW }, pixels(high).map { Double($0) / srcH }]
+                .compactMap { $0 }.min()
+        case .exactSize:
+            return nil
         }
+    }
+
+    private static func exactPlan(source: CGSize, target: CGSize, fill: ExactFill, enlarge: Bool) -> ResizePlan {
+        let srcW = max(1, source.width)
+        let srcH = max(1, source.height)
+        switch fill {
+        case .stretch:
+            return scalePlan(target, source: source)
+        case .fitAndPad:
+            let ratio = min(target.width / srcW, target.height / srcH)
+            let capped = enlarge ? ratio : min(ratio, 1)
+            let content = CGSize(width: round(srcW * capped), height: round(srcH * capped))
+            if content == target { return scalePlan(content, source: source) }
+            return .fitAndPad(content: content, canvas: target)
+        case .fillAndCrop:
+            let ratio = max(target.width / srcW, target.height / srcH)
+            let capped = enlarge ? ratio : min(ratio, 1)
+            let scaledSize = CGSize(width: round(srcW * capped), height: round(srcH * capped))
+            let crop = CGSize(width: min(target.width, scaledSize.width),
+                              height: min(target.height, scaledSize.height))
+            if crop == scaledSize { return scalePlan(scaledSize, source: source) }
+            return .fillAndCrop(scaled: scaledSize, crop: crop)
+        }
+    }
+
+    /// Pixels for a print length: `value` in `unit` at `dpi`, rounded. Nil for a non-finite or
+    /// non-positive input; capped at `Int32.max` so it always converts.
+    public static func physicalPixels(_ value: Double, unit: PhysicalUnit, dpi: Double) -> Int? {
+        guard value.isFinite, value > 0, dpi.isFinite, dpi > 0 else { return nil }
+        let inches = unit == .centimetre ? value / 2.54 : value
+        let pixels = (inches * dpi).rounded()
+        guard pixels.isFinite else { return nil }
+        return Int(min(max(pixels, 1), Double(Int32.max)))
     }
 
     // MARK: Crop

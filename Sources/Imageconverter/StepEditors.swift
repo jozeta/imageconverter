@@ -56,6 +56,8 @@ private struct ResizeEditor: View {
         switch options.mode {
         case .maxWidth(let side), .maxHeight(let side), .exactWidth(let side), .exactHeight(let side): return (side, side)
         case .fitBox(let wide, let high), .exactSize(let wide, let high, _): return (wide, high)
+        // The editor for the newer modes comes later; until then they show as a 1600 px box.
+        default: return (1600, 1600)
         }
     }
 
@@ -72,6 +74,7 @@ private struct ResizeEditor: View {
         case .exactWidth: return .exactWidth
         case .exactHeight: return .exactHeight
         case .exactSize: return .exactSize
+        default: return .fitBox
         }
     }
 

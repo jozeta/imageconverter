@@ -130,4 +130,98 @@ final class ImageOpsTests: XCTestCase {
         let rotated = try ImageOps.rotateFlip(image, RotateFlipOptions(rotation: .cw90))
         XCTAssertEqual(rotated.bitsPerComponent, 16)
     }
+
+    // MARK: Resampling
+
+    /// A solid 8-bit image without an alpha channel.
+    private func opaqueImage(width: Int, height: Int) -> CGImage {
+        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else {
+            fatalError("Couldn't create a bitmap context")
+        }
+        ctx.setFillColor(red)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        guard let image = ctx.makeImage() else { fatalError("Couldn't make an image") }
+        return image
+    }
+
+    func testResamplersKeepSizeColorSpaceAndDepth() throws {
+        let image = TestImages.displayP3(width: 40, height: 20)
+        for method in Resampling.allCases {
+            for target in [(17, 9), (80, 41)] {
+                let out = try Resampler.scale(image, to: target, method: method)
+                XCTAssertEqual(out.width, target.0, "\(method)")
+                XCTAssertEqual(out.height, target.1, "\(method)")
+                XCTAssertEqual(out.bitsPerComponent, 16, "\(method)")
+                XCTAssertEqual(out.colorSpace?.name as String?, CGColorSpace.displayP3 as String, "\(method)")
+                // A solid image stays solid up to the edges (no dark or transparent fringe).
+                for (col, row) in [(0, 0), (target.0 - 1, target.1 - 1), (target.0 / 2, target.1 / 2)] {
+                    let pix = TestImages.pixel(of: out, x: col, y: row)
+                    let reference = TestImages.pixel(of: image, x: 0, y: 0)
+                    XCTAssertEqual(pix.red, reference.red, accuracy: 3, "\(method) (\(col),\(row))")
+                    XCTAssertEqual(pix.green, reference.green, accuracy: 3, "\(method) (\(col),\(row))")
+                    XCTAssertEqual(pix.alpha, 255, accuracy: 1, "\(method) (\(col),\(row))")
+                }
+            }
+        }
+    }
+
+    func testResamplersKeepOpaqueAndAlpha() throws {
+        let opaque = opaqueImage(width: 30, height: 20)
+        let translucent = TestImages.make(width: 30, height: 20, alpha: 0.5)
+        for method in Resampling.allCases {
+            XCTAssertFalse(ImageOps.hasAlpha(try Resampler.scale(opaque, to: (12, 8), method: method)), "\(method)")
+            let out = try Resampler.scale(translucent, to: (12, 8), method: method)
+            XCTAssertTrue(ImageOps.hasAlpha(out), "\(method)")
+            XCTAssertEqual(TestImages.pixel(of: out, x: 6, y: 4).alpha, 128, accuracy: 2, "\(method)")
+        }
+    }
+
+    func testNearestKeepsHardEdges() throws {
+        let image = TestImages.twoColor(width: 4, height: 2, left: red, right: blue)
+        let out = try Resampler.scale(image, to: (40, 20), method: .nearest)
+        // Exactly the source colours on both sides of the edge (compared after the same sRGB rendering).
+        let sourceLeft = TestImages.pixel(of: image, x: 1, y: 0)
+        let sourceRight = TestImages.pixel(of: image, x: 2, y: 0)
+        let left = TestImages.pixel(of: out, x: 19, y: 10)
+        let right = TestImages.pixel(of: out, x: 20, y: 10)
+        XCTAssertEqual(left.red, sourceLeft.red, accuracy: 1)
+        XCTAssertEqual(left.blue, sourceLeft.blue, accuracy: 1)
+        XCTAssertEqual(right.blue, sourceRight.blue, accuracy: 1)
+        XCTAssertEqual(right.red, sourceRight.red, accuracy: 1)
+        // Lanczos blends across the edge.
+        let smooth = try Resampler.scale(image, to: (40, 20), method: .lanczos)
+        XCTAssertGreaterThan(TestImages.pixel(of: smooth, x: 19, y: 10).blue, sourceLeft.blue + 10)
+    }
+
+    func testResizeUsesChosenResampling() throws {
+        let image = TestImages.twoColor(width: 4, height: 2, left: red, right: blue)
+        let out = try ImageOps.resize(image, ResizeOptions(mode: .exactWidth(40), allowEnlarge: true,
+                                                           resampling: .nearest))
+        XCTAssertEqual(out.width, 40)
+        XCTAssertEqual(TestImages.pixel(of: out, x: 19, y: 10).blue, TestImages.pixel(of: image, x: 0, y: 0).blue,
+                       accuracy: 1)
+    }
+
+    func testDPIWrittenWithoutResampling() throws {
+        let dir = try TestImages.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("in.png")
+        try TestImages.write(TestImages.make(width: 30, height: 20), to: source, type: .png)
+        for format in [OutputFormat.jpeg, .png, .tiff, .heic] {
+            var pipeline = Pipeline(steps: [
+                PipelineStep(operation: .resize(ResizeOptions(mode: .percent(100), dpi: 300)))
+            ])
+            pipeline.output.format = format
+            let encoded = try BatchRunner.encodeItem(source, pipeline: pipeline, assets: .empty, maxPixels: 1_000_000)
+            let props = try TestImages.properties(of: encoded.data)
+            XCTAssertEqual((props[kCGImagePropertyDPIWidth as String] as? NSNumber)?.doubleValue ?? 0, 300,
+                           accuracy: 0.5, "\(format)")
+            XCTAssertEqual((props[kCGImagePropertyDPIHeight as String] as? NSNumber)?.doubleValue ?? 0, 300,
+                           accuracy: 0.5, "\(format)")
+            XCTAssertEqual(props[kCGImagePropertyPixelWidth as String] as? Int, 30, "\(format)")
+            XCTAssertEqual(props[kCGImagePropertyPixelHeight as String] as? Int, 20, "\(format)")
+        }
+    }
 }

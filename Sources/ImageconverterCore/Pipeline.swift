@@ -44,27 +44,6 @@ public enum ExactFill: String, Codable, CaseIterable, Sendable {
     case stretch, fitAndPad, fillAndCrop
 }
 
-public enum ResizeMode: Codable, Equatable, Sendable {
-    case maxWidth(Int)
-    case maxHeight(Int)
-    case fitBox(width: Int, height: Int)
-    case exactWidth(Int)
-    case exactHeight(Int)
-    case exactSize(width: Int, height: Int, fill: ExactFill)
-}
-
-public struct ResizeOptions: Codable, Equatable, Sendable {
-    public var mode: ResizeMode
-    public var allowEnlarge: Bool
-    public var padColor: RGBAColor
-
-    public init(mode: ResizeMode = .maxWidth(1600), allowEnlarge: Bool = false, padColor: RGBAColor = .white) {
-        self.mode = mode
-        self.allowEnlarge = allowEnlarge
-        self.padColor = padColor
-    }
-}
-
 public enum CropMode: Codable, Equatable, Sendable {
     case size(width: Int, height: Int)
     case aspect(width: Double, height: Double)
@@ -248,6 +227,21 @@ extension Pipeline {
             }
         }
         return current
+    }
+}
+
+extension Pipeline {
+    /// The DPI written to the output: the last enabled resize step that sets one wins.
+    public var outputDPI: Double? {
+        steps.reversed().lazy.compactMap { step -> Double? in
+            guard step.isEnabled, case .resize(let options) = step.operation else { return nil }
+            return options.effectiveDPI
+        }.first
+    }
+
+    /// The metadata written with the output: the metadata options applied to `source`, then the DPI.
+    public func outputProperties(from source: [String: Any]) -> [String: Any] {
+        MetadataOps.setDPI(outputDPI, format: output.format, in: MetadataOps.apply(metadata, to: source))
     }
 }
 

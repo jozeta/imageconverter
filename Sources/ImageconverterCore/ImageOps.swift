@@ -17,22 +17,31 @@ public enum ImageOps {
         case .unchanged:
             return image
         case .scale(let size):
-            let ctx = try context(size, like: image, step: step, alpha: hasAlpha(image))
-            draw(image, at: .zero, size: size, in: ctx)
-            return try finish(ctx, step: step)
+            return try Resampler.scale(image, to: pixels(size), method: options.resampling)
         case .fitAndPad(let content, let canvas):
+            let scaled = try Resampler.scale(image, to: pixels(content), method: options.resampling)
             let ctx = try context(canvas, like: image, step: step,
                                   alpha: hasAlpha(image) || options.padColor.alpha < 1)
             fill(ctx, color: options.padColor)
             let origin = Anchor.center.origin(content: content, container: canvas)
-            draw(image, at: origin, size: content, in: ctx)
+            draw(scaled, at: origin, size: content, in: ctx)
             return try finish(ctx, step: step)
-        case .fillAndCrop(let scaled, let crop):
+        case .fillAndCrop(let scaledSize, let crop):
+            let scaled = try Resampler.scale(image, to: pixels(scaledSize), method: options.resampling)
             let ctx = try context(crop, like: image, step: step, alpha: hasAlpha(image))
-            let origin = Anchor.center.origin(content: scaled, container: crop)
-            draw(image, at: origin, size: scaled, in: ctx)
+            let origin = Anchor.center.origin(content: scaledSize, container: crop)
+            draw(scaled, at: origin, size: scaledSize, in: ctx)
             return try finish(ctx, step: step)
         }
+    }
+
+    /// Whole pixel dimensions of a planned size, or a throw when it can't be a bitmap.
+    private static func pixels(_ size: CGSize) throws -> (Int, Int) {
+        guard size.width.isFinite, size.height.isFinite, size.width >= 1, size.height >= 1,
+              size.width <= Double(maxPixels), size.height <= Double(maxPixels) else {
+            throw ConversionError.processingFailed(StepKind.resize.displayName)
+        }
+        return (Int(size.width), Int(size.height))
     }
 
     public static func crop(_ image: CGImage, _ options: CropOptions) throws -> CGImage {

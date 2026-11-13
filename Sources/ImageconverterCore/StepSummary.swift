@@ -4,7 +4,7 @@ extension ImageOperation {
     /// One-line description of the step for the pipeline list.
     public var summary: String {
         switch self {
-        case .resize(let options): return Self.summary(of: options.mode)
+        case .resize(let options): return Self.summary(of: options)
         case .crop(let options): return Self.summary(of: options.mode) + " · " + options.anchor.displayName
         case .rotateFlip(let options): return Self.summary(of: options)
         case .canvas(let options): return Self.summary(of: options.mode)
@@ -14,8 +14,19 @@ extension ImageOperation {
         }
     }
 
+    private static func summary(of options: ResizeOptions) -> String {
+        var parts = [summary(of: options.mode)]
+        if options.resampling != .lanczos { parts.append(options.resampling.displayName.lowercased()) }
+        // A physical size already names its DPI.
+        var isPhysical = false
+        if case .physical = options.mode { isPhysical = true }
+        if !isPhysical, let dpi = options.effectiveDPI { parts.append("\(number(dpi)) dpi") }
+        return parts.joined(separator: " · ")
+    }
+
     private static func summary(of mode: ResizeMode) -> String {
         switch mode {
+        case .percent, .longestEdge, .shortestEdge, .minimum, .physical: return scaleSummary(of: mode)
         case .maxWidth(let width): return "max width \(width) px"
         case .maxHeight(let height): return "max height \(height) px"
         case .fitBox(let width, let height): return "fit \(width) × \(height)"
@@ -29,6 +40,19 @@ extension ImageOperation {
             case .fillAndCrop: fillName = "crop"
             }
             return "\(width) × \(height) · \(fillName)"
+        }
+    }
+
+    private static func scaleSummary(of mode: ResizeMode) -> String {
+        switch mode {
+        case .percent(let percent): return "\(number(percent)) %"
+        case .longestEdge(let edge): return "longest edge \(edge) px"
+        case .shortestEdge(let edge): return "shortest edge \(edge) px"
+        case .minimum(let width, let height): return "at least \(width) × \(height)"
+        case .physical(let width, let height, let unit, let dpi):
+            let side: (Double?) -> String = { $0.map { number($0) } ?? "auto" }
+            return "\(side(width)) × \(side(height)) \(unit.displayName) at \(number(dpi)) dpi"
+        default: return summary(of: mode)
         }
     }
 
