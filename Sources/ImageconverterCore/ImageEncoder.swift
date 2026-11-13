@@ -61,12 +61,16 @@ public enum ImageEncoder {
         return ctx.makeImage()
     }
 
-    /// Copy of `properties` with orientation 1 and without the (possibly pre-rotation) pixel dimensions.
+    /// Copy of `properties` with orientation 1 and without stale pixel dimensions or color description.
     private static func sanitized(_ properties: [String: Any]) -> [String: Any] {
         var props = properties
         props[kCGImagePropertyOrientation as String] = 1
         props.removeValue(forKey: kCGImagePropertyPixelWidth as String)
         props.removeValue(forKey: kCGImagePropertyPixelHeight as String)
+        // Describe the old color; ImageIO derives these from the image being written.
+        props.removeValue(forKey: kCGImagePropertyProfileName as String)
+        props.removeValue(forKey: kCGImagePropertyColorModel as String)
+        props.removeValue(forKey: kCGImagePropertyDepth as String)
 
         let exifKey = kCGImagePropertyExifDictionary as String
         if var exif = props[exifKey] as? [String: Any] {

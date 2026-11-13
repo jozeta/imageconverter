@@ -84,15 +84,48 @@ public enum ImageOps {
         return try finish(ctx, step: step)
     }
 
+    public static func convertColor(_ image: CGImage, to profile: ColorProfile) throws -> CGImage {
+        let step = StepKind.colorProfile.displayName
+        let width = image.width
+        let height = image.height
+        switch profile {
+        case .keep:
+            return image
+        case .sRGB, .displayP3:
+            let name = profile == .sRGB ? CGColorSpace.sRGB : CGColorSpace.displayP3
+            guard let space = CGColorSpace(name: name),
+                  let ctx = makeContext(width: width, height: height, like: image, space: space) else {
+                throw ConversionError.processingFailed(step)
+            }
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return try finish(ctx, step: step)
+        case .gray:
+            // No alpha: transparent pixels are flattened onto white first.
+            guard width >= 1, height >= 1, width <= maxPixels / height,
+                  let space = CGColorSpace(name: CGColorSpace.genericGrayGamma2_2),
+                  let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: space,
+                                      bitmapInfo: CGImageAlphaInfo.none.rawValue) else {
+                throw ConversionError.processingFailed(step)
+            }
+            ctx.interpolationQuality = .high
+            let rect = CGRect(x: 0, y: 0, width: width, height: height)
+            ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+            ctx.fill(rect)
+            ctx.draw(image, in: rect)
+            return try finish(ctx, step: step)
+        }
+    }
+
     // MARK: Helpers
 
-    /// A bitmap context in the image's color space; 16 bpc when the source has more than 8.
-    static func makeContext(width: Int, height: Int, like image: CGImage) -> CGContext? {
+    /// A bitmap context in `space` (default: the image's color space); 16 bpc when the source has more than 8.
+    static func makeContext(width: Int, height: Int, like image: CGImage, space target: CGColorSpace? = nil) -> CGContext? {
         guard width >= 1, height >= 1, width <= maxPixels / height else { return nil }
         let bits = image.bitsPerComponent > 8 ? 16 : 8
         let info = CGImageAlphaInfo.premultipliedLast.rawValue
         var spaces: [CGColorSpace] = []
-        if let own = image.colorSpace { spaces.append(own) }
+        if let own = target ?? image.colorSpace { spaces.append(own) }
         if let srgb = CGColorSpace(name: CGColorSpace.sRGB) { spaces.append(srgb) }
         for space in spaces {
             if let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: bits,
