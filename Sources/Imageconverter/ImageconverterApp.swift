@@ -17,6 +17,10 @@ struct ImageconverterApp: App {
                 .frame(minWidth: 340, minHeight: 420)
         }
         .commands {
+            CommandGroup(replacing: .saveItem) {
+                Button("Save Preset") { model.saveCurrent() }
+                    .keyboardShortcut("s", modifiers: .command)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Add Images…") { model.chooseInputs() }
                     .keyboardShortcut("o", modifiers: .command)

@@ -10,6 +10,7 @@ struct SidebarView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
+                PresetBar(model: model)
                 dropZone
                 countRow
                 PipelineSection(model: model, settings: settings)

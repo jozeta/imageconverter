@@ -5,10 +5,19 @@ import ImageconverterCore
 @MainActor @Observable
 final class AppModel {
     var items: [InputItem] = []
-    /// The image steps and output format; saved to `UserDefaults` on every change.
-    var pipeline: Pipeline {
-        didSet { Self.save(pipeline, to: defaults) }
+    /// The selected preset and the pipeline being edited; both are saved to `UserDefaults` on every change.
+    var session: PresetSession {
+        didSet { persist() }
     }
+    /// The image steps and output format being edited (the session's pipeline).
+    var pipeline: Pipeline {
+        get { session.pipeline }
+        set { session.pipeline = newValue }
+    }
+    /// The user's saved presets, sorted by name; the built-ins are in `PresetStore.builtIns`.
+    var userPresets: [Preset] = []
+    /// Set by Save (⌘S) on a built-in or ad hoc pipeline; the preset bar shows its "Save as" sheet.
+    var isSavingAs = false
     var progress: BatchProgress?
     var lastReport: BatchReport?
     var isRunning = false
@@ -23,11 +32,28 @@ final class AppModel {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var exampleSource: (url: URL, info: RenameSource)?
     @ObservationIgnored private var exampleCache: (key: RenameExampleKey, text: String)?
+    @ObservationIgnored let presetStore: PresetStore
     static let pipelineKey = "currentPipeline"
+    static let selectedPresetKey = "selectedPresetID"
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard,
+         presetStore: PresetStore = PresetStore(directory: PresetStore.defaultDirectory)) {
         self.defaults = defaults
-        pipeline = Self.loadPipeline(from: defaults)
+        self.presetStore = presetStore
+        let saved = Self.loadPipeline(from: defaults)
+        session = PresetSession(selected: nil, pipeline: saved)
+        let result = presetStore.loadAll()
+        userPresets = Self.sorted(result.presets)
+        // A remembered preset is selected again; if the saved pipeline differs it shows as modified.
+        if let id = defaults.string(forKey: Self.selectedPresetKey).flatMap(UUID.init(uuidString:)),
+           let preset = allPresets.first(where: { $0.id == id }) {
+            session = PresetSession(selected: preset, pipeline: saved)
+        }
+        if !result.skipped.isEmpty {
+            let count = result.skipped.count
+            toasts.show("Skipped \(count) preset \(count == 1 ? "file" : "files")", type: .info,
+                        description: result.skipped.map { "\($0.file): \($0.reason)" }.joined(separator: "\n"))
+        }
     }
 
     /// An undecodable or missing value gives an empty pipeline with the default output.
@@ -37,8 +63,13 @@ final class AppModel {
         return pipeline
     }
 
-    private static func save(_ pipeline: Pipeline, to defaults: UserDefaults) {
-        if let data = try? JSONEncoder().encode(pipeline) { defaults.set(data, forKey: pipelineKey) }
+    func persist() {
+        if let data = try? JSONEncoder().encode(session.pipeline) { defaults.set(data, forKey: Self.pipelineKey) }
+        if let id = session.selected?.id {
+            defaults.set(id.uuidString, forKey: Self.selectedPresetKey)
+        } else {
+            defaults.removeObject(forKey: Self.selectedPresetKey)
+        }
     }
 
     // MARK: Pipeline editing
