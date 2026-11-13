@@ -10,7 +10,7 @@ public enum ImageEncoder {
     public static func encode(_ image: CGImage, properties: [String: Any], settings: OutputSettings) throws -> Data {
         let format = settings.format
         let source: CGImage
-        if needsOpaque(format), hasAlpha(image) {
+        if needsOpaque(format), ImageOps.hasAlpha(image) {
             guard let flat = flattenedOnWhite(image) else { throw ConversionError.encodeFailed }
             source = flat
         } else {
@@ -42,15 +42,11 @@ public enum ImageEncoder {
         format == .jpeg || format == .bmp
     }
 
-    private static func hasAlpha(_ image: CGImage) -> Bool {
-        switch image.alphaInfo {
-        case .none, .noneSkipFirst, .noneSkipLast: return false
-        default: return true
-        }
-    }
-
     private static func flattenedOnWhite(_ image: CGImage) -> CGImage? {
-        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+        // Keep the image's own RGB color space (wide gamut); sRGB only for other color models.
+        var space = CGColorSpace(name: CGColorSpace.sRGB)
+        if let own = image.colorSpace, own.model == .rgb { space = own }
+        guard let space,
               let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
                                   bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }

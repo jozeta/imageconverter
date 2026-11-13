@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- Wide-colour (Display P3) photos keep their colour when resized and saved as JPEG; opaque images stay opaque through steps; memory use accounts for enlargement.
 - Pipeline steps: resize, crop, rotate/flip, canvas/padding and color profile; steps can be reordered, switched off and removed; the pipeline is kept between launches. Large images are scheduled by memory use; file types macOS can't read (e.g. SVG) are ignored when adding folders.
 
 ### 0.1.0
@@ -80,6 +81,9 @@ Settings (⌘,). The three output settings below work now. The pipeline itself (
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Same-folder suffix | Name suffix used when no Rename step is on | `_converted` |
 
+Gray, CMYK and indexed-colour sources are converted to sRGB by pixel steps (colour-managed, so
+they look the same). Wide-colour (Display P3) images keep their colour space.
+
 Choosing **Overwrite originals** shows a warning once, when you select it, and never during runs.
 In this mode, when the format or name changes (for example HEIC → JPEG), the new file is written
 and the original is **moved to the Trash**. In "New folder" mode, dropped folders keep their
@@ -108,7 +112,8 @@ Your pipeline is kept between launches.
 ### Convert a batch
 
 1. Drop images or folders onto the window, or press **Add…** (⌘O). Folders are searched
-   recursively; unreadable files are skipped later, not at this step.
+   recursively. File types macOS can't read (for example SVG or PDF) are ignored when you add
+   them; broken files of a readable type are skipped during the run and listed at the end.
 2. Under **Output** (the last row of the pipeline), pick a format (JPEG, PNG, HEIC, TIFF, plus GIF, BMP and JPEG 2000 where your
    Mac can write them). JPEG, HEIC and JPEG 2000 have a quality slider; TIFF has a compression
    choice.

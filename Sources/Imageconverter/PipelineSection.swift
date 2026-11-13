@@ -135,7 +135,6 @@ private struct StepRow: View {
         DisclosureGroup(isExpanded: $isExpanded) {
             StepEditor(operation: $step.operation)
                 .padding(.top, LadaGlass.Spacing.s)
-                .disabled(!step.isEnabled)
         } label: {
             HStack(spacing: LadaGlass.Spacing.s) {
                 Image(systemName: "line.3.horizontal")

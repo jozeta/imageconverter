@@ -33,3 +33,13 @@ final class WorkWindowTests: XCTestCase {
         XCTAssertFalse(window.canStart(weight: 1))
     }
 }
+
+final class WorkWindowClampTests: XCTestCase {
+    func testMaxItemsClampedToOne() {
+        var window = WorkWindow(maxItems: 0, maxWeight: 10)
+        XCTAssertEqual(window.maxItems, 1)
+        XCTAssertTrue(window.canStart(weight: 1))
+        window.start(weight: 1)
+        XCTAssertFalse(window.canStart(weight: 1))
+    }
+}

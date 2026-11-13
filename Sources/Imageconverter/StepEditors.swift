@@ -112,8 +112,10 @@ private struct ResizeEditor: View {
                     ColorField(title: "Pad color", color: $options.padColor)
                 }
             }
-            Toggle("Don't enlarge smaller images", isOn: Binding(
-                get: { !options.allowEnlarge }, set: { options.allowEnlarge = !$0 }))
+            if !(kind == .exactSize && fill == .stretch) {
+                Toggle("Don't enlarge smaller images", isOn: Binding(
+                    get: { !options.allowEnlarge }, set: { options.allowEnlarge = !$0 }))
+            }
         }
     }
 }

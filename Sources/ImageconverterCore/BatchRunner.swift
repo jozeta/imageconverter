@@ -80,7 +80,9 @@ public enum BatchRunner {
                     let index = next
                     let plan = plans[index]
                     // Header-only read; unreadable files weigh 1 and fail later in `convert`.
-                    let weight = max(1, ImageLoader.pixelCount(of: plan.item.source) ?? 1)
+                    let weight = max(1, ImageLoader.pixelSize(of: plan.item.source).map {
+                        pipeline.peakPixels(sourceWidth: $0.width, sourceHeight: $0.height)
+                    } ?? 1)
                     guard window.canStart(weight: weight) else { break }
                     weights[index] = weight
                     window.start(weight: weight)

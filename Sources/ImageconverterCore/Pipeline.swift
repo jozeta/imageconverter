@@ -209,3 +209,45 @@ extension Pipeline {
         return current
     }
 }
+
+extension Pipeline {
+    /// The largest pixel count any enabled step produces for a `sourceWidth` x `sourceHeight` image
+    /// (the source included). Saturates instead of overflowing.
+    public func peakPixels(sourceWidth: Int, sourceHeight: Int) -> Int {
+        var size = CGSize(width: max(1, sourceWidth), height: max(1, sourceHeight))
+        var peak = Self.pixels(size)
+        for step in steps where step.isEnabled {
+            size = Self.size(after: step.operation, from: size)
+            peak = max(peak, Self.pixels(size))
+        }
+        return peak
+    }
+
+    private static func size(after operation: ImageOperation, from size: CGSize) -> CGSize {
+        switch operation {
+        case .resize(let options):
+            switch Geometry.resizePlan(source: size, options: options) {
+            case .unchanged: return size
+            case .scale(let target): return target
+            case .fitAndPad(_, let canvas): return canvas
+            case .fillAndCrop(_, let crop): return crop
+            }
+        case .crop(let options):
+            return Geometry.cropRect(source: size, options: options).size
+        case .rotateFlip(let options):
+            let swapped = options.rotation == .cw90 || options.rotation == .cw270
+            return swapped ? CGSize(width: size.height, height: size.width) : size
+        case .canvas(let options):
+            return Geometry.canvas(source: size, options: options).canvas
+        case .colorProfile:
+            return size
+        }
+    }
+
+    private static func pixels(_ size: CGSize) -> Int {
+        let wide = size.width.isFinite ? min(max(size.width, 1), Double(Int32.max)) : 1
+        let high = size.height.isFinite ? min(max(size.height, 1), Double(Int32.max)) : 1
+        let (product, overflow) = Int(wide).multipliedReportingOverflow(by: Int(high))
+        return overflow ? Int.max : product
+    }
+}

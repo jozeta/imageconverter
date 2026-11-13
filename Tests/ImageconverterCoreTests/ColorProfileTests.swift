@@ -48,3 +48,54 @@ final class ColorProfileTests: XCTestCase {
         XCTAssertEqual(out[kCGImagePropertyColorModel as String] as? String, kCGImagePropertyColorModelRGB as String)
     }
 }
+
+final class WideGamutThroughStepsTests: XCTestCase {
+    private func jpeg() -> OutputSettings {
+        var result = OutputSettings()
+        result.format = .jpeg
+        return result
+    }
+
+    private func profile(_ data: Data) throws -> String? {
+        try TestImages.properties(of: data)[kCGImagePropertyProfileName as String] as? String
+    }
+
+    func testP3ResizeToJPEGKeepsP3() throws {
+        let out = try ImageOps.resize(TestImages.displayP3(width: 40, height: 40), ResizeOptions(mode: .maxWidth(20)))
+        let name = try profile(ImageEncoder.encode(out, properties: [:], settings: jpeg()))
+        XCTAssertTrue(name?.contains("P3") == true, "profile name was \(name ?? "nil")")
+    }
+
+    func testP3ConvertToP3JPEGKeepsP3() throws {
+        let out = try ImageOps.convertColor(TestImages.displayP3(width: 8, height: 8), to: .displayP3)
+        let name = try profile(ImageEncoder.encode(out, properties: [:], settings: jpeg()))
+        XCTAssertTrue(name?.contains("P3") == true, "profile name was \(name ?? "nil")")
+    }
+
+    private func opaqueImage() throws -> CGImage {
+        let ctx = try XCTUnwrap(CGContext(data: nil, width: 40, height: 40, bitsPerComponent: 8, bytesPerRow: 0,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue))
+        ctx.setFillColor(CGColor(red: 0.2, green: 0.4, blue: 0.6, alpha: 1))
+        ctx.fill(CGRect(x: 0, y: 0, width: 40, height: 40))
+        return try XCTUnwrap(ctx.makeImage())
+    }
+
+    func testOpaquePNGStaysOpaqueThroughResize() throws {
+        let out = try ImageOps.resize(opaqueImage(), ResizeOptions(mode: .maxWidth(20)))
+        var settings = OutputSettings()
+        settings.format = .png
+        let data = try ImageEncoder.encode(out, properties: [:], settings: settings)
+        let hasAlpha = try TestImages.properties(of: data)[kCGImagePropertyHasAlpha as String] as? Bool
+        XCTAssertNotEqual(hasAlpha, true)
+    }
+
+    func testClearCanvasBackgroundKeepsAlpha() throws {
+        let out = try ImageOps.canvas(opaqueImage(), CanvasOptions(mode: .padding(pixels: 4), background: .clear))
+        var settings = OutputSettings()
+        settings.format = .png
+        let data = try ImageEncoder.encode(out, properties: [:], settings: settings)
+        let hasAlpha = try TestImages.properties(of: data)[kCGImagePropertyHasAlpha as String] as? Bool
+        XCTAssertEqual(hasAlpha, true)
+    }
+}

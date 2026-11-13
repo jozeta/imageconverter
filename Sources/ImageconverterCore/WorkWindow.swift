@@ -7,7 +7,7 @@ public struct WorkWindow {
     private var inFlightWeight = 0
 
     public init(maxItems: Int, maxWeight: Int) {
-        self.maxItems = maxItems
+        self.maxItems = max(1, maxItems)
         self.maxWeight = maxWeight
     }
 

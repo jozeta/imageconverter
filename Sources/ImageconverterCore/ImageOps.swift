@@ -16,17 +16,18 @@ public enum ImageOps {
         case .unchanged:
             return image
         case .scale(let size):
-            let ctx = try context(size, like: image, step: step)
+            let ctx = try context(size, like: image, step: step, alpha: hasAlpha(image))
             draw(image, at: .zero, size: size, in: ctx)
             return try finish(ctx, step: step)
         case .fitAndPad(let content, let canvas):
-            let ctx = try context(canvas, like: image, step: step)
+            let ctx = try context(canvas, like: image, step: step,
+                                  alpha: hasAlpha(image) || options.padColor.alpha < 1)
             fill(ctx, color: options.padColor)
             let origin = Anchor.center.origin(content: content, container: canvas)
             draw(image, at: origin, size: content, in: ctx)
             return try finish(ctx, step: step)
         case .fillAndCrop(let scaled, let crop):
-            let ctx = try context(crop, like: image, step: step)
+            let ctx = try context(crop, like: image, step: step, alpha: hasAlpha(image))
             let origin = Anchor.center.origin(content: scaled, container: crop)
             draw(image, at: origin, size: scaled, in: ctx)
             return try finish(ctx, step: step)
@@ -48,7 +49,7 @@ public enum ImageOps {
         let high = CGFloat(image.height)
         let swapped = options.rotation == .cw90 || options.rotation == .cw270
         let out = swapped ? CGSize(width: high, height: wide) : CGSize(width: wide, height: high)
-        let ctx = try context(out, like: image, step: step)
+        let ctx = try context(out, like: image, step: step, alpha: hasAlpha(image))
         // Flips act on the rotated result, so they are applied to the CTM first.
         if options.flipHorizontal {
             ctx.translateBy(x: out.width, y: 0)
@@ -78,7 +79,8 @@ public enum ImageOps {
     public static func canvas(_ image: CGImage, _ options: CanvasOptions) throws -> CGImage {
         let step = StepKind.canvas.displayName
         let plan = Geometry.canvas(source: CGSize(width: image.width, height: image.height), options: options)
-        let ctx = try context(plan.canvas, like: image, step: step)
+        let ctx = try context(plan.canvas, like: image, step: step,
+                              alpha: hasAlpha(image) || options.background.alpha < 1)
         fill(ctx, color: options.background)
         draw(image, at: plan.imageOrigin, size: CGSize(width: image.width, height: image.height), in: ctx)
         return try finish(ctx, step: step)
@@ -94,7 +96,8 @@ public enum ImageOps {
         case .sRGB, .displayP3:
             let name = profile == .sRGB ? CGColorSpace.sRGB : CGColorSpace.displayP3
             guard let space = CGColorSpace(name: name),
-                  let ctx = makeContext(width: width, height: height, like: image, space: space) else {
+                  let ctx = makeContext(width: width, height: height, like: image, space: space,
+                                        alpha: hasAlpha(image)) else {
                 throw ConversionError.processingFailed(step)
             }
             ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
@@ -119,28 +122,40 @@ public enum ImageOps {
 
     // MARK: Helpers
 
+    static func hasAlpha(_ image: CGImage) -> Bool {
+        switch image.alphaInfo {
+        case .none, .noneSkipFirst, .noneSkipLast: return false
+        default: return true
+        }
+    }
+
     /// A bitmap context in `space` (default: the image's color space); 16 bpc when the source has more than 8.
-    static func makeContext(width: Int, height: Int, like image: CGImage, space target: CGColorSpace? = nil) -> CGContext? {
+    /// Opaque (no alpha channel) unless `alpha` is true, so opaque photos stay opaque through a step.
+    static func makeContext(width: Int, height: Int, like image: CGImage, space target: CGColorSpace? = nil,
+                            alpha: Bool = true) -> CGContext? {
         guard width >= 1, height >= 1, width <= maxPixels / height else { return nil }
         let bits = image.bitsPerComponent > 8 ? 16 : 8
-        let info = CGImageAlphaInfo.premultipliedLast.rawValue
+        var infos = [CGImageAlphaInfo.premultipliedLast.rawValue]
+        if !alpha { infos.insert(CGImageAlphaInfo.noneSkipLast.rawValue, at: 0) }
         var spaces: [CGColorSpace] = []
         if let own = target ?? image.colorSpace { spaces.append(own) }
         if let srgb = CGColorSpace(name: CGColorSpace.sRGB) { spaces.append(srgb) }
         for space in spaces {
-            if let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: bits,
-                                   bytesPerRow: 0, space: space, bitmapInfo: info) {
-                ctx.interpolationQuality = .high
-                return ctx
+            for info in infos {
+                if let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: bits,
+                                       bytesPerRow: 0, space: space, bitmapInfo: info) {
+                    ctx.interpolationQuality = .high
+                    return ctx
+                }
             }
         }
         return nil
     }
 
-    private static func context(_ size: CGSize, like image: CGImage, step: String) throws -> CGContext {
+    private static func context(_ size: CGSize, like image: CGImage, step: String, alpha: Bool) throws -> CGContext {
         guard size.width.isFinite, size.height.isFinite, size.width >= 1, size.height >= 1,
               size.width <= Double(maxPixels), size.height <= Double(maxPixels),
-              let ctx = makeContext(width: Int(size.width), height: Int(size.height), like: image) else {
+              let ctx = makeContext(width: Int(size.width), height: Int(size.height), like: image, alpha: alpha) else {
             throw ConversionError.processingFailed(step)
         }
         return ctx
