@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "allow": ["Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git show:*)", "Bash(git branch:*)", "Bash(ls:*)", "Bash(claude-check:*)", "Bash(swift build:*)", "Bash(swift test:*)", "Bash(swift run:*)", "Bash(swiftlint:*)"],
+    "deny": ["Read(./.env)", "Read(./.env.*)", "Read(./**/*.pem)", "Read(./**/*.key)"]
+  }
+}

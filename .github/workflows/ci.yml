@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - name: Lint
+        run: if command -v swiftlint >/dev/null; then swiftlint --strict; else echo "SwiftLint not on this runner; skipped."; fi
+      - name: Build and test
+        run: swift test

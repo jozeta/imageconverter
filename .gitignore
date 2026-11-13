@@ -1,0 +1,26 @@
+# --- Baseline: macOS, Claude Code and secrets ---
+.DS_Store
+._*
+.claude/settings.local.json
+.remember/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Swift / Xcode
+.build/
+.swiftpm/
+DerivedData/
+build/
+xcuserdata/
+*.xcuserstate
+Local.xcconfig
