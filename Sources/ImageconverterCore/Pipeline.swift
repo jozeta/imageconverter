@@ -242,13 +242,26 @@ extension Pipeline {
     /// The largest pixel count any enabled step produces for a `sourceWidth` x `sourceHeight` image
     /// (the source included). Saturates instead of overflowing.
     public func peakPixels(sourceWidth: Int, sourceHeight: Int) -> Int {
+        var peak = 0
+        walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { peak = max(peak, Self.pixels($0)) }
+        return peak
+    }
+
+    /// The size after all enabled image steps, from `Geometry`.
+    public func outputSize(sourceWidth: Int, sourceHeight: Int) -> (width: Int, height: Int) {
+        var last = CGSize(width: max(1, sourceWidth), height: max(1, sourceHeight))
+        walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { last = $0 }
+        return (Int(last.width.rounded()), Int(last.height.rounded()))
+    }
+
+    /// Calls `visit` with the source size, then with the size after each enabled step.
+    private func walk(sourceWidth: Int, sourceHeight: Int, _ visit: (CGSize) -> Void) {
         var size = CGSize(width: max(1, sourceWidth), height: max(1, sourceHeight))
-        var peak = Self.pixels(size)
+        visit(size)
         for step in steps where step.isEnabled {
             size = Self.size(after: step.operation, from: size)
-            peak = max(peak, Self.pixels(size))
+            visit(size)
         }
-        return peak
     }
 
     private static func size(after operation: ImageOperation, from size: CGSize) -> CGSize {

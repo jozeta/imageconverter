@@ -58,7 +58,8 @@ public enum BatchRunner {
         trash: @escaping Trasher = systemTrash,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
     ) async -> BatchReport {
-        let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode)
+        let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode,
+                                       baseNames: renderedBaseNames(items, pipeline: pipeline))
         let total = plans.count
         var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
         var weights = [Int](repeating: 1, count: total)
@@ -106,6 +107,22 @@ public enum BatchRunner {
         return makeReport(plans: plans, outcomes: outcomes, cancelled: cancelled)
     }
 
+    /// Renders the rename template for every item, serially in input order (the counter depends on
+    /// it). Nil when renaming is off.
+    private static func renderedBaseNames(_ items: [InputItem], pipeline: Pipeline) -> [String]? {
+        guard pipeline.rename.isEnabled else { return nil }
+        let template = RenameTemplate(pipeline.rename.pattern)
+        return items.enumerated().map { index, item in
+            let header = ImageLoader.header(of: item.source)
+            let size = pipeline.outputSize(sourceWidth: header?.width ?? 1, sourceHeight: header?.height ?? 1)
+            let created = (try? item.source.resourceValues(forKeys: [.creationDateKey]))?.creationDate
+            let context = RenameContext.make(
+                source: item.source, header: header, outputSize: size, format: pipeline.output.format,
+                counter: pipeline.rename.counterStart + index, fileCreationDate: created)
+            return template.render(context)
+        }
+    }
+
     private static func makeReport(
         plans: [PlannedOutput], outcomes: [Result<URL, ConversionError>?], cancelled: Bool
     ) -> BatchReport {
@@ -128,7 +145,8 @@ public enum BatchRunner {
             do {
                 let loaded = try ImageLoader.load(plan.item.source, maxPixels: maxPixels)
                 let image = try pipeline.apply(to: loaded.image)
-                let data = try ImageEncoder.encode(image, properties: loaded.properties, settings: pipeline.output)
+                let properties = MetadataOps.apply(pipeline.metadata, to: loaded.properties)
+                let data = try ImageEncoder.encode(image, properties: properties, settings: pipeline.output)
                 try FileCommitter.commit(data, for: plan, trash: trash)
                 return .success(plan.destination)
             } catch let error as ConversionError {
