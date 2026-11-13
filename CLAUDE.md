@@ -34,13 +34,17 @@ swiftlint           # if installed (brew install swiftlint)
 - `Package.swift`: SwiftPM manifest (macOS 14+)
 - `Sources/Imageconverter/`: the SwiftUI app; `DesignSystem/LadaGlass.swift` is the copied Låda Glass file
   - `ImageconverterApp.swift` (scenes), `SidebarView.swift` (main window), `SettingsView.swift` (⌘,),
-    `AppModel.swift` (items, run/cancel, toasts), `AppSettings.swift` (output mode, persisted in UserDefaults)
+    `AppModel.swift` (items, pipeline persisted as JSON under `currentPipeline`, run/cancel, toasts),
+    `AppSettings.swift` (output mode, persisted in UserDefaults), `PipelineSection.swift` (step rows,
+    reorder, add, fixed Output row), `StepEditors.swift` (one editor per step kind), `StepControls.swift` (shared controls)
 - `Sources/ImageconverterCore/`: all logic: the pipeline model, each operation as a pure function
   (`CGImage → CGImage`, metadata → metadata), rename templating, collision naming, presets
   (JSON, `schemaVersion`), the batch runner. No SwiftUI here. Files so far:
   - `OutputFormat` (formats, `OutputSettings`), `ConversionError`, `ImageLoader`, `ImageEncoder`,
     `InputCollector` (files/folders to items), `OutputPlanner` (destinations per output mode),
-    `FileCommitter` (atomic writes, trash replaced originals), `BatchRunner` (parallel run, progress, cancel)
+    `FileCommitter` (atomic writes, trash replaced originals), `BatchRunner` (parallel run, progress, cancel),
+    `Pipeline` (steps, options, `apply`), `StepSummary` (one-line step descriptions), `Geometry` (size maths),
+    `ImageOps` (resize, crop, rotate/flip, canvas, color profile), `WorkWindow` (memory-aware batch scheduling)
 - `Tests/ImageconverterCoreTests/`: tests (operations on small generated images, rename tokens,
   resize/crop maths, collisions, preset round-trip and rejection, metadata really stripped)
 - `docs/superpowers/specs/`: design documents; `docs/superpowers/plans/`: implementation plans

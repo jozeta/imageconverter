@@ -13,8 +13,7 @@ struct SidebarView: View {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
                 dropZone
                 countRow
-                outputSection
-                modeRow
+                PipelineSection(model: model, settings: settings)
                 runSection
                 failureList
             }
@@ -59,47 +58,6 @@ struct SidebarView: View {
                 .buttonStyle(.lg(.ghost))
                 .disabled(model.items.isEmpty || model.isRunning)
                 .accessibilityLabel("Clear the image list")
-        }
-    }
-
-    private var outputSection: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Text("Output").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-            Picker("Format", selection: $model.output.format) {
-                ForEach(OutputFormat.available(), id: \.self) { Text($0.displayName).tag($0) }
-            }
-            .accessibilityLabel("Output format")
-            if model.output.format.supportsQuality {
-                HStack {
-                    Slider(value: $model.output.quality, in: 0.1...1, step: 0.01)
-                        .accessibilityLabel("Quality")
-                        .accessibilityValue("\(Int((model.output.quality * 100).rounded())) percent")
-                    Text("\(Int((model.output.quality * 100).rounded())) %")
-                        .font(LadaGlass.Typography.mono)
-                        .frame(minWidth: 44, alignment: .trailing)
-                }
-            }
-            if model.output.format == .tiff {
-                Picker("Compression", selection: $model.output.tiffCompression) {
-                    Text("None").tag(TIFFCompression.none)
-                    Text("LZW").tag(TIFFCompression.lzw)
-                }
-                .accessibilityLabel("TIFF compression")
-            }
-        }
-        .disabled(model.isRunning)
-    }
-
-    private var modeRow: some View {
-        HStack {
-            Text(settings.summary)
-                .font(LadaGlass.Typography.body)
-                .foregroundStyle(LadaGlass.Colors.muted)
-                .lineLimit(2)
-            Spacer()
-            Button("Change…") { openSettings() }
-                .buttonStyle(.lg(.ghost))
-                .accessibilityLabel("Change output settings")
         }
     }
 

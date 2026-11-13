@@ -5,7 +5,10 @@ import ImageconverterCore
 @MainActor @Observable
 final class AppModel {
     var items: [InputItem] = []
-    var output = OutputSettings()
+    /// The image steps and output format; saved to `UserDefaults` on every change.
+    var pipeline: Pipeline {
+        didSet { Self.save(pipeline, to: defaults) }
+    }
     var progress: BatchProgress?
     var lastReport: BatchReport?
     var isRunning = false
@@ -15,6 +18,52 @@ final class AppModel {
     let toasts = LGToastCenter()
 
     @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private let defaults: UserDefaults
+    static let pipelineKey = "currentPipeline"
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        pipeline = Self.loadPipeline(from: defaults)
+    }
+
+    /// An undecodable or missing value gives an empty pipeline with the default output.
+    static func loadPipeline(from defaults: UserDefaults) -> Pipeline {
+        guard let data = defaults.data(forKey: pipelineKey),
+              let pipeline = try? JSONDecoder().decode(Pipeline.self, from: data) else { return Pipeline() }
+        return pipeline
+    }
+
+    private static func save(_ pipeline: Pipeline, to defaults: UserDefaults) {
+        if let data = try? JSONEncoder().encode(pipeline) { defaults.set(data, forKey: pipelineKey) }
+    }
+
+    // MARK: Pipeline editing
+
+    func addStep(_ kind: StepKind) -> PipelineStep {
+        let step = PipelineStep(operation: kind.defaultOperation)
+        pipeline.steps.append(step)
+        return step
+    }
+
+    func removeStep(_ id: PipelineStep.ID) {
+        pipeline.steps.removeAll { $0.id == id }
+    }
+
+    func moveStep(_ id: PipelineStep.ID, by offset: Int) {
+        guard let index = pipeline.steps.firstIndex(where: { $0.id == id }) else { return }
+        let target = index + offset
+        guard pipeline.steps.indices.contains(target) else { return }
+        pipeline.steps.swapAt(index, target)
+    }
+
+    /// Drag and drop: puts `id` where `target` is now.
+    func moveStep(_ id: PipelineStep.ID, to target: PipelineStep.ID) {
+        guard id != target,
+              let from = pipeline.steps.firstIndex(where: { $0.id == id }),
+              let dest = pipeline.steps.firstIndex(where: { $0.id == target }) else { return }
+        let step = pipeline.steps.remove(at: from)
+        pipeline.steps.insert(step, at: dest)
+    }
 
     /// Scans `urls` off the main actor (large folders), then merges new items in, skipping duplicates.
     func add(_ urls: [URL]) {
@@ -67,12 +116,12 @@ final class AppModel {
         guard let mode = settings.outputMode else { return }
 
         let batch = items
-        let format = output
+        let pipeline = self.pipeline
         isRunning = true
         lastReport = nil
         progress = BatchProgress(completed: 0, failed: 0, total: batch.count)
         task = Task { [weak self] in
-            let report = await BatchRunner.run(batch, pipeline: Pipeline(output: format), mode: mode, progress: { update in
+            let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, progress: { update in
                 Task { @MainActor in
                     // Updates can arrive out of order; only move forward.
                     guard let self, self.isRunning, update.completed > (self.progress?.completed ?? 0) else { return }
