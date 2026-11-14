@@ -22,7 +22,9 @@ jobs:
       - name: Build and test
         run: swift test
       - name: Lint scripts
-        run: if command -v shellcheck >/dev/null; then shellcheck scripts/*.sh; else bash -n scripts/release.sh; fi
+        run: |
+          if command -v shellcheck >/dev/null; then shellcheck scripts/*.sh
+          else for f in scripts/*.sh; do bash -n "$f"; done; fi
       - name: Build the app bundle (ad hoc signed) and verify it
         run: |
           scripts/release.sh

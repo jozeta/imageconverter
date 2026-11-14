@@ -150,6 +150,9 @@ Requires macOS 14 (Sonoma) or later.
 
 - **App bundle from source:** `scripts/release.sh` builds `dist/imageconverter.app` (ad hoc signed, so it
   runs on the Mac that built it); copy it to Applications. See [Build the app bundle](#build-the-app-bundle).
+  An ad hoc build copied to another Mac (or downloaded) is blocked by Gatekeeper ("can't be opened" /
+  "unidentified developer"): right-click the app › **Open** and confirm once, or remove the quarantine flag
+  with `xattr -dr com.apple.quarantine /Applications/imageconverter.app`. A notarized build needs neither.
 - **Command-line tool:** the app carries it at `imageconverter.app/Contents/Helpers/imageconverter`.
   `scripts/install-cli.sh` links it as `~/.local/bin/imageconverter` (no sudo; pass the app's path if it
   isn't in `/Applications`) and tells you if that folder isn't on your PATH.
@@ -161,17 +164,21 @@ scripts/release.sh                 # ad hoc signed: dist/imageconverter.app + di
 SIGN_IDENTITY="Developer ID Application: …" NOTARY_PROFILE=<profile> scripts/release.sh --notarize
 ```
 
-The script reads the version from `VERSION` (must be `x.y.z`), builds a universal (arm64 + x86_64) release
-(falling back to this Mac's architecture with a warning when that isn't possible), and assembles the bundle:
+The script reads the version from `VERSION` (must be `x.y.z`, three numbers without a suffix), builds a
+universal (arm64 + x86_64) release (falling back to this Mac's architecture, with a warning, only when the
+toolchain can't build a second architecture, i.e. Command Line Tools without Xcode; any other build error
+stops the script), and assembles the bundle in a temporary folder:
 the app, `AppIcon.icns` (from `Resources/AppIcon.png`), the AppleScript dictionary, and an `Info.plist` made
 from `scripts/Info.plist.template` plus `Resources/Info-fragments.plist` (Services, AppleScript, `imageconverter://`
-links), with `CFBundleShortVersionString` = `VERSION` and `CFBundleVersion` = the number of commits.
+links), with `CFBundleShortVersionString` = `VERSION`, `CFBundleVersion` = the number of commits and the
+copyright year from the last commit (holder from `LICENSE`). Only a signed and verified bundle is moved into
+`dist/`, replacing the previous app and any older zips there; a failed run leaves `dist/` as it was.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `SIGN_IDENTITY` | `-` (ad hoc) | The codesign identity. Ad hoc builds run only on this Mac without a Gatekeeper warning. |
 | `NOTARY_PROFILE` | none | A `notarytool` keychain profile (`xcrun notarytool store-credentials`); required by `--notarize`. |
-| `--notarize` | off | Submit to Apple's notary service, wait, staple, and write `dist/imageconverter-<version>.zip`. Refused with an ad hoc identity or without `NOTARY_PROFILE`. |
+| `--notarize` | off | Submit to Apple's notary service, wait, staple, and write `dist/imageconverter-<version>.zip`. Refused with an ad hoc identity or without `NOTARY_PROFILE`. When the submission isn't `Accepted`, prints the notary log and fails. |
 
 Both executables get the hardened runtime. The app is signed with `Resources/imageconverter.entitlements`:
 App Sandbox, user-selected read/write files and app-scoped bookmarks, no network. The script checks the

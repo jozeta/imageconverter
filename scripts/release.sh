@@ -44,9 +44,14 @@ fi
 
 # --- Version and identifiers --------------------------------------------------------------------------------
 version=$(tr -d '[:space:]' < VERSION)
-[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$ ]] \
-    || die "VERSION '$version' is not a semantic version (x.y.z)."
+# Strictly x.y.z: CFBundleShortVersionString must be numeric (no pre-release suffix).
+[[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] \
+    || die "VERSION '$version' is not x.y.z (three numbers, no suffix)."
 build=$(git rev-list --count HEAD 2>/dev/null) || die "can't count commits for CFBundleVersion (not a git checkout?)."
+# Copyright from the last commit's year and LICENSE's holder, so the same commit always gives the same Info.plist.
+year=$(git log -1 --format=%cd --date=format:%Y)
+holder=$(sed -n 's/^Copyright (c) [0-9, -]* //p' LICENSE | head -n 1)
+[ -n "$holder" ] || die "no 'Copyright (c) <year> <name>' line in LICENSE."
 
 # The command-line tool finds the app's container by this identifier; both must agree.
 grep -q "bundleIdentifier = \"$BUNDLE_ID\"" Sources/ImageconverterCLIKit/CLIDataDirectory.swift \
@@ -55,25 +60,32 @@ grep -q "bundleIdentifier = \"$BUNDLE_ID\"" Sources/ImageconverterCLIKit/CLIData
 echo "==> imageconverter $version (build $build), identity: $([ "$identity" = "-" ] && echo "ad hoc" || echo "$identity")"
 
 # --- Build ----------------------------------------------------------------------------------------------------
-if swift build -c release --arch arm64 --arch x86_64 --product "$EXECUTABLE" \
-    && swift build -c release --arch arm64 --arch x86_64 --product imageconverter-cli; then
-    bin=$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)
-else
-    warn "universal build failed (needs Xcode); building for $(uname -m) only."
+dist="$root/dist"
+mkdir -p "$dist"
+# Everything is assembled in here and moved into dist/ only once it is signed and verified, so a failed run never
+# leaves a finished-looking app behind. Inside dist/ so the final move stays on one volume.
+work=$(mktemp -d "$dist/.release-XXXXXX")
+trap 'rm -rf "$work"' EXIT
+
+universal=(-c release --arch arm64 --arch x86_64)
+build_log="$work/build.log"
+if swift build "${universal[@]}" --product "$EXECUTABLE" 2>&1 | tee "$build_log" \
+    && swift build "${universal[@]}" --product imageconverter-cli 2>&1 | tee -a "$build_log"; then
+    bin=$(swift build "${universal[@]}" --show-bin-path)
+elif grep -Eiq "unable to find utility \"?xcbuild|xcbuild.*not found|requires xcode|multiple (--arch|architectures).*not supported" "$build_log"; then
+    # Only a toolchain that can't build a second architecture (Command Line Tools without Xcode) falls back.
+    warn "this toolchain can't build a universal binary (needs Xcode); building for $(uname -m) only."
     swift build -c release --product "$EXECUTABLE"
     swift build -c release --product imageconverter-cli
     bin=$(swift build -c release --show-bin-path)
+else
+    die "the release build failed (see the errors above)."
 fi
 [ -x "$bin/$EXECUTABLE" ] && [ -x "$bin/imageconverter-cli" ] || die "built products not found in $bin."
 
 # --- Assemble -------------------------------------------------------------------------------------------------
-dist="$root/dist"
-app="$dist/$APP_NAME.app"
+app="$work/$APP_NAME.app"
 contents="$app/Contents"
-work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
-
-rm -rf "$app"
 mkdir -p "$contents/MacOS" "$contents/Resources" "$contents/Helpers"
 ditto "$bin/$EXECUTABLE" "$contents/MacOS/$EXECUTABLE"
 # Named imageconverter in the bundle; the build product can't be (it would clash with Imageconverter on a
@@ -91,7 +103,7 @@ plutil -lint -s "$work/fragments.plist"
 plutil -replace CFBundleIdentifier -string "$BUNDLE_ID" "$plist"
 plutil -replace CFBundleShortVersionString -string "$version" "$plist"
 plutil -replace CFBundleVersion -string "$build" "$plist"
-plutil -replace NSHumanReadableCopyright -string "Copyright © $(date +%Y) Johan Zetterström. MIT License." "$plist"
+plutil -replace NSHumanReadableCopyright -string "Copyright © $year $holder. MIT License." "$plist"
 plutil -convert xml1 "$plist"
 plutil -lint "$plist" >/dev/null
 grep -q BUNDLE_IDENTIFIER "$plist" && die "a BUNDLE_IDENTIFIER placeholder is left in Info.plist."
@@ -120,21 +132,37 @@ echo "==> signed and verified: sandbox on, no network entitlement"
 
 # --- Zip (and notarize) ---------------------------------------------------------------------------------------
 if [ "$notarize" = true ]; then
-    zip="$dist/$APP_NAME-$version.zip"
+    zip_name="$APP_NAME-$version.zip"
     ditto -c -k --keepParent "$app" "$work/submit.zip"
     echo "==> submitting to the notary service (profile $NOTARY_PROFILE)"
-    xcrun notarytool submit "$work/submit.zip" --keychain-profile "$NOTARY_PROFILE" --wait
+    xcrun notarytool submit "$work/submit.zip" --keychain-profile "$NOTARY_PROFILE" --wait --output-format json \
+        > "$work/notary.json" || true
+    cat "$work/notary.json"; echo
+    submission=$(plutil -extract id raw "$work/notary.json" 2>/dev/null || true)
+    status=$(plutil -extract status raw "$work/notary.json" 2>/dev/null || true)
+    if [ "$status" != "Accepted" ]; then
+        if [ -n "$submission" ]; then
+            xcrun notarytool log "$submission" --keychain-profile "$NOTARY_PROFILE" || true
+        fi
+        die "notarization was not accepted (status: ${status:-unknown}, submission: ${submission:-none})."
+    fi
     xcrun stapler staple "$app"
     xcrun stapler validate "$app"
     spctl --assess --type execute --verbose=2 "$app"
 elif [ "$identity" = "-" ]; then
-    zip="$dist/$APP_NAME-$version-unsigned-adhoc.zip"
+    zip_name="$APP_NAME-$version-unsigned-adhoc.zip"
 else
-    zip="$dist/$APP_NAME-$version-not-notarized.zip"
+    zip_name="$APP_NAME-$version-not-notarized.zip"
 fi
-rm -f "$zip" "$zip.sha256"
-ditto -c -k --keepParent "$app" "$zip"
-(cd "$dist" && shasum -a 256 "$(basename "$zip")" > "$(basename "$zip").sha256")
+ditto -c -k --keepParent "$app" "$work/$zip_name"
+(cd "$work" && shasum -a 256 "$zip_name" > "$zip_name.sha256")
+
+# Done: replace the previous results (including zips of other versions or modes) with this run's.
+rm -rf "${dist:?}/$APP_NAME.app"
+rm -f "$dist/$APP_NAME"-*.zip "$dist/$APP_NAME"-*.zip.sha256
+mv "$work/$APP_NAME.app" "$work/$zip_name" "$work/$zip_name.sha256" "$dist/"
+app="$dist/$APP_NAME.app"
+zip="$dist/$zip_name"
 
 echo "==> $app"
 echo "==> $zip"
