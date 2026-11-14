@@ -38,7 +38,7 @@ struct PrivacyChip: View {
     }
 
     var body: some View {
-        if let chip = model.privacyChip {
+        if !model.items.isEmpty, let chip = model.privacyChip {
             Button { model.privacy.showsPanel.toggle() } label: {
                 HStack(spacing: LadaGlass.Spacing.xs) {
                     Image(systemName: "shield.lefthalf.filled")

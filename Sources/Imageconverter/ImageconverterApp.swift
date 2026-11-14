@@ -134,13 +134,13 @@ extension ImageconverterApp {
             Toggle(mode.title, isOn: Binding(get: { model.compare.mode == mode },
                                              set: { if $0 { model.compare.mode = mode } }))
                 .keyboardShortcut(KeyEquivalent(mode.shortcut), modifiers: .command)
-                .disabled(model.previewCollapsed)
+                .disabled(model.previewCollapsed || model.items.isEmpty)
         }
     }
 
     /// Zoom the before/after preview; ⌘= also zooms in (see `ZoomController.installKeyMonitor`).
     @ViewBuilder private var zoomCommands: some View {
-        let disabled = !model.zoom.canZoom || model.previewCollapsed || model.previewResult == nil
+        let disabled = !model.zoom.canZoom || model.previewCollapsed || model.items.isEmpty || model.previewResult == nil
         Button("Zoom In") { model.zoom.zoomIn() }
             .keyboardShortcut("+", modifiers: .command)
             .disabled(disabled)

@@ -118,6 +118,7 @@ struct PreviewPane: View {
         }
         .labelsHidden()
         .fixedSize()
+        .disabled(model.items.isEmpty)
         .help("How before and after are compared (⌘1…⌘4)")
         .accessibilityLabel("Compare")
         if segmented { picker.pickerStyle(.segmented) } else { picker.pickerStyle(.menu) }

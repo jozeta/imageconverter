@@ -177,9 +177,11 @@ struct SidebarView: View {
                               style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
         )
         .dropDestination(for: URL.self) { urls, _ in
+            // Not while a run is in progress (same as the window-level drop target).
+            guard !model.isRunning else { return false }
             model.add(urls)
             return !urls.isEmpty
-        } isTargeted: { targeted = $0 }
+        } isTargeted: { targeted = $0 && !model.isRunning }
     }
 
     private var countRow: some View {
