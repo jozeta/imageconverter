@@ -34,6 +34,7 @@ struct ImageconverterApp: App {
         .commands {
             JobsCommands()
             HistoryCommands()
+            PrivacyCommands()
             CommandGroup(after: .saveItem) {
                 Button("Save Preset") { model.saveCurrent() }
                     .keyboardShortcut("s", modifiers: .command)
@@ -78,6 +79,11 @@ struct ImageconverterApp: App {
             HistoryView(controller: HistoryController.shared)
         }
         .defaultSize(width: 900, height: 560)
+
+        Window("Privacy", id: PrivacyWindow.windowID) {
+            PrivacyWindow()
+        }
+        .defaultSize(width: 480, height: 520)
 
         MenuBarExtra("imageconverter", systemImage: jobs.runningCount > 0 ? "arrow.triangle.2.circlepath" : "photo.stack",
                      isInserted: $jobs.keepInMenuBar) {
@@ -180,6 +186,7 @@ private struct MainWindowContent: View {
     /// `-debugShowHistory` opens the History window.
     private func openJobsWindowIfAsked(_ arguments: [String]) {
         if arguments.contains("-debugShowJobs") || arguments.contains("-debugEditJob") { openWindow(id: JobsView.windowID) }
+        if arguments.contains("-debugShowPrivacy") { openWindow(id: PrivacyWindow.windowID) }
         if arguments.contains("-debugShowHistory") { openWindow(id: HistoryView.windowID) }
     }
 

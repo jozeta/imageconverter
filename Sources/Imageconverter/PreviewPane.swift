@@ -199,10 +199,33 @@ struct PreviewPane: View {
                                         ?? (try? source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize))
                         cell(failed ? "—" : resultSize(estimate))
                     }
+                    GridRow {
+                        label("Privacy")
+                        privacyCell(model.privacy.findings[source].map(PrivacySummary.line) ?? "Scanning…",
+                                    findings: model.privacy.findings[source])
+                        privacyCell(failed ? "—" : resultPrivacy(estimate),
+                                    findings: failed ? nil : estimate?.full?.privacy)
+                    }
                 }
             }
             .textSelection(.enabled)
         }
+    }
+
+    /// What the output keeps, from the scan of the encoded bytes the estimate made.
+    private func resultPrivacy(_ estimate: SizeEstimate?) -> String {
+        guard let estimate else { return model.estimateFailed ? "—" : "Estimating…" }
+        guard let privacy = estimate.full?.privacy else { return "—" }
+        return PrivacySummary.line(privacy)
+    }
+
+    private func privacyCell(_ text: String, findings: PrivacyFindings?) -> some View {
+        Text(text)
+            .font(LadaGlass.Typography.mono)
+            .foregroundStyle(findings?.highestSeverity?.color ?? LadaGlass.Colors.text)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .help(text)
     }
 
     private func resultSize(_ estimate: SizeEstimate?) -> String {

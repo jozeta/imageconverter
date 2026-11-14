@@ -5,7 +5,8 @@ import ImageconverterCore
 
 @MainActor @Observable
 final class AppModel {
-    var items: [InputItem] = []
+    var items: [InputItem] = [] { didSet { schedulePrivacyScan() } }
+    let privacy = PrivacyState()  // the privacy scan's results and panel (`AppModel+Privacy.swift`)
     /// The selected preset and the pipeline being edited; both are saved to `UserDefaults` on every change.
     var session: PresetSession {
         didSet { persist() }
@@ -213,7 +214,7 @@ final class AppModel {
         progress = nil
         runReport = nil
         monitor.reset()
-        Task { await factsCache.removeAll() }
+        Task { await factsCache.removeAll(); await privacy.cache.removeAll() }
     }
 
     /// Asks for files and folders to add.

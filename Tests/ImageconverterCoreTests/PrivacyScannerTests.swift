@@ -180,3 +180,67 @@ final class PrivacyScannerTests: XCTestCase {
         XCTAssertNil(PrivacyScanner.exifTIFF(inJPEG: Data([0xFF, 0xD8])))
     }
 }
+
+extension PrivacyScannerTests {
+    func testScanDataMatchesScanURL() throws {
+        let url = try leakyFixture()
+        let fromData = PrivacyScanner.scan(data: try Data(contentsOf: url))
+        XCTAssertEqual(fromData, PrivacyScanner.scan(url))
+        XCTAssertTrue(PrivacyScanner.scan(data: Data("not an image".utf8)).isEmpty)
+    }
+}
+
+final class PrivacyCacheTests: XCTestCase {
+    func testScansOncePerFileVersion() async throws {
+        let dir = try TestImages.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("a.png")
+        try TestImages.write(TestImages.make(width: 40, height: 30), to: url, type: .png, properties: [:])
+        let cache = PrivacyCache()
+        _ = await cache.findings(for: url)
+        _ = await cache.findings(for: url)
+        let first = await cache.scanCount
+        XCTAssertEqual(first, 1)
+        // A rewritten file (different size) is scanned again.
+        try TestImages.write(TestImages.make(width: 80, height: 60), to: url, type: .png, properties: [:])
+        _ = await cache.findings(for: url)
+        let second = await cache.scanCount
+        XCTAssertEqual(second, 2)
+        await cache.retain(only: [])
+        _ = await cache.findings(for: url)
+        let third = await cache.scanCount
+        XCTAssertEqual(third, 3)
+    }
+}
+
+final class PrivacySummaryTests: XCTestCase {
+    private func found(_ kinds: PrivacyFinding.Kind...) -> PrivacyFindings {
+        PrivacyFindings(findings: kinds.map { PrivacyFinding(kind: $0, fields: ["x"]) })
+    }
+
+    func testChipNamesTheMostSevereMostCommonFinding() {
+        XCTAssertNil(PrivacySummary.chip([found(), found()]))
+        let all = [found(.location, .captureDate), found(.location), found(.owner), found()]
+        let chip = PrivacySummary.chip(all)
+        XCTAssertEqual(chip?.text, "2 images share their location")
+        XCTAssertEqual(chip?.severity, .high)
+        XCTAssertEqual(PrivacySummary.chip([found(.location)])?.text, "1 image shares their location")
+        XCTAssertEqual(PrivacySummary.chip([found(.device)])?.severity, .low)
+    }
+
+    func testMergedUnionsKindsAndSuggestionNeverWeakens() {
+        let merged = PrivacySummary.merged([found(.location), found(.owner), found(.location)])
+        XCTAssertEqual(Set(merged.findings.map(\.kind)), [.location, .owner])
+        var existing = MetadataOptions(isEnabled: true, removeAll: true, removeLocation: true, removeCamera: true)
+        existing.removeIPTC = true
+        let result = merged.suggestion(from: existing)
+        XCTAssertTrue(result.removeAll && result.removeCamera && result.removeIPTC && result.removeAuthor)
+        XCTAssertEqual(result.location, .remove)
+    }
+
+    func testLineAndLimits() {
+        XCTAssertEqual(PrivacySummary.line(found()), "None found")
+        XCTAssertEqual(PrivacySummary.line(found(.captureDate, .location)), "location, date")
+        XCTAssertTrue(PrivacyStatement.limits().contains { $0.name == "Image pixels" && $0.value == "250 megapixels" })
+    }
+}

@@ -87,8 +87,19 @@ public struct PrivacyFindings: Equatable, Sendable {
 public enum PrivacyScanner {
     public static func scan(_ url: URL) -> PrivacyFindings {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
-              let header = ImageHeader.read(source) else { return PrivacyFindings(findings: []) }
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else { return PrivacyFindings(findings: []) }
+        return scan(source: source, head: { readHead(of: url) })
+    }
+
+    /// Scans encoded bytes (what the app would write), e.g. to show what an output keeps.
+    public static func scan(data: Data) -> PrivacyFindings {
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, options) else { return PrivacyFindings(findings: []) }
+        return scan(source: source, head: { data.prefix(headBytes) })
+    }
+
+    private static func scan(source: CGImageSource, head: () -> Data?) -> PrivacyFindings {
+        guard let header = ImageHeader.read(source) else { return PrivacyFindings(findings: []) }
         let xmp = xmpTags(CGImageSourceCopyMetadataAtIndex(source, 0, nil))
         var found: [PrivacyFinding.Kind: [String]] = [:]
         func add(_ kind: PrivacyFinding.Kind, _ fields: [String]) {
@@ -102,7 +113,7 @@ public enum PrivacyScanner {
         add(.editHistory, historyFields(xmp))
         add(.captureDate, dateFields(props, xmp: xmp))
         add(.device, deviceFields(props, xmp: xmp))
-        if let thumbnail = embeddedThumbnailSize(url: url, source: source),
+        if let thumbnail = embeddedThumbnailSize(source: source, head: head),
            aspectDiffers(image: (header.width, header.height), thumbnail: thumbnail) {
             add(.thumbnailMismatch, ["Embedded thumbnail (\(thumbnail.width) × \(thumbnail.height))"])
         }
@@ -238,15 +249,15 @@ public enum PrivacyScanner {
         return abs(thumbAspect - imageAspect) / imageAspect > aspectTolerance + rounding
     }
 
-    private static func embeddedThumbnailSize(url: URL, source: CGImageSource) -> (width: Int, height: Int)? {
+    private static func embeddedThumbnailSize(source: CGImageSource, head: () -> Data?) -> (width: Int, height: Int)? {
         if let info = (CGImageSourceCopyProperties(source, nil) as? [String: Any])
             .flatMap({ $0[kCGImagePropertyFileContentsDictionary as String] as? [String: Any] })
             .flatMap({ ($0[kCGImagePropertyImages as String] as? [[String: Any]])?.first }),
            let size = containerThumbnailSize(imageInfo: info) {
             return size
         }
-        guard CGImageSourceGetType(source) as String? == "public.jpeg", let head = readHead(of: url),
-              let tiff = exifTIFF(inJPEG: head), let thumbnail = exifThumbnail(inTIFF: tiff),
+        guard CGImageSourceGetType(source) as String? == "public.jpeg", let headData = head(),
+              let tiff = exifTIFF(inJPEG: headData), let thumbnail = exifThumbnail(inTIFF: tiff),
               let thumbSource = CGImageSourceCreateWithData(thumbnail as CFData, nil),
               let thumbHeader = ImageHeader.read(thumbSource) else { return nil }
         return (thumbHeader.width, thumbHeader.height)

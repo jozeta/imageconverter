@@ -16,6 +16,8 @@ public struct EncodedPreview: @unchecked Sendable {
     /// Something to show with the estimate (a target size it couldn't reach, or that the PNG estimate
     /// is unoptimised).
     public let note: String?
+    /// What the output still carries (the privacy scan of the encoded bytes, or of the copied original).
+    public let privacy: PrivacyFindings?
 }
 
 public enum SizeEstimator {
@@ -35,7 +37,8 @@ public enum SizeEstimator {
         case .skip: throw ConversionError.skippedByCondition
         case .copyOriginal:
             guard let bytes = BatchRunner.fileSize(item.source) else { throw ConversionError.unreadable }
-            return EncodedPreview(bytes: bytes, original: nil, encoded: nil, quality: nil, note: ConditionalStep.copiedNote)
+            return EncodedPreview(bytes: bytes, original: nil, encoded: nil, quality: nil, note: ConditionalStep.copiedNote,
+                                  privacy: PrivacyScanner.scan(item.source))
         case .process: break
         }
         let pipeline = resolved.pipeline
@@ -59,7 +62,8 @@ public enum SizeEstimator {
             let original = result.downsampled
                 ? try ImageLoader.load(item.source, maxPixels: maxPixels).image : result.source
             return EncodedPreview(bytes: data.count, original: original, encoded: encoded,
-                                  quality: result.quality, note: result.note ?? note)
+                                  quality: result.quality, note: result.note ?? note,
+                                  privacy: PrivacyScanner.scan(data: data))
         }
     }
 }

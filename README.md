@@ -12,10 +12,26 @@ of doing it one image or one operation at a time.
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
+## Privacy
+
+- **Works entirely offline.** No network access, no telemetry, no uploads. The app has no network entitlement, and a test fails the build if networking APIs appear in the sources.
+- **Built only on Apple frameworks** (SwiftUI, AppKit, ImageIO, Core Graphics, Core Image, Accelerate, Vision, UniformTypeIdentifiers); no third-party code.
+- **Your files are untrusted input.** Images, SVG watermarks, preset and template files, `imageconverter://` links and AppleScript requests are all validated before use. Limits in force: images up to 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory) of decoded memory and 2 GB per file (first frame only); SVG files up to 1 MB, 20,000 elements, 64 levels deep; preset and template files up to 1 MB; links up to 16,384 characters. Help ▸ Privacy… shows these as built. See [SECURITY.md](SECURITY.md).
+- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed.
+- **Temporary files are deleted, not wiped.** Output is written to a hidden temporary file next to its destination and moved into place; on cancel, quit or a failed write the app deletes these files. On SSDs and APFS, deleting (or overwriting) a file does not reliably erase its old blocks, so the app does not claim to securely wipe anything.
+
+<table>
+  <tr>
+    <td><img src="docs/privacy-panel.png" alt="The privacy panel" width="400"><br>The shield chip's panel: findings per image, with severity</td>
+    <td><img src="docs/privacy-window.png" alt="The Privacy window" width="300"><br>Help ▸ Privacy…: the statement and the limits in force</td>
+  </tr>
+</table>
+
 ## What's new
 
 ### Unreleased
 
+- **Privacy**: an automatic privacy scan with a shield chip and panel ("Remove these from the output"), a Privacy row in the preview table, and Help ▸ Privacy… with the offline statement and the limits in force. See [Privacy](#privacy).
 - **Jobs** (Window ▸ Jobs, ⌘J): watch folders or run on a schedule with a saved pipeline or a linked preset, while the app is open; one run at a time per job, a catch-up run when watching starts, a report file per run, notifications, and an optional menu bar mode. See [Process a folder automatically](#process-a-folder-automatically).
 - **Reports and history**: after a run the Report section shows summary cards with Export (CSV, JSON, HTML, text) and the error log, and Window ▸ History (⌥⌘H) keeps the last 100 runs, manual and jobs. See [Reports and history](#reports-and-history).
 - **Performance**: Pause/Resume (⌥⌘.), "12 / 124 · 3.4 img/s · about 2 min left", each image's stage in the list and as a ring on the thumbnails, a Performance panel (CPU, memory, workers, img/s, MP/s, elapsed), Low-memory mode, Process Next, a preview that keeps working during a run, and an offer to resume a batch that was interrupted. See [Performance](#performance).

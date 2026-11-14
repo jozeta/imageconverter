@@ -82,13 +82,16 @@ struct SidebarView: View {
     }
 
     private var countRow: some View {
-        HStack {
-            LGChip("\(model.items.count) \(model.items.count == 1 ? "image" : "images")", status: .neutral)
-            Spacer()
-            Button("Clear") { model.clear() }
-                .buttonStyle(.lg(.ghost))
-                .disabled(model.items.isEmpty || model.isRunning)
-                .accessibilityLabel("Clear the image list")
+        VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
+            HStack {
+                LGChip("\(model.items.count) \(model.items.count == 1 ? "image" : "images")", status: .neutral)
+                Spacer()
+                Button("Clear") { model.clear() }
+                    .buttonStyle(.lg(.ghost))
+                    .disabled(model.items.isEmpty || model.isRunning)
+                    .accessibilityLabel("Clear the image list")
+            }
+            PrivacyChip(model: model)
         }
     }
 
