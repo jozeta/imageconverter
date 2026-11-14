@@ -116,4 +116,124 @@ final class GeometryTests: XCTestCase {
         XCTAssertEqual(Anchor.left.origin(content: content, container: size(30, 30)), CGPoint(x: 0, y: 10))
         XCTAssertEqual(Anchor.center.origin(content: content, container: size(25, 25)), CGPoint(x: 7, y: 7))
     }
+
+    // MARK: New resize modes
+
+    func testPercent50() {
+        XCTAssertEqual(plan(4000, 3000, .percent(50)), .scale(to: size(2000, 1500)))
+        // An explicit scale: "don't enlarge" doesn't apply.
+        XCTAssertEqual(plan(300, 200, .percent(200)), .scale(to: size(600, 400)))
+        // Clamped to 1...1000 %; non-finite is 100 %.
+        XCTAssertEqual(plan(1000, 500, .percent(0)), .scale(to: size(10, 5)))
+        XCTAssertEqual(plan(10, 5, .percent(5000), enlarge: true), .scale(to: size(100, 50)))
+        XCTAssertEqual(plan(10, 5, .percent(.nan)), .unchanged)
+    }
+
+    func testLongestEdgePortraitAndLandscape() {
+        XCTAssertEqual(plan(4000, 3000, .longestEdge(2000)), .scale(to: size(2000, 1500)))
+        XCTAssertEqual(plan(3000, 4000, .longestEdge(2000)), .scale(to: size(1500, 2000)))
+        XCTAssertEqual(plan(300, 200, .longestEdge(2000)), .unchanged)
+    }
+
+    func testShortestEdge() {
+        XCTAssertEqual(plan(4000, 3000, .shortestEdge(1500)), .scale(to: size(2000, 1500)))
+        XCTAssertEqual(plan(3000, 4000, .shortestEdge(1500)), .scale(to: size(1500, 2000)))
+    }
+
+    func testMinimumUpscalesOnlyWhenSmaller() {
+        // Ignores "don't enlarge": that is the point of the mode.
+        XCTAssertEqual(plan(300, 200, .minimum(width: 600, height: 300)), .scale(to: size(600, 400)))
+        XCTAssertEqual(plan(300, 200, .minimum(width: 100, height: 300)), .scale(to: size(450, 300)))
+        XCTAssertEqual(plan(4000, 3000, .minimum(width: 600, height: 300)), .unchanged)
+        XCTAssertEqual(plan(600, 400, .minimum(width: 600, height: 400)), .unchanged)
+    }
+
+    func testPhysicalCentimetresAt300DPI() {
+        XCTAssertEqual(Geometry.physicalPixels(10, unit: .centimetre, dpi: 300), 1181)
+        XCTAssertEqual(Geometry.physicalPixels(4, unit: .inch, dpi: 300), 1200)
+        XCTAssertNil(Geometry.physicalPixels(.nan, unit: .inch, dpi: 300))
+        XCTAssertNil(Geometry.physicalPixels(4, unit: .inch, dpi: 0))
+        XCTAssertEqual(plan(4000, 3000, .physical(width: 10, height: 10, unit: .centimetre, dpi: 300)),
+                       .scale(to: size(1181, 886)))
+    }
+
+    func testPhysicalOneSideKeepsAspect() {
+        XCTAssertEqual(plan(4000, 3000, .physical(width: 4, height: nil, unit: .inch, dpi: 300)),
+                       .scale(to: size(1200, 900)))
+        XCTAssertEqual(plan(4000, 3000, .physical(width: nil, height: 2, unit: .inch, dpi: 300)),
+                       .scale(to: size(800, 600)))
+        XCTAssertEqual(plan(4000, 3000, .physical(width: nil, height: nil, unit: .inch, dpi: 300)), .unchanged)
+        // An explicit print size enlarges even with "don't enlarge".
+        XCTAssertEqual(plan(300, 200, .physical(width: 2, height: nil, unit: .inch, dpi: 300)),
+                       .scale(to: size(600, 400)))
+    }
+
+    func testOldResizeJSONDecodes() throws {
+        let json = #"{"mode":{"exactSize":{"width":800,"height":600,"fill":"fillAndCrop"}},"#
+            + #""allowEnlarge":true,"padColor":{"red":0,"green":0,"blue":0,"alpha":1}}"#
+        let options = try JSONDecoder().decode(ResizeOptions.self, from: Data(json.utf8))
+        XCTAssertEqual(options.mode, .exactSize(width: 800, height: 600, fill: .fillAndCrop))
+        XCTAssertTrue(options.allowEnlarge)
+        XCTAssertEqual(options.resampling, .lanczos)
+        XCTAssertNil(options.dpi)
+
+        let fresh = ResizeOptions(mode: .physical(width: 10, height: nil, unit: .centimetre, dpi: 300),
+                                  resampling: .nearest, dpi: 72)
+        let decoded = try JSONDecoder().decode(ResizeOptions.self, from: JSONEncoder().encode(fresh))
+        XCTAssertEqual(decoded, fresh)
+        XCTAssertEqual(decoded.effectiveDPI, 300)
+    }
+
+    func testOutputDPILastResizeStepWins() {
+        func dpi(_ options: [ResizeOptions], disabled: Set<Int> = []) -> Double? {
+            let steps = options.enumerated().map { index, option in
+                PipelineStep(isEnabled: !disabled.contains(index), operation: .resize(option))
+            }
+            return Pipeline(steps: steps).outputDPI(sourceWidth: 4000, sourceHeight: 3000)
+        }
+        let dpiOnly72 = ResizeOptions(mode: .percent(100), dpi: 72)
+        let dpiOnly300 = ResizeOptions(mode: .percent(100), dpi: 300)
+        XCTAssertEqual(dpi([dpiOnly72, dpiOnly300]), 300)
+        XCTAssertEqual(dpi([dpiOnly72, dpiOnly300], disabled: [1]), 72)
+        XCTAssertNil(dpi([dpiOnly72], disabled: [0]))
+        // A later step without a DPI keeps the earlier one.
+        XCTAssertEqual(dpi([dpiOnly72, ResizeOptions(mode: .percent(50))]), 72)
+    }
+
+    func testPhysicalDPIWinsWhenItIsTheLastSizeChange() {
+        func dpi(_ options: [ResizeOptions]) -> Double? {
+            Pipeline(steps: options.map { PipelineStep(operation: .resize($0)) })
+                .outputDPI(sourceWidth: 4000, sourceHeight: 3000)
+        }
+        let physical = ResizeOptions(mode: .physical(width: 10, height: nil, unit: .centimetre, dpi: 300), dpi: 150)
+        XCTAssertEqual(dpi([physical]), 300)
+        // A later DPI-only step can't break the print size...
+        XCTAssertEqual(dpi([physical, ResizeOptions(mode: .percent(100), dpi: 72)]), 300)
+        // ...but a later step that changes the size can set its own,
+        XCTAssertEqual(dpi([physical, ResizeOptions(mode: .percent(50), dpi: 72)]), 72)
+        // or keeps the physical one when it has none.
+        XCTAssertEqual(dpi([physical, ResizeOptions(mode: .percent(50))]), 300)
+        // A physical step after a DPI step wins.
+        XCTAssertEqual(dpi([ResizeOptions(mode: .percent(100), dpi: 72), physical]), 300)
+    }
+
+    func testOutputSizeKnowsNewModes() {
+        let pipeline = Pipeline(steps: [PipelineStep(operation: .resize(ResizeOptions(mode: .longestEdge(1000))))])
+        XCTAssertEqual(pipeline.outputSize(sourceWidth: 3000, sourceHeight: 4000).width, 750)
+        XCTAssertEqual(pipeline.peakPixels(sourceWidth: 300, sourceHeight: 200), 60_000)
+        let upscale = Pipeline(steps: [PipelineStep(operation: .resize(ResizeOptions(mode: .minimum(width: 600, height: 400))))])
+        // Lanczos: source, vImage's copy, the scaled buffer and its image copy.
+        XCTAssertEqual(upscale.peakPixels(sourceWidth: 300, sourceHeight: 200), 600_000)
+    }
+
+    func testNewModeSummaries() {
+        func text(_ options: ResizeOptions) -> String { ImageOperation.resize(options).summary }
+        XCTAssertEqual(text(ResizeOptions(mode: .percent(50))), "50 %")
+        XCTAssertEqual(text(ResizeOptions(mode: .longestEdge(2000), resampling: .nearest, dpi: 300)),
+                       "longest edge 2000 px · nearest neighbour · 300 dpi")
+        XCTAssertEqual(text(ResizeOptions(mode: .minimum(width: 600, height: 400))), "at least 600 × 400")
+        XCTAssertEqual(text(ResizeOptions(mode: .physical(width: 10, height: nil, unit: .centimetre, dpi: 300), dpi: 72)),
+                       "10 × auto cm at 300 dpi")
+        XCTAssertEqual(text(ResizeOptions()), "max width 1600 px")
+    }
 }

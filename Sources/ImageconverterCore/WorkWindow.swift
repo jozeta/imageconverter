@@ -1,12 +1,18 @@
 /// Admission control for a batch: limits how many items run at once and their combined weight
 /// (pixels), so big images do not pile up in memory. One oversized item may always run alone.
 public struct WorkWindow {
-    public let maxItems: Int
-    public let maxWeight: Int
+    public private(set) var maxItems: Int
+    public private(set) var maxWeight: Int
     private var inFlightItems = 0
     private var inFlightWeight = 0
 
     public init(maxItems: Int, maxWeight: Int) {
+        self.maxItems = max(1, maxItems)
+        self.maxWeight = maxWeight
+    }
+
+    /// Changes the limits between items (adaptive workers); items already running are not affected.
+    public mutating func setLimits(maxItems: Int, maxWeight: Int) {
         self.maxItems = max(1, maxItems)
         self.maxWeight = maxWeight
     }

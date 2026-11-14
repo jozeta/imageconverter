@@ -69,4 +69,63 @@ final class ImageEncoderTests: XCTestCase {
             }
         }
     }
+
+    func testProgressiveJPEGFlag() throws {
+        let img = TestImages.noise(width: 64, height: 64)
+        let data = try ImageEncoder.encode(img, properties: [:], settings: .init(format: .jpeg, progressive: true))
+        let src = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+        let props = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [String: Any])
+        let jfif = try XCTUnwrap(props[kCGImagePropertyJFIFDictionary as String] as? [String: Any])
+        XCTAssertEqual(jfif[kCGImagePropertyJFIFIsProgressive as String] as? Bool, true)
+    }
+
+    func testOptimizedPNGNotLargerAndIdenticalPixels() throws {
+        let img = TestImages.noise(width: 64, height: 64)
+        let plain = try ImageEncoder.encode(img, properties: [:], settings: .init(format: .png, optimizePNG: false))
+        let opt = try ImageEncoder.encode(img, properties: [:], settings: .init(format: .png, optimizePNG: true))
+        XCTAssertLessThanOrEqual(opt.count, plain.count)
+        for (col, row) in [(0, 0), (10, 20), (63, 63)] {
+            let before = try TestImages.pixel(of: plain, x: col, y: row)
+            let after = try TestImages.pixel(of: opt, x: col, y: row)
+            XCTAssertEqual(before.red, after.red)
+            XCTAssertEqual(before.green, after.green)
+            XCTAssertEqual(before.blue, after.blue)
+        }
+    }
+
+    func testAVIFRoundTripWhenAvailable() throws {
+        try XCTSkipUnless(OutputFormat.available().contains(.avif), "AVIF not writable here")
+        let img = TestImages.make(width: 32, height: 16)
+        let data = try ImageEncoder.encode(img, properties: [:], settings: .init(format: .avif, quality: 0.6))
+        let src = try XCTUnwrap(CGImageSourceCreateWithData(data as CFData, nil))
+        XCTAssertEqual(CGImageSourceCreateImageAtIndex(src, 0, nil)?.width, 32)
+    }
+
+    func testQualityZeroEncodes() throws {
+        let img = TestImages.noise(width: 64, height: 64)
+        let data = try ImageEncoder.encode(img, properties: [:], settings: .init(format: .jpeg, quality: 0))
+        XCTAssertFalse(data.isEmpty)
+    }
+}
+
+extension ImageEncoderTests {
+    func testOptimizedPNGOnStructuredImage() throws {
+        let img = CompressionImages.gradient(width: 160, height: 96)
+        let plain = try ImageEncoder.encode(img, properties: [:], settings: .init(format: .png, optimizePNG: false))
+        let opt = try ImageEncoder.encode(img, properties: [:], settings: .init(format: .png, optimizePNG: true))
+        XCTAssertLessThanOrEqual(opt.count, plain.count)
+        XCTAssertEqual(try CompressionImages.rgbaBytes(of: opt), try CompressionImages.rgbaBytes(of: plain))
+    }
+
+    func testProgressiveIgnoredForNonJPEG() throws {
+        let img = TestImages.noise(width: 48, height: 32)
+        for format in [OutputFormat.png, .tiff] {
+            let plain = try ImageEncoder.encode(img, properties: [:],
+                                                settings: .init(format: format, progressive: false, optimizePNG: false))
+            let prog = try ImageEncoder.encode(img, properties: [:],
+                                               settings: .init(format: format, progressive: true, optimizePNG: false))
+            XCTAssertEqual(plain, prog, "\(format)")
+            XCTAssertNil(try TestImages.properties(of: prog)[kCGImagePropertyJFIFDictionary as String], "\(format)")
+        }
+    }
 }

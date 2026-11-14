@@ -4,15 +4,31 @@ extension ImageOperation {
     /// One-line description of the step for the pipeline list.
     public var summary: String {
         switch self {
-        case .resize(let options): return Self.summary(of: options.mode)
+        case .resize(let options): return Self.summary(of: options)
         case .crop(let options): return Self.summary(of: options.mode) + " · " + options.anchor.displayName
         case .rotateFlip(let options): return Self.summary(of: options)
+        case .perspective(let options): return Self.summary(of: options)
+        case .trim(let options): return Self.summary(of: options)
         case .canvas(let options): return Self.summary(of: options.mode)
         case .colorProfile(let profile): return profile.displayName
+        case .adjust(let options): return options.summary
         case .watermark(let options): return options.summary
+        case .condition(let conditional): return conditional.summary
         }
     }
 
+    private static func summary(of options: ResizeOptions) -> String {
+        var parts = [summary(of: options.mode)]
+        if options.resampling != .lanczos { parts.append(options.resampling.displayName.lowercased()) }
+        // A physical size already names its DPI.
+        var isPhysical = false
+        if case .physical = options.mode { isPhysical = true }
+        if !isPhysical, let dpi = options.effectiveDPI { parts.append("\(number(dpi)) dpi") }
+        return parts.joined(separator: " · ")
+    }
+
+    // One case per mode keeps every summary in one place.
+    // swiftlint:disable:next cyclomatic_complexity
     private static func summary(of mode: ResizeMode) -> String {
         switch mode {
         case .maxWidth(let width): return "max width \(width) px"
@@ -20,14 +36,15 @@ extension ImageOperation {
         case .fitBox(let width, let height): return "fit \(width) × \(height)"
         case .exactWidth(let width): return "width \(width) px"
         case .exactHeight(let height): return "height \(height) px"
-        case .exactSize(let width, let height, let fill):
-            let fillName: String
-            switch fill {
-            case .stretch: fillName = "stretch"
-            case .fitAndPad: fillName = "pad"
-            case .fillAndCrop: fillName = "crop"
-            }
-            return "\(width) × \(height) · \(fillName)"
+        case .exactSize(let width, let height, let fill): return "\(width) × \(height) · \(fill.summaryName)"
+        case .percent(let percent): return "\(number(percent)) %"
+        case .longestEdge(let edge): return "longest edge \(edge) px"
+        case .shortestEdge(let edge): return "shortest edge \(edge) px"
+        case .minimum(let width, let height): return "at least \(width) × \(height)"
+        case .physical(let width, let height, let unit, let dpi):
+            // Two sides fit inside the print size, keeping the aspect ratio.
+            let side: (Double?) -> String = { $0.map { number($0) } ?? "auto" }
+            return "\(side(width)) × \(side(height)) \(unit.displayName) at \(number(dpi)) dpi"
         }
     }
 
@@ -47,6 +64,11 @@ extension ImageOperation {
         case (false, true): parts.append("flip V")
         case (false, false): break
         }
+        let angle = options.effectiveAngle
+        if angle != 0 {
+            let verb = options.angleFill == .cropToFit ? "straighten" : "rotate"
+            parts.append("\(verb) \(signed(angle, plus: false))°")
+        }
         return parts.isEmpty ? "no change" : parts.joined(separator: " · ")
     }
 
@@ -55,7 +77,41 @@ extension ImageOperation {
         case .padding(let pixels): return "+\(pixels) px"
         case .paddingPercent(let percent): return "+\(number(percent)) %"
         case .size(let width, let height): return "\(width) × \(height)"
+        case .aspect(let width, let height): return "\(number(width)):\(number(height))"
         }
+    }
+
+    private static func summary(of options: PerspectiveOptions) -> String {
+        var parts: [String] = []
+        if options.auto { parts.append("auto") }
+        let vertical = PerspectiveOptions.clamped(options.vertical)
+        let horizontal = PerspectiveOptions.clamped(options.horizontal)
+        if vertical != 0 { parts.append("vertical " + signed(vertical)) }
+        if horizontal != 0 { parts.append("horizontal " + signed(horizontal)) }
+        return parts.isEmpty ? "no change" : parts.joined(separator: " · ")
+    }
+
+    private static func summary(of options: TrimOptions) -> String {
+        var parts: [String]
+        switch options.mode {
+        case .transparent: parts = ["transparent"]
+        case .edgeColor: parts = ["edge color"]
+        case .color(let color): parts = [hex(color)]
+        }
+        parts.append("\(number(TrimOptions.clampedTolerance(options.tolerance))) %")
+        if options.padding > 0 { parts.append("+\(options.padding) px") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// `+20` / `−10` (a real minus sign); `plus: false` leaves positive numbers bare.
+    private static func signed(_ value: Double, plus: Bool = true) -> String {
+        if value < 0 { return "−" + number(-value) }
+        return (plus ? "+" : "") + number(value)
+    }
+
+    private static func hex(_ color: RGBAColor) -> String {
+        let byte: (Double) -> Int = { Int((($0.isFinite ? min(1, max(0, $0)) : 0) * 255).rounded()) }
+        return String(format: "#%02X%02X%02X", byte(color.red), byte(color.green), byte(color.blue))
     }
 
     /// Whole numbers without decimals, others with the minimal decimals.
@@ -68,26 +124,63 @@ extension ImageOperation {
 extension MetadataOptions {
     /// One-line description for the pipeline list.
     public var summary: String {
-        var text: String
-        switch (removeAll, removeLocation, removeCamera) {
-        case (true, _, _): text = "strip all"
-        case (false, true, true): text = "strip location + camera"
-        case (false, true, false): text = "strip location"
-        case (false, false, true): text = "strip camera"
-        case (false, false, false): text = "keep"
-        }
+        var text = removalSummary
         var fields: [String] = []
         if artist != nil { fields.append("artist") }
         if copyright != nil { fields.append("copyright") }
         if description != nil { fields.append("description") }
+        if title != nil { fields.append("title") }
+        if keywords != nil { fields.append("keywords") }
+        if case .set = location { fields.append("GPS") }
+        switch dateTaken {
+        case .keep: break
+        case .set: fields.append("date")
+        case .shift: fields.append("shifted date")
+        }
+        if !custom.isEmpty { fields.append(custom.count == 1 ? "1 field" : "\(custom.count) fields") }
+        if setFileDates { fields.append("file dates") }
         if !fields.isEmpty { text += " · set " + fields.joined(separator: ", ") }
         return text
+    }
+
+    private var removalSummary: String {
+        if removeAll {
+            // Orientation and colour profile always survive, so they aren't worth mentioning.
+            let names: [KeepField: String] = [.copyright: "copyright", .author: "author", .dateTaken: "date",
+                                              .cameraInfo: "camera", .location: "location"]
+            let kept = KeepField.allCases.filter(keepWhenRemovingAll.contains).compactMap { names[$0] }
+            return kept.isEmpty ? "strip all" : "strip all except " + kept.joined(separator: ", ")
+        }
+        let parts = [(location == .remove, "location"), (removeCamera, "camera"), (removeAuthor, "author"),
+                     (removeThumbnail, "thumbnail"), (removeIPTC, "IPTC"), (removeXMP, "XMP")]
+            .filter(\.0).map(\.1)
+        return parts.isEmpty ? "keep" : "strip " + parts.joined(separator: " + ")
+    }
+}
+
+extension AdjustOptions {
+    /// One-line description for the pipeline list: `exposure +20, contrast +10`, or `no changes`.
+    public var summary: String {
+        let parts = Field.allCases.compactMap { field -> String? in
+            let value = Int(self[field].rounded())
+            guard value != 0 else { return nil }
+            // Signed fields show their sign (a real minus sign); 0…100 fields are plain amounts.
+            let number = field.range.lowerBound < 0 ? (value > 0 ? "+\(value)" : "−\(-value)") : "\(value)"
+            return field.displayName.lowercased() + " " + number + (field == .hue ? "°" : "")
+        }
+        return parts.isEmpty ? "no changes" : parts.joined(separator: ", ")
     }
 }
 
 extension RenameOptions {
-    /// One-line description for the pipeline list: the pattern itself.
-    public var summary: String { pattern }
+    /// One-line description for the pipeline list: the pattern, plus the rule count when there are several.
+    public var summary: String {
+        let count = replacements.filter { !$0.find.isEmpty }.count
+        var parts = [pattern]
+        if count > 1 { parts.append("\(count) replacements") }
+        if caseStyle != .keep { parts.append("\(caseStyle.rawValue) case") }
+        return parts.joined(separator: " · ")
+    }
 }
 
 extension WatermarkOptions {
@@ -104,5 +197,57 @@ extension WatermarkOptions {
         let size = clampedSizePercent.formatted(.number.locale(Locale(identifier: "en_US_POSIX"))
             .precision(.fractionLength(0...2)).grouping(.never))
         return "\(name) · \(anchor.displayName) · \(size) %"
+    }
+}
+
+extension ConditionalStep {
+    /// One-line description for the pipeline list: `if longest edge > 2048 px → resize · else → skip`.
+    public var summary: String {
+        let joiner = match == .all ? " and " : " or "
+        var text = "if " + conditions.map(\.summary).joined(separator: joiner) + " → " + Self.summary(of: then)
+        if !otherwise.isEmpty { text += " · else → " + Self.summary(of: otherwise) }
+        return text
+    }
+
+    private static func summary(of actions: [ConditionalAction]) -> String {
+        guard !actions.isEmpty else { return "nothing" }
+        return actions.map { action in
+            switch action {
+            case .step(let step): return step.operation.kind.displayName.lowercased()
+            case .output(let settings): return "save as \(settings.format.displayName)"
+            case .metadata: return "metadata"
+            case .rename: return "rename"
+            case .copyOriginal: return "copy unchanged"
+            case .skip: return "skip"
+            }
+        }.joined(separator: ", ")
+    }
+}
+
+extension Condition {
+    /// `longest edge > 2048 px`, `has transparency`, `camera contains “iPhone”`.
+    public var summary: String {
+        switch self {
+        case .longestEdge(let comparison, let value): return "longest edge \(comparison.symbol) \(value) px"
+        case .width(let comparison, let value): return "width \(comparison.symbol) \(value) px"
+        case .height(let comparison, let value): return "height \(comparison.symbol) \(value) px"
+        case .fileSize(let comparison, let bytes): return "file size \(comparison.symbol) \(SizeFormat.bytes(bytes))"
+        case .format(.format(let format)): return "format is \(format.displayName)"
+        case .format(.type(let identifier)): return "type is \(identifier)"
+        case .hasTransparency(let wanted): return wanted ? "has transparency" : "no transparency"
+        case .orientation(let orientation): return orientation.rawValue
+        case .hasGPS(let wanted): return wanted ? "has location" : "no location"
+        case .camera(let text): return "camera contains “\(text)”"
+        }
+    }
+}
+
+private extension ExactFill {
+    var summaryName: String {
+        switch self {
+        case .stretch: return "stretch"
+        case .fitAndPad: return "pad"
+        case .fillAndCrop: return "crop"
+        }
     }
 }

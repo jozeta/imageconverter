@@ -26,4 +26,12 @@ final class OutputFormatTests: XCTestCase {
         let back = try JSONDecoder().decode(OutputSettings.self, from: JSONEncoder().encode(settings))
         XCTAssertEqual(back, settings)
     }
+
+    func testDecodesOldOutputSettings() throws {
+        let json = Data(#"{"format":"png","quality":0.5}"#.utf8)
+        let decoded = try JSONDecoder().decode(OutputSettings.self, from: json)
+        XCTAssertEqual(decoded.format, .png)
+        XCTAssertFalse(decoded.progressive)
+        XCTAssertTrue(decoded.optimizePNG)
+    }
 }

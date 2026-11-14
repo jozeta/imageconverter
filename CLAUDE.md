@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 A native macOS app for batch image processing: the user drops images/folders, builds a pipeline
-(resize, crop, rotate/flip, canvas, color profile, watermark, then metadata, rename, output format)
+(resize, crop, rotate/flip, canvas, color profile, adjust, watermark, then metadata, rename, output format)
 and runs it over the whole batch. Pipelines can be saved as presets. Reads any format ImageIO
 decodes; writes JPEG/PNG/HEIC/TIFF (+ GIF/BMP/JPEG 2000 where ImageIO can). English only.
 Distributed as a signed, notarized app (not the App Store).
@@ -20,6 +20,9 @@ decisions in it marked "(Johan)" are the user's and must not be changed without 
 ```sh
 swift run           # opens the app window (or: claude-update)
 swift build
+# Debug builds only, for screenshots: add images at launch, start the preview zoomed (× fit), widen the window,
+# open every step's editor
+.build/debug/Imageconverter -debugAddFiles /path/a.jpg /path/b.png -debugZoom 4 -debugWindowWidth 1300 -debugExpandSteps
 ```
 
 Tests:
@@ -33,26 +36,60 @@ swiftlint           # if installed (brew install swiftlint)
 
 - `Package.swift`: SwiftPM manifest (macOS 14+)
 - `Sources/Imageconverter/`: the SwiftUI app; `DesignSystem/LadaGlass.swift` is the copied Låda Glass file
-  - `ImageconverterApp.swift` (scenes), `SidebarView.swift` (main window), `SettingsView.swift` (⌘,),
+  - `ImageconverterApp.swift` (scenes), `SidebarView.swift` (main window), `AppModel+Estimate.swift` (debounced size estimate; there is no Settings window, the Output row holds "Save to"),
     `AppModel.swift` (items, pipeline persisted as JSON under `currentPipeline`, run/cancel, toasts),
     `AppSettings.swift` (output mode, persisted in UserDefaults), `PipelineSection.swift` (step rows,
-    reorder, add, fixed Output row), `StepEditors.swift` (one editor per step kind), `WatermarkEditor.swift` (watermark step editor, sliders, thumbnail), `StepControls.swift` (shared controls),
-    `FileStepEditors.swift` (Metadata and Rename rows and editors; the live rename example is computed in `AppModel`),
+    reorder, add, fixed Output row), `StepEditors.swift` (one editor per step kind), `AdjustEditor.swift` (Adjust step sliders), `WatermarkEditor.swift` (watermark step editor) with `WatermarkControls.swift` (sliders, rotation, layout, shadow, outline), `WatermarkTemplatesMenu.swift` + `WatermarkTemplatesModel.swift` (templates menu and store, injected with `.environment`), `WatermarkThumbnail.swift` (chosen image, SVG refusal reason), `AppModel+WatermarkText.swift` (live token text), `NameSheet.swift` (name sheet for presets and templates), `StepControls.swift` (shared controls),
+    `FileStepEditors.swift` (Metadata and Rename rows), `MetadataEditor.swift` + `MetadataDateEditor.swift` + `MetadataCustomFieldsEditor.swift` (Metadata editor groups), `MetadataTemplatesMenu.swift`/`MetadataTemplatesModel.swift` (templates, like the watermark ones), `RenameEditor.swift` (Rename editor; the live rename example is computed in `AppModel`),
+    `ConditionEditor.swift` (if/then/else editor: match, condition rows) and `ConditionActions.swift` (Then/Else action lists reusing the step editors),
     `PresetBar.swift` and `AppModel+Presets.swift` (preset picker, save/rename/delete),
-    `PreviewPane.swift` (before/after, name and size line), `Filmstrip.swift` (thumbnails, ←/→),
+    `PreviewPane.swift` (before/after, Original | Result table, run progress bar), `ComparisonViews.swift` (side by side, split, difference, single), `QualityPanel.swift` (quality ladder tiles), `CompareController.swift` (compare and browser modes, per-selection difference and ladder) and `CompareController+Keys.swift` (Space/B monitor, only while Single mode is shown), `AppModel+Compare.swift` (difference/ladder renders, list facts), `Checkerboard.swift`, `BatchBrowser.swift` (filmstrip, grid, resizable area) and `BatchTable.swift` (list),
+    `ZoomableComparison.swift` (`ZoomController` on the model: synced zoom shared by both preview sides and the View menu; pinch/scroll/drag NSView overlay),
     `AppModel+Preview.swift` (selection, 300 ms debounced render task with a generation counter, thumbnail cache).
+    `WindowSizer.swift` (applies `WindowLayout`: fixed 360 pt sidebar; preview hidden → window = sidebar content height,
+    preview open → resizable, min 780 × 560, sidebar panel stretches; animated toggles via `NSAnimationContext`; the
+    root view applies its ranges with `.windowResizability(.contentSize)`; full screen is off), `EdgeHandle.swift` (grab handles on the panel edges).
+    `RunMonitor.swift` (live stages via an ordered event stream, `RunMetrics`, 1 s `ResourceSampler` while running),
+    `RunStatusViews.swift` (progress area, Performance panel, thumbnail `StageRing`, interrupted-run sheet),
+    `AppModel+Performance.swift` (pause, Process Next, low-memory mode, run journal path and resume).
+    `ReportView.swift` (summary cards, export menu, per-file table, error log sheet), `HistoryView.swift` (History window, `HistoryController`), `AppModel+History.swift` (manual runs recorded once; jobs record in `JobsController.record`).
+    `PrivacyPanel.swift` (shield chip, panel, Help ▸ Privacy… window) and `AppModel+Privacy.swift` (scan task, `PrivacyState`); `QuitCoordinator.swift` (⌘Q while running).
     `previewCollapsed` and `pipelineCollapsed` are persisted in UserDefaults
+  - Jobs: `JobsController.swift` (+ `JobsController+Runs.swift`: watchers, schedules, the per-job run queue,
+    background runs at half the cores, history/error log, bookmarks via `JobFolders`), `JobsView.swift` (Jobs
+    window, ⌘J), `JobEditor.swift` (edit sheet), `SaveToControl.swift` (shared Save to), `JobNotifier.swift`
+    (UserNotifications, only with an app bundle), `MenuBarContent.swift` (menu bar mode), `AppModel+Jobs.swift`,
+    `QuitCoordinator.swift` (`applicationShouldTerminate`: asks, stops batch and job runs, waits, cleans up).
+    `ExternalActions.swift` (`AppDelegate`: services provider and the `kAEGetURL` link handler; the bridge to the model,
+    confirmation sheets, background converts), `ServicesProvider.swift` (Finder services), `Scripting.swift`
+    (`NSScriptCommand` subclasses named in the sdef), `URLActions.swift` (confirmed link actions);
+    `AppModel+RenameExample.swift` (the Rename editor's live example, using the selected image's resolved branch)
 - `Sources/ImageconverterCore/`: all logic: the pipeline model, each operation as a pure function
   (`CGImage → CGImage`, metadata → metadata), rename templating, collision naming, presets
   (JSON, `schemaVersion`), the batch runner. No SwiftUI here. Files so far:
   - `OutputFormat` (formats, `OutputSettings`), `ConversionError`, `ImageLoader`, `ImageEncoder`,
     `InputCollector` (files/folders to items), `OutputPlanner` (destinations per output mode),
-    `FileCommitter` (atomic writes, trash replaced originals), `BatchRunner` (parallel run, progress, cancel),
-    `Pipeline` (steps, options, `apply`), `FileSteps` (`MetadataOptions`, `RenameOptions`), `MetadataOps` (metadata stripping/setting),
+    `FileCommitter` (atomic writes, trash replaced originals, temp file pattern, `cleanUp(in:)` for cancel/quit/stale temps),
+    `DecodeLimits` (the one gate before any pixel decode: pixels, side, memory, file size, decompression-bomb heuristic; `ImageLoader.load`/`thumbnail` use it),
+    `PrivacyScanner` (header/metadata-only privacy findings with severities and suggested `MetadataOptions`), `BatchRunner` (parallel run, progress, cancel), `BatchRunner+Schedule` (the scheduler: adaptive limits, pause, priorities, end-of-batch retry, events, journal), `BatchControl` (pause/resume/prioritize/low-memory, `ItemEvent`, memory pressure, `BatchLimits`), `RunJournal` (interrupted-run journal with a `.done` completion log appended per finished item and, in overwrite mode, per-source fingerprints so a resume skips replaced originals; stale temp folders), `ActiveSources` (in-process registry of files runs are working on; a held file is skipped as "Busy in another run"), `Pipeline+DecodeHint` (when the batch may decode downsampled), `SharedCIContext` (the one Metal-backed `CIContext`),
+    `Pipeline` (steps, options, `apply`), `FileSteps` (`MetadataOptions`, `RenameOptions`), `MetadataOps` (metadata stripping/setting, DPI; `+XMP` builds the XMP written via `CGImageDestinationAddImageAndMetadata`, `+Keep` the remove-all keep lists; `Pipeline.outputProperties` in `Pipeline+Resize` applies both; it also has `outputDPI` and the Lanczos memory count for `peakPixels`), `MetadataEdits` (location, date, keyword and keep choices), `MetadataFields` (allowlisted custom EXIF/IPTC/XMP fields), `MetadataDates` (date set/shift), `MetadataFloor` (the Metadata step's removals as a floor for condition overrides; copies that must lose metadata are converted),
     `RenameTemplate` (tokens, sanitising), `StepSummary` (one-line step descriptions), `Geometry` (size maths),
-    `ImageOps` (resize, crop, rotate/flip, canvas, color profile, watermark), `Watermark` (options, placement maths), `WatermarkAssets` (image watermarks loaded once per batch), `WorkWindow` (memory-aware batch scheduling), `Presets`/`PresetSession` (preset files, built-ins, unsaved-change tracking), `PreviewRenderer` (actor: before/after for one item, caches the decoded source)
+    `ResizeModel` (`ResizeMode`, `ResizeOptions` with resampling and DPI), `Resampler` (Lanczos via vImage, bicubic via Core Image, bilinear/nearest via Core Graphics), `SizePresets` (aspect ratios, social and resolution sizes), `ImageOps` (resize, crop, canvas, color profile), `ImageOps+Watermark` (watermark drawing: rotation, tiling, shadow, outline), `Rotation` (rotate/flip options, arbitrary angle and straighten, rotation geometry), `Perspective` (keystone + Vision auto correction via Core Image), `Trim` (border trimming), `Watermark` (options, layout, shadow/outline, placement maths), `WatermarkText` (per-item token context and rendering), `WatermarkTemplates` (watermark templates and built-ins on `TemplateStore`), `SVGSanitizer` (untrusted SVG: strict UTF-8, XMLParser, element/attribute allowlist, re-serialised; `+Prolog`: XML declaration and the one standard doctype; `+Parser`: the validating tree builder; `+Style`: simple `<style>` rules inlined as attributes; `+References`: style values, reference cycles and `use` expansion cap), `SVGRasterizer` (size-capped read, renders only the sanitised SVG via NSImage; never fetches), `Adjustments` (`AdjustOptions`, Core Image render in linear extended sRGB, output in the input's colour space and bit depth), `WatermarkAssets` (image and SVG watermarks loaded once per batch, with the failure reason), `WorkWindow` (memory-aware batch scheduling), `CompressionSearch` (quality, target size, maximum size and smart (SSIM) compression, capped encode searches), `ImageSimilarity` (luma SSIM at ≤ 1024 px), `Presets`/`PresetSession` (preset files, built-ins, unsaved-change tracking), `PreviewRenderer` (actor: before/after for one item, caches the decoded source), `PrivacyScanner`/`PrivacyCache`/`PrivacySummary`/`PrivacyStatement` (header-only privacy scan, per-file cache, chip/row wording, the statement and limits), `RunStatus` (`ItemStage`, `ItemStageTracker`, progress/ETA wording), `Conditions` (if/then/else model, `Pipeline.resolved(for:)` → `ResolvedPipeline` with a disposition: process, copy original, skip), `ItemFacts` (header-only facts a condition tests), `ConditionPreview` (`ItemFactsCache` actor: the preview's counter number and branch chips, facts cached per file version), `BatchRunner+Conditions` (per-item resolve, names and plans; copy original),
+    `Jobs` (`Job`, `JobSettings`, `JobStore` over `TemplateStore` in `jobs/`, `JobSchedule`), `ProcessedLedger` (`jobs/<id>.ledger.json`: processed inputs with failed-attempt counts, give up after 3, and the job's outputs, each capped separately),
+    `FolderWatcher` (FSEvents watcher, `ReadinessTracker` 2 s stability state machine, `WatchFilter`), `JobScheduler` (schedule timers), `JobRunQueue` (one run per job, coalesced follow-up), `JobCoordinator` (the app's job state machine: per-job
+    queue, one job batch at a time, pause/off pruning, deferred re-arm; plus `JobNoticeCoalescer`), `JobLock` (`flock` per job
+    across processes),
+    `FolderAccess`/`JobFolders` (security-scoped bookmarks, stale refresh, moved folders, plain-URL fallback),
+    `JobRunner` (candidates → ledger and 2 s stability check → `BatchRunner` → ledger update → report file), `ProcessingReport` (run summary + entries),
+    `ReportExporter` (CSV with formula-injection guard, JSON with sorted keys, text, escaped self-contained HTML in `ReportExporter+HTML`), `ErrorLog` (rotating failure log), `RunHistory` (stored runs, 100 kept), `ZoomMath` (`ZoomState`, zoom around an anchor, pan, clamping), `WindowLayout` (main window size rules and frame maths), `NameReplacement` (find/replace in names, plain or regex), `SizeEstimator` (encodes a full-size render for the size estimate)
+- `Sources/ImageconverterCLIKit/`: the command line (hand-written `CLIParser`, `CLIRunner`, `ConvertCommand`, `ListCommands`); `Sources/ImageconverterCLI/main.swift` is a thin wrapper (product `imageconverter-cli`, installed as `imageconverter`; tests in `Tests/ImageconverterCLITests/`). Core: `AppInfo.version` (kept equal to `VERSION` by a test), `PipelineFile`
+- `Resources/`: `imageconverter.sdef` (AppleScript dictionary) and `Info-fragments.plist` (NSServices,
+  AppleScript and URL-scheme keys); not used by SwiftPM, merged into the bundle by milestone 6's release script.
+  Their logic is in Core: `URLAction` (link parsing), `ExternalRequests` (script/service checks), `ServicePins`
 - `Tests/ImageconverterCoreTests/`: tests (operations on small generated images, rename tokens,
-  resize/crop maths, collisions, preset round-trip and rejection, metadata really stripped)
+  resize/crop maths, collisions, preset round-trip and rejection, metadata really stripped, decode limits on
+  hand-built header-only files in `Support/HeaderFixtures`, privacy scan before/after a real batch). `NoNetworkTests`
+  scans `Sources/` and fails on networking APIs or web URLs outside comments (XML/XMP namespace names allowlisted)
 - `docs/superpowers/specs/`: design documents; `docs/superpowers/plans/`: implementation plans
 - Planned: `scripts/release.sh` (bundle `.app`, sign with Developer ID + hardened runtime,
   notarize with a `notarytool` keychain profile, staple). Credentials stay in the keychain.

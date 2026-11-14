@@ -4,6 +4,8 @@ import ImageIO
 
 public enum ImageEncoder {
     /// Encodes `image` in `settings.format`, carrying over `properties` (metadata) with orientation reset to 1.
+    /// An `OutputXMP` under `MetadataOps.xmpPropertyKey` is written as the file's XMP; the rest of
+    /// `properties` (EXIF, IPTC, GPS, DPI, compression) still applies.
     ///
     /// Stale pixel-size keys are dropped so ImageIO derives the real size from `image`.
     /// Formats without alpha (JPEG, BMP) get transparent pixels flattened onto white.
@@ -19,8 +21,7 @@ public enum ImageEncoder {
 
         var props = sanitized(properties)
         if format.supportsQuality {
-            let quality = settings.quality.isNaN ? 0.82 : min(1, max(0, settings.quality))
-            props[kCGImageDestinationLossyCompressionQuality as String] = quality
+            props[kCGImageDestinationLossyCompressionQuality as String] = settings.clampedQuality
         }
         if format == .tiff {
             let tiffKey = kCGImagePropertyTIFFDictionary as String
@@ -29,11 +30,49 @@ public enum ImageEncoder {
             props[tiffKey] = tiff
         }
 
+        if format == .jpeg, settings.progressive {
+            let jfifKey = kCGImagePropertyJFIFDictionary as String
+            var jfif = props[jfifKey] as? [String: Any] ?? [:]
+            jfif[kCGImagePropertyJFIFIsProgressive as String] = true
+            props[jfifKey] = jfif
+        }
+
+        if format == .png, settings.optimizePNG, let best = smallestPNG(source, props: props) { return best }
+        return try write(source, props: props, type: format)
+    }
+
+    /// The smallest of the PNG filter candidates. Filter choice only changes size, never pixels.
+    private static func smallestPNG(_ image: CGImage, props: [String: Any]) -> Data? {
+        let pngKey = kCGImagePropertyPNGDictionary as String
+        // Raw values of IMAGEIO_PNG_FILTER_* (the "all" macro isn't importable into Swift);
+        // nil is ImageIO's own default choice, which is sometimes the smallest.
+        let filters: [Int?] = [nil, 0x08, 0x10, 0x20, 0x40, 0x80, 0xF8]
+        var best: Data?
+        for filter in filters {
+            var candidate = props
+            if let filter {
+                var png = candidate[pngKey] as? [String: Any] ?? [:]
+                png[kCGImagePropertyPNGCompressionFilter as String] = filter
+                candidate[pngKey] = png
+            }
+            guard let data = try? write(image, props: candidate, type: .png) else { continue }
+            if best == nil || data.count < best!.count { best = data }
+        }
+        return best
+    }
+
+    private static func write(_ image: CGImage, props: [String: Any], type format: OutputFormat) throws -> Data {
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, format.utType.identifier as CFString, 1, nil) else {
             throw ConversionError.encodeFailed
         }
-        CGImageDestinationAddImage(dest, source, props as CFDictionary)
+        var props = props
+        if let xmp = props.removeValue(forKey: MetadataOps.xmpPropertyKey) as? OutputXMP {
+            // ImageIO still honours the property dictionaries passed as options here.
+            CGImageDestinationAddImageAndMetadata(dest, image, xmp.metadata, props as CFDictionary)
+        } else {
+            CGImageDestinationAddImage(dest, image, props as CFDictionary)
+        }
         guard CGImageDestinationFinalize(dest) else { throw ConversionError.encodeFailed }
         return data as Data
     }

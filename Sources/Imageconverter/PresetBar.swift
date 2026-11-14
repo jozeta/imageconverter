@@ -47,6 +47,12 @@ struct PresetBar: View {
                         .disabled(selected == nil || selected?.isBuiltIn == true)
                     Button("Reset to preset") { model.resetToPreset() }
                         .disabled(!model.session.isModified)
+                    Divider()
+                    Toggle(quickActionTitle, isOn: Binding(
+                        get: { model.selectedPinnedForServices },
+                        set: { model.setSelectedPinnedForServices($0) }))
+                        .disabled(!model.selectedPinnedForServices && !model.canPinSelected)
+                        .help(quickActionHelp)
                 }
                 .fixedSize()
                 .accessibilityLabel("More preset actions")
@@ -69,13 +75,30 @@ struct PresetBar: View {
             Button("Cancel", role: .cancel) {}
         }
         .sheet(isPresented: $model.isSavingAs) {
-            PresetNameSheet(title: "Save as preset", initial: "", confirm: "Save",
-                            excluding: nil, existing: model.allPresets) { try model.saveAs(name: $0) }
+            NameSheet(title: "Save as preset", initial: "", confirm: "Save", fieldLabel: "Preset name",
+                      validate: { [presets = model.allPresets] in
+                          _ = try PresetStore.validatedName($0, existing: presets, excluding: nil)
+                      }, onSubmit: { try model.saveAs(name: $0) })
         }
         .sheet(isPresented: $showRename) {
-            PresetNameSheet(title: "Rename preset", initial: selected?.name ?? "", confirm: "Rename",
-                            excluding: selected?.id, existing: model.allPresets) { try model.renameSelected(to: $0) }
+            NameSheet(title: "Rename preset", initial: selected?.name ?? "", confirm: "Rename", fieldLabel: "Preset name",
+                      validate: { [presets = model.allPresets, id = selected?.id] in
+                          _ = try PresetStore.validatedName($0, existing: presets, excluding: id)
+                      }, onSubmit: { try model.renameSelected(to: $0) })
         }
+    }
+
+    /// Names the Finder service slot while pinned, so the user knows which "Convert with Preset n" it is.
+    private var quickActionTitle: String {
+        model.selectedServiceSlot.map { "Show in Finder Quick Actions (Preset \($0))" } ?? "Show in Finder Quick Actions"
+    }
+
+    private var quickActionHelp: String {
+        if selected == nil || selected?.isBuiltIn == true { return "Only your own presets can be shown in Finder." }
+        if !model.selectedPinnedForServices && !model.canPinSelected {
+            return "At most \(ServicePins.maxPinned) presets can be shown in Finder Quick Actions."
+        }
+        return "Finder's Quick Actions and Services menus convert the selected files with this preset."
     }
 
     private func cancelSwitch() {
@@ -93,73 +116,5 @@ struct PresetBar: View {
                     showDiscard = true
                 }
             })
-    }
-}
-
-/// A name field with inline validation, shared by "Save as" and "Rename".
-private struct PresetNameSheet: View {
-    let title: String
-    let initial: String
-    let confirm: String
-    let excluding: UUID?
-    let existing: [Preset]
-    let onSubmit: (String) throws -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var failure: String?
-    @FocusState private var focused: Bool
-
-    /// The reason the typed name can't be used yet (nil when it is fine).
-    private var problem: String? {
-        do {
-            _ = try PresetStore.validatedName(name, existing: existing, excluding: excluding)
-            return nil
-        } catch {
-            return AppModel.message(error)
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
-            Text(title).font(LadaGlass.Typography.body.weight(.semibold))
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder)
-                .focused($focused)
-                .onSubmit(submit)
-                .accessibilityLabel("Preset name")
-            if let message = failure ?? (name.isEmpty ? nil : problem) {
-                Text(message)
-                    .font(LadaGlass.Typography.label)
-                    .foregroundStyle(LadaGlass.Colors.badText)
-                    .accessibilityLabel("Problem: \(message)")
-            }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .buttonStyle(.lg(.ghost))
-                    .keyboardShortcut(.cancelAction)
-                Button(confirm, action: submit)
-                    .buttonStyle(.lg(.primary))
-                    .disabled(problem != nil)
-            }
-        }
-        .padding(LadaGlass.Spacing.l)
-        .frame(minWidth: 300)
-        .lgSheetSurface()
-        .onAppear {
-            name = initial
-            focused = true
-        }
-        .onChange(of: name) { _, _ in failure = nil }
-    }
-
-    private func submit() {
-        guard problem == nil else { return }
-        do {
-            try onSubmit(name)
-            dismiss()
-        } catch {
-            failure = AppModel.message(error)
-        }
     }
 }

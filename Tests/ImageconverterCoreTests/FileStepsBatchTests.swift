@@ -114,6 +114,32 @@ final class FileStepsBatchTests: XCTestCase {
         return pipeline
     }
 
+    func testBuiltInPresetsStillStripLocation() async throws {
+        for preset in PresetStore.builtIns where preset.pipeline.metadata.isActive {
+            try? FileManager.default.removeItem(at: out)
+            let url = try source("loc.jpg", properties: locationProps)
+            let report = await BatchRunner.run(
+                InputCollector.collect([url]), pipeline: preset.pipeline, mode: .newFolder(out))
+            XCTAssertEqual(report.failures, [], preset.name)
+            let data = try Data(contentsOf: try XCTUnwrap(report.written.first))
+            XCTAssertFalse(contains(data, "SECRETPLACE-42"), preset.name)
+            XCTAssertNil(try TestImages.properties(of: data)[kCGImagePropertyGPSDictionary as String], preset.name)
+        }
+        XCTAssertEqual(PresetStore.builtIns.filter { $0.pipeline.metadata.isActive }.count, 2)
+    }
+
+    func testExcludedStepsDoNothingInBatch() async throws {
+        let url = try source("keep.jpg", properties: cameraProps)
+        var pipeline = Pipeline(output: .init(format: .jpeg))
+        pipeline.rename = RenameOptions(isEnabled: true, isIncluded: false, pattern: "renamed")
+        pipeline.metadata = MetadataOptions(isEnabled: true, isIncluded: false, removeAll: true)
+        let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: pipeline, mode: .newFolder(out))
+        XCTAssertEqual(report.failures, [])
+        let written = try XCTUnwrap(report.written.first)
+        XCTAssertEqual(written.deletingPathExtension().lastPathComponent, "keep")
+        XCTAssertTrue(contains(try Data(contentsOf: written), "SECRETCAM"))
+    }
+
     func testHugeCounterStartDoesNotTrap() async throws {
         let files = try (1...2).map { try source("big\($0).jpg") }
         let pipeline = renamePipeline("n{counter}", start: Int.max)
@@ -162,15 +188,15 @@ final class FileStepsBatchTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     }
 
-    func testOverwriteRenameTrashesOriginal() async throws {
+    func testOverwriteIgnoresRenameAndReplacesInPlace() async throws {
         let url = try source("a.jpg")
         let trashed = LockedLog<URL>()
         let trash: Trasher = { trashed.append($0) }
         let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: renamePipeline("renamed"),
                                            mode: .overwrite, trash: trash)
         XCTAssertEqual(report.failures, [])
-        XCTAssertEqual(report.written, [root.appendingPathComponent("renamed.jpg")])
-        XCTAssertEqual(trashed.values, [url])
+        XCTAssertEqual(report.written, [url])
+        XCTAssertEqual(trashed.values, [])
     }
 
     func testPlannerIgnoresMismatchedBaseNames() {
@@ -245,12 +271,11 @@ final class FileStepsBatchTests: XCTestCase {
         XCTAssertFalse(plans[0].trashesSource)
     }
 
-    func testPlannerOverwriteSwapDoesNotUseOriginalsAsDestinations() {
+    func testPlannerOverwriteSwapIgnoresBaseNames() {
         let items = ["2.jpg", "1.jpg"].map { InputItem(source: root.appendingPathComponent($0), relativeDirectory: "") }
-        let existing: Set<String> = ["1.jpg", "2.jpg"].reduce(into: []) { $0.insert(root.appendingPathComponent($1).path) }
         let plans = OutputPlanner.plan(items, format: .jpeg, mode: .overwrite, baseNames: ["1", "2"],
-                                       fileExists: { existing.contains($0.path) })
-        XCTAssertEqual(plans.map { $0.destination.lastPathComponent }, ["1_2.jpg", "2_2.jpg"])
-        XCTAssertTrue(plans.allSatisfy { $0.trashesSource && !$0.replacesSource })
+                                       fileExists: { _ in true })
+        XCTAssertEqual(plans.map { $0.destination.lastPathComponent }, ["2.jpg", "1.jpg"])
+        XCTAssertTrue(plans.allSatisfy { $0.replacesSource && !$0.trashesSource })
     }
 }

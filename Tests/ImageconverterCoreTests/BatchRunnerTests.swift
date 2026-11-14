@@ -56,6 +56,64 @@ final class BatchRunnerTests: XCTestCase {
         XCTAssertTrue(report.failures.isEmpty)
     }
 
+    func testReportCountsBytes() async throws {
+        let src = try directory("src")
+        let out = root.appendingPathComponent("out", isDirectory: true)
+        var files: [URL] = []
+        for index in 1...2 {
+            let url = src.appendingPathComponent("img\(index).png")
+            try TestImages.write(TestImages.make(width: 30, height: 30), to: url, type: .png)
+            files.append(url)
+        }
+        let report = await BatchRunner.run(InputCollector.collect(files), pipeline: Pipeline(output: .init(format: .jpeg)),
+                                           mode: .newFolder(out))
+        XCTAssertEqual(report.entries.count, 2)
+        for entry in report.entries {
+            XCTAssertEqual(entry.inputBytes, try entry.source.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+            XCTAssertEqual(entry.outputBytes, try entry.destination.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+            XCTAssertGreaterThan(entry.outputBytes, 0)
+        }
+        XCTAssertEqual(report.inputBytes, report.entries.compactMap(\.inputBytes).reduce(0, +))
+        XCTAssertEqual(report.outputBytes, report.entries.map(\.outputBytes).reduce(0, +))
+    }
+
+    func testRunnerRecordsDurationAndPixelSizes() async throws {
+        let src = try directory("src")
+        let url = src.appendingPathComponent("a.png")
+        try TestImages.write(TestImages.make(width: 30, height: 20), to: url, type: .png)
+        let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: Pipeline(output: .init(format: .jpeg)),
+                                           mode: .newFolder(root.appendingPathComponent("out", isDirectory: true)))
+        let entry = try XCTUnwrap(report.entries.first)
+        XCTAssertGreaterThan(entry.duration, 0)
+        XCTAssertEqual([entry.inputWidth, entry.inputHeight, entry.outputWidth, entry.outputHeight], [30, 20, 30, 20])
+    }
+
+    func testOverwriteMeasuresInputBeforeReplacing() async throws {
+        let src = try directory("src")
+        let url = src.appendingPathComponent("a.jpg")
+        try TestImages.write(TestImages.make(width: 60, height: 60), to: url, type: .png)
+        let before = try XCTUnwrap(url.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+        let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: Pipeline(output: .init(format: .jpeg)),
+                                           mode: .overwrite, trash: { _ in })
+        XCTAssertEqual(report.entries.first?.inputBytes, before)
+    }
+
+    func testFailedFileCarriesInputBytesAndOrder() async throws {
+        let src = try directory("src")
+        let out = root.appendingPathComponent("out", isDirectory: true)
+        let good1 = src.appendingPathComponent("a.png")
+        let bad = src.appendingPathComponent("b.jpg")
+        let good2 = src.appendingPathComponent("c.png")
+        try TestImages.write(TestImages.make(width: 20, height: 20), to: good1, type: .png)
+        try Data(repeating: 7, count: 123).write(to: bad)
+        try TestImages.write(TestImages.make(width: 20, height: 20), to: good2, type: .png)
+        let batch = await BatchRunner.run(InputCollector.collect([good1, bad, good2]),
+                                          pipeline: Pipeline(output: .init(format: .jpeg)), mode: .newFolder(out))
+        XCTAssertEqual(batch.failures.first?.inputBytes, 123)
+        let report = ProcessingReport(batch: batch, total: 3, outputMode: "newFolder")
+        XCTAssertEqual(report.entries.map(\.name), ["a.png", "b.jpg", "c.png"])
+    }
+
     func testConvertsAndSkipsBrokenFiles() async throws {
         let src = try directory("src")
         let out = root.appendingPathComponent("out", isDirectory: true)

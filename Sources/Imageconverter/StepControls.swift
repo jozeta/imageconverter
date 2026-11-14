@@ -7,6 +7,26 @@ typealias Anchor = ImageconverterCore.Anchor
 
 // MARK: - Shared controls
 
+/// The trash button on every pipeline row: muted, red on hover and when keyboard-focused.
+struct RemoveStepButton: View {
+    let label: String
+    let action: () -> Void
+    @State private var hovered = false
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Button(action: action) { Image(systemName: "trash") }
+            .buttonStyle(.plain)
+            .focused($focused)
+            .foregroundStyle(hovered || focused ? LadaGlass.Colors.badText : LadaGlass.Colors.muted)
+            .onHover { hovered = $0 }
+            .padding(LadaGlass.Spacing.xs)
+            .contentShape(Rectangle())
+            .accessibilityLabel("Remove \(label)")
+            .help("Remove")
+    }
+}
+
 /// A labelled integer field; values are clamped to `minimum` when committed.
 struct NumberField: View {
     let title: String
@@ -14,10 +34,14 @@ struct NumberField: View {
     var minimum = 1
     var maximum = Int.max
     var suffix = "px"
+    /// False where the row around the field already says what it is (the title stays the VoiceOver label).
+    var showsTitle = true
 
     var body: some View {
         HStack(spacing: LadaGlass.Spacing.xs) {
-            Text(title).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            if showsTitle {
+                Text(title).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            }
             TextField(title, value: Binding(get: { value }, set: { value = min(max(minimum, $0), maximum) }), format: .number)
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)
@@ -122,6 +146,50 @@ struct AnchorPicker: View {
 struct FieldRow<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
-        HStack(spacing: LadaGlass.Spacing.m) { content }
+        HStack(spacing: LadaGlass.Spacing.s) { content }
+    }
+}
+
+/// An accordion card: a chevron button and a header, with the content below when expanded. Own chevron
+/// instead of DisclosureGroup so it can be greyed and inert while the step is off.
+struct AccordionCard<Header: View, Content: View>: View {
+    @Binding var isExpanded: Bool
+    let canExpand: Bool
+    let title: String
+    @ViewBuilder var header: Header
+    @ViewBuilder var content: Content
+
+    private var showsContent: Bool { isExpanded && canExpand }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: LadaGlass.Spacing.s) {
+                Button {
+                    isExpanded.toggle()
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(showsContent ? 90 : 0))
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(LadaGlass.Colors.muted)
+                .opacity(canExpand ? 1 : 0.35)
+                .disabled(!canExpand)
+                .accessibilityLabel(showsContent ? "Collapse \(title)" : "Expand \(title)")
+                header
+                    .onTapGesture { if canExpand { isExpanded.toggle() } }
+            }
+            if showsContent {
+                content.padding(.top, LadaGlass.Spacing.xs)
+            }
+        }
+        .font(LadaGlass.Typography.body)
+        .padding(.horizontal, LadaGlass.Spacing.m)
+        .padding(.vertical, LadaGlass.Spacing.s)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .lgSurface()
+        .onChange(of: canExpand) { _, can in if !can { isExpanded = false } }
     }
 }

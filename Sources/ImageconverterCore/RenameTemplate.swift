@@ -15,11 +15,16 @@ public struct RenameContext: Sendable {
     public var width: Int
     public var height: Int
     public var counter: Int
+    public var focalLength: Double?
+    public var aperture: Double?
+    /// Shutter time in seconds.
+    public var exposureTime: Double?
 
     public init(
         name: String, ext: String, format: String, folder: String, date: Date?,
         make: String?, model: String?, lens: String?, iso: Int?,
-        width: Int, height: Int, counter: Int
+        width: Int, height: Int, counter: Int,
+        focalLength: Double? = nil, aperture: Double? = nil, exposureTime: Double? = nil
     ) {
         self.name = name
         self.ext = ext
@@ -33,6 +38,9 @@ public struct RenameContext: Sendable {
         self.width = width
         self.height = height
         self.counter = counter
+        self.focalLength = focalLength
+        self.aperture = aperture
+        self.exposureTime = exposureTime
     }
 
     // swiftlint:disable function_parameter_count
@@ -47,18 +55,7 @@ public struct RenameContext: Sendable {
         let exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any]
         let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
 
-        var date: Date?
-        if let raw = exif?[kCGImagePropertyExifDateTimeOriginal as String] as? String {
-            let parser = DateFormatter()
-            parser.locale = Locale(identifier: "en_US_POSIX")
-            parser.timeZone = TimeZone(identifier: "GMT")
-            parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
-            date = parser.date(from: raw)
-        }
-        if date == nil, let created = fileCreationDate {
-            let offset = TimeZone.current.secondsFromGMT(for: created)
-            date = created.addingTimeInterval(TimeInterval(offset))
-        }
+        let date = captureDate(properties: properties, fileCreationDate: fileCreationDate)
 
         var iso: Int?
         if let values = exif?[kCGImagePropertyExifISOSpeedRatings as String] as? [Any] {
@@ -77,9 +74,28 @@ public struct RenameContext: Sendable {
             iso: iso,
             width: outputSize.0,
             height: outputSize.1,
-            counter: counter)
+            counter: counter,
+            focalLength: (exif?[kCGImagePropertyExifFocalLength as String] as? NSNumber)?.doubleValue,
+            aperture: (exif?[kCGImagePropertyExifFNumber as String] as? NSNumber)?.doubleValue,
+            exposureTime: (exif?[kCGImagePropertyExifExposureTime as String] as? NSNumber)?.doubleValue)
     }
     // swiftlint:enable function_parameter_count
+
+    /// EXIF DateTimeOriginal (parsed as GMT, since EXIF has no time zone); otherwise the file's creation
+    /// date, shifted so its GMT wall clock equals the wall clock in the user's time zone.
+    static func captureDate(properties: [String: Any], fileCreationDate: Date?) -> Date? {
+        let exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        if let raw = exif?[kCGImagePropertyExifDateTimeOriginal as String] as? String {
+            let parser = DateFormatter()
+            parser.locale = Locale(identifier: "en_US_POSIX")
+            parser.timeZone = TimeZone(identifier: "GMT")
+            parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
+            if let date = parser.date(from: raw) { return date }
+        }
+        guard let created = fileCreationDate else { return nil }
+        let offset = TimeZone.current.secondsFromGMT(for: created)
+        return created.addingTimeInterval(TimeInterval(offset))
+    }
 }
 
 /// A file-name pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`.
@@ -93,13 +109,14 @@ public struct RenameTemplate: Equatable, Sendable {
 
     static let knownTokens: Set<String> = [
         "name", "ext", "date", "time", "camera", "make", "lens", "iso",
-        "width", "height", "format", "folder", "counter",
+        "width", "height", "format", "folder", "counter", "seq", "focal", "aperture", "shutter", "datetime",
     ]
 
     /// Every supported token, in menu order; formatted tokens carry an example argument.
     public static let tokenExamples = [
         "{name}", "{ext}", "{date:yyyy-MM-dd}", "{time:HHmmss}", "{camera}", "{make}", "{lens}", "{iso}",
-        "{width}", "{height}", "{format}", "{folder}", "{counter:000}",
+        "{width}", "{height}", "{format}", "{folder}", "{counter:000}", "{seq}",
+        "{focal}", "{aperture}", "{shutter}", "{datetime}",
     ]
 
     private let parts: [Part]
@@ -137,11 +154,11 @@ public struct RenameTemplate: Equatable, Sendable {
 
     /// True when the pattern reads the image header (size, camera, lens, ISO or a capture date).
     public var needsHeader: Bool {
-        uses(["date", "time", "camera", "make", "lens", "iso", "width", "height"])
+        uses(["date", "time", "datetime", "camera", "make", "lens", "iso", "width", "height", "focal", "aperture", "shutter"])
     }
 
     /// True when the pattern uses a date or time (and so the file's creation date as a fallback).
-    public var needsDate: Bool { uses(["date", "time"]) }
+    public var needsDate: Bool { uses(["date", "time", "datetime"]) }
 
     /// Token names outside the supported list, in order of appearance. They render literally.
     public var unknownTokens: [String] {
@@ -152,7 +169,8 @@ public struct RenameTemplate: Equatable, Sendable {
     }
 
     /// The base name (no extension), sanitised; the context's own name if the result is empty.
-    public func render(_ context: RenameContext) -> String {
+    /// `transform` runs on the raw joined name before sanitising, so it cannot add unsafe characters.
+    public func render(_ context: RenameContext, transform: (String) -> String = { $0 }) -> String {
         var out = ""
         var lastIsLiteral = false
         var dropNextSeparator = false
@@ -181,7 +199,7 @@ public struct RenameTemplate: Equatable, Sendable {
                 }
             }
         }
-        let cleaned = Self.sanitize(out)
+        let cleaned = Self.sanitize(transform(out))
         if !cleaned.isEmpty { return cleaned }
         let fallback = Self.sanitize(context.name)
         return fallback.isEmpty ? "image" : fallback
@@ -193,7 +211,10 @@ public struct RenameTemplate: Equatable, Sendable {
         case "ext": return context.ext
         case "date": return format(context.date, arg, default: "yyyy-MM-dd")
         case "time": return format(context.date, arg, default: "HHmmss")
-        case "counter":
+        case "datetime":
+            let day = format(context.date, nil, default: "yyyy-MM-dd")
+            return day.isEmpty ? "" : day + "_" + format(context.date, nil, default: "HHmmss")
+        case "counter", "seq":
             let text = String(max(context.counter, 0))
             let width = (arg?.allSatisfy { $0 == "0" } ?? false) ? (arg?.count ?? 0) : 0
             return String(repeating: "0", count: max(width - text.count, 0)) + text
@@ -211,18 +232,64 @@ public struct RenameTemplate: Equatable, Sendable {
         case "height": return String(context.height)
         case "format": return context.format
         case "folder": return context.folder
+        default: return exposureValue(of: name, context: context)
+        }
+    }
+
+    private static func exposureValue(of name: String, context: RenameContext) -> String {
+        switch name {
+        case "focal":
+            // EXIF numbers are untrusted: out-of-range or non-finite values render nothing (and never reach Int()).
+            guard let focal = context.focalLength, focal.isFinite, focal >= 0.5, focal <= 10_000 else { return "" }
+            return "\(Int(focal.rounded()))mm"
+        case "aperture":
+            guard let value = context.aperture, value.isFinite, value >= 0.1, value <= 1000 else { return "" }
+            return "f" + trimmed(value)
+        case "shutter":
+            guard let seconds = context.exposureTime, seconds.isFinite, seconds >= 1e-6, seconds <= 3600 else { return "" }
+            return shutter(seconds)
         default: return ""
         }
     }
 
+    /// One decimal place, without a trailing `.0` (so f/1.78 becomes `1.8`).
+    private static func trimmed(_ value: Double) -> String {
+        let text = String(format: "%.1f", value)
+        return text.hasSuffix(".0") ? String(text.dropLast(2)) : text
+    }
+
+    /// `0.004` becomes `1-250s` (no `/` in file names). From 0.3 s up it is plain seconds to one decimal
+    /// (`0.8s`, `1s`, `2s`, `1.5s`), so `1-1s` never appears. The caller has range-checked `seconds`.
+    private static func shutter(_ seconds: Double) -> String {
+        if seconds < 0.3 { return "1-\(Int((1 / seconds).rounded()))s" }
+        return trimmed(seconds) + "s"
+    }
+
     private static func format(_ date: Date?, _ arg: String?, default fallback: String) -> String {
         guard let date else { return "" }
+        return formatDate(date, (arg?.isEmpty ?? true) ? fallback : arg ?? fallback)
+    }
+
+    /// `date` in `pattern` (POSIX locale, Gregorian, GMT: dates here are wall clocks stored as GMT).
+    static func formatDate(_ date: Date, _ pattern: String) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "GMT")
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = (arg?.isEmpty ?? true) ? fallback : arg
+        formatter.dateFormat = pattern
         return formatter.string(from: date)
+    }
+
+    /// Date-field letters a user pattern may use (year, month, day, weekday, hour, minute, second, AM/PM).
+    private static let dateLetters = Set("yMLdEeHhKkmsSa")
+    /// Separators a user pattern may use besides those letters.
+    private static let dateSeparators = Set(" -_.,/:")
+
+    /// True for a short pattern made only of date-field letters and plain separators (no quoted text,
+    /// time zones or other fields), at most 40 characters.
+    static func isSafeDateFormat(_ pattern: String) -> Bool {
+        !pattern.isEmpty && pattern.count <= 40
+            && pattern.allSatisfy { dateLetters.contains($0) || dateSeparators.contains($0) }
     }
 
     private static let separators: Set<Character> = ["_", "-", " "]

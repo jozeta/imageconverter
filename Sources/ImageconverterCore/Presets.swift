@@ -7,19 +7,27 @@ public struct Preset: Codable, Equatable, Sendable, Identifiable {
     public var pipeline: Pipeline
     /// True for the presets that ship with the app. Never stored in a file.
     public var isBuiltIn: Bool
+    /// The Finder service slot ("Convert with Preset n", 1...`ServicePins.maxPinned`) this user preset runs
+    /// from, or nil. Assigned when pinned and kept across renames, so a slot never silently changes preset.
+    /// Stored only when set, so older files and older app versions read the same.
+    public var serviceSlot: Int?
+    /// Shown in Finder Quick Actions.
+    public var pinnedForServices: Bool { serviceSlot != nil }
 
-    public init(id: UUID = UUID(), name: String, pipeline: Pipeline, isBuiltIn: Bool = false) {
+    public init(id: UUID = UUID(), name: String, pipeline: Pipeline, isBuiltIn: Bool = false,
+                serviceSlot: Int? = nil) {
         self.id = id
         self.name = name
         self.pipeline = pipeline
         self.isBuiltIn = isBuiltIn
+        self.serviceSlot = serviceSlot
     }
 
     /// The version of the top-level preset file format.
     public static let schemaVersion = 1
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, id, name, pipeline
+        case schemaVersion, id, name, pipeline, serviceSlot
     }
 
     public init(from decoder: Decoder) throws {
@@ -28,6 +36,9 @@ public struct Preset: Codable, Equatable, Sendable, Identifiable {
         name = try container.decode(String.self, forKey: .name)
         pipeline = try container.decode(Pipeline.self, forKey: .pipeline)
         isBuiltIn = false
+        // An out-of-range slot (a hand-edited file) just means "not pinned".
+        serviceSlot = (try? container.decodeIfPresent(Int.self, forKey: .serviceSlot))
+            .flatMap { $0 }.flatMap { ServicePins.slots.contains($0) ? $0 : nil }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -36,6 +47,7 @@ public struct Preset: Codable, Equatable, Sendable, Identifiable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(pipeline, forKey: .pipeline)
+        try container.encodeIfPresent(serviceSlot, forKey: .serviceSlot)
     }
 }
 
@@ -52,6 +64,8 @@ public enum PresetError: Error, Equatable {
     case folderUnreadable
     case idMismatch
     case builtInID
+    case tooManyPinned
+    case serviceSlotTaken
 
     public var reason: String {
         switch self {
@@ -68,6 +82,9 @@ public enum PresetError: Error, Equatable {
         case .folderUnreadable: return "The presets folder couldn't be read."
         case .idMismatch: return "The preset's id doesn't match its file name."
         case .builtInID: return "The preset uses a built-in preset's id."
+        case .tooManyPinned:
+            return "At most \(ServicePins.maxPinned) presets can be shown in Finder Quick Actions. Remove one first."
+        case .serviceSlotTaken: return "Another preset already uses this Finder Quick Actions slot."
         }
     }
 }
@@ -80,7 +97,7 @@ public struct PresetLoadResult {
 /// Reads and writes presets as one JSON file per preset, named after the preset's UUID.
 /// Meant to be a single shared instance per directory: its lock only serialises calls on that instance.
 public final class PresetStore: @unchecked Sendable {
-    public static let maxFileSize = 1_048_576
+    public static let maxFileSize = StoredFile.maxFileSize
     public static let maxNameLength = 80
 
     private let directory: URL
@@ -117,7 +134,7 @@ public final class PresetStore: @unchecked Sendable {
                 PipelineStep(id: webColorStepID, operation: .colorProfile(.sRGB))
             ],
             output: OutputSettings(format: .jpeg, quality: 0.82),
-            metadata: MetadataOptions(isEnabled: true, removeLocation: true)), isBuiltIn: true),
+            metadata: MetadataOptions(isEnabled: true, isIncluded: true, removeLocation: true)), isBuiltIn: true),
         Preset(id: instagramID, name: "Instagram 4:5", pipeline: Pipeline(
             steps: [
                 PipelineStep(id: instaResizeStepID, operation: .resize(ResizeOptions(
@@ -125,7 +142,7 @@ public final class PresetStore: @unchecked Sendable {
                 PipelineStep(id: instaColorStepID, operation: .colorProfile(.sRGB))
             ],
             output: OutputSettings(format: .jpeg, quality: 0.85),
-            metadata: MetadataOptions(isEnabled: true, removeLocation: true)), isBuiltIn: true),
+            metadata: MetadataOptions(isEnabled: true, isIncluded: true, removeLocation: true)), isBuiltIn: true),
         Preset(id: archiveID, name: "Archive TIFF", pipeline: Pipeline(
             steps: [],
             output: OutputSettings(format: .tiff, tiffCompression: .lzw),
@@ -140,41 +157,11 @@ public final class PresetStore: @unchecked Sendable {
 
     /// Control characters are removed, the result is trimmed, 1...80 characters, unique ignoring case.
     public static func validatedName(_ raw: String, existing: [Preset], excluding: UUID?) throws -> String {
-        let stripped = String(String.UnicodeScalarView(raw.unicodeScalars.filter {
-            !CharacterSet.controlCharacters.contains($0) && !CharacterSet.newlines.contains($0)
-        }))
-        let cleaned = normalizeWhitespace(stripped)
-        guard !cleaned.isEmpty else { throw PresetError.invalidName("Enter a name for the preset.") }
-        guard cleaned.count <= maxNameLength else {
-            throw PresetError.invalidName("The name can be at most \(maxNameLength) characters.")
-        }
-        let key = fold(cleaned)
-        if existing.contains(where: { $0.id != excluding && fold($0.name) == key }) {
-            throw PresetError.duplicateName
-        }
-        return cleaned
+        try StoredFile.validatedName(raw, existing: existing.map { ($0.id, $0.name) }, excluding: excluding,
+                                     maxLength: maxNameLength, noun: "preset")
     }
 
-    /// Every Unicode whitespace character (non-breaking space included) becomes one space; runs
-    /// collapse and the ends are trimmed, so look-alike names can't coexist.
-    private static func normalizeWhitespace(_ text: String) -> String {
-        var result = String.UnicodeScalarView()
-        var pendingSpace = false
-        for scalar in text.unicodeScalars {
-            if CharacterSet.whitespaces.contains(scalar) || scalar.properties.isWhitespace {
-                pendingSpace = !result.isEmpty
-            } else {
-                if pendingSpace { result.append(" ") }
-                pendingSpace = false
-                result.append(scalar)
-            }
-        }
-        return String(result)
-    }
-
-    private static func fold(_ name: String) -> String {
-        normalizeWhitespace(name).folding(options: [.caseInsensitive], locale: nil)
-    }
+    private static func fold(_ name: String) -> String { StoredFile.fold(name) }
 
     // MARK: Loading
 
@@ -234,38 +221,15 @@ public final class PresetStore: @unchecked Sendable {
         return PresetLoadResult(presets: Self.builtIns + user, skipped: skipped)
     }
 
-    /// Opens without following links or blocking, checks the open descriptor, and reads at most 1 MB + 1 byte.
-    private static func readData(_ url: URL) throws -> Data {
-        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
-        guard descriptor >= 0 else { throw PresetError.unreadable }
-        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        var info = stat()
-        guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
-            throw PresetError.notRegularFile
-        }
-        guard info.st_size <= maxFileSize else { throw PresetError.tooLarge }
-        guard let data = try? handle.read(upToCount: maxFileSize + 1) else { throw PresetError.unreadable }
-        guard data.count <= maxFileSize else { throw PresetError.tooLarge }
-        return data
-    }
-
-    private static func decodeError(_ error: Error) -> PresetError {
-        if let decoding = error as? DecodingError, case .dataCorrupted(let context) = decoding,
-           context.underlyingError != nil || context.debugDescription.contains("JSON") {
-            return .invalidJSON
-        }
-        return .invalidStructure
-    }
-
     private static func read(_ url: URL, expectedID: UUID) throws -> Preset {
-        let data = try readData(url)
+        let data = try StoredFile.readData(url)
         let decoder = JSONDecoder()
         let header: Header
-        do { header = try decoder.decode(Header.self, from: data) } catch { throw decodeError(error) }
+        do { header = try decoder.decode(Header.self, from: data) } catch { throw StoredFile.decodeError(error) }
         let version = header.schemaVersion ?? 1
         guard version <= Preset.schemaVersion else { throw PresetError.unsupportedVersion(version) }
         var preset: Preset
-        do { preset = try decoder.decode(Preset.self, from: data) } catch { throw decodeError(error) }
+        do { preset = try decoder.decode(Preset.self, from: data) } catch { throw StoredFile.decodeError(error) }
         guard preset.id == expectedID else { throw PresetError.idMismatch }
         guard !isBuiltIn(preset.id) else { throw PresetError.builtInID }
         guard let name = try? validatedName(preset.name, existing: [], excluding: nil) else {
@@ -282,8 +246,14 @@ public final class PresetStore: @unchecked Sendable {
         defer { lock.unlock() }
         guard !preset.isBuiltIn, !Self.isBuiltIn(preset.id) else { throw PresetError.builtInReadOnly }
         var stored = preset
-        stored.name = try Self.validatedName(
-            preset.name, existing: loadUnlocked().presets, excluding: preset.id)
+        let existing = loadUnlocked().presets
+        stored.name = try Self.validatedName(preset.name, existing: existing, excluding: preset.id)
+        if let slot = stored.serviceSlot {
+            guard ServicePins.slots.contains(slot) else { throw PresetError.tooManyPinned }
+            guard ServicePins.preset(forSlot: slot, in: existing.filter { $0.id != stored.id }) == nil else {
+                throw PresetError.serviceSlotTaken
+            }
+        }
         try write(stored)
     }
 
@@ -294,6 +264,24 @@ public final class PresetStore: @unchecked Sendable {
         let presets = loadUnlocked().presets
         guard var preset = presets.first(where: { $0.id == id }) else { throw PresetError.unreadable }
         preset.name = try Self.validatedName(newName, existing: presets, excluding: id)
+        try write(preset)
+    }
+
+    /// Shows or hides a user preset in Finder Quick Actions; the pipeline and name are left as they are on disk.
+    public func setPinnedForServices(id: UUID, _ pinned: Bool) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !Self.isBuiltIn(id) else { throw PresetError.builtInReadOnly }
+        let presets = loadUnlocked().presets
+        guard var preset = presets.first(where: { $0.id == id }) else { throw PresetError.unreadable }
+        guard preset.pinnedForServices != pinned else { return }
+        if pinned {
+            guard let slot = ServicePins.freeSlot(in: presets) else { throw PresetError.tooManyPinned }
+            preset.serviceSlot = slot
+        } else {
+            // Frees the slot; the other pinned presets keep theirs.
+            preset.serviceSlot = nil
+        }
         try write(preset)
     }
 

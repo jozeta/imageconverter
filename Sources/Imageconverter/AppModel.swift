@@ -5,7 +5,8 @@ import ImageconverterCore
 
 @MainActor @Observable
 final class AppModel {
-    var items: [InputItem] = []
+    var items: [InputItem] = [] { didSet { schedulePrivacyScan() } }
+    let privacy = PrivacyState()  // the privacy scan's results and panel (`AppModel+Privacy.swift`)
     /// The selected preset and the pipeline being edited; both are saved to `UserDefaults` on every change.
     var session: PresetSession {
         didSet { persist() }
@@ -20,14 +21,19 @@ final class AppModel {
     /// Set by Save (⌘S) on a built-in or ad hoc pipeline; the preset bar shows its "Save as" sheet.
     var isSavingAs = false
     var progress: BatchProgress?
-    var lastReport: BatchReport?
+    /// The last run in the shared report model (summary plus one entry per file); cleared by a new run or Clear.
+    var runReport: ProcessingReport?
     var isRunning = false
     /// Number of drops/pickers still being scanned off the main actor.
     private(set) var pendingAdds = 0
     var isAdding: Bool { pendingAdds > 0 }
     let toasts = LGToastCenter()
+    /// The before/after zoom, shared by both preview sides and the View menu.
+    let zoom = ZoomController()
+    /// Comparison mode, batch browser mode and the selected item's difference and quality renders.
+    let compare: CompareController
     /// "Example: name.ext" for the Rename editor; see `refreshRenameExample()`.
-    private(set) var renameExample = ""
+    var renameExample = ""
 
     /// The selected image (index into `items`); see `selectedItemIndex` for the clamped value.
     var selectedIndex = 0
@@ -38,6 +44,15 @@ final class AppModel {
     /// The name of the item whose render failed, shown when there is no result for it.
     var previewFailureName: String?
     var isRenderingPreview = false
+    /// Original and estimated output size of the selected item (see `AppModel+Estimate.swift`).
+    var sizeEstimate: SizeEstimate?
+    @ObservationIgnored private var runInfo = (total: 0, started: Date(), mode: "")
+    /// True while the estimate for the selected item is being computed.
+    var isEstimating = false
+    /// Set when the last estimate failed (shown as a dash).
+    var estimateFailed = false
+    /// Why the last estimate failed, when it is worth telling (e.g. a maximum size that can't be met).
+    var estimateFailure: String?
     /// Bumped when a filmstrip thumbnail has loaded, so cells refresh (see `AppModel+Preview.swift`).
     var thumbnailTick = 0
     var previewCollapsed: Bool {
@@ -46,15 +61,33 @@ final class AppModel {
     var pipelineCollapsed: Bool {
         didSet { defaults.set(pipelineCollapsed, forKey: Self.pipelineCollapsedKey) }
     }
+    /// Two workers and a quarter of the memory budget; also stops the preview during a run. Applies to a
+    /// running batch from its next item on (see `AppModel+Performance.swift`).
+    var lowMemoryMode: Bool {
+        didSet {
+            defaults.set(lowMemoryMode, forKey: Self.lowMemoryModeKey)
+            lowMemoryModeChanged()
+        }
+    }
+    /// Stages, throughput and resources of the running (or last) batch.
+    let monitor = RunMonitor()
+    /// An unfinished batch found at launch (see `AppModel+Performance.swift`); the sheet shows while `shows…` is set.
+    var interruptedRun: RunJournal?
+    var showsInterruptedRun = false
 
-    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored var task: Task<Void, Never>?
     @ObservationIgnored var previewTask: Task<Void, Never>?
     @ObservationIgnored var previewGeneration = 0
-    @ObservationIgnored var expandedWindowWidth: CGFloat?
-    /// The main window, captured by `WindowAccessor`; the preview toggle resizes this one.
-    @ObservationIgnored weak var mainWindow: NSWindow?
+    @ObservationIgnored var estimateTask: Task<Void, Never>?
+    @ObservationIgnored var estimateKey: EstimateKey?
+    /// Sizes the main window to its panels and animates the preview and pipeline toggles.
+    @ObservationIgnored let windowSizer: WindowSizer
     @ObservationIgnored var previewMode: OutputMode?
     @ObservationIgnored let previewRenderer = PreviewRenderer()
+    /// Source facts for the preview's counter number and condition branches (see `AppModel+Preview.swift`).
+    @ObservationIgnored let factsCache = ItemFactsCache()
+    /// The condition branches and counter number of the item the latest preview shows.
+    var previewConditions: ConditionPreview?
     @ObservationIgnored let thumbnailCache: NSCache<NSURL, CGImageBox> = {
         let cache = NSCache<NSURL, CGImageBox>()
         cache.countLimit = 500
@@ -63,20 +96,26 @@ final class AppModel {
     @ObservationIgnored var thumbnailsLoading: Set<URL> = []
     @ObservationIgnored var thumbnailsFailed: Set<URL> = []
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private var exampleSource: (url: URL, info: RenameSource)?
-    @ObservationIgnored private var exampleCache: (key: RenameExampleKey, text: String)?
+    /// History saves still being written (`recordRun`); the quit waits for them.
+    @ObservationIgnored var pendingHistoryWrites = 0
+    @ObservationIgnored var exampleSource: (url: URL, info: RenameSource)?
+    @ObservationIgnored var exampleCache: (key: RenameExampleKey, text: String)?
     @ObservationIgnored let presetStore: PresetStore
     static let pipelineKey = "currentPipeline"
     static let selectedPresetKey = "selectedPresetID"
     static let previewCollapsedKey = "previewCollapsed"
     static let pipelineCollapsedKey = "pipelineCollapsed"
+    static let lowMemoryModeKey = "lowMemoryMode"
 
     init(defaults: UserDefaults = .standard,
          presetStore: PresetStore = PresetStore(directory: PresetStore.defaultDirectory)) {
         self.defaults = defaults
         self.presetStore = presetStore
+        compare = CompareController(defaults: defaults)
         previewCollapsed = defaults.bool(forKey: Self.previewCollapsedKey)
         pipelineCollapsed = defaults.bool(forKey: Self.pipelineCollapsedKey)
+        lowMemoryMode = defaults.bool(forKey: Self.lowMemoryModeKey)
+        windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey))
         let saved = Self.loadPipeline(from: defaults)
         session = PresetSession(selected: nil, pipeline: saved)
         let result = presetStore.loadAll()
@@ -112,15 +151,20 @@ final class AppModel {
     // MARK: Pipeline editing
 
     func addStep(_ kind: StepKind) -> PipelineStep {
+        let step = PipelineStep(operation: Self.newOperation(kind))
+        pipeline.steps.append(step)
+        return step
+    }
+
+    /// A new step's settings: the kind's defaults, with the user's name in a text watermark.
+    static func newOperation(_ kind: StepKind) -> ImageOperation {
         var operation = kind.defaultOperation
         let fullName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
         if case .watermark(var options) = operation, !fullName.isEmpty {
             options.content = .text(TextWatermark(text: "© " + fullName))
             operation = .watermark(options)
         }
-        let step = PipelineStep(operation: operation)
-        pipeline.steps.append(step)
-        return step
+        return operation
     }
 
     func removeStep(_ id: PipelineStep.ID) {
@@ -152,8 +196,9 @@ final class AppModel {
         Task { [weak self] in
             let found = await Task.detached(priority: .userInitiated) { InputCollector.collect(urls) }.value
             guard let self else { return }
-            var seen = Set(self.items)
-            for item in found where seen.insert(item).inserted {
+            // By file, not by item: a file added loose and again through its folder is listed once.
+            var seen = Set(self.items.map(\.fileKey))
+            for item in found where seen.insert(item.fileKey).inserted {
                 self.items.append(item)
             }
             self.pendingAdds -= 1
@@ -166,9 +211,13 @@ final class AppModel {
         selectedIndex = 0
         thumbnailCache.removeAllObjects()
         thumbnailsFailed = []
+        compare.clear()
         resetPreview()
+        cancelEstimate()
         progress = nil
-        lastReport = nil
+        runReport = nil
+        monitor.reset()
+        Task { await factsCache.removeAll(); await privacy.cache.removeAll() }
     }
 
     /// Asks for files and folders to add.
@@ -182,7 +231,7 @@ final class AppModel {
     }
 
     func run(settings: AppSettings) {
-        guard !isRunning, !isAdding, !items.isEmpty else { return }
+        guard !isRunning, !isAdding, !items.isEmpty, confirmDiscardingInterruptedRun() else { return }
         if settings.modeKind == .newFolder, !Self.isExistingDirectory(settings.outputFolder) {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false
@@ -198,23 +247,46 @@ final class AppModel {
             settings.outputFolder = url
         }
         guard let mode = settings.outputMode else { return }
+        startRun(items, pipeline: pipeline, mode: mode, presetName: session.selected?.name)
+    }
 
-        let batch = items
-        let pipeline = self.pipeline
+    /// Runs `batch` with `pipeline` (Run, or a service or script with its own files and preset), showing
+    /// progress and the report like Run. Returns false when a run is already going; `completion` gets the report.
+    @discardableResult
+    func startRun(_ batch: [InputItem], pipeline: Pipeline, mode: OutputMode, presetName: String?,
+                  completion: (@MainActor (BatchReport) -> Void)? = nil) -> Bool {
+        // One item per file, so the run's event indices match this list (the runner deduplicates the same way).
+        let batch = InputItem.unique(batch)
+        guard !isRunning, !batch.isEmpty else { return false }
+        runInfo = (batch.count, Date(), mode.kind.rawValue)
         isRunning = true
-        resetPreview()
-        lastReport = nil
+        let control = BatchControl(lowMemory: lowMemoryMode)
+        monitor.prepare(control: control, overwriting: mode == .overwrite)
+        // The preview stays alive, at a higher priority than the batch, unless `previewAllowed` says otherwise.
+        if !previewAllowed {
+            resetPreview()
+            cancelEstimate()
+        }
+        runReport = nil
         progress = BatchProgress(completed: 0, failed: 0, total: batch.count)
-        task = Task { [weak self] in
-            let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, progress: { update in
-                Task { @MainActor in
+        interruptedRun = nil  // this run's journal replaces the old one
+        // Batch work is `.utility` so the UI and the preview (`.userInitiated`) stay responsive.
+        task = Task(priority: .utility) { [weak self] in
+            let pixels = await Self.sourcePixels(of: batch)
+            guard let events = self?.monitor.begin(sourcePixels: pixels) else { return }
+            let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, control: control,
+                                               journal: AppDefaults.journalURL, progress: { update in
+                // `.userInitiated`: inheriting the batch's `.utility` would let the bar lag behind the workers.
+                Task(priority: .userInitiated) { @MainActor in
                     // Updates can arrive out of order; only move forward.
                     guard let self, self.isRunning, update.completed > (self.progress?.completed ?? 0) else { return }
                     self.progress = update
                 }
-            })
-            self?.finish(report)
+            }, events: events)
+            self?.finish(report, presetName: presetName)
+            completion?(report)
         }
+        return true
     }
 
     private static func isExistingDirectory(_ url: URL?) -> Bool {
@@ -225,84 +297,24 @@ final class AppModel {
 
     func cancel() { task?.cancel() }
 
-    private func finish(_ report: BatchReport) {
+    private func finish(_ report: BatchReport, presetName: String?) {
         isRunning = false
         task = nil
+        monitor.end()
         Task { await previewRenderer.purge() }
         schedulePreview(mode: previewMode)
-        lastReport = report
+        scheduleEstimate()
+        runReport = ProcessingReport(batch: report, total: runInfo.total, outputMode: runInfo.mode,
+                                     presetName: presetName, startedAt: runInfo.started)
+        if let finished = runReport { recordRun(finished) }
         progress = nil
         dropMissingItems()
-        let done = report.written.count
-        let skipped = report.failures.count
+        let failed = report.failures.count
         let prefix = report.cancelled ? "Cancelled. " : ""
-        if skipped == 0 {
-            toasts.show("\(prefix)Converted \(done) \(done == 1 ? "image" : "images")", type: report.cancelled ? .info : .ok)
-        } else {
-            toasts.show("\(prefix)Converted \(done), \(skipped) skipped", type: .bad)
-        }
+        let totals = runReport?.summary
+        let saved = SizeFormat.savedPhrase(input: totals?.inputBytes ?? 0, output: totals?.outputBytes ?? 0).map { " · \($0)" } ?? ""
+        toasts.show("\(prefix)\(RunCountsText.make(written: report.written.count, skipped: report.skipped.count, failed: failed))\(saved)",
+                    type: failed > 0 ? .bad : (report.cancelled ? .info : .ok))
     }
 
-    // MARK: Rename example
-
-    /// What the live example depends on; when it changes the example is recomputed.
-    var renameExampleKey: RenameExampleKey {
-        RenameExampleKey(
-            exampleItem: selectedItemIndex.map { items[$0].source }, index: selectedItemIndex ?? 0, pattern: pipeline.rename.pattern,
-            counterStart: pipeline.rename.counterStart, format: pipeline.output.format, steps: pipeline.steps)
-    }
-
-    /// Renders the rename pattern for the selected image (the first by default, or a built-in sample when there are none).
-    /// The file is read off the main actor; the header is kept per file and the result per key.
-    func refreshRenameExample() async {
-        let key = renameExampleKey
-        if let cached = exampleCache, cached.key == key {
-            renameExample = cached.text
-            return
-        }
-        let pipeline = self.pipeline
-        let known = exampleSource.flatMap { $0.url == key.exampleItem ? $0.info : nil }
-        let (info, text) = await Task.detached(priority: .userInitiated) {
-            Self.renderExample(url: key.exampleItem, known: known, pipeline: pipeline, index: key.index)
-        }.value
-        guard !Task.isCancelled else { return }
-        if let url = key.exampleItem { exampleSource = (url, info) }
-        exampleCache = (key, text)
-        renameExample = text
-    }
-
-    nonisolated private static func renderExample(
-        url: URL?, known: RenameSource?, pipeline: Pipeline, index: Int
-    ) -> (RenameSource, String) {
-        var info = known ?? RenameSource(header: nil, created: nil)
-        if let url, known == nil {
-            info = RenameSource(
-                header: ImageLoader.header(of: url),
-                created: (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate)
-        }
-        let name = RenameExample.render(source: url, header: info.header, created: info.created, pipeline: pipeline,
-                                    index: index)
-        return (info, "Example: \(name)")
-    }
-}
-
-/// The part of a source image the rename example needs; read once per file.
-struct RenameSource: @unchecked Sendable {
-    let header: ImageHeader?
-    let created: Date?
-}
-
-struct RenameExampleKey: Equatable {
-    let exampleItem: URL?
-    let index: Int
-    let pattern: String
-    let counterStart: Int
-    let format: OutputFormat
-    let steps: [PipelineStep]
-}
-
-/// Reference wrapper so `NSCache` can hold a `CGImage`.
-final class CGImageBox: @unchecked Sendable {
-    let image: CGImage
-    init(_ image: CGImage) { self.image = image }
 }

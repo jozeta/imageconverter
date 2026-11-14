@@ -13,6 +13,16 @@ public struct InputItem: Hashable, Sendable {
         self.source = source
         self.relativeDirectory = relativeDirectory
     }
+
+    /// The file this item stands for (`FileIdentity.key`: volume and inode, else the path as the volume compares
+    /// it): the same file added loose, through its folder or through a symlinked folder is one item.
+    public var fileKey: String { FileIdentity.key(source) }
+
+    /// `items` with every later item for an already listed file dropped (the first stays, order kept).
+    public static func unique(_ items: [InputItem]) -> [InputItem] {
+        var seen = Set<String>()
+        return items.filter { seen.insert($0.fileKey).inserted }
+    }
 }
 
 /// Turns dropped files and folders into a flat, sorted, de-duplicated list of image files.

@@ -12,6 +12,15 @@ public struct PreviewResult: @unchecked Sendable {
     public let outputName: String
     public let sourceSize: (Int, Int)
     public let outputSize: (Int, Int)
+    /// Where this item would be written (planned alone, so no collision numbers).
+    public let outputURL: URL
+    /// The source file's size on disk.
+    public let sourceFileSize: Int?
+    /// What the batch would do with this item once its conditions are resolved; for a copy or a skip the
+    /// after image is the before image.
+    public let disposition: Disposition
+    /// "Skipped by a condition" / "Copied unchanged" / "Converted instead of copied…"; nil when simply processed.
+    public let statusNote: String?
 }
 
 public enum PreviewOutcome: Sendable {
@@ -43,6 +52,8 @@ public actor PreviewRenderer {
         let key: FileKey
         let image: CGImage
         let display: CGImage
+        /// The header properties, for the watermark's tokens.
+        let properties: [String: Any]
     }
 
     private let maxPixels: Int
@@ -70,16 +81,22 @@ public actor PreviewRenderer {
     /// Renders the before and after of `item`. `outputName` is what `OutputPlanner` would name this
     /// file for `mode` (nil: new-folder mode with no folder yet, named as if a folder existed). It
     /// plans the one item alone, so the batch's collision numbers (`_2`) are not shown.
-    public func render(item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode? = nil) async
+    /// Conditions are resolved for this item first (from its header), so the preview shows its own branch.
+    public func render(item: InputItem, index: Int, pipeline unresolved: Pipeline, mode: OutputMode? = nil) async
         -> PreviewOutcome {
         let cancelled = PreviewOutcome.failed(reason: "Cancelled")
         if Task.isCancelled { return cancelled }
+        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels)
+        let pipeline = resolved.pipeline
+        if resolved.disposition != .process { return unchanged(item: item, index: index, resolved: resolved, mode: mode) }
         let assets = watermarkAssets(for: pipeline)
-        if assets.hasMissing(for: pipeline) { return .failed(reason: ConversionError.watermarkImageUnreadable.reason) }
+        if let missing = assets.missingError(for: pipeline) { return .failed(reason: missing.reason) }
         let source: CGImage
         let before: CGImage
+        let properties: [String: Any]
         do {
-            (source, before) = try sourceImages(for: item.source)
+            let loaded = try sourceImages(for: item.source)
+            (source, before, properties) = (loaded.image, loaded.display, loaded.properties)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)
         } catch {
@@ -89,7 +106,8 @@ public actor PreviewRenderer {
         let result: CGImage
         do {
             // Synchronous and not interruptible; cancellation is only seen before and after it.
-            result = try pipeline.apply(to: source, assets: assets)
+            let context = pipeline.watermarkTextContext(source: item.source, properties: properties)
+            result = try pipeline.apply(to: source, assets: assets, textContext: context)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)
         } catch {
@@ -99,32 +117,59 @@ public actor PreviewRenderer {
         guard let after = fit(result) else {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
+        let destination = outputDestination(for: item, index: index, pipeline: pipeline, mode: mode)
+        let fileSize = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
         return .ready(PreviewResult(
             before: before, after: after, source: item.source, sourceName: item.source.lastPathComponent,
-            outputName: outputName(for: item, index: index, pipeline: pipeline, mode: mode),
-            sourceSize: (source.width, source.height), outputSize: (result.width, result.height)))
+            outputName: destination.lastPathComponent,
+            sourceSize: (source.width, source.height), outputSize: (result.width, result.height),
+            outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: resolved.statusNote))
     }
 
-    private func outputName(for item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode?) -> String {
-        let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline)
+    /// A copied or skipped item: the source on both sides, nothing applied.
+    private func unchanged(item: InputItem, index: Int, resolved: ResolvedPipeline, mode: OutputMode?) -> PreviewOutcome {
+        let loaded: CachedSource
+        do { loaded = try sourceImages(for: item.source) } catch let error as ConversionError {
+            return .failed(reason: error.reason)
+        } catch {
+            return .failed(reason: ConversionError.unreadable.reason)
+        }
+        let destination = resolved.disposition == .copyOriginal
+            ? outputDestination(for: item, index: index, pipeline: resolved.pipeline, mode: mode, copy: true)
+            : item.source
+        let size = (loaded.image.width, loaded.image.height)
+        let fileSize = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        return .ready(PreviewResult(
+            before: loaded.display, after: loaded.display, source: item.source, sourceName: item.source.lastPathComponent,
+            outputName: resolved.disposition == .skip ? ConditionalStep.skippedReason : destination.lastPathComponent, sourceSize: size,
+            outputSize: size, outputURL: destination, sourceFileSize: fileSize, disposition: resolved.disposition,
+            statusNote: resolved.statusNote))
+    }
+
+    private func outputDestination(for item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode?,
+                                   copy: Bool = false) -> URL {
+        let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline, isCopy: copy)
+        let target = copy ? OutputTarget.copyOfOriginal(item, baseName: base)
+            : OutputTarget(item: item, format: pipeline.output.format, baseName: base)
         let plan = OutputPlanner.plan(
-            [item], format: pipeline.output.format,
-            mode: mode ?? .newFolder(FileManager.default.temporaryDirectory),
-            baseNames: base.map { [$0] }, fileExists: { _ in false })
-        return plan.first?.destination.lastPathComponent ?? item.source.lastPathComponent
+            [target], mode: mode ?? .newFolder(FileManager.default.temporaryDirectory), fileExists: { _ in false })
+        guard let destination = plan.first?.destination else { return item.source }
+        // No mode yet: show the name in the source's own folder (planning there would call it `a_2`).
+        if mode == nil { return item.source.deletingLastPathComponent().appendingPathComponent(destination.lastPathComponent) }
+        return destination
     }
 
-    private func sourceImages(for url: URL) throws -> (CGImage, CGImage) {
+    private func sourceImages(for url: URL) throws -> CachedSource {
         let key = FileKey(url)
-        if let cachedSource, cachedSource.key == key { return (cachedSource.image, cachedSource.display) }
+        if let cachedSource, cachedSource.key == key { return cachedSource }
         cachedSource = nil
         decodeCount += 1
-        let image = try ImageLoader.load(url, maxPixels: maxPixels).image
+        let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
+        let image = loaded.image
         guard let display = fit(image) else { throw ConversionError.processingFailed("preview") }
-        if image.width <= Self.maxCachedPixels / max(1, image.height) {
-            cachedSource = CachedSource(key: key, image: image, display: display)
-        }
-        return (image, display)
+        let decoded = CachedSource(key: key, image: image, display: display, properties: loaded.properties)
+        if image.width <= Self.maxCachedPixels / max(1, image.height) { cachedSource = decoded }
+        return decoded
     }
 
     private func watermarkAssets(for pipeline: Pipeline) -> WatermarkAssets {

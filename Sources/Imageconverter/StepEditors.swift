@@ -4,6 +4,8 @@ import ImageconverterCore
 /// Edits one pipeline step; switches on the kind of operation.
 struct StepEditor: View {
     @Binding var operation: ImageOperation
+    /// What a condition's "Set output/metadata/rename…" start from.
+    var branchDefaults = BranchDefaults()
 
     var body: some View {
         switch operation {
@@ -30,96 +32,26 @@ struct StepEditor: View {
                 ForEach(ColorProfile.allCases, id: \.self) { Text($0.displayName).tag($0) }
             }
             .accessibilityLabel("Color profile")
+        case .adjust:
+            AdjustEditor(options: Binding(
+                get: { if case .adjust(let opts) = operation { return opts } else { return AdjustOptions() } },
+                set: { operation = .adjust($0) }))
+        case .perspective:
+            PerspectiveEditor(options: Binding(
+                get: { if case .perspective(let opts) = operation { return opts } else { return PerspectiveOptions() } },
+                set: { operation = .perspective($0) }))
+        case .trim:
+            TrimEditor(options: Binding(
+                get: { if case .trim(let opts) = operation { return opts } else { return TrimOptions() } },
+                set: { operation = .trim($0) }))
         case .watermark:
             WatermarkEditor(options: Binding(
                 get: { if case .watermark(let opts) = operation { return opts } else { return WatermarkOptions() } },
                 set: { operation = .watermark($0) }))
-        }
-    }
-}
-
-// MARK: - Resize
-
-private struct ResizeEditor: View {
-    @Binding var options: ResizeOptions
-
-    private enum Kind: String, CaseIterable {
-        case maxWidth = "Max width", maxHeight = "Max height", fitBox = "Fit inside"
-        case exactWidth = "Exact width", exactHeight = "Exact height", exactSize = "Exact size"
-    }
-
-    private var values: (width: Int, height: Int) {
-        switch options.mode {
-        case .maxWidth(let side), .maxHeight(let side), .exactWidth(let side), .exactHeight(let side): return (side, side)
-        case .fitBox(let wide, let high), .exactSize(let wide, let high, _): return (wide, high)
-        }
-    }
-
-    private var fill: ExactFill {
-        if case .exactSize(_, _, let value) = options.mode { return value }
-        return .stretch
-    }
-
-    private var kind: Kind {
-        switch options.mode {
-        case .maxWidth: return .maxWidth
-        case .maxHeight: return .maxHeight
-        case .fitBox: return .fitBox
-        case .exactWidth: return .exactWidth
-        case .exactHeight: return .exactHeight
-        case .exactSize: return .exactSize
-        }
-    }
-
-    private func set(_ kind: Kind, width: Int, height: Int, fill: ExactFill) {
-        switch kind {
-        case .maxWidth: options.mode = .maxWidth(width)
-        case .maxHeight: options.mode = .maxHeight(height)
-        case .fitBox: options.mode = .fitBox(width: width, height: height)
-        case .exactWidth: options.mode = .exactWidth(width)
-        case .exactHeight: options.mode = .exactHeight(height)
-        case .exactSize: options.mode = .exactSize(width: width, height: height, fill: fill)
-        }
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Picker("Mode", selection: Binding(
-                get: { kind },
-                set: { set($0, width: values.width, height: values.height, fill: fill) })) {
-                ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .accessibilityLabel("Resize mode")
-            FieldRow {
-                if [.maxWidth, .fitBox, .exactWidth, .exactSize].contains(kind) {
-                    NumberField(title: "Width", value: Binding(
-                        get: { values.width },
-                        set: { set(kind, width: $0, height: values.height, fill: fill) }))
-                }
-                if [.maxHeight, .fitBox, .exactHeight, .exactSize].contains(kind) {
-                    NumberField(title: "Height", value: Binding(
-                        get: { values.height },
-                        set: { set(kind, width: values.width, height: $0, fill: fill) }))
-                }
-            }
-            if kind == .exactSize {
-                Picker("Fill", selection: Binding(
-                    get: { fill },
-                    set: { set(kind, width: values.width, height: values.height, fill: $0) })) {
-                    Text("Stretch").tag(ExactFill.stretch)
-                    Text("Pad").tag(ExactFill.fitAndPad)
-                    Text("Crop").tag(ExactFill.fillAndCrop)
-                }
-                .pickerStyle(.segmented)
-                .accessibilityLabel("Fill mode")
-                if fill == .fitAndPad {
-                    ColorField(title: "Pad color", color: $options.padColor)
-                }
-            }
-            if !(kind == .exactSize && fill == .stretch) {
-                Toggle("Don't enlarge smaller images", isOn: Binding(
-                    get: { !options.allowEnlarge }, set: { options.allowEnlarge = !$0 }))
-            }
+        case .condition:
+            ConditionEditor(step: Binding(
+                get: { if case .condition(let step) = operation { return step } else { return ConditionalStep() } },
+                set: { operation = .condition($0) }), defaults: branchDefaults)
         }
     }
 }
@@ -130,11 +62,7 @@ private struct CropEditor: View {
     @Binding var options: CropOptions
     @State private var customRatio = false
 
-    private struct Preset { let name: String; let wide: Double; let high: Double }
-    private static let presets = [
-        Preset(name: "1:1", wide: 1, high: 1), Preset(name: "4:5", wide: 4, high: 5),
-        Preset(name: "3:2", wide: 3, high: 2), Preset(name: "16:9", wide: 16, high: 9)
-    ]
+    private static let presets = SizePresets.aspectRatios
 
     private var isAspect: Bool {
         if case .aspect = options.mode { return true }
@@ -154,7 +82,7 @@ private struct CropEditor: View {
     private var presetName: String {
         if customRatio { return "Custom" }
         let current = aspect
-        return Self.presets.first { $0.wide == current.wide && $0.high == current.high }?.name ?? "Custom"
+        return Self.presets.first { $0.width == current.wide && $0.height == current.high }?.name ?? "Custom"
     }
 
     var body: some View {
@@ -174,7 +102,7 @@ private struct CropEditor: View {
                     set: { name in
                         if let preset = Self.presets.first(where: { $0.name == name }) {
                             customRatio = false
-                            options.mode = .aspect(width: preset.wide, height: preset.high)
+                            options.mode = preset.cropMode
                         } else {
                             customRatio = true
                         }
@@ -200,28 +128,10 @@ private struct CropEditor: View {
                         get: { size.high }, set: { options.mode = .size(width: size.wide, height: $0) }))
                 }
             }
-            HStack(alignment: .top, spacing: LadaGlass.Spacing.m) {
+            HStack(alignment: .top, spacing: LadaGlass.Spacing.s) {
                 Text("Anchor").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 AnchorPicker(anchor: $options.anchor)
             }
-        }
-    }
-}
-
-// MARK: - Rotate / flip
-
-private struct RotateFlipEditor: View {
-    @Binding var options: RotateFlipOptions
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Picker("Rotation", selection: $options.rotation) {
-                ForEach(Rotation.allCases, id: \.self) { Text("\($0.rawValue)°").tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("Rotation")
-            Toggle("Flip horizontally", isOn: $options.flipHorizontal)
-            Toggle("Flip vertically", isOn: $options.flipVertical)
         }
     }
 }
@@ -232,7 +142,7 @@ private struct CanvasEditor: View {
     @Binding var options: CanvasOptions
 
     private enum Kind: String, CaseIterable {
-        case padding = "Padding px", percent = "Padding %", size = "Canvas size"
+        case padding = "Padding px", percent = "Padding %", size = "Canvas size", aspect = "Ratio"
     }
 
     private var kind: Kind {
@@ -240,6 +150,7 @@ private struct CanvasEditor: View {
         case .padding: return .padding
         case .paddingPercent: return .percent
         case .size: return .size
+        case .aspect: return .aspect
         }
     }
 
@@ -247,6 +158,9 @@ private struct CanvasEditor: View {
     private var percent: Double { if case .paddingPercent(let value) = options.mode { return value } else { return 5 } }
     private var size: (wide: Int, high: Int) {
         if case .size(let wide, let high) = options.mode { return (wide, high) } else { return (2000, 2000) }
+    }
+    private var aspectRatio: (wide: Double, high: Double) {
+        if case .aspect(let wide, let high) = options.mode { return (wide, high) } else { return (1, 1) }
     }
 
     var body: some View {
@@ -258,11 +172,15 @@ private struct CanvasEditor: View {
                     case .padding: options.mode = .padding(pixels: pixels)
                     case .percent: options.mode = .paddingPercent(percent)
                     case .size: options.mode = .size(width: size.wide, height: size.high)
+                    case .aspect: options.mode = .aspect(width: aspectRatio.wide, height: aspectRatio.high)
                     }
                 })) {
-                ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(Kind.allCases, id: \.self) {
+                    Text($0.rawValue).tag($0).accessibilityLabel($0 == .aspect ? "Aspect ratio" : $0.rawValue)
+                }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
             .accessibilityLabel("Canvas mode")
             switch kind {
             case .padding:
@@ -281,10 +199,18 @@ private struct CanvasEditor: View {
                     NumberField(title: "Height", value: Binding(
                         get: { size.high }, set: { options.mode = .size(width: size.wide, height: $0) }))
                 }
-                HStack(alignment: .top, spacing: LadaGlass.Spacing.m) {
+                HStack(alignment: .top, spacing: LadaGlass.Spacing.s) {
                     Text("Anchor").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                     AnchorPicker(anchor: $options.anchor)
                 }
+            case .aspect:
+                AspectRatioPicker(mode: $options.mode)
+                HStack(alignment: .top, spacing: LadaGlass.Spacing.s) {
+                    Text("Anchor").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                    AnchorPicker(anchor: $options.anchor)
+                }
+                Text("Pads the shorter side until the image fits the ratio.")
+                    .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
             }
             Toggle("Transparent", isOn: Binding(
                 get: { options.background.alpha == 0 },

@@ -8,17 +8,91 @@ final class OutputPlannerTests: XCTestCase {
 
     private let root = URL(fileURLWithPath: "/out")
 
-    func testNewFolderMirrorsSubfolders() {
+    func testNewFolderIsFlat() {
+        let plans = OutputPlanner.plan(
+            [item("a.jpg", dir: "/Trip/day1", rel: "Trip/day1"), item("a.jpg", dir: "/Trip/day2", rel: "Trip/day2")],
+            format: .jpeg, mode: .newFolder(root), fileExists: { _ in false })
+        XCTAssertEqual(plans.map(\.destination.path), ["/out/a.jpg", "/out/a_2.jpg"])
+    }
+
+    /// Final review I3: a second overwrite plan for one original is refused, in place or with a format change.
+    func testOverwriteRefusesASecondPlanForTheSameSource() {
+        let loose = item("a.jpg")
+        let viaFolder = item("A.JPG", rel: "src")
+        for format in [OutputFormat.jpeg, .png] {
+            let plans = OutputPlanner.plan([loose, viaFolder], format: format, mode: .overwrite,
+                                           fileExists: { _ in false })
+            XCTAssertFalse(plans[0].isRefused)
+            XCTAssertTrue(plans[1].isRefused, "\(format)")
+            XCTAssertThrowsError(try FileCommitter.commit(Data(), for: plans[1], trash: { _ in XCTFail("trashed") }))
+        }
+        let other = OutputPlanner.plan([loose, viaFolder], format: .jpeg, mode: .sameFolder(suffix: "_n"),
+                                       fileExists: { _ in false })
+        XCTAssertFalse(other.contains(where: \.isRefused))
+        XCTAssertEqual(InputItem.unique([loose, viaFolder, item("b.jpg")]).map(\.source.lastPathComponent),
+                       ["a.jpg", "b.jpg"])
+    }
+
+    func testSameFolderNoSuffixWhenFormatChanges() {
+        let plans = OutputPlanner.plan([item("IMG.heic")], format: .jpeg,
+                                       mode: .sameFolder(suffix: "_new"), fileExists: { _ in false })
+        XCTAssertEqual(plans.map(\.destination.path), ["/src/IMG.jpg"])
+    }
+
+    func testSameFolderSuffixWhenNameEqualsOriginal() {
+        let plans = OutputPlanner.plan([item("IMG.jpg"), item("img.JPG", dir: "/b")], format: .jpeg,
+                                       mode: .sameFolder(suffix: "_new"), fileExists: { _ in false })
+        XCTAssertEqual(plans.map(\.destination.path), ["/src/IMG_new.jpg", "/src/b/img_new.jpg"])
+    }
+
+    func testSameFolderSuffixWhenRenamedToOriginalName() {
+        let plans = OutputPlanner.plan([item("IMG.jpg")], format: .jpeg,
+                                       mode: .sameFolder(suffix: "_new"), baseNames: ["IMG"],
+                                       fileExists: { _ in false })
+        XCTAssertEqual(plans.map(\.destination.path), ["/src/IMG_new.jpg"])
+    }
+
+    func testSameFolderExistingFileGetsNumber() {
+        let plans = OutputPlanner.plan([item("IMG.heic")], format: .jpeg,
+                                       mode: .sameFolder(suffix: "_new"),
+                                       fileExists: { $0.path == "/src/IMG.jpg" })
+        XCTAssertEqual(plans.map(\.destination.path), ["/src/IMG_2.jpg"])
+    }
+
+    func testOverwriteIgnoresBaseNames() {
+        let plans = OutputPlanner.plan([item("a.jpg"), item("b.heic")], format: .jpeg, mode: .overwrite,
+                                       baseNames: ["x", "y"], fileExists: { _ in false })
+        XCTAssertEqual(plans.map(\.destination.path), ["/src/a.jpg", "/src/b.jpg"])
+        XCTAssertEqual(plans.map(\.replacesSource), [true, false])
+    }
+
+    func testSameFolderEmptySuffixNeverTargetsOriginal() {
+        let plans = OutputPlanner.plan([item("IMG.jpg")], format: .jpeg,
+                                       mode: .sameFolder(suffix: ""), fileExists: { _ in false })
+        XCTAssertEqual(plans.map(\.destination.path), ["/src/IMG_2.jpg"])
+    }
+
+    func testSameFolderSuffixWhenRenamedToOriginalNameDifferentCase() {
+        let plans = OutputPlanner.plan([item("IMG.jpg")], format: .jpeg,
+                                       mode: .sameFolder(suffix: "_new"), baseNames: ["img"],
+                                       fileExists: { _ in false })
+        XCTAssertEqual(plans.map(\.destination.path), ["/src/img_new.jpg"])
+        XCTAssertNotEqual(plans[0].destination.path.lowercased(), "/src/img.jpg")
+    }
+
+    func testDefaultSuffix() { XCTAssertEqual(OutputPlanner.defaultSuffix, "_new") }
+
+    func testNewFolderIgnoresSubfolders() {
         let plans = OutputPlanner.plan(
             [item("b.jpg", dir: "/Trip/day2", rel: "Trip/day2"), item("c.heic")],
             format: .jpeg, mode: .newFolder(root), fileExists: { _ in false })
-        XCTAssertEqual(plans.map(\.destination.path), ["/out/Trip/day2/b.jpg", "/out/c.jpg"])
+        XCTAssertEqual(plans.map(\.destination.path), ["/out/b.jpg", "/out/c.jpg"])
         XCTAssertEqual(plans.map(\.replacesSource), [false, false])
         XCTAssertEqual(plans.map(\.trashesSource), [false, false])
     }
 
     func testSameFolderUsesSuffix() {
-        let plans = OutputPlanner.plan([item("a.png")], format: .jpeg,
+        let plans = OutputPlanner.plan([item("a.jpg")], format: .jpeg,
                                        mode: .sameFolder(suffix: "_converted"), fileExists: { _ in false })
         XCTAssertEqual(plans.map(\.destination.path), ["/src/a_converted.jpg"])
         XCTAssertEqual(plans[0].replacesSource, false)
@@ -98,14 +172,14 @@ final class OutputPlannerTests: XCTestCase {
     }
 
     func testSuffixAndNumberingCombine() {
-        let plans = OutputPlanner.plan([item("a.png")], format: .jpeg,
+        let plans = OutputPlanner.plan([item("a.jpg")], format: .jpeg,
                                        mode: .sameFolder(suffix: "_converted"),
                                        fileExists: { $0.path == "/src/a_converted.jpg" })
         XCTAssertEqual(plans.map(\.destination.path), ["/src/a_converted_2.jpg"])
     }
 
     func testSuffixCannotEscapeSourceFolder() {
-        let plans = OutputPlanner.plan([item("a.png")], format: .jpeg,
+        let plans = OutputPlanner.plan([item("a.jpg")], format: .jpeg,
                                        mode: .sameFolder(suffix: "../x/:y"), fileExists: { _ in false })
         XCTAssertEqual(plans[0].destination.deletingLastPathComponent().path, "/src")
         XCTAssertEqual(plans[0].destination.path, "/src/a..xy.jpg")

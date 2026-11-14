@@ -1,13 +1,11 @@
 import AppKit
 import CoreGraphics
-import ImageIO
 import ImageconverterCore
 
 extension AppModel {
     /// Wait after the last change before a preview render starts.
     static let previewDebounce = Duration.milliseconds(300)
     nonisolated static let thumbnailPixels = 64
-    static let sidebarWidth: CGFloat = 360
 
     /// The selected image's index, kept inside `items` (nil when the batch is empty).
     var selectedItemIndex: Int? {
@@ -20,23 +18,17 @@ extension AppModel {
         selectedIndex = min(max(current + offset, 0), items.count - 1)
     }
 
-    /// Flips the preview pane, then moves the window edge: hiding shrinks the window to the sidebar,
-    /// showing restores the width it had before.
+    /// Flips the preview pane; `WindowSizer` animates the window edge (hiding shrinks the window to the
+    /// sidebar, showing restores the preview width it had before).
     func togglePreview() {
-        let window = mainWindow
-        let before = window?.frame.width ?? 0
-        if !previewCollapsed, before > 0 { expandedWindowWidth = before }
         previewCollapsed.toggle()
-        let target = previewCollapsed ? Self.sidebarWidth : (expandedWindowWidth ?? before + 440)
-        // Wait a runloop so SwiftUI has applied the new minimum size before the frame is set.
-        DispatchQueue.main.async {
-            guard let window else { return }
-            var frame = window.frame
-            var width = target
-            if let visible = window.screen?.visibleFrame { width = min(width, visible.width) }
-            frame.size.width = max(width, window.minSize.width)
-            window.setFrame(frame, display: true, animate: true)
-        }
+        windowSizer.setPreviewShown(!previewCollapsed)
+    }
+
+    /// Collapses or expands the pipeline; the window follows the new sidebar height right away.
+    func togglePipeline() {
+        windowSizer.pipelineWillToggle()
+        pipelineCollapsed.toggle()
     }
 
     /// After a run, forgets items whose file is gone (overwrite mode trashes originals when the format changes).
@@ -52,6 +44,8 @@ extension AppModel {
             let removed = items.count - kept.count
             guard removed > 0 else { return }
             items = kept
+            let remaining = Set(kept.map(\.source))
+            Task { await self.factsCache.retain(only: remaining) }
             selectedIndex = min(selectedIndex, max(kept.count - 1, 0))
             resetPreview()
             toasts.show("Removed \(removed) \(removed == 1 ? "image" : "images") whose "
@@ -64,6 +58,7 @@ extension AppModel {
         previewTask?.cancel()
         previewGeneration += 1
         previewResult = nil
+        previewConditions = nil
         previewFailure = nil
         previewFailureName = nil
         isRenderingPreview = false
@@ -77,27 +72,35 @@ extension AppModel {
         previewTask?.cancel()
         previewGeneration += 1
         let generation = previewGeneration
-        guard !previewCollapsed, !isRunning, let index = selectedItemIndex else {
+        guard !previewCollapsed, previewAllowed, let index = selectedItemIndex else {
             isRenderingPreview = false
             if items.isEmpty {
                 previewResult = nil
+                previewConditions = nil
                 previewFailure = nil
                 previewFailureName = nil
             }
             return
         }
         let item = items[index]
+        let batch = items
         let pipeline = self.pipeline
         isRenderingPreview = true
-        previewTask = Task { [weak self] in
+        previewTask = Task(priority: .userInitiated) { [weak self] in
             do { try await Task.sleep(for: Self.previewDebounce) } catch { return }
-            guard let renderer = self?.previewRenderer else { return }
-            let outcome = await renderer.render(item: item, index: index, pipeline: pipeline, mode: mode)
+            guard let renderer = self?.previewRenderer, let cache = self?.factsCache else { return }
+            // The counter number the batch would give this item (skipped items before it take none), and the
+            // branch each condition takes. Only read from files when the pipeline has conditions.
+            let conditions = pipeline.hasConditions ? await cache.preview(of: index, in: batch, pipeline: pipeline) : nil
+            guard !Task.isCancelled else { return }
+            let outcome = await renderer.render(item: item, index: conditions?.counterIndex ?? index, pipeline: pipeline,
+                                                mode: mode)
             guard let self, generation == self.previewGeneration else { return }
             isRenderingPreview = false
             switch outcome {
             case .ready(let result):
                 previewResult = result
+                previewConditions = conditions
                 previewFailure = nil
                 previewFailureName = nil
             case .failed(let reason):
@@ -105,6 +108,7 @@ extension AppModel {
                 if reason == "Cancelled" { return }
                 // The previous image stays only when it belongs to this same item.
                 if previewResult?.source != item.source { previewResult = nil }
+                previewConditions = conditions
                 previewFailureName = item.source.lastPathComponent
                 previewFailure = reason
             }
@@ -143,15 +147,13 @@ extension AppModel {
     }
 
     nonisolated private static func makeThumbnail(_ url: URL) -> CGImage? {
-        guard let pixels = ImageLoader.pixelCount(of: url), pixels <= ImageLoader.defaultMaxPixels else { return nil }
-        let loadOptions = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, loadOptions) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: thumbnailPixels,
-            kCGImageSourceShouldCacheImmediately: true
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        // Core's decode limits decide first, like every other reader.
+        ImageLoader.thumbnail(of: url, maxPixelSize: thumbnailPixels)
     }
+}
+
+/// Reference wrapper so `NSCache` can hold a `CGImage`.
+final class CGImageBox: @unchecked Sendable {
+    let image: CGImage
+    init(_ image: CGImage) { self.image = image }
 }
