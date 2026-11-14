@@ -4,7 +4,8 @@ import Foundation
 /// guarded against formula injection, text drops control and direction-override characters, JSON keys are sorted.
 public enum ReportExporter {
     public static let csvColumns = ["source", "destination", "status", "input bytes", "output bytes", "saving %",
-                                    "note"]
+                                    "note", "duration s", "input width", "input height", "output width",
+                                    "output height"]
 
     public static func data(_ report: ProcessingReport, format: ReportFormat) -> Data {
         switch format {
@@ -25,13 +26,18 @@ public enum ReportExporter {
                 quoted(guarded(entry.source)), quoted(guarded(entry.destination ?? "")),
                 quoted(entry.status.rawValue), quoted(entry.inputBytes.map(String.init) ?? ""),
                 quoted(entry.outputBytes.map(String.init) ?? ""),
-                quoted(entry.ratio.map(savingPercent) ?? ""), quoted(guarded(entry.note ?? ""))
+                quoted(entry.ratio.map(savingPercent) ?? ""), quoted(guarded(entry.note ?? "")),
+                quoted(entry.duration > 0 ? String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), entry.duration) : ""),
+                quoted(entry.inputWidth.map(String.init) ?? ""), quoted(entry.inputHeight.map(String.init) ?? ""),
+                quoted(entry.outputWidth.map(String.init) ?? ""), quoted(entry.outputHeight.map(String.init) ?? "")
             ])
         }
         let summary = report.summary
         rows.append([
             quoted("TOTAL"), quoted(""), quoted(counts(summary)), quoted(String(summary.inputBytes)),
-            quoted(String(summary.outputBytes)), quoted(summary.overallRatio.map(savingPercent) ?? ""), quoted("")
+            quoted(String(summary.outputBytes)), quoted(summary.overallRatio.map(savingPercent) ?? ""), quoted(""),
+            quoted(String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), summary.totalDuration)),
+            quoted(""), quoted(""), quoted(""), quoted("")
         ])
         return rows.map { $0.joined(separator: ",") }.joined(separator: "\r\n") + "\r\n"
     }

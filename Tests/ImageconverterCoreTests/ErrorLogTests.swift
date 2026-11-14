@@ -11,7 +11,7 @@ final class ErrorLogTests: XCTestCase {
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: directory) }
 
     func testRecordAndRecentNewestFirst() {
-        let log = ErrorLog(directory: directory)
+        let log = ErrorLog.shared(directory: directory)
         log.record(path: "/in/a.jpg", reason: "Unreadable", at: Date(timeIntervalSince1970: 100))
         log.record(path: "/in/b\n.jpg", reason: "Line1\nLine2\u{2028}x", at: Date(timeIntervalSince1970: 200))
         let recent = log.recent(limit: 10)
@@ -23,7 +23,7 @@ final class ErrorLogTests: XCTestCase {
     }
 
     func testErrorLogRotation() throws {
-        let log = ErrorLog(directory: directory, maxBytes: 300)
+        let log = ErrorLog.shared(directory: directory, maxBytes: 300)
         for index in 0..<40 { log.record(path: "/in/\(index).jpg", reason: "boom", at: Date(timeIntervalSince1970: Double(index))) }
         let names = try FileManager.default.contentsOfDirectory(atPath: directory.path).sorted()
         XCTAssertEqual(names, ["errors.1.log", "errors.2.log", "errors.3.log", "errors.log"])
@@ -32,7 +32,7 @@ final class ErrorLogTests: XCTestCase {
             XCTAssertLessThanOrEqual(try XCTUnwrap(size), 300)
         }
         // The newest entry is first and reading continues into rotated files.
-        let recent = ErrorLog(directory: directory, maxBytes: 300).recent(limit: 100)
+        let recent = ErrorLog.shared(directory: directory, maxBytes: 300).recent(limit: 100)
         XCTAssertEqual(recent.first?.path, "/in/39.jpg")
         XCTAssertGreaterThan(recent.count, 10)
         XCTAssertLessThan(recent.count, 40)
@@ -40,7 +40,7 @@ final class ErrorLogTests: XCTestCase {
 
     func testGarbageLinesAndSymlinkAreIgnored() throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let log = ErrorLog(directory: directory)
+        let log = ErrorLog.shared(directory: directory)
         try Data("not a line\n1970-01-01T00:00:10Z\t/in/x.jpg\tfine\n\n".utf8).write(to: log.logURL)
         XCTAssertEqual(log.recent(limit: 5).map(\.path), ["/in/x.jpg"])
         try FileManager.default.removeItem(at: log.logURL)

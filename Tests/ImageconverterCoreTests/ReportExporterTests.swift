@@ -17,13 +17,22 @@ final class ReportExporterTests: XCTestCase {
 
     func testReportCSVColumnsAndTotals() {
         let lines = ReportExporter.csv(sampleReport()).components(separatedBy: "\r\n")
-        XCTAssertEqual(lines[0], #""source","destination","status","input bytes","output bytes","saving %","note""#)
-        XCTAssertEqual(lines[1], #""/in/a.jpg","/out/a.jpg","succeeded","1000","260","74.0","""#)
-        XCTAssertEqual(lines[2], #""/in/=HYPERLINK(""x"").jpg","","failed","50","","","Can't read ""this"", sorry""#)
+        XCTAssertEqual(lines[0], #""source","destination","status","input bytes","output bytes","saving %","note","#
+            + #""duration s","input width","input height","output width","output height""#)
+        XCTAssertEqual(lines[1], #""/in/a.jpg","/out/a.jpg","succeeded","1000","260","74.0","","","","","","""#)
+        XCTAssertEqual(lines[2], #""/in/=HYPERLINK(""x"").jpg","","failed","50","","","Can't read ""this"", sorry","","","","","""#)
         XCTAssertEqual(lines[3],
-                       #""TOTAL","","3 files: 1 succeeded, 1 failed, 1 skipped, 0 cancelled","1000","260","74.0","""#)
+                       #""TOTAL","","3 files: 1 succeeded, 1 failed, 1 skipped, 0 cancelled","1000","260","74.0","","5.000","","","","""#)
         XCTAssertEqual(lines[4], "")
         XCTAssertEqual(lines.count, 5)
+    }
+
+    func testCSVExtraColumnsAtTheEnd() {
+        let report = ProcessingReport(summary: sampleReport().summary, entries: [
+            ReportEntry(source: "/in/a.jpg", status: .succeeded, inputBytes: 10, outputBytes: 5, duration: 1.5,
+                        inputWidth: 40, inputHeight: 30, outputWidth: 20, outputHeight: 15)])
+        let row = ReportExporter.csv(report).components(separatedBy: "\r\n")[1]
+        XCTAssertTrue(row.hasSuffix(#""","1.500","40","30","20","15""#), row)
     }
 
     func testCSVFormulaInjectionIsGuarded() {

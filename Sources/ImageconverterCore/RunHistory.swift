@@ -24,9 +24,23 @@ public final class RunHistory: @unchecked Sendable {
     private let maxRuns: Int
     private let lock = NSLock()
 
-    public init(directory: URL = RunHistory.defaultDirectory, maxRuns: Int = RunHistory.maxRuns) {
+    init(directory: URL, maxRuns: Int = RunHistory.maxRuns) {
         self.directory = directory
         self.maxRuns = maxRuns
+    }
+
+    private static let registryLock = NSLock()
+    nonisolated(unsafe) private static var registry: [String: RunHistory] = [:]
+
+    /// The one instance for a directory, so every writer shares one lock. The first caller's `maxRuns` wins.
+    public static func shared(directory: URL = RunHistory.defaultDirectory, maxRuns: Int = RunHistory.maxRuns) -> RunHistory {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        let key = directory.standardizedFileURL.path
+        if let existing = registry[key] { return existing }
+        let history = RunHistory(directory: directory, maxRuns: maxRuns)
+        registry[key] = history
+        return history
     }
 
     public static var defaultDirectory: URL {
@@ -37,6 +51,28 @@ public final class RunHistory: @unchecked Sendable {
     }
 
     private func fileURL(_ id: UUID) -> URL { directory.appendingPathComponent("\(id.uuidString).json", isDirectory: false) }
+    private func summaryURL(_ id: UUID) -> URL {
+        directory.appendingPathComponent("\(id.uuidString).summary.json", isDirectory: false)
+    }
+
+    /// The small companion file listings read instead of the (possibly large) full record.
+    private struct SummaryFile: Codable {
+        var schemaVersion: Int
+        var summary: RunSummary
+    }
+    private static let maxSummarySize = 65_536
+
+    private func writeSummary(_ summary: RunSummary) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let file = SummaryFile(schemaVersion: RunRecord.currentSchema, summary: summary)
+        try? encoder.encode(file).write(to: summaryURL(summary.id), options: .atomic)
+    }
+
+    private func removeFiles(_ id: UUID) {
+        try? FileManager.default.removeItem(at: fileURL(id))
+        try? FileManager.default.removeItem(at: summaryURL(id))
+    }
 
     /// Stores the run (replacing one with the same id), then deletes the oldest beyond the limit.
     public func save(_ report: ProcessingReport) throws {
@@ -49,20 +85,53 @@ public final class RunHistory: @unchecked Sendable {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         try encoder.encode(record).write(to: fileURL(report.summary.id), options: .atomic)
+        writeSummary(report.summary)
         prune()
     }
 
     private func prune() {
-        let runs = loadAll()
+        let runs = loadSummaries()
         guard runs.count > maxRuns else { return }
-        for old in runs.sorted(by: Self.newerFirst).dropFirst(maxRuns) {
-            try? FileManager.default.removeItem(at: fileURL(old.summary.id))
-        }
+        for old in runs.dropFirst(maxRuns) { removeFiles(old.id) }
     }
 
-    private static func newerFirst(_ lhs: RunRecord, _ rhs: RunRecord) -> Bool {
-        lhs.summary.finishedAt != rhs.summary.finishedAt ? lhs.summary.finishedAt > rhs.summary.finishedAt
-            : lhs.summary.id.uuidString < rhs.summary.id.uuidString
+    private static func newerFirst(_ lhs: RunSummary, _ rhs: RunSummary) -> Bool {
+        lhs.finishedAt != rhs.finishedAt ? lhs.finishedAt > rhs.finishedAt : lhs.id.uuidString < rhs.id.uuidString
+    }
+
+    private func loadSummary(name: String) -> RunSummary? {
+        let suffix = ".summary.json"
+        guard name.hasSuffix(suffix), let id = UUID(uuidString: String(name.dropLast(suffix.count))),
+              id.uuidString + suffix == name,
+              let data = try? StoredFile.readData(directory.appendingPathComponent(name), maxSize: Self.maxSummarySize) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let file = try? decoder.decode(SummaryFile.self, from: data), file.schemaVersion == RunRecord.currentSchema,
+              file.summary.id == id, Self.isPlausible(file.summary) else { return nil }
+        return file.summary
+    }
+
+    /// Valid summaries, newest first, read from the small files only. A full record without a summary (written by
+    /// an older build, or the summary was lost) is decoded once and its summary written.
+    private func loadSummaries() -> [RunSummary] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        let fileManager = FileManager.default
+        var summaries: [UUID: RunSummary] = [:]
+        for name in names {
+            guard let summary = loadSummary(name: name), fileManager.fileExists(atPath: fileURL(summary.id).path) else {
+                continue
+            }
+            summaries[summary.id] = summary
+        }
+        for name in names where name.hasSuffix(".json") && !name.hasSuffix(".summary.json") {
+            guard let id = UUID(uuidString: String(name.dropLast(5))), summaries[id] == nil,
+                  let record = load(name: name) else { continue }
+            writeSummary(record.summary)
+            summaries[id] = record.summary
+        }
+        return summaries.values.sorted(by: Self.newerFirst)
     }
 
     private func load(name: String) -> RunRecord? {
@@ -77,17 +146,14 @@ public final class RunHistory: @unchecked Sendable {
         return record
     }
 
-    /// Valid runs, newest first; unreadable, oversized, mismatched or implausible files are skipped.
-    private func loadAll() -> [RunRecord] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
-        return names.compactMap(load(name:)).sorted(by: Self.newerFirst)
+    private static func isPlausible(_ record: RunRecord) -> Bool {
+        record.entries.count <= maxEntries && isPlausible(record.summary)
     }
 
-    private static func isPlausible(_ record: RunRecord) -> Bool {
-        let summary = record.summary
+    private static func isPlausible(_ summary: RunSummary) -> Bool {
         let counts = [summary.total, summary.succeeded, summary.failed, summary.skipped, summary.unchanged,
                       summary.cancelled, summary.inputBytes, summary.outputBytes]
-        return counts.allSatisfy { $0 >= 0 } && record.entries.count <= maxEntries
+        return counts.allSatisfy { $0 >= 0 }
             && summary.finishedAt >= summary.startedAt
             && summary.averageDuration.isFinite && (summary.averageRatio?.isFinite ?? true)
     }
@@ -96,7 +162,7 @@ public final class RunHistory: @unchecked Sendable {
     public func summaries(jobName: String? = nil) -> [RunSummary] {
         lock.lock()
         defer { lock.unlock() }
-        return loadAll().map(\.summary).filter { jobName == nil || $0.jobName == jobName }
+        return loadSummaries().filter { jobName == nil || $0.jobName == jobName }
     }
 
     /// One run with its entries; nil when missing or invalid.
@@ -109,12 +175,12 @@ public final class RunHistory: @unchecked Sendable {
     public func delete(id: UUID) {
         lock.lock()
         defer { lock.unlock() }
-        try? FileManager.default.removeItem(at: fileURL(id))
+        removeFiles(id)
     }
 
     public func clear() {
         lock.lock()
         defer { lock.unlock() }
-        for run in loadAll() { try? FileManager.default.removeItem(at: fileURL(run.summary.id)) }
+        for run in loadSummaries() { removeFiles(run.id) }
     }
 }

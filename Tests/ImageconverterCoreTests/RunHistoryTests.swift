@@ -32,7 +32,7 @@ final class RunHistoryTests: XCTestCase {
     }
 
     func testHistoryKeeps100AndRejectsGarbage() throws {
-        let history = RunHistory(directory: directory)
+        let history = RunHistory.shared(directory: directory)
         for index in 0..<103 { try history.save(report(finished: Double(1000 + index))) }
         let summaries = history.summaries()
         XCTAssertEqual(summaries.count, 100)
@@ -56,7 +56,7 @@ final class RunHistoryTests: XCTestCase {
     }
 
     func testEntriesCappedAndJobFilter() throws {
-        let history = RunHistory(directory: directory)
+        let history = RunHistory.shared(directory: directory)
         let big = report(finished: 10, job: "A", entries: RunHistory.maxEntries + 5)
         try history.save(big)
         try history.save(report(finished: 20, job: "B"))
@@ -67,5 +67,35 @@ final class RunHistoryTests: XCTestCase {
         XCTAssertEqual(history.summaries(jobName: "B").count, 1)
         history.delete(id: big.summary.id)
         XCTAssertEqual(history.summaries().count, 1)
+    }
+
+    func testListingReadsSummariesOnly() throws {
+        let history = RunHistory.shared(directory: directory)
+        let first = report(finished: 10, entries: 3)
+        try history.save(first)
+        try history.save(report(finished: 20))
+        // Corrupt the full record: listing must not open it, loading it must fail.
+        try Data("garbage".utf8).write(to: directory.appendingPathComponent("\(first.summary.id.uuidString).json"))
+        XCTAssertEqual(history.summaries().count, 2)
+        XCTAssertNil(history.record(id: first.summary.id))
+    }
+
+    func testMissingSummaryIsRebuiltFromFullRecord() throws {
+        let history = RunHistory.shared(directory: directory)
+        let run = report(finished: 10)
+        try history.save(run)
+        let summaryFile = directory.appendingPathComponent("\(run.summary.id.uuidString).summary.json")
+        try FileManager.default.removeItem(at: summaryFile)
+        XCTAssertEqual(history.summaries().map(\.id), [run.summary.id])
+        XCTAssertTrue(FileManager.default.fileExists(atPath: summaryFile.path))
+        history.delete(id: run.summary.id)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: summaryFile.path))
+    }
+
+    func testSharedInstancePerDirectory() {
+        let detour = directory.appendingPathComponent("../\(directory.lastPathComponent)")
+        XCTAssertTrue(RunHistory.shared(directory: directory) === RunHistory.shared(directory: detour))
+        XCTAssertTrue(ErrorLog.shared(directory: directory) === ErrorLog.shared(directory: directory))
+        XCTAssertFalse(RunHistory.shared(directory: directory) === RunHistory.shared(directory: directory.appendingPathComponent("x")))
     }
 }

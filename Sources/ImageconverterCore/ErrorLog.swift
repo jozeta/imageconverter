@@ -17,9 +17,23 @@ public final class ErrorLog: @unchecked Sendable {
     private let maxBytes: Int
     private let lock = NSLock()
 
-    public init(directory: URL = ErrorLog.defaultDirectory, maxBytes: Int = ErrorLog.maxBytes) {
+    init(directory: URL, maxBytes: Int = ErrorLog.maxBytes) {
         self.directory = directory
         self.maxBytes = maxBytes
+    }
+
+    private static let registryLock = NSLock()
+    nonisolated(unsafe) private static var registry: [String: ErrorLog] = [:]
+
+    /// The one instance for a directory, so every writer shares one lock. The first caller's `maxBytes` wins.
+    public static func shared(directory: URL = ErrorLog.defaultDirectory, maxBytes: Int = ErrorLog.maxBytes) -> ErrorLog {
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        let key = directory.standardizedFileURL.path
+        if let existing = registry[key] { return existing }
+        let log = ErrorLog(directory: directory, maxBytes: maxBytes)
+        registry[key] = log
+        return log
     }
 
     public static var defaultDirectory: URL {
