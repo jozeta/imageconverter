@@ -17,7 +17,7 @@ Started 2026-11-13. The full design is in
 - **Works entirely offline.** No network access, no telemetry, no uploads. The app has no network entitlement, and a test fails the build if networking APIs appear in the sources.
 - **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications); no third-party code.
 - **Your files are untrusted input.** Images, SVG watermarks, preset and template files, `imageconverter://` links and AppleScript requests are all validated before use. Limits in force: images up to 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory) of decoded memory and 2 GB per file (first frame only); SVG files up to 1 MB, 20,000 elements, 64 levels deep; preset and template files up to 1 MB; links up to 16,384 characters. Help ▸ Privacy… shows these as built. See [SECURITY.md](SECURITY.md).
-- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed.
+- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed.
 - **Temporary files are deleted, not wiped.** Output is written to a hidden temporary file next to its destination and moved into place; on cancel, quit or a failed write the app deletes these files. On SSDs and APFS, deleting (or overwriting) a file does not reliably erase its old blocks, so the app does not claim to securely wipe anything.
 
 <table>
@@ -159,7 +159,7 @@ Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 | Remove location / camera / author / thumbnail / IPTC / XMP | Individual removals (see "Metadata step" below) | location on, others off |
 | Set title / artist / copyright / description | Writes the text after the removal (an empty text removes the field; the © button inserts the sign) | off |
 | Keywords | Tokens added to, or replacing, the file's keywords | none |
-| Date taken | Keep, Set (date and time) or Shift (earlier/later by days, hours, minutes) | Keep |
+| Date taken | Keep, Set (date and time) or Shift (earlier/later by days, hours, minutes). A saved setting that can't be read (a hand-edited preset) falls back to Keep, and the editor and the batch report say "Saved date setting was invalid and was ignored" | Keep |
 | Set file dates to date taken | The output file's creation and modification dates follow the date taken | off |
 | Location | Keep, Remove, or Set latitude, longitude and optional altitude | Keep |
 | More fields | Extra EXIF/IPTC/XMP fields from the allowlist | none |
@@ -230,7 +230,7 @@ Watermark text tokens (unknown tokens are drawn as typed):
 |-------|---------|
 | `{filename}` | The original's name without its extension |
 | `{filename.ext}` | The original's name with its extension |
-| `{date}` | The date taken (from the photo's EXIF, else the file's creation date) as `2026-11-14` |
+| `{date}` | The date taken (from the photo's EXIF, else the file's creation date) as `2026-11-14`; a Set or Shift in the Metadata step is what it shows, and it is empty when the Metadata step removes everything without keeping the date |
 | `{date:FORMAT}` | The same date in your own format, e.g. `{date:d MMM yyyy}` (Unicode date patterns) |
 | `{year}` | The year of that date |
 | `{copyright}` | The copyright: from the Metadata step when it sets one, else the file's own; empty when the Metadata step removes it |
@@ -525,11 +525,15 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
 3. Fill **Then** and **Else** with **+ Add**: any image step (Resize, Crop, Watermark, …), **Set output…** (format and
    compression for these images), **Set metadata…**, **Set rename…**, **Copy original unchanged** (the file is copied as
    it is, nothing is decoded) or **Skip file** (nothing is written; the file counts as *skipped by a condition*, not
-   failed, and takes no counter number). Open an action to edit it with the usual editor; reorder actions by
+   failed, and takes no counter number). **Set metadata…** can add removals and set fields but never brings back
+   what the pipeline's Metadata step removes (or `--strip-gps`/`--strip-all` on the command line). When that step
+   removes or replaces anything, **Copy original unchanged** converts the image instead, in its own format at the best
+   quality (lossless for PNG and TIFF), and the report says "Converted instead of copied to remove metadata". Open an action to edit it with the usual editor; reorder actions by
    dragging the handle or with **Move Up** / **Move Down** in the right-click menu.
 4. Select an image in the filmstrip: the preview header shows which branch it takes (**Then branch** / **Else branch**,
    or "1 then · 2 else" with several conditions) and whether it is **Copied unchanged** or **Skipped by a condition**.
-   The Result name and the Rename example use the number the batch would give it.
+   The Result name and the Rename example use the branch's rename and the number the batch would give it (the
+   example adds "(a condition's rename)" when a branch renames differently).
 5. After a run the notice says, for example, "Converted 20 · 3 skipped by conditions · 1 failed"; the Report lists the
    skipped files separately from failures.
 
@@ -564,7 +568,8 @@ without AVIF) at 85 % without its GPS location in **Processed Images**, with a C
    never taken as input, even when the output folder is inside the watched folder.
 5. The list shows each job's trigger, folders, last run ("2 min ago · 12 converted, 1 failed") and status
    (*Watching*, *Scheduled*, *Running 3/12*, *Paused*, *Off*). Select a job for **Run Now**, **Open Last Report**
-   (the newest `imageconverter-report-<date>.csv` next to the outputs) or **Reveal Output**; double-click (or
+   (the newest `imageconverter-report-<date>.csv` next to the outputs; it names files relative to its own folder, so
+   no user name ends up in a shared folder) or **Reveal Output**; double-click (or
    **Edit…**) to change it; right-click for **Switch Off/On**, **Process All Files Again…** (asks first, naming the
    job and its folders) and **Delete…** (the folders and images are never touched).
 
@@ -580,6 +585,11 @@ Good to know:
   "This job is already running."
 - Quitting while a batch or a job runs asks **Stop and quit?** (Cancel is the default). Stopping keeps the files
   already written, records them so they aren't processed again, and leaves no temporary files behind.
+- Runs inside the app never work on the same file at once: a file that a job (or a run in the window, a Finder
+  service or a script) is converting right now is left out of the other run, listed as *Busy in another run*; a job
+  isn't marked as having processed it, so its next run picks it up. The command-line tool is a separate program and
+  isn't coordinated with the app this way: don't run `imageconverter convert` over a folder an active job watches
+  (the job lock only keeps one job from running twice).
 - **On a schedule** looks for new and changed images every N minutes or hours (at least every 5 minutes).
   **Manually** runs only on **Run Now** (or an `imageconverter://jobs/run` link).
 - The first time a watched or scheduled job is switched on, macOS asks whether imageconverter may show
@@ -644,14 +654,19 @@ are averaged over the last few seconds and weighted by image size, and appear on
   very large images or when other apps need the memory. Without it, the preview and the size estimate keep
   working during a run at a higher priority than the batch, so you can look through the images while they convert,
   except in *Overwrite original files* runs, where they pause until the run ends (the originals are being replaced).
-- **Interrupted batches**: while a batch runs, a small journal records which images are done. If the app quits
-  before the end (a crash, a forced quit, or quitting during a run), the next launch asks
+- **Interrupted batches**: while a batch runs, a small journal records which images are done (each one as soon as it
+  is written). If the app stops before the end (a crash or a forced quit), the next launch asks
   "The last batch was interrupted (18 of 30 images were done)": **Resume** adds the images still to do and runs
   them with the batch's own pipeline and output, for that run only (your current pipeline and Save to setting don't
   change; files that are gone are listed). A batch that overwrote its originals shows the overwrite warning and
   resumes only after you tick **Replace the original files**. **Discard** forgets it; **Not Now** keeps it and asks
-  again at the next launch, and pressing Run first asks "Discard the interrupted batch?" (Cancel keeps it). The
-  rate, time left and elapsed time leave out the time a run was paused.
+  again at the next launch, and pressing Run (or a Finder Quick Action) first asks "Discard the interrupted batch?"
+  (Cancel keeps it); an AppleScript `convert` or `run batch` is refused with "An interrupted batch is waiting; resume
+  or discard it first." Stopping a run yourself (Stop, or Stop and Quit) ends it for good: nothing is offered
+  afterwards. When an overwrite batch resumes, an original that changed since the batch started (it was most likely
+  replaced just before the crash) is left alone and listed, so no image is processed twice. A resumed batch numbers
+  `{counter}` from the start value again for the images still to do, so names may differ from an uninterrupted run
+  (an existing name gets `_2`). The rate, time left and elapsed time leave out the time a run was paused.
 - The batch runs at a lower priority than the window, so the app stays responsive; the number of workers also
   drops by itself when the Mac gets hot or short of memory.
 
@@ -746,7 +761,7 @@ Convert options (options override the preset or pipeline file):
 | `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked); writes nothing; honours `--report`/`--json` |
 | `--quiet`, `--json` | No progress; `--json` prints the JSON report |
 
-Progress goes to stderr and results to stdout. Missing input paths are reported on stderr and count as failed files; options that the chosen format ignores (`--quality`, `--max-size` with PNG, TIFF, ...) print a warning. Only long options exist; file names starting with `-` go after `--`. Ctrl-C stops cleanly (no temp files left), prints the partial report and exits 130. Exit codes: 0 all done, 1 some files failed or missing, 2 usage error, 3 nothing to do, 130 interrupted. The tool reads presets and jobs from `~/Library/Application Support/imageconverter/`.
+Progress goes to stderr and results to stdout. Missing input paths are reported on stderr and count as failed files; options that the chosen format ignores (`--quality`, `--max-size` with PNG, TIFF, ...) print a warning. Only long options exist; file names starting with `-` go after `--`. Ctrl-C stops cleanly (no temp files left), prints the partial report and exits 130. `--strip-gps` and `--strip-all` also hold for images a preset's condition sends to its own metadata settings or to "Copy original unchanged" (those are converted instead). The tool isn't coordinated with the app: don't run it over a folder an active job watches. Exit codes: 0 all done, 1 some files failed or missing, 2 usage error, 3 nothing to do, 130 interrupted. The tool reads presets and jobs from `~/Library/Application Support/imageconverter/`.
 
 Example in Shortcuts: add **Run Shell Script** (Shell: zsh, Input: as arguments) with
 
