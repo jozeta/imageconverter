@@ -29,6 +29,8 @@ final class AppModel {
     let toasts = LGToastCenter()
     /// The before/after zoom, shared by both preview sides and the View menu.
     let zoom = ZoomController()
+    /// Comparison mode, batch browser mode and the selected item's difference and quality renders.
+    let compare: CompareController
     /// "Example: name.ext" for the Rename editor; see `refreshRenameExample()`.
     private(set) var renameExample = ""
 
@@ -92,6 +94,7 @@ final class AppModel {
          presetStore: PresetStore = PresetStore(directory: PresetStore.defaultDirectory)) {
         self.defaults = defaults
         self.presetStore = presetStore
+        compare = CompareController(defaults: defaults)
         previewCollapsed = defaults.bool(forKey: Self.previewCollapsedKey)
         pipelineCollapsed = defaults.bool(forKey: Self.pipelineCollapsedKey)
         windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey))
@@ -189,6 +192,7 @@ final class AppModel {
         selectedIndex = 0
         thumbnailCache.removeAllObjects()
         thumbnailsFailed = []
+        compare.clear()
         resetPreview()
         cancelEstimate()
         progress = nil

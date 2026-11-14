@@ -39,6 +39,8 @@ struct ImageconverterApp: App {
                 Button(model.pipelineCollapsed ? "Expand Pipeline" : "Collapse Pipeline") { model.togglePipeline() }
                 .keyboardShortcut("l", modifiers: [.option, .command])
                 Divider()
+                compareCommands
+                Divider()
                 zoomCommands
             }
             CommandGroup(replacing: .newItem) {
@@ -57,6 +59,16 @@ struct ImageconverterApp: App {
 }
 
 extension ImageconverterApp {
+    /// The preview's comparison modes, ⌘1…⌘4; the current one has a check mark.
+    @ViewBuilder private var compareCommands: some View {
+        ForEach(CompareMode.allCases) { mode in
+            Toggle(mode.title, isOn: Binding(get: { model.compare.mode == mode },
+                                             set: { if $0 { model.compare.mode = mode } }))
+                .keyboardShortcut(KeyEquivalent(mode.shortcut), modifiers: .command)
+                .disabled(model.previewCollapsed)
+        }
+    }
+
     /// Zoom the before/after preview; ⌘= also zooms in (see `ZoomController.installKeyMonitor`).
     @ViewBuilder private var zoomCommands: some View {
         let disabled = !model.zoom.canZoom || model.previewCollapsed || model.previewResult == nil
@@ -103,6 +115,7 @@ private struct MainWindowContent: View {
         .background(WindowAccessor { sizer.attach($0) })
         .onAppear {
             model.zoom.installKeyMonitor()
+            model.compare.installKeyMonitor()
             #if DEBUG
             applyDebugArguments()
             #endif
@@ -114,7 +127,8 @@ private struct MainWindowContent: View {
 
     /// Debug-only launch options for screenshots: `-debugAddFiles <path>…` adds images at launch,
     /// `-debugZoom <scale>` starts the preview zoomed (scale relative to fit) and `-debugWindowWidth <points>`
-    /// widens the window once it has its first size.
+    /// widens the window once it has its first size, `-debugSelect <index>` selects an image and
+    /// `-debugShowQuality` opens the Compare quality panel.
     private func applyDebugArguments() {
         // Once per launch, not every time the window reappears.
         guard !Self.debugArgumentsApplied else { return }
@@ -128,6 +142,11 @@ private struct MainWindowContent: View {
            let scale = Double(arguments[index + 1]) {
             model.zoom.pendingScale = CGFloat(scale)
         }
+        if let index = arguments.firstIndex(of: "-debugSelect"), index + 1 < arguments.count,
+           let selected = Int(arguments[index + 1]) {
+            model.selectedIndex = selected
+        }
+        if arguments.contains("-debugShowQuality") { model.compare.showsQuality = true }
         if let index = arguments.firstIndex(of: "-debugWindowWidth"), index + 1 < arguments.count,
            let width = Double(arguments[index + 1]) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

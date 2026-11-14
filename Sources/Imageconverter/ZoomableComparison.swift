@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 import ImageconverterCore
 
-/// Which preview side an input or a geometry comes from.
-enum ZoomSide { case before, after }
+/// Which preview side an input or a geometry comes from (quality tiles never become the reference).
+enum ZoomSide { case before, after, qualityTile }
 
 /// The before/after zoom, shared by both sides so they always show the same region. Kept on the model
 /// (not in the pane) so the View menu can reach it.
@@ -98,8 +98,10 @@ final class ZoomController {
     }
 }
 
-/// One side of the comparison: the image at the shared zoom, clipped to its box, with the trackpad and
-/// mouse handling on top. `pixelSize` is the image's full size; `image` may be a smaller copy.
+/// One side of the comparison: the image at the shared zoom, clipped to its box, on a checkerboard, with the
+/// trackpad and mouse handling on top. `pixelSize` is the image's full size; `image` may be a smaller copy.
+/// `visible` is the horizontal part of the box (fractions of its width) that is drawn: the split view shows
+/// Before left of the divider and After right of it, and Single mode hides one side while it keeps its geometry.
 struct ZoomableImage: View {
     let image: CGImage
     /// The full-size bitmap, drawn instead of `image` while zoomed once it is available.
@@ -109,6 +111,11 @@ struct ZoomableImage: View {
     let side: ZoomSide
     let isReference: Bool
     let zoom: ZoomController
+    var interactive = true
+    var visible: ClosedRange<CGFloat> = 0...1
+    /// The split divider (fraction of the width) and what dragging it does; nil outside the split view.
+    var divider: CGFloat?
+    var onDivider: ((CGFloat) -> Void)?
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
@@ -118,21 +125,36 @@ struct ZoomableImage: View {
             let shown = ZoomMath.displayedSize(imagePixels: pixelSize, view: proxy.size, scale: state.scale)
             let center = ZoomMath.clampCenter(state.center, displayed: shown, view: proxy.size)
             let drawn = state.isZoomed ? (fullImage ?? image) : image
+            let frame = CGRect(x: proxy.size.width / 2 + (0.5 - center.x) * shown.width - shown.width / 2,
+                               y: proxy.size.height / 2 + (0.5 - center.y) * shown.height - shown.height / 2,
+                               width: shown.width, height: shown.height)
             ZStack {
-                Image(drawn, scale: 1, label: Text(label))
-                    .resizable()
-                    // Past actual pixels every image pixel is a crisp square, so artifacts are easy to see.
-                    .interpolation(geometry.percent(at: state.scale) > 100.5 ? .none : .high)
-                    .frame(width: shown.width, height: shown.height)
-                    // The enlarged image reaches far outside the clipped box; only the event view takes input.
-                    .allowsHitTesting(false)
-                    .position(x: proxy.size.width / 2 + (0.5 - center.x) * shown.width,
-                              y: proxy.size.height / 2 + (0.5 - center.y) * shown.height)
-                ZoomEventView(
-                    isZoomed: state.isZoomed,
-                    onMagnify: { factor, anchor in zoom.zoom(to: zoom.state.scale * factor, anchor: anchor, in: geometry) },
-                    onPan: { zoom.pan(by: $0, in: geometry) },
-                    onToggle: { zoom.toggleActual(at: $0, in: geometry) })
+                ZStack {
+                    checkerboard(behind: frame, in: proxy.size)
+                    Image(drawn, scale: 1, label: Text(label))
+                        .resizable()
+                        // Past actual pixels every image pixel is a crisp square, so artifacts are easy to see.
+                        .interpolation(geometry.percent(at: state.scale) > 100.5 ? .none : .high)
+                        .frame(width: shown.width, height: shown.height)
+                        .position(x: frame.midX, y: frame.midY)
+                }
+                // The enlarged image reaches far outside the clipped box; only the event view takes input.
+                .allowsHitTesting(false)
+                .mask(alignment: .leading) {
+                    Rectangle()
+                        .frame(width: proxy.size.width * (visible.upperBound - visible.lowerBound))
+                        .offset(x: proxy.size.width * visible.lowerBound)
+                }
+                .accessibilityHidden(visible.upperBound <= visible.lowerBound)
+                if interactive {
+                    ZoomEventView(
+                        isZoomed: state.isZoomed,
+                        divider: divider,
+                        onDivider: onDivider ?? { _ in },
+                        onMagnify: { factor, anchor in zoom.zoom(to: zoom.state.scale * factor, anchor: anchor, in: geometry) },
+                        onPan: { zoom.pan(by: $0, in: geometry) },
+                        onToggle: { zoom.toggleActual(at: $0, in: geometry) })
+                }
             }
             .onChange(of: ReferenceKey(geometry: geometry, isReference: isReference), initial: true) { _, key in
                 if key.isReference { zoom.setReference(key.geometry, from: side) } else { zoom.clearReference(from: side) }
@@ -141,6 +163,19 @@ struct ZoomableImage: View {
         }
         .clipped()
         .contentShape(Rectangle())
+    }
+
+    /// Only the on-screen part of the image gets squares (a zoomed image can be many times the box), shifted
+    /// so the pattern stays fixed to the image while it pans.
+    private func checkerboard(behind frame: CGRect, in size: CGSize) -> some View {
+        let box = CGRect(origin: .zero, size: size).intersection(frame)
+        return Group {
+            if !box.isNull, box.width > 0, box.height > 0 {
+                Checkerboard(phase: CGPoint(x: frame.minX - box.minX, y: frame.minY - box.minY))
+                    .frame(width: box.width, height: box.height)
+                    .position(x: box.midX, y: box.midY)
+            }
+        }
     }
 }
 
@@ -154,6 +189,8 @@ private struct ReferenceKey: Equatable {
 /// the next responder so the window behaves as if this view were not there.
 private struct ZoomEventView: NSViewRepresentable {
     let isZoomed: Bool
+    let divider: CGFloat?
+    let onDivider: (CGFloat) -> Void
     let onMagnify: (CGFloat, CGPoint) -> Void
     let onPan: (CGSize) -> Void
     let onToggle: (CGPoint) -> Void
@@ -164,18 +201,35 @@ private struct ZoomEventView: NSViewRepresentable {
         view.onMagnify = onMagnify
         view.onPan = onPan
         view.onToggle = onToggle
+        view.onDivider = onDivider
         view.isZoomed = isZoomed
+        view.divider = divider
     }
 
     final class EventView: NSView {
         var onMagnify: (CGFloat, CGPoint) -> Void = { _, _ in }
         var onPan: (CGSize) -> Void = { _ in }
         var onToggle: (CGPoint) -> Void = { _ in }
+        var onDivider: (CGFloat) -> Void = { _ in }
         var isZoomed = false {
             didSet { if isZoomed != oldValue { window?.invalidateCursorRects(for: self) } }
         }
+        var divider: CGFloat? {
+            didSet { if divider != oldValue { window?.invalidateCursorRects(for: self) } }
+        }
         /// True between mouse down and up of a drag that pushed the closed hand.
         private var dragging = false
+        /// True while the split divider is being dragged (the drag moves it instead of panning).
+        private var draggingDivider = false
+        /// How far from the divider line a click still grabs it.
+        private static let dividerGrab: CGFloat = 8
+
+        /// The divider's hit area, when there is one.
+        private var dividerRect: CGRect? {
+            guard let divider else { return nil }
+            let line = bounds.width * divider
+            return CGRect(x: line - Self.dividerGrab, y: 0, width: 2 * Self.dividerGrab, height: bounds.height)
+        }
 
         override var isFlipped: Bool { true }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
@@ -202,6 +256,10 @@ private struct ZoomEventView: NSViewRepresentable {
         }
 
         override func mouseDown(with event: NSEvent) {
+            if let rect = dividerRect, rect.contains(convert(event.locationInWindow, from: nil)) {
+                draggingDivider = true
+                return
+            }
             if event.clickCount == 2 {
                 onToggle(anchor(event))
             } else if isZoomed, !dragging {
@@ -211,11 +269,18 @@ private struct ZoomEventView: NSViewRepresentable {
         }
 
         override func mouseDragged(with event: NSEvent) {
+            if draggingDivider, bounds.width > 0 {
+                onDivider(convert(event.locationInWindow, from: nil).x / bounds.width)
+                return
+            }
             guard dragging else { return }
             onPan(CGSize(width: event.deltaX, height: event.deltaY))
         }
 
-        override func mouseUp(with event: NSEvent) { endDrag() }
+        override func mouseUp(with event: NSEvent) {
+            draggingDivider = false
+            endDrag()
+        }
 
         private func endDrag() {
             guard dragging else { return }
@@ -225,6 +290,7 @@ private struct ZoomEventView: NSViewRepresentable {
 
         override func resetCursorRects() {
             if isZoomed { addCursorRect(bounds, cursor: .openHand) }
+            if let rect = dividerRect { addCursorRect(rect, cursor: .resizeLeftRight) }
         }
 
         // A view removed mid-drag must not leave the closed hand on the cursor stack.

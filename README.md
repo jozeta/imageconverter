@@ -29,6 +29,7 @@ Started 2026-11-13. The full design is in
 - Original | Result table under the preview (name, folder, dimensions, size); progress bar and Cancel above it during a run.
 - Pipeline rows reorder with a drag handle (Move Up/Down in the context menu).
 - Zoom the before/after preview with a trackpad pinch (or ⌘+ / ⌘− / ⌘0); both sides stay in sync, so encoder artifacts are easy to compare.
+- Compare modes (View ⌘1…⌘4): Side by side, Split with a draggable divider, Difference (amplified, with PSNR and mean error) and Single (hold Space or press B for Before); a checkerboard shows transparency; "Compare quality…" encodes the image at 40/60/80/95 % to pick a quality; the batch shows as a filmstrip, grid or list (with each file's result after a run).
 - Presets (save, save as, rename, delete, reset; three built-ins) and a collapsible before/after preview with a filmstrip of the batch.
 - Watermark step: text (font, colour, shadow, outline, tokens such as `{filename}` or `{year}` filled in per image) or an image (e.g. a PNG or SVG logo, optional shadow), placed once at one of nine positions or tiled over the whole image, with size relative to the image, opacity, margin, rotation and reusable templates.
 - Metadata step (remove location, camera details or everything; set artist, copyright and description) and Rename step with tokens ({date}, {camera}, {counter:000}, …) and a live example.
@@ -90,7 +91,7 @@ Started 2026-11-13. The full design is in
     with a live example
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
 - **Live preview** of the selected image before and after the pipeline, with its new name and
-  size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and a filmstrip of the batch (click a thumbnail or use ← →); pinch to zoom both sides in sync. Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
+  size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and the batch as a filmstrip, grid or list; pinch to zoom in sync in every comparison mode (side by side, split, difference, single), with a checkerboard behind transparent images and a quality ladder to choose the output quality. Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
   half-written files, and name collisions resolved with `_2`, `_3`, …
 
@@ -242,6 +243,10 @@ Presets and preview:
 | Archive TIFF (built-in) | No image steps, metadata off, TIFF LZW | n/a |
 | Show preview | View → Hide Preview / Show Preview (⌥⌘P); UserDefaults key `previewCollapsed` | shown |
 | Pipeline collapsed | The handle on the pipeline's edge or View → Collapse Pipeline (⌥⌘L); key `pipelineCollapsed` | expanded |
+| Compare mode | The Compare control in the preview header or View → Side by side / Split / Difference / Single (⌘1…⌘4); key `compareMode` | Side by side |
+| Split position | Where the split divider sits (2…98 % of the width); key `compareSplitPosition` | 50 % |
+| Batch view | Filmstrip, Grid or List under the preview; key `batchBrowserMode` | Filmstrip |
+| Grid / list height | Drag the bar above the grid or list (90…420 pt); key `batchBrowserHeight` | 180 pt |
 
 In *Overwrite originals* mode, a rename that only changes letter case keeps the original name.
 
@@ -272,7 +277,11 @@ folder for access and remember your answer. Until then it runs unsandboxed.
 
 1. Add images; the preview pane on the right shows the first one before and after the pipeline,
    with an Original | Result table underneath (name, folder, `W × H`, file size; the result size is estimated and shows "Estimating…" while it is computed).
-2. Click a thumbnail in the filmstrip, or focus it and press ← / →, to look at another image.
+2. Click a thumbnail in the filmstrip, or focus it and press ← / →, to look at another image. The
+   picker above it switches to a **Grid** (← → ↑ ↓ move the selection; drag the bar on top, or focus it
+   and press ↑ / ↓, to make the area taller or lower) or a **List** with each file's name, dimensions,
+   file size, the estimated output size (for the selected image, once it is known) and, after a run,
+   whether it was written, skipped or failed.
 3. Edit a step: the preview updates 300 ms later, and shows a spinner meanwhile. If an image can't
    be rendered, the reason is shown instead of the "after" image. The preview shows the name for
    that image alone; numbers like `_2` that avoid clashes within a batch appear only when you run it.
@@ -287,6 +296,22 @@ folder for access and remember your answer. Until then it runs unsandboxed.
    the zoomed region. Both sides show the same region when the pipeline has no Crop, Rotate / flip
    or Canvas step (resize and format changes are fine); with those steps the two sides are zoomed to
    the same relative position, which is not yet the same part of the photo.
+6. Choose how to compare with the **Compare** control in the preview header (or View ⌘1…⌘4):
+   - **Side by side**: Before and After next to each other (stacked when the pane is under 560 pt wide).
+   - **Split**: one image, Before left of a divider and After right of it. Drag the divider (or focus
+     the image and press ← / →); its position is remembered. Zoom and pan work as usual.
+   - **Difference**: the difference between the original and the really encoded result, amplified
+     four times on black, with PSNR, mean and maximum error underneath. It needs the size estimate
+     and the same pixel size on both sides; otherwise it says "Not available: the size changes".
+   - **Single**: After as large as possible. Hold Space with the pointer over the image, press B, or
+     click **Show Before** to see the original; the label says which one is shown.
+   Transparent areas show a light or dark checkerboard (8 pt squares) in every mode and in the
+   thumbnails.
+7. For JPEG, HEIC, JPEG 2000 and AVIF, **Compare quality…** opens four tiles with the selected image
+   encoded at 40, 60, 80 and 95 %, each with its file size and the change from the original. They
+   show the same zoomed region as the preview. Click a tile to use that quality (Target size and
+   Smart switch to Quality; Maximum size keeps its limit). The tiles are rendered in the background
+   and start again when you select another image or change the pipeline.
 
 ### Build a pipeline
 

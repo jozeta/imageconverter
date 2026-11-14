@@ -1,7 +1,8 @@
 import SwiftUI
 import ImageconverterCore
 
-/// The right-hand pane: before and after of the selected image, what it is renamed to, and the filmstrip.
+/// The right-hand pane: before and after of the selected image in the chosen comparison mode, what it is
+/// renamed to, and the batch browser.
 struct PreviewPane: View {
     @Bindable var model: AppModel
     /// Below this pane width the two images are stacked.
@@ -19,44 +20,98 @@ struct PreviewPane: View {
                 Spacer()
             } else {
                 GeometryReader { geometry in
-                    images(stacked: geometry.size.width < Self.stackedBelow)
+                    ComparisonStage(model: model, stacked: geometry.size.width < Self.stackedBelow)
                 }
                 .overlay { if model.isRenderingPreview { spinner } }
                 .accessibilityElement(children: .contain)
-                .accessibilityLabel("Before and after")
+                .accessibilityLabel("Before and after, \(model.compare.mode.title)")
                 .accessibilityZoomAction { action in
                     switch action.direction {
                     case .zoomIn: model.zoom.zoomIn()
                     case .zoomOut: model.zoom.zoomOut()
                     }
                 }
+                if showsQualityPanel {
+                    QualityPanel(model: model, stacked: narrow)
+                }
                 runProgress
                 // The bottom handle (pipeline collapse) is a compact mode: the details and thumbnails go too.
                 if !model.pipelineCollapsed {
                     infoTable
-                    Filmstrip(model: model)
+                    BatchBrowser(model: model)
                 }
             }
         }
+        .background(GeometryReader { proxy in
+            Color.clear.onChange(of: proxy.size.width < Self.stackedBelow, initial: true) { _, value in narrow = value }
+        })
         .lgPanel()
         .padding(LadaGlass.Spacing.m)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .lgBackdrop()
         .lgCompact()
-        .onChange(of: selectedSource, initial: true) { _, source in model.zoom.track(item: source) }
+        .onChange(of: selectedSource, initial: true) { _, source in
+            model.zoom.track(item: source)
+            model.compare.selectionChanged()
+        }
+        .task(id: model.differenceKey) { await model.renderDifference(for: model.differenceKey) }
+        .task(id: model.ladderKey) { await model.renderLadder(for: model.ladderKey) }
     }
+
+    @State private var narrow = false
+
+    private var supportsQuality: Bool { model.pipeline.output.format.supportsQuality }
+    private var showsQualityPanel: Bool { model.compare.showsQuality && supportsQuality && !model.isRunning }
 
     private var selectedSource: URL? { model.selectedItemIndex.map { model.items[$0].source } }
 
+    /// Title, chips and zoom on one row with the compare controls; in a narrow pane the controls go below.
     private var header: some View {
-        HStack {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: LadaGlass.Spacing.s) {
+                titleRow
+                Spacer(minLength: LadaGlass.Spacing.s)
+                compareControls(segmented: true)
+            }
+            VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
+                HStack { titleRow; Spacer() }
+                HStack(spacing: LadaGlass.Spacing.s) { compareControls(segmented: true); Spacer() }
+            }
+            VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
+                HStack { titleRow; Spacer() }
+                HStack(spacing: LadaGlass.Spacing.s) { compareControls(segmented: false); Spacer() }
+            }
+        }
+    }
+
+    private var titleRow: some View {
+        HStack(spacing: LadaGlass.Spacing.s) {
             Text("Preview").font(LadaGlass.Typography.subtitle)
             conditionChips
-            Spacer()
             if let percent = model.zoom.percent {
                 LGChip("\(percent) %", status: .neutral)
                     .accessibilityLabel("Zoom \(percent) percent")
             }
+        }
+    }
+
+    @ViewBuilder private func compareControls(segmented: Bool) -> some View {
+        let picker = Picker("Compare", selection: Bindable(model.compare).mode) {
+            ForEach(CompareMode.allCases) { Text($0.title).tag($0) }
+        }
+        .labelsHidden()
+        .fixedSize()
+        .help("How before and after are compared (⌘1…⌘4)")
+        .accessibilityLabel("Compare")
+        if segmented { picker.pickerStyle(.segmented) } else { picker.pickerStyle(.menu) }
+        if supportsQuality, !model.items.isEmpty {
+            Button(model.compare.showsQuality ? "Hide quality" : "Compare quality…") {
+                model.compare.showsQuality.toggle()
+            }
+            .buttonStyle(.lg(.secondary))
+            .fixedSize()
+            .disabled(model.isRunning)
+            .accessibilityLabel(model.compare.showsQuality ? "Hide the quality comparison" : "Compare quality")
         }
     }
 
@@ -80,45 +135,6 @@ struct PreviewPane: View {
             .padding(LadaGlass.Spacing.s)
             .lgSurface()
             .accessibilityLabel("Rendering the preview")
-    }
-
-    @ViewBuilder private func images(stacked: Bool) -> some View {
-        let layout = stacked ? AnyLayout(VStackLayout(spacing: LadaGlass.Spacing.m))
-                             : AnyLayout(HStackLayout(spacing: LadaGlass.Spacing.m))
-        let result = model.previewResult
-        let after = model.previewFailure == nil ? result?.after : nil
-        // Full-size images for zooming, only when they belong to the image on screen.
-        let full = model.sizeEstimate.flatMap { $0.item == result?.source ? $0.full : nil }
-        layout {
-            side(PreviewSide(kind: .before, title: "Before", image: result?.before, full: full?.original,
-                             pixelSize: result.map { CGSize(width: $0.sourceSize.0, height: $0.sourceSize.1) },
-                             isReference: after == nil, failure: nil))
-            side(PreviewSide(kind: .after, title: "After", image: after, full: full?.encoded,
-                             pixelSize: result.map { CGSize(width: $0.outputSize.0, height: $0.outputSize.1) },
-                             isReference: true, failure: model.previewFailure))
-        }
-    }
-
-    private func side(_ side: PreviewSide) -> some View {
-        VStack(spacing: LadaGlass.Spacing.xs) {
-            LGChip(side.title, status: .neutral)
-            ZStack {
-                if let image = side.image {
-                    ZoomableImage(image: image, fullImage: side.full,
-                                  pixelSize: side.pixelSize ?? CGSize(width: image.width, height: image.height),
-                                  label: "\(side.title) image", side: side.kind, isReference: side.isReference,
-                                  zoom: model.zoom)
-                } else if let failure = side.failure {
-                    Text(failure)
-                        .font(LadaGlass.Typography.body)
-                        .foregroundStyle(LadaGlass.Colors.warnText)
-                        .multilineTextAlignment(.center)
-                        .padding(LadaGlass.Spacing.m)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Progress bar and Cancel while a batch runs, directly above the table.
@@ -223,17 +239,4 @@ struct PreviewPane: View {
             .truncationMode(.middle)
             .help(path)
     }
-}
-
-/// What one side of the before/after comparison shows.
-private struct PreviewSide {
-    let kind: ZoomSide
-    let title: String
-    let image: CGImage?
-    /// The full-size bitmap for zooming, when it is ready.
-    let full: CGImage?
-    /// The image's full pixel size (the drawn bitmap may be smaller).
-    let pixelSize: CGSize?
-    let isReference: Bool
-    let failure: String?
 }
