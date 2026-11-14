@@ -281,3 +281,67 @@ final class JobRunnerTests: XCTestCase {
         XCTAssertFalse(ledger.isSettled(old))
     }
 }
+
+extension JobRunnerTests {
+    /// A condition's subfolder in the watched folder: the outputs there are on the ledger, so a recursive job never
+    /// reads them back as inputs.
+    func testSubfolderOutputsAreRecordedAndNeverInputs() async throws {
+        try drop("a.jpg")
+        let condition = ConditionalStep(conditions: [.width(.atLeast, 1)], then: [.subfolder("Sorted/{format}")])
+        var job = job(Pipeline(steps: [PipelineStep(operation: .condition(condition))], output: OutputSettings(format: .png)),
+                      mode: .sameFolder(suffix: "_new"))
+        job.recursive = true
+        let first = await run(job)
+        XCTAssertEqual(first.batch.written.map { $0.pathComponents.suffix(3).joined(separator: "/") }, ["Sorted/PNG/a.png"])
+        let second = await run(job)
+        XCTAssertEqual(second.batch.written, [])
+        XCTAssertEqual(second.unchanged, 2, "the source and its output in the subfolder")
+    }
+}
+
+extension JobRunnerTests {
+    /// Task 7: an overwrite job with a rename writes the renamed file into the watched folder and trashes the
+    /// original; the renamed file is on the ledger as an output, so the next run doesn't take it as a new input.
+    func testOverwriteRenameOutputsAreNeverReprocessed() async throws {
+        let original = try drop("a.jpg")
+        var pipeline = Pipeline(output: OutputSettings(format: .jpeg))
+        pipeline.rename = RenameOptions(isEnabled: true, pattern: "{name}_web")
+        let job = job(pipeline, mode: .overwrite)
+        let trashed = LockedLog<URL>()
+        let trash: Trasher = { url in
+            trashed.append(url)
+            try FileManager.default.removeItem(at: url)
+        }
+        let later: @Sendable () -> Date = { Date().addingTimeInterval(10) }
+        let first = await JobRunner.run(job, store: store, trash: trash, now: later)
+        XCTAssertEqual(first.batch.written.map(\.lastPathComponent), ["a_web.jpg"])
+        XCTAssertEqual(trashed.values.map(\.lastPathComponent), [original.lastPathComponent])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: original.path))
+        let second = await JobRunner.run(job, store: store, trash: trash, now: later)
+        XCTAssertEqual(second.batch.order, [], "a_web.jpg is the job's own output")
+        XCTAssertEqual(second.batch.written, [])
+        XCTAssertEqual(second.unchanged, 1)
+    }
+}
+
+extension JobRunnerTests {
+    /// Task 7 fix round 1: when the Trash fails after the renamed file was saved, the new file is an output and the
+    /// original's version is done, so the next run neither renames the output again nor retries the original.
+    func testOverwriteRenameWithAFailingTrashDoesNotMultiplyFiles() async throws {
+        try drop("a.jpg")
+        var pipeline = Pipeline(output: OutputSettings(format: .jpeg))
+        pipeline.rename = RenameOptions(isEnabled: true, pattern: "{name}_web")
+        let job = job(pipeline, mode: .overwrite)
+        let failingTrash: Trasher = { _ in throw CocoaError(.fileWriteNoPermission) }
+        let later: @Sendable () -> Date = { Date().addingTimeInterval(10) }
+        let first = await JobRunner.run(job, store: store, trash: failingTrash, now: later)
+        XCTAssertEqual(first.batch.written.map(\.lastPathComponent), ["a_web.jpg"])
+        XCTAssertEqual(first.batch.failures, [])
+        XCTAssertTrue(first.batch.entries.first?.note?.hasPrefix(FileCommitter.trashFailurePrefix) == true)
+        let second = await JobRunner.run(job, store: store, trash: failingTrash, now: later)
+        XCTAssertEqual(second.batch.order, [])
+        XCTAssertEqual(second.batch.written, [])
+        let names = try FileManager.default.contentsOfDirectory(atPath: input.path).sorted()
+        XCTAssertEqual(names, ["a.jpg", "a_web.jpg"])
+    }
+}

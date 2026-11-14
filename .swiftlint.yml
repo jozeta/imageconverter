@@ -1,6 +1,7 @@
 # SwiftLint (brew install swiftlint). The copied design system file is left as it is.
 excluded:
   - .build
+  - scripts
   - Sources/*/DesignSystem/LadaGlass.swift
 disabled_rules:
   - trailing_comma

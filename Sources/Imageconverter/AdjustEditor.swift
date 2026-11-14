@@ -33,7 +33,7 @@ struct AdjustEditor: View {
                     }
                 }
             }
-            Text("Double-click a label to reset it.").font(LadaGlass.Typography.label)
+            Text("Double-click a label or slider to reset it.").font(LadaGlass.Typography.label)
                 .foregroundStyle(LadaGlass.Colors.muted)
         }
     }
@@ -45,6 +45,9 @@ private struct AdjustSlider: View {
     @Binding var value: Double
 
     private var shown: Int { Int(AdjustOptions.clamped(value, to: field).rounded()) }
+
+    /// Displayed as 0 (the display rounds to integers), so the track stays grey.
+    private var isNeutral: Bool { abs(value) < 0.5 }
 
     private var valueText: String {
         // Signed fields show + and a real minus sign, like the step summary.
@@ -61,9 +64,10 @@ private struct AdjustSlider: View {
                 .onTapGesture(count: 2) { value = 0 }
                 .help("Double-click to reset")
                 .accessibilityHidden(true)
-            Slider(value: Binding(
+            AdjustSliderControl(value: Binding(
                 get: { AdjustOptions.clamped(value, to: field) },
-                set: { value = $0.rounded() }), in: field.range)
+                set: { value = $0 }), range: field.range)
+                .help("Double-click to reset")
                 .accessibilityLabel(field.displayName)
                 .accessibilityValue(field == .hue ? "\(shown) degrees" : "\(shown)")
                 .accessibilityAction(named: "Reset to 0") { value = 0 }

@@ -59,11 +59,13 @@ public struct CLIEnvironment: Sendable {
         self.cancel = cancel
     }
 
-    /// Results to stdout, progress and problems to stderr.
+    /// Results to stdout, progress and problems to stderr; presets and jobs from the app's data folder (its
+    /// container when the sandboxed app has one, see `CLIDataDirectory`).
     public static func standard(cancel: CancelToken = CancelToken()) -> CLIEnvironment {
         CLIEnvironment(
             out: { FileHandle.standardOutput.write(Data(($0 + "\n").utf8)) },
             err: { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }, cancel: cancel)
+            .with(dataDirectory: CLIDataDirectory.resolve(home: CLIDataDirectory.realHome))
     }
 }
 
@@ -77,6 +79,12 @@ enum CLIText {
       imageconverter jobs list [--json]
       imageconverter jobs run NAME [--quiet|--json]
       imageconverter --version | --help
+
+    Global options:
+      --data-dir DIR                          Read presets and jobs from DIR (default: the app's container,
+                                              else ~/Library/Application Support/imageconverter). Reading the
+                                              container may make macOS ask whether Terminal may access another
+                                              app's data; --data-dir with a folder of your own avoids that.
 
     Convert options:
       --preset NAME | --pipeline FILE.json   Start from a saved preset, or a pipeline/preset JSON file

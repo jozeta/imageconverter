@@ -82,11 +82,11 @@ public actor PreviewRenderer {
     /// file for `mode` (nil: new-folder mode with no folder yet, named as if a folder existed). It
     /// plans the one item alone, so the batch's collision numbers (`_2`) are not shown.
     /// Conditions are resolved for this item first (from its header), so the preview shows its own branch.
-    public func render(item: InputItem, index: Int, pipeline unresolved: Pipeline, mode: OutputMode? = nil) async
-        -> PreviewOutcome {
+    public func render(item: InputItem, index: Int, pipeline unresolved: Pipeline, mode: OutputMode? = nil,
+                       presets: PresetLibrary = .standard) async -> PreviewOutcome {
         let cancelled = PreviewOutcome.failed(reason: "Cancelled")
         if Task.isCancelled { return cancelled }
-        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels)
+        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         let pipeline = resolved.pipeline
         if resolved.disposition != .process { return unchanged(item: item, index: index, resolved: resolved, mode: mode) }
         let assets = watermarkAssets(for: pipeline)
@@ -117,11 +117,11 @@ public actor PreviewRenderer {
         guard let after = fit(result) else {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
-        let destination = outputDestination(for: item, index: index, pipeline: pipeline, mode: mode)
+        let (destination, outputName) = outputDestination(for: item, index: index, resolved: resolved, mode: mode)
         let fileSize = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
         return .ready(PreviewResult(
             before: before, after: after, source: item.source, sourceName: item.source.lastPathComponent,
-            outputName: destination.lastPathComponent,
+            outputName: outputName,
             sourceSize: (source.width, source.height), outputSize: (result.width, result.height),
             outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: resolved.statusNote))
     }
@@ -134,29 +134,39 @@ public actor PreviewRenderer {
         } catch {
             return .failed(reason: ConversionError.unreadable.reason)
         }
-        let destination = resolved.disposition == .copyOriginal
-            ? outputDestination(for: item, index: index, pipeline: resolved.pipeline, mode: mode, copy: true)
-            : item.source
+        let (destination, name) = resolved.disposition == .copyOriginal
+            ? outputDestination(for: item, index: index, resolved: resolved, mode: mode)
+            : (item.source, item.source.lastPathComponent)
         let size = (loaded.image.width, loaded.image.height)
         let fileSize = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
         return .ready(PreviewResult(
             before: loaded.display, after: loaded.display, source: item.source, sourceName: item.source.lastPathComponent,
-            outputName: resolved.disposition == .skip ? ConditionalStep.skippedReason : destination.lastPathComponent, sourceSize: size,
+            outputName: resolved.disposition == .skip ? ConditionalStep.skippedReason : name, sourceSize: size,
             outputSize: size, outputURL: destination, sourceFileSize: fileSize, disposition: resolved.disposition,
             statusNote: resolved.statusNote))
     }
 
-    private func outputDestination(for item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode?,
-                                   copy: Bool = false) -> URL {
+    /// Where the item would be written, and its name as shown: with a subfolder, `Portraits/IMG_1.jpg`.
+    private func outputDestination(for item: InputItem, index: Int, resolved: ResolvedPipeline,
+                                   mode: OutputMode?) -> (URL, String) {
+        let pipeline = resolved.pipeline
+        let copy = resolved.disposition == .copyOriginal
         let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline, isCopy: copy)
-        let target = copy ? OutputTarget.copyOfOriginal(item, baseName: base)
-            : OutputTarget(item: item, format: pipeline.output.format, baseName: base)
+        let folders = mode == .overwrite ? [] : RenameRendering.extras(for: item, index: index, job: resolved).subfolder
+        let target = copy ? OutputTarget.copyOfOriginal(item, baseName: base, subfolder: folders)
+            : OutputTarget(item: item, format: pipeline.output.format, baseName: base, subfolder: folders)
         let plan = OutputPlanner.plan(
             [target], mode: mode ?? .newFolder(FileManager.default.temporaryDirectory), fileExists: { _ in false })
-        guard let destination = plan.first?.destination else { return item.source }
+        guard let destination = plan.first?.destination else { return (item.source, item.source.lastPathComponent) }
+        let name = (target.subfolder + [destination.lastPathComponent]).joined(separator: "/")
         // No mode yet: show the name in the source's own folder (planning there would call it `a_2`).
-        if mode == nil { return item.source.deletingLastPathComponent().appendingPathComponent(destination.lastPathComponent) }
-        return destination
+        if mode == nil {
+            let folder = target.subfolder.reduce(item.source.deletingLastPathComponent()) {
+                $0.appendingPathComponent($1, isDirectory: true)
+            }
+            return (folder.appendingPathComponent(destination.lastPathComponent), name)
+        }
+        return (destination, name)
     }
 
     private func sourceImages(for url: URL) throws -> CachedSource {

@@ -125,7 +125,8 @@ struct ActionList: View {
 
     /// Which one-off actions the list already has (a second one would only override the first).
     private struct Present {
-        var copy = false, skip = false, output = false, metadata = false, rename = false
+        var copy = false, skip = false, output = false, metadata = false, rename = false, subfolder = false
+        var stop = false
     }
 
     private var has: Present {
@@ -137,22 +138,39 @@ struct ActionList: View {
             case .output: result.output = true
             case .metadata: result.metadata = true
             case .rename: result.rename = true
-            case .step: break
+            case .subfolder: result.subfolder = true
+            case .stop: result.stop = true
+            case .step, .finderTags, .preset, .addKeywords, .note: break
             }
         }
         return result
     }
 
+    private var isFull: Bool { actions.count >= ConditionalStep.maxActions }
+
     private var addMenu: some View {
         let present = has
         return Menu("+ Add") {
-            Section("Image steps") {
+            Section("Steps") {
                 ForEach(StepKind.allCases.filter { $0 != .condition }, id: \.self) { kind in
                     Button(kind.displayName) { append(.step(PipelineStep(operation: AppModel.newOperation(kind)))) }
                 }
+                Button("Apply a saved preset…") { append(.preset(PresetLink(PresetStore.builtIns[0]))) }
             }
-            Section("File") {
+            Section("Output & files") {
                 Button("Set output…") { append(.output(defaults.output)) }.disabled(present.output)
+                Button("Set rename…") {
+                    var rename = defaults.rename
+                    rename.isIncluded = true
+                    rename.isEnabled = true
+                    append(.rename(rename))
+                }
+                .disabled(present.rename)
+                Button("Save into subfolder…") { append(.subfolder("{date:yyyy}/{date:MM}")) }.disabled(present.subfolder)
+                Button("Add Finder tags…") { append(.finderTags(["Converted"])) }
+                Button("Copy original unchanged") { append(.copyOriginal) }.disabled(present.copy)
+            }
+            Section("Metadata") {
                 Button("Set metadata…") {
                     var metadata = defaults.metadata
                     metadata.isIncluded = true
@@ -160,26 +178,23 @@ struct ActionList: View {
                     append(.metadata(metadata))
                 }
                 .disabled(present.metadata)
-                Button("Set rename…") {
-                    var rename = defaults.rename
-                    rename.isIncluded = true
-                    rename.isEnabled = true
-                    append(.rename(rename))
-                }
-                .disabled(present.rename || defaults.renameLockedHelp != nil)
-                .help(defaults.renameLockedHelp ?? "")
+                Button("Add keywords…") { append(.addKeywords(["Selected"])) }
             }
-            Section("Instead") {
-                Button("Copy original unchanged") { append(.copyOriginal) }.disabled(present.copy)
+            Section("Flow") {
                 Button("Skip file") { append(.skip) }.disabled(present.skip)
+                Button("Stop checking later conditions") { append(.stop) }.disabled(present.stop)
+                Button("Add a note to the report…") { append(.note("Checked: {name}")) }
             }
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
+        .disabled(isFull)
+        .help(isFull ? "At most \(ConditionalStep.maxActions) actions" : "")
         .accessibilityLabel("Add an action to \(title)")
     }
 
     private func append(_ action: ConditionalAction) {
+        guard !isFull else { return }
         syncIDs()
         actions.append(action)
         ids.append()
@@ -231,6 +246,7 @@ private struct ActionRow: View {
     let dragStarted: () -> Void
     let targetChanged: (Bool) -> Void
     let dropped: (String) -> Bool
+    @Environment(\.addDroppedFiles) private var addDroppedFiles
     @State private var isTargeted = false
     @State private var handleHovered = false
 
@@ -242,6 +258,12 @@ private struct ActionRow: View {
         case .rename: return "Set rename"
         case .copyOriginal: return "Copy original"
         case .skip: return "Skip file"
+        case .subfolder: return "Save into subfolder"
+        case .finderTags: return "Add Finder tags"
+        case .preset: return "Apply preset"
+        case .addKeywords: return "Add keywords"
+        case .stop: return "Stop"
+        case .note: return "Add a note"
         }
     }
 
@@ -253,12 +275,14 @@ private struct ActionRow: View {
         case .rename(let options): return options.summary
         case .copyOriginal: return "writes the file unchanged"
         case .skip: return "nothing is written"
+        case .stop: return "later conditions aren't checked for this image"
+        default: return action.summary
         }
     }
 
     private var hasEditor: Bool {
         switch action {
-        case .copyOriginal, .skip: return false
+        case .copyOriginal, .skip, .stop: return false
         default: return true
         }
     }
@@ -295,6 +319,8 @@ private struct ActionRow: View {
         }
         .dropDestination(for: String.self) { payloads, _ in
             guard let payload = payloads.first else { return false }
+            // Only an action's own payload reorders; file locations offered as text go to the window's file drop.
+            if !DropPayload.fileURLs(in: payloads).isEmpty { return addDroppedFiles(payloads) }
             return dropped(payload)
         } isTargeted: {
             isTargeted = $0
@@ -323,14 +349,13 @@ private struct ActionRow: View {
                 get: { if case .metadata(let current) = action { return current } else { return options } },
                 set: { action = .metadata($0) }))
         case .rename(let options):
-            if let help = defaults.renameLockedHelp {
-                Text(help).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.warnText)
-            }
             RenameEditor(options: Binding(
                 get: { if case .rename(let current) = action { return current } else { return options } },
                 set: { action = .rename($0) }), example: "")
-        case .copyOriginal, .skip:
+        case .copyOriginal, .skip, .stop:
             EmptyView()
+        default:
+            FileActionEditor(action: $action)
         }
     }
 

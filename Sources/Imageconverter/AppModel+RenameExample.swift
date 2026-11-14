@@ -33,7 +33,8 @@ extension AppModel {
         // With conditions the example uses this image's branch (its rename, format and copy) and its counter
         // number in the batch, exactly like the preview's output name.
         if pipeline.hasConditions, let selected = selectedItemIndex,
-           let conditions = await factsCache.preview(of: selected, in: items, pipeline: pipeline) {
+           let conditions = await factsCache.preview(of: selected, in: items, pipeline: pipeline,
+                                                    presets: presetLibrary) {
             guard !Task.isCancelled else { return }
             index = conditions.counterIndex
             skipped = conditions.resolved.disposition == .skip

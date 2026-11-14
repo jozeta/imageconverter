@@ -170,10 +170,10 @@ struct WatermarkEditor: View {
             Button("Choose image…") { chooseImage() }
                 .help("PNG, JPEG, HEIC, TIFF, … or a plain SVG logo")
             if !image.path.isEmpty {
-                Button("Remove") { updateImage { $0.path = "" } }
+                Button("Remove") { updateImage { $0.path = ""; $0.bookmark = nil } }
             }
         }
-        WatermarkThumbnail(path: image.path)
+        WatermarkThumbnail(watermark: image)
         WatermarkShadowControl(shadow: Binding(get: { image.shadow }, set: { new in updateImage { $0.shadow = new } }))
     }
 
@@ -184,6 +184,7 @@ struct WatermarkEditor: View {
         panel.canChooseDirectories = false
         panel.message = "Choose the watermark image"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        updateImage { $0.path = url.path }
+        // The bookmark lets the sandboxed app open the image again after a relaunch (presets, templates).
+        updateImage { $0 = ImageWatermark.chosen(url, shadow: $0.shadow) }
     }
 }

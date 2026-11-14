@@ -20,21 +20,37 @@ public struct WatermarkAssets: @unchecked Sendable {
 
     /// Loads each distinct image path used by an enabled watermark step, once, with the pixel guard.
     /// A path that can't be read (missing, a directory, corrupt, too large, an unsafe SVG) is left out, with
-    /// its reason. SVG files are rasterised here (see `SVGRasterizer`).
+    /// its reason. SVG files are rasterised here (see `SVGRasterizer`). Steps that share a path but carry
+    /// different bookmarks (an old step without one, a preset's step with one) are each tried until one opens.
     public static func load(for pipeline: Pipeline, maxPixels: Int) -> WatermarkAssets {
         var images: [String: CGImage] = [:]
         var errors: [String: ConversionError] = [:]
-        var tried = Set<String>()
+        var tried = Set<Key>()
         for step in pipeline.steps where step.isEnabled {
             guard case .watermark(let options) = step.operation,
                   case .image(let watermark) = options.content,
-                  tried.insert(watermark.path).inserted else { continue }
-            switch read(watermark.path, maxPixels: maxPixels) {
-            case .success(let image): images[watermark.path] = image
-            case .failure(let error): errors[watermark.path] = error
+                  images[watermark.path] == nil,
+                  tried.insert(Key(watermark)).inserted else { continue }
+            switch read(watermark, maxPixels: maxPixels) {
+            case .success(let image):
+                images[watermark.path] = image
+                errors[watermark.path] = nil
+            case .failure(let error):
+                errors[watermark.path] = error
             }
         }
         return WatermarkAssets(images: images, errors: errors)
+    }
+
+    /// A watermark image as loading tells them apart: its path and its bookmark.
+    struct Key: Hashable {
+        let path: String
+        let bookmark: Data?
+
+        init(_ watermark: ImageWatermark) {
+            path = watermark.path
+            bookmark = watermark.bookmark
+        }
     }
 
     /// The loaded image for `path`, or nil when it wasn't loaded.
@@ -62,9 +78,16 @@ public struct WatermarkAssets: @unchecked Sendable {
     /// How many images were loaded.
     var count: Int { images.count }
 
-    private static func read(_ path: String, maxPixels: Int) -> Result<CGImage, ConversionError> {
-        guard !path.isEmpty else { return .failure(.watermarkImageUnreadable) }
-        let url = URL(fileURLWithPath: path)
+    /// Through the watermark's bookmark when it has one (see `ImageWatermark.withFile`).
+    static func read(_ watermark: ImageWatermark, maxPixels: Int) -> Result<CGImage, ConversionError> {
+        guard !watermark.path.isEmpty else { return .failure(.watermarkImageUnreadable) }
+        return watermark.withFile { url in
+            guard let url else { return .failure(.watermarkImageNoAccess) }
+            return read(url, maxPixels: maxPixels)
+        }
+    }
+
+    private static func read(_ url: URL, maxPixels: Int) -> Result<CGImage, ConversionError> {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
               !isDirectory.boolValue else { return .failure(.watermarkImageUnreadable) }

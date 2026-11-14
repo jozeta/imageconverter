@@ -4,10 +4,8 @@ import Foundation
 /// reopen a folder the user picked once), resolved with stale detection, and access started only around the
 /// work that needs it. Without the sandbox the plain URL works, so every step falls back to it.
 public enum FolderAccess {
-    /// True inside the App Sandbox (milestone 6); the plain-URL fallbacks only apply outside it.
-    public static var isSandboxed: Bool {
-        ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
-    }
+    /// True inside the App Sandbox (`Sandbox.isActive`); the plain-URL fallbacks only apply outside it.
+    public static var isSandboxed: Bool { Sandbox.isActive }
 
     /// A security-scoped bookmark of `url` (read-write, app scope), or a plain bookmark when that can't be made
     /// (outside the sandbox it may not be; a plain one still follows a moved folder). Nil when neither works.
@@ -19,28 +17,68 @@ public enum FolderAccess {
         return try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil)
     }
 
+    /// The bookmark worth keeping in the current process: inside the real sandbox only a security-scoped one (a
+    /// plain bookmark resolves there but gives no access); outside it `bookmark(for:)`, plain as a fallback.
+    public static func usableBookmark(for url: URL) -> Data? {
+        guard Sandbox.isEnforced else { return bookmark(for: url) }
+        return try? url.bookmarkData(options: [.withSecurityScope], includingResourceValuesForKeys: nil, relativeTo: nil)
+    }
+
     public struct Resolved: Equatable, Sendable {
         public var url: URL
         /// A new bookmark when the stored one was stale (the folder moved or the volume changed); store it.
         public var refreshed: Data?
+        /// True when the bookmark resolved as security-scoped (only those can give sandbox access).
+        public var isSecurityScoped: Bool
 
-        public init(url: URL, refreshed: Data? = nil) {
+        public init(url: URL, refreshed: Data? = nil, isSecurityScoped: Bool = true) {
             self.url = url
             self.refreshed = refreshed
+            self.isSecurityScoped = isSecurityScoped
         }
     }
 
-    /// The folder `data` points to now, or nil when it can't be found (deleted, its volume gone, not a folder).
+    /// Bookmark data comes from untrusted files (presets, templates, jobs, the journal): never mount a volume or
+    /// show UI to resolve it (a bookmark naming an `smb://` server must not make the system connect to it), and
+    /// ignore anything larger than a real bookmark.
+    static let resolveOptions: URL.BookmarkResolutionOptions = [.withoutUI, .withoutMounting]
+    public static let maxBookmarkSize = 65_536
+
+    /// The URL `data` points to, security-scoped when possible; nil for oversized or unresolvable data.
+    private static func resolveURL(_ data: Data, stale: inout Bool) -> (URL, scoped: Bool)? {
+        guard !data.isEmpty, data.count <= maxBookmarkSize else { return nil }
+        if let url = try? URL(resolvingBookmarkData: data, options: resolveOptions.union(.withSecurityScope),
+                              relativeTo: nil, bookmarkDataIsStale: &stale) {
+            return (url, true)
+        }
+        if let url = try? URL(resolvingBookmarkData: data, options: resolveOptions, relativeTo: nil,
+                              bookmarkDataIsStale: &stale) {
+            return (url, false)
+        }
+        return nil
+    }
+
+    /// The folder `data` points to now, or nil when it can't be found (deleted, its volume gone or not mounted,
+    /// not a folder).
     public static func resolve(_ data: Data) -> Resolved? {
         var stale = false
-        let url = (try? URL(resolvingBookmarkData: data, options: [.withSecurityScope, .withoutUI],
-                            relativeTo: nil, bookmarkDataIsStale: &stale))
-            ?? (try? URL(resolvingBookmarkData: data, options: [.withoutUI], relativeTo: nil,
-                         bookmarkDataIsStale: &stale))
-        guard let url, isFolder(url) else { return nil }
+        guard let (url, scoped) = resolveURL(data, stale: &stale),
+              // Checked with access on: in the sandbox the folder can't even be looked at without it.
+              withAccess([url], { isFolder(url) }) else { return nil }
         // The new bookmark must be made while access is on, or a sandboxed app can't create it.
-        let refreshed = stale ? withAccess([url]) { bookmark(for: url) } : nil
-        return Resolved(url: url, refreshed: refreshed)
+        let refreshed = stale ? withAccess([url]) { usableBookmark(for: url) } : nil
+        return Resolved(url: url, refreshed: refreshed, isSecurityScoped: scoped)
+    }
+
+    /// The file (not a folder) `data` points to now, or nil when it can't be found. A watermark image's bookmark.
+    public static func resolveFile(_ data: Data) -> Resolved? {
+        var stale = false
+        guard let (url, scoped) = resolveURL(data, stale: &stale) else { return nil }
+        var isDirectory: ObjCBool = false
+        let exists = withAccess([url]) { FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) }
+        guard exists, !isDirectory.boolValue else { return nil }
+        let refreshed = stale ? withAccess([url]) { usableBookmark(for: url) } : nil
+        return Resolved(url: url, refreshed: refreshed, isSecurityScoped: scoped)
     }
 
     /// Runs `body` with access to `urls` started (for those that are security-scoped) and stops it afterwards.
@@ -60,11 +98,18 @@ public enum FolderAccess {
     public final class Grant: @unchecked Sendable {
         private var started: [URL]
         private let lock = NSLock()
+        /// How many of the URLs had security-scoped access started (a plain URL can't be started).
+        public let startedCount: Int
 
         public init(_ urls: [URL]) {
             // A plain URL returns false here, and needs no stop.
             started = urls.filter { $0.startAccessingSecurityScopedResource() }
+            startedCount = started.count
         }
+
+        /// Whether this grant really gives access: outside the real sandbox any URL works; inside it only a
+        /// started security scope does.
+        public var givesAccess: Bool { !Sandbox.isEnforced || startedCount > 0 }
 
         deinit { release() }
 

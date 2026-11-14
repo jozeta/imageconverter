@@ -144,7 +144,7 @@ final class RunJournalTests: XCTestCase {
         XCTAssertEqual(crashed.completed, [0], "item 0 came from the completion log")
         XCTAssertNotNil(crashed.items[1].size, "overwrite mode records each source's fingerprint")
         let plan = ResumePlan.make(journal: crashed, existing: [],
-                                   fileExists: { FileManager.default.fileExists(atPath: $0) },
+                                   isReadable: { FileManager.default.isReadableFile(atPath: $0) },
                                    directoryExists: { _ in true })
         XCTAssertFalse(plan.toRun.map(\.source).contains(urls[1]), "item 1 was replaced and must not run again")
         XCTAssertTrue(plan.alreadyReplaced.contains(urls[1]))

@@ -50,7 +50,7 @@ public enum Geometry {
             // Only ever enlarges, so "don't enlarge" doesn't apply.
             guard factor > 1 else { return .unchanged }
             ratio = factor
-        case .percent, .physical:
+        case .percent, .physical, .printSheet:
             // Explicit sizes: "don't enlarge" doesn't apply.
             ratio = factor
         default:
@@ -76,12 +76,27 @@ public enum Geometry {
             return dimension(edge) / min(srcW, srcH)
         case .minimum(let wide, let high):
             return max(dimension(wide) / srcW, dimension(high) / srcH)
+        case .physical, .printSheet:
+            return printFactor(mode, width: srcW, height: srcH)
+        case .exactSize:
+            return nil
+        }
+    }
+
+    /// The scale for a print size: two sides fit inside, one side keeps the aspect ratio, a sheet is turned to
+    /// the image's orientation.
+    private static func printFactor(_ mode: ResizeMode, width srcW: Double, height srcH: Double) -> Double? {
+        switch mode {
         case .physical(let wide, let high, let unit, let dpi):
-            // Two sides fit inside; one side keeps the aspect ratio.
             let pixels = { (side: Double?) in side.flatMap { physicalPixels($0, unit: unit, dpi: dpi) } }
             return [pixels(wide).map { Double($0) / srcW }, pixels(high).map { Double($0) / srcH }]
                 .compactMap { $0 }.min()
-        case .exactSize:
+        case .printSheet(let long, let short, let unit, let dpi):
+            guard let longPixels = physicalPixels(long, unit: unit, dpi: dpi),
+                  let shortPixels = physicalPixels(short, unit: unit, dpi: dpi) else { return nil }
+            let box = srcW >= srcH ? (Double(longPixels), Double(shortPixels)) : (Double(shortPixels), Double(longPixels))
+            return min(box.0 / srcW, box.1 / srcH)
+        default:
             return nil
         }
     }

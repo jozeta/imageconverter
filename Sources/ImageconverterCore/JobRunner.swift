@@ -56,6 +56,8 @@ public enum JobRunner {
         defer { lock.release() }
 
         let presets = presetStore?.loadAll().presets ?? PresetStore.builtIns
+        // "Apply preset" actions in the job's conditions read the same presets.
+        let library = presetStore.map { PresetLibrary.folder($0.folder) } ?? .builtInsOnly
         guard let pipeline = job.resolvedPipeline(presets: presets) else {
             return finish(BatchReport(), total: 0, selection: Selection(), problem: "The job's preset no longer exists.")
         }
@@ -73,7 +75,7 @@ public enum JobRunner {
 
         let batch = await BatchRunner.run(selection.items, pipeline: pipeline, mode: job.output, maxPixels: maxPixels,
                                           concurrency: concurrency, memoryBudgetPixels: memoryBudgetPixels,
-                                          trash: trash, progress: progress)
+                                          trash: trash, presets: library, progress: progress)
         var problems: [String] = []
         let (gaveUp, ledgerProblem) = record(batch, selection: selection, loaded: ledger, store: store, id: job.id)
         if let ledgerProblem { problems.append(ledgerProblem) }

@@ -165,7 +165,7 @@ struct AccordionCard<Header: View, Content: View>: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: LadaGlass.Spacing.s) {
                 Button {
-                    isExpanded.toggle()
+                    SidebarMotion.perform { isExpanded.toggle() }
                 } label: {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
@@ -179,7 +179,7 @@ struct AccordionCard<Header: View, Content: View>: View {
                 .disabled(!canExpand)
                 .accessibilityLabel(showsContent ? "Collapse \(title)" : "Expand \(title)")
                 header
-                    .onTapGesture { if canExpand { isExpanded.toggle() } }
+                    .onTapGesture { if canExpand { SidebarMotion.perform { isExpanded.toggle() } } }
             }
             if showsContent {
                 content.padding(.top, LadaGlass.Spacing.xs)
@@ -190,6 +190,6 @@ struct AccordionCard<Header: View, Content: View>: View {
         .padding(.vertical, LadaGlass.Spacing.s)
         .frame(maxWidth: .infinity, alignment: .leading)
         .lgSurface()
-        .onChange(of: canExpand) { _, can in if !can { isExpanded = false } }
+        .onChange(of: canExpand) { _, can in if !can { SidebarMotion.perform { isExpanded = false } } }
     }
 }

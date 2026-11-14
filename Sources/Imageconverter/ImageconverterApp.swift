@@ -17,6 +17,16 @@ struct ImageconverterApp: App {
     init() {
         // A SwiftPM executable starts as a background process; make it a regular app with a window.
         NSApplication.shared.setActivationPolicy(.regular)
+        #if DEBUG
+        // `swift run` has no bundle icon; use the repo's Resources/AppIcon.png when it is there.
+        let icon = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Resources/AppIcon.png").standardizedFileURL
+        if let image = NSImage(contentsOf: icon) { NSApplication.shared.applicationIconImage = image }
+        // `-debugSimulateSandbox`: the folder-access questions appear as in the sandboxed app (screenshots).
+        if CommandLine.arguments.contains("-debugSimulateSandbox") { Sandbox.simulated = true }
+        #endif
+        // Remembered folder grants are opened once, at launch, and stay open.
+        AccessStore.shared.activate()
     }
 
     var body: some Scene {
@@ -35,6 +45,8 @@ struct ImageconverterApp: App {
             JobsCommands()
             HistoryCommands()
             PrivacyCommands()
+            FolderAccessCommands()
+            AboutCommands()
             CommandGroup(after: .saveItem) {
                 Button("Save Preset") { model.saveCurrent() }
                     .keyboardShortcut("s", modifiers: .command)
@@ -80,10 +92,20 @@ struct ImageconverterApp: App {
         }
         .defaultSize(width: 900, height: 560)
 
+        Window("About imageconverter", id: AboutView.windowID) {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+
         Window("Privacy", id: PrivacyWindow.windowID) {
             PrivacyWindow()
         }
         .defaultSize(width: 480, height: 520)
+
+        Window("Folder Access", id: FolderAccessWindow.windowID) {
+            FolderAccessWindow(store: AccessStore.shared, busy: model.isRunning || jobs.runningCount > 0)
+        }
+        .defaultSize(width: 520, height: 380)
 
         MenuBarExtra("imageconverter", systemImage: jobs.runningCount > 0 ? "arrow.triangle.2.circlepath" : "photo.stack",
                      isInserted: $jobs.keepInMenuBar) {
@@ -112,13 +134,13 @@ extension ImageconverterApp {
             Toggle(mode.title, isOn: Binding(get: { model.compare.mode == mode },
                                              set: { if $0 { model.compare.mode = mode } }))
                 .keyboardShortcut(KeyEquivalent(mode.shortcut), modifiers: .command)
-                .disabled(model.previewCollapsed)
+                .disabled(model.previewCollapsed || model.items.isEmpty)
         }
     }
 
     /// Zoom the before/after preview; ⌘= also zooms in (see `ZoomController.installKeyMonitor`).
     @ViewBuilder private var zoomCommands: some View {
-        let disabled = !model.zoom.canZoom || model.previewCollapsed || model.previewResult == nil
+        let disabled = !model.zoom.canZoom || model.previewCollapsed || model.items.isEmpty || model.previewResult == nil
         Button("Zoom In") { model.zoom.zoomIn() }
             .keyboardShortcut("+", modifiers: .command)
             .disabled(disabled)
@@ -161,6 +183,7 @@ private struct MainWindowContent: View {
                minHeight: sizer.heightRange.lowerBound, maxHeight: sizer.heightRange.upperBound,
                alignment: .topLeading)
         .clipped()
+        .windowDropTarget(model: model)
         .interruptedRunSheet(model: model)
         .background(WindowAccessor {
             sizer.attach($0)
@@ -186,8 +209,10 @@ private struct MainWindowContent: View {
     /// `-debugShowHistory` opens the History window.
     private func openJobsWindowIfAsked(_ arguments: [String]) {
         if arguments.contains("-debugShowJobs") || arguments.contains("-debugEditJob") { openWindow(id: JobsView.windowID) }
+        if arguments.contains("-debugShowAbout") { openWindow(id: AboutView.windowID) }
         if arguments.contains("-debugShowPrivacy") { openWindow(id: PrivacyWindow.windowID) }
         if arguments.contains("-debugShowHistory") { openWindow(id: HistoryView.windowID) }
+        if arguments.contains("-debugShowFolderAccess") { openWindow(id: FolderAccessWindow.windowID) }
     }
 
     /// Debug-only launch options for screenshots: `-debugAddFiles <path>…` adds images at launch,

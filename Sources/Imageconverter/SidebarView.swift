@@ -12,42 +12,143 @@ struct SidebarView: View {
     @State private var showReport = false
     #endif
     @State private var showErrorLog = false
+    /// The natural heights of the sidebar's parts, as last measured.
+    @State private var parts: [SidebarPart: CGFloat] = [:]
+    /// The window content height on screen: animated towards `WindowSizer.targetHeight` with
+    /// `SidebarMotion`; the window follows it frame by frame. Nil before the first measurement.
+    @State private var shownHeight: CGFloat?
 
+    private static let panelPadding = LadaGlass.Spacing.l * LadaGlass.Density.paddingScale
+    private static let outerPadding = LadaGlass.Spacing.m
     /// Panel padding plus the outer padding, top and bottom.
-    private static let verticalChrome = 2 * LadaGlass.Spacing.l * LadaGlass.Density.paddingScale
-        + 2 * LadaGlass.Spacing.m
+    private static let verticalChrome = 2 * panelPadding + 2 * outerPadding
+
+    private var sizer: WindowSizer { model.windowSizer }
 
     var body: some View {
         GeometryReader { viewport in
+            let inner = viewport.size.height - Self.verticalChrome
+            // Below this the sidebar scrolls as a whole (only when even the collapsed content doesn't fit).
+            let minimum = (parts[.top] ?? 0) + LadaGlass.Spacing.m + (parts[.bottom] ?? 0)
             ScrollView {
-                VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
-                    PresetBar(model: model)
-                    dropZone
-                    pipelineHandle
-                    countRow
-                    PipelineSection(model: model, settings: settings)
-                    runSection
-                    reportSection
-                }
-                // The natural height (not the stretched one), so the measurement never feeds back on the window.
-                .background {
-                    GeometryReader {
-                        Color.clear.preference(key: SidebarContentHeightKey.self,
-                                               value: $0.size.height + Self.verticalChrome)
+                VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
+                        PresetBar(model: model)
+                        dropZone
+                        pipelineHandle
+                        countRow
+                        PipelineHeader(model: model)
                     }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .measured(.top)
+                    if !model.pipelineCollapsed || sizer.pipelineReveal > 0 { pipelineArea }
+                    VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
+                        runSection
+                        reportSection
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
+                    .measured(.bottom)
+                    .padding(.top, LadaGlass.Spacing.m)
                 }
-                // With the preview open the window can be taller than the content: the panel fills it.
-                .frame(minHeight: max(viewport.size.height - Self.verticalChrome, 0), alignment: .top)
-                .lgPanel()
-                .padding(LadaGlass.Spacing.m)
+                // Laid out in the window as it is at this frame: Output and Run at the bottom.
+                .frame(height: max(inner, minimum), alignment: .top)
+                .padding(Self.panelPadding)
+                .lgPanel(padding: 0)
+                .padding(Self.outerPadding)
+            }
+            .scrollIndicators(!sizer.isAnimating && minimum > inner + 0.5 ? .automatic : .never)
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .background(Color.clear.modifier(SidebarHeightReporter(height: shownHeight ?? 0)))
+        .onPreferenceChange(SidebarPartHeightsKey.self) { heights in
+            parts = heights
+            sizer.sidebarMeasured(sidebarParts(heights), collapsed: model.pipelineCollapsed)
+        }
+        .onChange(of: model.pipelineCollapsed) { _, collapsed in
+            // Expanding mounts the steps and Output: their measurement (just above) carries the change.
+            // Collapsing (or expanding again mid-collapse) changes no measured height, so tell the sizer here.
+            guard collapsed || parts[.output] != nil else { return }
+            sizer.sidebarMeasured(sidebarParts(parts), collapsed: collapsed)
+        }
+        .onChange(of: sizer.targetHeight) { _, height in
+            guard let height else { return }
+            if sizer.targetAnimates, let animation = SidebarMotion.animation {
+                withAnimation(animation) { shownHeight = height }
+            } else {
+                shownHeight = height
             }
         }
-        .onPreferenceChange(SidebarContentHeightKey.self) { model.windowSizer.contentHeightChanged($0) }
+        .onPreferenceChange(SidebarShownHeightKey.self) { height in
+            if height > 0 { sizer.sidebarShown(height) }
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .lgBackdrop()
         .lgCompact()
         .lgToasts(model.toasts)
+        #if DEBUG
+        .task { await debugTogglePipelineLoop() }
+        .task { debugWindowHeight() }
+        #endif
     }
+
+    /// The pipeline steps (scrolling when the window is shorter than them, with any extra height as empty
+    /// room under them), a fixed gap, and Output. Shrinks to nothing from the bottom up while the
+    /// pipeline collapses, and grows back while it expands, with the window edge.
+    private var pipelineArea: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                PipelineSection(model: model)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .measured(.steps)
+                    // Room for the rows' focus rings and shadows, which the scroll view would clip.
+                    .padding(.horizontal, Self.panelPadding)
+            }
+            .padding(.horizontal, -Self.panelPadding)
+            .scrollIndicators(sizer.isAnimating ? .never : .automatic)
+            .scrollBounceBehavior(.basedOnSize)
+            // All the room between the header and Output, so rows that animate out (an editor closing, a
+            // step removed) are never cut off by a list that already has its new, smaller height.
+            .frame(maxHeight: .infinity)
+            // The fixed gap above Output (Johan); extra window height shows as empty list space above it.
+            .padding(.bottom, LadaGlass.Spacing.m)
+            OutputPanel(model: model, settings: settings)
+                .fixedSize(horizontal: false, vertical: true)
+                .measured(.output)
+        }
+        .padding(.top, LadaGlass.Spacing.xs)
+        .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
+        .clipShape(BottomEdgeClip())
+    }
+
+    private func sidebarParts(_ heights: [SidebarPart: CGFloat]) -> WindowLayout.SidebarParts {
+        WindowLayout.SidebarParts(top: heights[.top] ?? 0, steps: heights[.steps] ?? 0, output: heights[.output] ?? 0,
+                                  bottom: heights[.bottom] ?? 0, chrome: Self.verticalChrome,
+                                  stepsGap: LadaGlass.Spacing.xs, spacing: LadaGlass.Spacing.m)
+    }
+
+    #if DEBUG
+    /// `-debugTogglePipelineEvery <seconds>` collapses and expands the pipeline over and over (animation checks).
+    private func debugTogglePipelineLoop() async {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "-debugTogglePipelineEvery"), index + 1 < arguments.count,
+              let seconds = Double(arguments[index + 1]), seconds > 0 else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(seconds))
+            model.togglePipeline()
+        }
+    }
+
+    /// `-debugWindowHeight <points>`: the expanded window as if the user had resized it to that height.
+    private func debugWindowHeight() {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "-debugWindowHeight"), index + 1 < arguments.count,
+              let height = Double(arguments[index + 1]) else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            sizer.debugRemember(height: CGFloat(height))
+        }
+    }
+    #endif
 
     /// Collapses or expands the pipeline (Johan: between the drop zone and the image count).
     private var pipelineHandle: some View {
@@ -65,6 +166,7 @@ struct SidebarView: View {
                 .multilineTextAlignment(.center)
             Button("Add…") { model.chooseInputs() }
                 .buttonStyle(.lg(.secondary))
+                .disabled(model.isRunning)
                 .accessibilityLabel("Add images or folders")
         }
         .frame(maxWidth: .infinity)
@@ -76,9 +178,11 @@ struct SidebarView: View {
                               style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
         )
         .dropDestination(for: URL.self) { urls, _ in
+            // Not while a run is in progress (same as the window-level drop target).
+            guard !model.isRunning else { return false }
             model.add(urls)
             return !urls.isEmpty
-        } isTargeted: { targeted = $0 }
+        } isTargeted: { targeted = $0 && !model.isRunning }
     }
 
     private var countRow: some View {
@@ -172,8 +276,26 @@ struct SidebarView: View {
     }
 }
 
-/// The natural height of the sidebar's content plus its paddings; the window height follows it.
-private struct SidebarContentHeightKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+/// The sidebar's parts whose natural heights decide the window height (see `WindowLayout.SidebarParts`).
+enum SidebarPart: Hashable {
+    case top, steps, output, bottom
+}
+
+/// The measured natural heights of the sidebar's parts.
+private struct SidebarPartHeightsKey: PreferenceKey {
+    static let defaultValue: [SidebarPart: CGFloat] = [:]
+    static func reduce(value: inout [SidebarPart: CGFloat], nextValue: () -> [SidebarPart: CGFloat]) {
+        value.merge(nextValue()) { max($0, $1) }
+    }
+}
+
+private extension View {
+    /// Reports this view's height as `part`.
+    func measured(_ part: SidebarPart) -> some View {
+        background {
+            GeometryReader { proxy in
+                Color.clear.preference(key: SidebarPartHeightsKey.self, value: [part: proxy.size.height])
+            }
+        }
+    }
 }

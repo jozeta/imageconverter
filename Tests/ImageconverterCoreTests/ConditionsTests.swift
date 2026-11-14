@@ -190,8 +190,8 @@ final class ConditionsTests: XCTestCase {
                                           then: [.step(resize), .output(OutputSettings(format: .png))],
                                           otherwise: [.skip])
         XCTAssertEqual(ImageOperation.condition(conditional).summary,
-                       "if longest edge > 2048 px or has location → resize, save as PNG · else → skip")
-        XCTAssertEqual(ConditionalStep(then: []).summary, "if longest edge > 2048 px → nothing")
+                       "if longest edge is more than 2048 px or has location → resize, save as PNG · else → skip")
+        XCTAssertEqual(ConditionalStep(then: []).summary, "if longest edge is more than 2048 px → nothing")
     }
 
     // MARK: Facts

@@ -15,8 +15,28 @@ public enum ExternalRequestError: Error, Equatable, Sendable {
     case cancelled
     /// A script can't answer "Discard the interrupted batch?", so its run is refused instead.
     case interruptedBatchWaiting
+    /// Sandbox: the user didn't allow a folder the run needs.
+    case noFolderAccess
 
-    public var message: String {
+    /// Why a script or link can't reach a file or folder in the sandboxed app, appended to `unreadable` and
+    /// `notAFolder` there.
+    public static let sandboxHint = "The sandboxed app can only use files and folders you gave it (added, dropped "
+        + "or opened with it) or that are in a folder you allowed (Help \u{25B8} Folder Access\u{2026} \u{25B8} "
+        + "Add Folder\u{2026})."
+
+    public var message: String { message(sandboxed: Sandbox.isEnforced) }
+
+    /// `sandboxed`: in the real sandbox an unreadable file or unwritable folder is usually one the app wasn't
+    /// given, so say so.
+    public func message(sandboxed: Bool) -> String {
+        guard sandboxed else { return plainMessage }
+        switch self {
+        case .unreadable, .notAFolder: return plainMessage + " " + Self.sandboxHint
+        default: return plainMessage
+        }
+    }
+
+    private var plainMessage: String {
         switch self {
         case .noFiles: return "No files were given."
         case .tooManyFiles(let max): return "At most \(max) files can be given at once."
@@ -32,6 +52,8 @@ public enum ExternalRequestError: Error, Equatable, Sendable {
         case .cancelled: return "The conversion was cancelled."
         case .interruptedBatchWaiting:
             return "An interrupted batch is waiting; resume or discard it first."
+        case .noFolderAccess:
+            return "imageconverter wasn't allowed to use a folder the conversion needs, so nothing was converted."
         }
     }
 }
@@ -113,7 +135,8 @@ public enum ExternalRequests {
         case .sameFolder(let suffix):
             return "writes the converted images next to the originals, with \"\(suffix)\" added to their names"
         case .overwrite:
-            return "replaces the original images (originals whose name or format changes are moved to the Trash)"
+            return "replaces the original images (when the name or format changes, the original is moved to the Trash "
+                + "after the new file is saved)"
         }
     }
 

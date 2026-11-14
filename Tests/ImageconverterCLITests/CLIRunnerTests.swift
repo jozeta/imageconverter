@@ -287,3 +287,56 @@ final class CLIRunnerTests: XCTestCase {
         XCTAssertEqual(early.code, 130)
     }
 }
+
+extension CLIRunnerTests {
+    /// A condition's "Save into subfolder" shows in the dry run and is where the real run writes; a preset applied
+    /// by a condition comes from the command line's presets folder.
+    func testDryRunAndRunShowConditionSubfoldersAndPresets() async throws {
+        let photo = try writePNG("photo.png")
+        let store = PresetStore(directory: root.appendingPathComponent("presets"))
+        let preset = Preset(name: "As JPEG", pipeline: Pipeline(output: OutputSettings(format: .jpeg)))
+        try store.save(preset)
+        let condition = ConditionalStep(conditions: [.width(.atLeast, 1)],
+                                        then: [.subfolder("Wide/{format}"), .preset(PresetLink(preset))])
+        let pipeline = Pipeline(steps: [PipelineStep(operation: .condition(condition))], output: OutputSettings(format: .png))
+        let file = root.appendingPathComponent("p.json")
+        try JSONEncoder().encode(pipeline).write(to: file)
+        let outDir = root.appendingPathComponent("planned")
+        let dry = await run(["convert", photo.path, "--pipeline", file.path, "--out", outDir.path, "--dry-run"])
+        XCTAssertEqual(dry.code, 0, dry.err)
+        XCTAssertTrue(dry.out.contains("planned/Wide/JPEG/photo.jpg"), dry.out)
+        let real = await run(["convert", photo.path, "--pipeline", file.path, "--out", outDir.path])
+        XCTAssertEqual(real.code, 0, real.err)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("Wide/JPEG/photo.jpg").path))
+    }
+}
+
+extension CLIRunnerTests {
+    /// Task 7: `--overwrite --yes` with a pipeline's rename plans the renamed destinations; the dry run marks them
+    /// "replace (original to Trash)" (an unchanged name and format: "replace"), and the real run does just that.
+    func testOverwriteWithRenameDryRunAndRun() async throws {
+        let first = try writePNG("a.png")
+        let second = try writePNG("b.png")
+        var rename = RenameOptions(isEnabled: true, pattern: "{name}")
+        rename.replacements = [ReplacementRule(find: "a", replace: "renamed")]
+        let pipeline = Pipeline(output: OutputSettings(format: .png), rename: rename)
+        let file = root.appendingPathComponent("p.json")
+        try JSONEncoder().encode(pipeline).write(to: file)
+        let dry = await run(["convert", first.path, second.path, "--pipeline", file.path, "--overwrite", "--yes",
+                             "--dry-run"])
+        XCTAssertEqual(dry.code, 0, dry.err)
+        let renamed = root.appendingPathComponent("renamed.png")
+        let lines = dry.out.split(separator: "\n").map(String.init)
+        XCTAssertTrue(lines.contains { $0.contains("a.png -> ") && $0.hasSuffix("/renamed.png (replace (original to Trash))") },
+                      dry.out)
+        XCTAssertTrue(lines.contains { $0.contains("b.png -> ") && $0.hasSuffix("/b.png (replace)") }, dry.out)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.path), "a dry run writes nothing")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: renamed.path))
+
+        let real = await run(["convert", first.path, second.path, "--pipeline", file.path, "--overwrite", "--yes"])
+        XCTAssertEqual(real.code, 0, real.err)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: first.path), "the original went to the (test) Trash")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: second.path))
+    }
+}

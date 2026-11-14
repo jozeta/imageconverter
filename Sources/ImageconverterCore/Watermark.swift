@@ -39,26 +39,6 @@ public struct TextWatermark: Codable, Equatable, Sendable {
     }
 }
 
-/// An image watermark (any format ImageIO reads, or SVG), stored as a plain path for now.
-public struct ImageWatermark: Codable, Equatable, Sendable {
-    public var path: String
-    /// Nil: no shadow.
-    public var shadow: WatermarkShadow?
-
-    public init(path: String = "", shadow: WatermarkShadow? = nil) {
-        self.path = path
-        self.shadow = shadow
-    }
-
-    private enum CodingKeys: String, CodingKey { case path, shadow }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        path = try container.decodeIfPresent(String.self, forKey: .path) ?? ""
-        shadow = try container.decodeIfPresent(WatermarkShadow.self, forKey: .shadow)
-    }
-}
-
 /// A drop shadow, down and to the right of the mark. Sizes are percent of the mark's height
 /// (the line height for text).
 public struct WatermarkShadow: Codable, Equatable, Sendable {

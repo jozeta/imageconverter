@@ -6,6 +6,9 @@ extension AppModel {
 
     var allPresets: [Preset] { PresetStore.builtIns + userPresets }
 
+    /// The presets "Apply preset" actions in conditions read: this app's own presets folder.
+    var presetLibrary: PresetLibrary { PresetLibrary.folder(presetStore.folder) }
+
     func reloadPresets() {
         userPresets = PresetStore.userPresets(from: presetStore.loadAll().presets)
         // A selected user preset whose file is gone becomes an ad hoc pipeline (the pipeline is kept).
@@ -21,7 +24,9 @@ extension AppModel {
             return .done
         }
         guard let preset = allPresets.first(where: { $0.id == id }) else { return .done }
-        return session.select(preset, force: force)
+        let result = session.select(preset, force: force)
+        if result == .done { refreshWatermarkBookmarks() }
+        return result
     }
 
     func resetToPreset() { session.resetToPreset() }

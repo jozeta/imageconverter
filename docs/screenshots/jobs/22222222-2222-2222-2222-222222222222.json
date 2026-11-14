@@ -1,0 +1,81 @@
+{
+  "id" : "22222222-2222-2222-2222-222222222222",
+  "name" : "Nightly archive",
+  "payload" : {
+    "inputs" : [
+      "file://@WORK@/Inbox/"
+    ],
+    "isEnabled" : true,
+    "output" : {
+      "newFolder" : {
+        "_0" : "file://@WORK@/Archive/"
+      }
+    },
+    "pipeline" : {
+      "metadata" : {
+        "custom" : [
+
+        ],
+        "dateTaken" : {
+          "mode" : "keep"
+        },
+        "isEnabled" : false,
+        "isIncluded" : false,
+        "keepWhenRemovingAll" : [
+
+        ],
+        "keywordsMode" : "add",
+        "location" : {
+          "mode" : "remove"
+        },
+        "removeAll" : false,
+        "removeAuthor" : false,
+        "removeCamera" : false,
+        "removeIPTC" : false,
+        "removeThumbnail" : false,
+        "removeXMP" : false,
+        "setFileDates" : false
+      },
+      "output" : {
+        "compression" : {
+          "quality" : {
+
+          }
+        },
+        "format" : "heic",
+        "optimizePNG" : true,
+        "progressive" : false,
+        "quality" : 0.82,
+        "tiffCompression" : "lzw"
+      },
+      "rename" : {
+        "caseStyle" : "keep",
+        "counterStart" : 1,
+        "isEnabled" : false,
+        "isIncluded" : false,
+        "pattern" : "{name}",
+        "prefix" : "",
+        "removeSpaces" : false,
+        "replacement" : "-",
+        "replacements" : [
+
+        ],
+        "specialCharacters" : "keep",
+        "suffix" : ""
+      },
+      "schemaVersion" : 1,
+      "steps" : [
+
+      ]
+    },
+    "recursive" : true,
+    "report" : "html",
+    "schemaVersion" : 1,
+    "trigger" : {
+      "schedule" : {
+        "every" : 86400
+      }
+    }
+  },
+  "schemaVersion" : 1
+}

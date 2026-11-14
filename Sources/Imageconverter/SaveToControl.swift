@@ -5,18 +5,19 @@ import ImageconverterCore
 /// The "Save to" picker with its suffix field or folder chooser, shared by the Output row and the job editor.
 /// Switching to overwrite asks once, here, never at run time.
 struct SaveToControl: View {
+    /// What overwriting does, under the picker and in the confirmation.
+    static let overwriteText = "Converted images replace the originals. When the name or format changes, "
+        + "the original is moved to the Trash after the new file is saved."
     @Binding var kind: OutputModeKind
     @Binding var folder: URL?
     @Binding var suffix: String
-    /// The overwrite note's second sentence differs: jobs have no Rename lock to explain.
-    var overwriteNote = "Converted images replace the originals. The Rename step is off while overwriting."
     @State private var pendingOverwrite = false
     /// Bumped when the overwrite dialog is cancelled, so the menu picker redraws the real mode.
     @State private var pickerID = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Picker("Save to", selection: modeBinding) {
+            Picker("Save to", selection: modeBinding.sidebarAnimated) {
                 Text("Overwrite original files").tag(OutputModeKind.overwrite)
                 Text("Same folder as original").tag(OutputModeKind.sameFolder)
                 Text("New folder").tag(OutputModeKind.newFolder)
@@ -25,7 +26,7 @@ struct SaveToControl: View {
             .accessibilityLabel("Save to")
             switch kind {
             case .overwrite:
-                note(overwriteNote)
+                note(Self.overwriteText)
             case .sameFolder:
                 note("Added when the name is unchanged")
                 TextField("Added when the name is unchanged", text: $suffix)
@@ -49,11 +50,10 @@ struct SaveToControl: View {
             if !pending, kind != .overwrite { pickerID += 1 }
         }
         .confirmationDialog("Overwrite originals?", isPresented: $pendingOverwrite) {
-            Button("Use overwrite") { kind = .overwrite }
+            Button("Use overwrite") { SidebarMotion.perform { kind = .overwrite } }
             Button("Cancel", role: .cancel) { pickerID += 1 }
         } message: {
-            Text("Converted images will replace the originals. When the format or name changes, "
-                + "the original is moved to the Trash. You won't be asked again when running.")
+            Text(Self.overwriteText + " You won't be asked again when running.")
         }
     }
 

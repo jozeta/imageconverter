@@ -15,7 +15,7 @@ extension Pipeline {
         for step in steps where step.isEnabled {
             if case .resize(let options) = step.operation {
                 let plan = Geometry.resizePlan(source: size, options: options)
-                if case .physical = options.mode {
+                if options.mode.isPrintSize {
                     dpi = options.effectiveDPI ?? dpi
                     pinnedByPhysical = true
                 } else if plan != .unchanged {
@@ -61,6 +61,16 @@ extension Pipeline {
         values.reduce(0) { total, value in
             let (sum, overflow) = total.addingReportingOverflow(value)
             return overflow ? Int.max : sum
+        }
+    }
+}
+
+extension ResizeMode {
+    /// A mode that names a print size and so carries its own DPI.
+    var isPrintSize: Bool {
+        switch self {
+        case .physical, .printSheet: return true
+        default: return false
         }
     }
 }

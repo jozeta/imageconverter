@@ -294,3 +294,15 @@ extension PreviewRendererTests {
         XCTAssertEqual(second.outputURL, item.source)
     }
 }
+
+extension PreviewRendererTests {
+    /// Task 7: the preview names the renamed file when overwriting, in the original's folder.
+    func testOverwriteShowsTheRenamedName() async throws {
+        var pipeline = Pipeline(output: .init(format: .png))
+        pipeline.rename = RenameOptions(isEnabled: true, pattern: "trip_{counter:00}", counterStart: 1)
+        let source = try item("a.png")
+        let result = try ready(await PreviewRenderer().render(item: source, index: 0, pipeline: pipeline, mode: .overwrite))
+        XCTAssertEqual(result.outputName, "trip_01.png")
+        XCTAssertEqual(result.outputURL, source.source.deletingLastPathComponent().appendingPathComponent("trip_01.png"))
+    }
+}

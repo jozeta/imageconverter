@@ -39,7 +39,8 @@ enum ConvertCommand {
         let progress = CLIRunner.progressReporter(quiet: options.quiet || options.json, environment: environment)
         let batch = await environment.cancel.run {
             await BatchRunner.run(items, pipeline: pipeline, mode: mode, trash: environment.trash,
-                                  control: environment.control, progress: progress)
+                                  control: environment.control, presets: PresetLibrary.folder(environment.presetDirectory),
+                                  progress: progress)
         }
         var report = ProcessingReport(batch: batch, total: items.count, outputMode: mode.kind.rawValue,
                                       presetName: presetName, startedAt: started, finishedAt: Date())
@@ -144,7 +145,8 @@ enum ConvertCommand {
         let (items, missing, pipeline, mode) = (setup.items, setup.missing, setup.pipeline, setup.mode)
         let started = Date()
         let planned = await environment.cancel.run {
-            await BatchRunner.plan(items, pipeline: pipeline, mode: mode)
+            await BatchRunner.plan(items, pipeline: pipeline, mode: mode,
+                                   presets: PresetLibrary.folder(environment.presetDirectory))
         }
         guard let planned else { return CLIExit.interrupted }
         let entries = planned.map { file -> ReportEntry in
@@ -153,11 +155,14 @@ enum ConvertCommand {
                 return ReportEntry(source: file.source.path, status: .skipped, inputBytes: nil,
                                    note: ConditionalStep.skippedReason)
             case .copyOriginal:
+                // A copy in place is left as it is (nothing replaced); a renamed copy moves the original.
+                let moved = file.trashesSource ? overwriteNote(file) : nil
+                let note = ([ConditionalStep.copiedNote] + [moved].compactMap { $0 }).joined(separator: "; ")
                 return ReportEntry(source: file.source.path, destination: file.destination?.path, status: .succeeded,
-                                   inputBytes: nil, note: ConditionalStep.copiedNote)
+                                   inputBytes: nil, note: note)
             case .process:
                 return ReportEntry(source: file.source.path, destination: file.destination?.path, status: .succeeded,
-                                   inputBytes: nil)
+                                   inputBytes: nil, note: overwriteNote(file))
             }
         }
         let summary = RunSummary(
@@ -180,5 +185,12 @@ enum ConvertCommand {
         }
         if report.summary.failed > 0 { return CLIExit.someFailed }
         return report.summary.total == 0 ? CLIExit.nothingToDo : CLIExit.success
+    }
+
+    /// What overwrite mode does to the original: "replace" in place, or "replace (original to Trash)" when the
+    /// name or format changes. Nil outside overwrite mode.
+    static func overwriteNote(_ file: PlannedFile) -> String? {
+        if file.trashesSource { return "replace (original to Trash)" }
+        return file.replacesSource ? "replace" : nil
     }
 }

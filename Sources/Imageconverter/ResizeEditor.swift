@@ -9,7 +9,7 @@ struct ResizeEditor: View {
         case maxWidth = "Max width", maxHeight = "Max height", fitBox = "Fit inside"
         case exactWidth = "Exact width", exactHeight = "Exact height", exactSize = "Exact size"
         case longestEdge = "Longest edge", shortestEdge = "Shortest edge", minimum = "Minimum size"
-        case percent = "Percentage", physical = "Physical size"
+        case percent = "Percentage", physical = "Physical size", printSheet = "Print sheet"
     }
 
     private static let pixelKinds: [Kind] = [.maxWidth, .maxHeight, .fitBox, .exactSize, .longestEdge,
@@ -28,6 +28,7 @@ struct ResizeEditor: View {
         case .minimum: return .minimum
         case .percent: return .percent
         case .physical: return .physical
+        case .printSheet: return .printSheet
         }
     }
 
@@ -39,7 +40,7 @@ struct ResizeEditor: View {
             return (side, side)
         case .fitBox(let wide, let high), .exactSize(let wide, let high, _), .minimum(let wide, let high):
             return (wide, high)
-        case .percent, .physical:
+        case .percent, .physical, .printSheet:
             return (1600, 1600)
         }
     }
@@ -85,13 +86,16 @@ struct ResizeEditor: View {
         case .physical:
             let current = physical
             options.mode = .physical(width: current.width, height: current.height, unit: current.unit, dpi: current.dpi)
+        case .printSheet:
+            let current = PrintSheetFields.current(of: options)
+            options.mode = .printSheet(long: current.long, short: current.short, unit: current.unit, dpi: current.dpi)
         }
     }
 
     /// Modes where "don't enlarge" has no meaning: they name the size outright or only ever enlarge.
     private var ignoresEnlargeRule: Bool {
         switch kind {
-        case .percent, .physical, .minimum: return true
+        case .percent, .physical, .printSheet, .minimum: return true
         case .exactSize: return fill == .stretch
         default: return false
         }
@@ -107,7 +111,10 @@ struct ResizeEditor: View {
                         ForEach(Self.pixelKinds, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     Section("Scale") { Text(Kind.percent.rawValue).tag(Kind.percent) }
-                    Section("Print") { Text(Kind.physical.rawValue).tag(Kind.physical) }
+                    Section("Print") {
+                        Text(Kind.physical.rawValue).tag(Kind.physical)
+                        Text(Kind.printSheet.rawValue).tag(Kind.printSheet)
+                    }
                     // Older saved presets can hold these; keep them shown rather than silently replaced.
                     if kind == .exactWidth || kind == .exactHeight {
                         Section("Other") { Text(kind.rawValue).tag(kind) }
@@ -142,6 +149,8 @@ struct ResizeEditor: View {
                 get: { percent }, set: { options.mode = .percent(min(max($0, 1), 1000)) }), suffix: "%")
         case .physical:
             physicalFields
+        case .printSheet:
+            PrintSheetFields(options: $options)
         case .longestEdge, .shortestEdge:
             NumberField(title: kind == .longestEdge ? "Longest edge" : "Shortest edge", value: Binding(
                 get: { pixels.width }, set: { set(kind, width: $0, height: $0, fill: fill) }))
@@ -214,6 +223,14 @@ struct ResizeEditor: View {
 
     private var presetsMenu: some View {
         Menu("Presets") {
+            Menu("Print") {
+                Menu("Photo (cm)") { presetButtons(SizePresets.printPhotoCentimetres) }
+                Menu("Photo (in)") { presetButtons(SizePresets.printPhotoInches) }
+                Menu("Paper") { presetButtons(SizePresets.printPaper) }
+            }
+            Menu("Web") { presetButtons(SizePresets.web) }
+            Menu("Devices & wallpapers") { presetButtons(SizePresets.devices) }
+            Menu("App & web assets") { presetButtons(SizePresets.assets) }
             Menu("Social media") { presetButtons(SizePresets.social) }
             Menu("Resolutions") { presetButtons(SizePresets.resolutions) }
         }
@@ -223,7 +240,7 @@ struct ResizeEditor: View {
 
     private func presetButtons(_ presets: [SizePreset]) -> some View {
         ForEach(presets) { preset in
-            Button("\(preset.name) (\(preset.width) × \(preset.height))") {
+            Button(preset.menuTitle) {
                 options = preset.applied(to: options)
             }
         }
@@ -247,8 +264,10 @@ struct ResizeEditor: View {
             }
         }
     }
+}
 
-    private var help: String {
+extension ResizeEditor {
+    var help: String {
         switch kind {
         case .maxWidth, .maxHeight, .exactWidth, .exactHeight:
             return "The other side follows the aspect ratio."
@@ -260,6 +279,10 @@ struct ResizeEditor: View {
         case .physical:
             return "Print size at this resolution. Leave a side empty to follow the aspect ratio; with both "
                 + "sides set the image fits inside, keeping its aspect ratio. Can enlarge."
+        case .printSheet:
+            return "A print sheet at this resolution. The image fits inside it, turned the way round its own "
+                + "orientation needs (a landscape photo goes into long × short, a portrait one into short × long). "
+                + "Can enlarge."
         case .exactSize:
             switch fill {
             case .stretch: return "Stretch changes the aspect ratio; every other mode keeps it."
@@ -292,6 +315,55 @@ private struct OptionalSideField: View {
                 .multilineTextAlignment(.trailing)
                 .frame(width: 56)
                 .accessibilityLabel(title)
+        }
+    }
+}
+
+/// The print sheet's fields: long and short side, unit and DPI.
+private struct PrintSheetFields: View {
+    @Binding var options: ResizeOptions
+
+    struct Sheet {
+        var long: Double
+        var short: Double
+        var unit: PhysicalUnit
+        var dpi: Double
+    }
+
+    static func current(of options: ResizeOptions) -> Sheet {
+        if case .printSheet(let long, let short, let unit, let dpi) = options.mode {
+            return Sheet(long: long, short: short, unit: unit, dpi: dpi)
+        }
+        return Sheet(long: 15, short: 10, unit: .centimetre, dpi: 300)
+    }
+
+    var body: some View {
+        let current = Self.current(of: options)
+        let update = { (long: Double, short: Double, unit: PhysicalUnit, dpi: Double) in
+            options.mode = .printSheet(long: long, short: short, unit: unit,
+                                       dpi: min(dpi, ResizeOptions.dpiRange.upperBound))
+        }
+        return VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
+            FieldRow {
+                DecimalField(title: "Long side", value: Binding(
+                    get: { current.long }, set: { update($0, current.short, current.unit, current.dpi) }))
+                DecimalField(title: "Short side", value: Binding(
+                    get: { current.short }, set: { update(current.long, $0, current.unit, current.dpi) }))
+                Picker("Unit", selection: Binding(
+                    get: { current.unit }, set: { update(current.long, current.short, $0, current.dpi) })) {
+                    ForEach(PhysicalUnit.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .frame(width: 80)
+                .accessibilityLabel("Unit")
+            }
+            HStack(spacing: LadaGlass.Spacing.xs) {
+                Text("Resolution").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                DecimalField(title: "DPI", value: Binding(
+                    get: { current.dpi }, set: { update(current.long, current.short, current.unit, $0) }),
+                    suffix: "dpi")
+            }
         }
     }
 }
