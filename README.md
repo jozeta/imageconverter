@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- Watermark editor: rotation (with 0°/−45°/45°/90° buttons), a Tiled layout (spacing, staggered rows), shadow and outline for text, an **Insert** menu for tokens such as `{filename}` and `{year}` with the text shown for the selected image, SVG logos (including Illustrator exports), and a **Templates** menu (Apply, Save as template…, Delete).
 - If / then / else steps: test each image's size, file size, format, transparency, orientation, GPS or camera, and give it its own steps, output, metadata or rename, copy it unchanged or skip it; the preview shows which branch an image takes, and skipped files are counted apart from failures.
 - Geometry editors: free angle and straighten, Perspective (Auto and keystone), Trim and the canvas Ratio mode.
 - Compression modes in the Output row: Quality, Target size, Maximum size and Smart, Progressive JPEG, Optimise PNG and AVIF; the estimate shows the chosen quality.
@@ -29,7 +30,7 @@ Started 2026-11-13. The full design is in
 - Pipeline rows reorder with a drag handle (Move Up/Down in the context menu).
 - Zoom the before/after preview with a trackpad pinch (or ⌘+ / ⌘− / ⌘0); both sides stay in sync, so encoder artifacts are easy to compare.
 - Presets (save, save as, rename, delete, reset; three built-ins) and a collapsible before/after preview with a filmstrip of the batch.
-- Watermark step: text (font, colour) or image (e.g. a logo), with position, size relative to the image, opacity and margin.
+- Watermark step: text (font, colour, shadow, outline, tokens such as `{filename}` or `{year}` filled in per image) or an image (e.g. a PNG or SVG logo, optional shadow), placed once at one of nine positions or tiled over the whole image, with size relative to the image, opacity, margin, rotation and reusable templates.
 - Metadata step (remove location, camera details or everything; set artist, copyright and description) and Rename step with tokens ({date}, {camera}, {counter:000}, …) and a live example.
 - Wide-colour (Display P3) photos keep their colour when resized and saved as JPEG; opaque images stay opaque through steps; memory use accounts for enlargement.
 - Pipeline steps: resize, crop, rotate/flip, canvas/padding and color profile; steps can be reordered, switched off and removed; the pipeline is kept between launches. Large images are scheduled by memory use; file types macOS can't read (e.g. SVG) are ignored when adding folders.
@@ -68,7 +69,8 @@ Started 2026-11-13. The full design is in
   - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original
   - (available) **Adjust**: exposure, brilliance, highlights, shadows, contrast, brightness, black point,
     saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction
-  - (available) **Watermark**: text or image, with position, size, opacity and margin controls
+  - (available) **Watermark**: text (with tokens, shadow and outline) or image (raster or SVG), single or tiled,
+    with position, size, opacity, margin and rotation controls, and watermark templates
   - (available) **Condition** (if / then / else): up to 10 tests,
     all or any of which must hold: longest edge, width, height or file size (greater than, less than, at
     least, at most), format (a writable format or any file type, e.g. camera RAW), transparency (a
@@ -174,14 +176,53 @@ Watermark (pipeline step, saved with the pipeline):
 | Option | What it does | Default |
 |--------|--------------|---------|
 | Content | Text or Image | Text (a new step starts with `© ` and your full name) |
-| Text | The text to draw | `©` |
+| Templates | Apply a built-in or saved watermark, save the current one as a template, delete a saved one | – |
+| Text | The text to draw, on one line; may contain tokens (see below). Control and invisible characters are removed and it is cut to 200 characters | `©` |
+| Insert | Adds a token at the end of the text; the line under the field shows the text for the selected image | – |
 | Font | Helvetica Bold, Helvetica, Avenir Next Demi Bold, Georgia Bold, Menlo Bold or System bold | Helvetica-Bold |
 | Color | Text colour (with transparency) | white |
-| Image | A logo or picture to draw | none |
-| Position | One of nine anchor points | bottom right |
+| Shadow | Text or image: a drop shadow down and to the right, with colour, Blur (0 to 50 %) and Offset (0 to 50 %), both relative to the mark's height | off (when on: black at 60 %, blur 10 %, offset 6 %) |
+| Outline | Text only: a stroke around the letters, under the fill, with colour and Width (0 to 20 % of the line height) | off (when on: black, 6 %) |
+| Image | A logo or picture: any format the app reads (PNG, JPEG, HEIC, TIFF, …) or SVG (see below) | none |
+| Layout | Single (one mark at the position) or Tiled (repeated over the whole image) | Single |
+| Spacing | Tiled only: gap between marks, percent of the (rotated) mark's size (0 to 400 %) | 100 % |
+| Stagger rows | Tiled only: every other row is shifted by half a step | on |
+| Position | One of nine anchor points (not used when tiled) | bottom right |
 | Size | Percent of the shorter side of the photo (1 to 100 %) | 4 % for text, 20 % for an image |
 | Opacity | 0 to 100 % | 65 % |
-| Margin | Distance from the edges, percent of the shorter side (0 to 25 %) | 3 % |
+| Margin | Distance from the edges, percent of the shorter side (0 to 25 %); not used when tiled | 3 % |
+| Rotation | −180° to 180°, clockwise, about the mark's centre (buttons for 0°, −45°, 45° and 90°) | 0° |
+
+Built-in watermark templates: **© corner** (`© {year} {artist}`, bottom right, 4 %), **Tiled diagonal**
+(`© {artist}`, tiled at −30°, 15 % opacity) and **Filename + date** (`{filename} · {date}` with a shadow, bottom
+left). Saved templates are JSON files in `~/Library/Application Support/imageconverter/watermark-templates/`;
+an image template stores the image's path.
+
+Watermark text tokens (unknown tokens are drawn as typed):
+
+| Token | Becomes |
+|-------|---------|
+| `{filename}` | The original's name without its extension |
+| `{filename.ext}` | The original's name with its extension |
+| `{date}` | The date taken (from the photo's EXIF, else the file's creation date) as `2026-11-14` |
+| `{date:FORMAT}` | The same date in your own format, e.g. `{date:d MMM yyyy}` (Unicode date patterns) |
+| `{year}` | The year of that date |
+| `{copyright}` | The copyright: from the Metadata step when it sets one, else the file's own; empty when the Metadata step removes it |
+| `{artist}` | The author, the same way (empty when the Metadata step removes the author) |
+
+SVG watermarks: an SVG logo is checked and rewritten before it is drawn, and nothing is ever downloaded.
+It can be at most 1 MB and must be plain SVG in UTF-8: shapes, paths, gradients, clip paths, masks, patterns and
+text, linked only to parts of the same file. The standard SVG doctype and simple style sheets (as Adobe Illustrator
+exports them: rules like `.st0{fill:#E30613;}` for classes, ids or element names, setting colours, strokes, fonts
+and opacity, including `rgb()` and `hsl()` colours) are accepted. Anything else is refused with the reason, shown
+under **Choose image…** and for each file in the batch:
+- "This SVG uses embedded images or links to other files, which aren't allowed." (embedded pictures, `data:` URLs,
+  links to other files or websites, `@import`)
+- "This SVG uses features that aren't supported (scripts, animation or advanced styling)." (scripts, animation,
+  entities, CSS beyond simple rules, references that loop or expand to more than 10 000 shapes)
+- "This SVG is too large (over 1 MB)." and "This file isn't a valid SVG."
+
+When an SVG is refused, export the logo again as plain SVG (or as a PNG with a transparent background).
 
 Presets and preview:
 
@@ -343,8 +384,13 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
 
 1. Press **+ Add step** and pick **Watermark**. A new step is text and starts with `© ` and your full name.
 2. Choose **Text** (edit the text, font and colour) or **Image** (**Choose image…**, for example a
-   logo with a transparent background; **Remove** clears it). Switching back and forth keeps what you entered.
-3. Pick a **Position** in the 3 x 3 grid.
+   logo with a transparent background or an SVG; **Remove** clears it). Switching back and forth keeps what you
+   entered. For text, **Insert** adds tokens such as `{filename}` or `{year}`; the line under the field shows the
+   text as it will be drawn on the selected image. Turn on **Shadow** or **Outline** to keep light text readable
+   on light photos.
+3. Pick a **Position** in the 3 x 3 grid, or choose **Layout › Tiled** to repeat the mark over the whole image
+   (set **Spacing** and **Stagger rows**; position and margin are then not used). **Rotation** turns the mark,
+   for example −30° for a diagonal tiled watermark.
 4. Set **Size**: it is a percentage of the photo's *shorter* side, so the mark looks the same on
    landscape and portrait photos. For an image it is the watermark's width; for text it is the height of a line of text.
    Defaults are 4 % for text and 20 % for an image (switching content switches the size too, unless you changed it).
@@ -352,6 +398,8 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
    The mark is always scaled down to fit inside the photo with twice the margin removed, so it is never cut off.
 6. Put the step after resizing and cropping if the mark should be sized to the final image. If an
    image watermark can't be read when the batch runs, those files are skipped and listed.
+7. To reuse a watermark, choose **Templates › Save as template…** and give it a name; **Templates › Apply** puts
+   it (or a built-in) into the step, and **Templates › Delete** removes a saved one.
 
 ### Process images differently by size, format or orientation
 

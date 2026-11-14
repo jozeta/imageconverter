@@ -76,7 +76,9 @@ public final class TemplateStore<Payload: Codable & Sendable>: @unchecked Sendab
 
     private func isBuiltIn(_ id: UUID) -> Bool { builtIns.contains { $0.id == id } }
 
-    private func validatedName(_ raw: String, existing: [Template<Payload>], excluding: UUID?) throws -> String {
+    /// The cleaned name, or a `PresetError` saying why it can't be used (empty, too long, taken). Lets the UI
+    /// validate as the user types with the same rules as `save`.
+    public func validatedName(_ raw: String, existing: [Template<Payload>], excluding: UUID?) throws -> String {
         try StoredFile.validatedName(raw, existing: existing.map { ($0.id, $0.name) }, excluding: excluding,
                                      maxLength: Self.maxNameLength, noun: noun)
     }

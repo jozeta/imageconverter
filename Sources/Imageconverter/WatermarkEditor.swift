@@ -1,12 +1,15 @@
 import AppKit
-import ImageIO
 import SwiftUI
 import UniformTypeIdentifiers
 import ImageconverterCore
 
-/// Editor for the Watermark step: text or image, position, size, opacity and margin.
+/// Editor for the Watermark step: text (with tokens, shadow, outline) or image (raster or SVG), layout,
+/// position, size, opacity, margin and rotation, plus templates.
 struct WatermarkEditor: View {
     @Binding var options: WatermarkOptions
+    @Environment(AppModel.self) private var model: AppModel?
+    /// The text with its tokens filled in for the selected image (nil: no tokens, or nothing to show yet).
+    @State private var liveText: String?
     /// The other kind's last values, kept while the editor is open.
     @State private var textValues = TextWatermark()
     @State private var imageValues = ImageWatermark()
@@ -46,147 +49,141 @@ struct WatermarkEditor: View {
         }
     }
 
+    private var isTiled: Bool {
+        if case .tiled = options.layout { return true }
+        return false
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Picker("Content", selection: Binding(get: { isText }, set: { setKind(text: $0) })) {
-                Text("Text").tag(true)
-                Text("Image").tag(false)
+            HStack(spacing: LadaGlass.Spacing.s) {
+                Picker("Content", selection: Binding(get: { isText }, set: { setKind(text: $0) })) {
+                    Text("Text").tag(true)
+                    Text("Image").tag(false)
+                }
+                .pickerStyle(.segmented)
+                .accessibilityLabel("Watermark content")
+                WatermarkTemplatesMenu(options: $options)
             }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("Watermark content")
             if isText { textControls } else { imageControls }
+            WatermarkLayoutControl(layout: $options.layout)
             HStack(alignment: .top, spacing: LadaGlass.Spacing.s) {
                 Text("Position").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 AnchorPicker(anchor: $options.anchor)
             }
-            PercentSlider(title: "Size", value: $options.sizePercent, range: 1...100)
-            PercentSlider(title: "Opacity", value: Binding(
+            // A tiled mark covers the whole image, so the anchor and margin don't apply.
+            .disabled(isTiled)
+            .opacity(isTiled ? 0.5 : 1)
+            ValueSlider(title: "Size", value: $options.sizePercent, range: 1...100)
+            ValueSlider(title: "Opacity", value: Binding(
                 get: { options.opacity * 100 }, set: { options.opacity = $0 / 100 }), range: 0...100)
-            PercentSlider(title: "Margin", value: $options.marginPercent, range: 0...25)
+            ValueSlider(title: "Margin", value: $options.marginPercent, range: 0...25)
+                .disabled(isTiled)
+            WatermarkRotationControl(rotation: $options.rotation)
         }
     }
 
+    private func updateText(_ change: (inout TextWatermark) -> Void) {
+        var value = text
+        change(&value)
+        options.content = .text(value)
+    }
+
+    private func updateImage(_ change: (inout ImageWatermark) -> Void) {
+        var value = image
+        change(&value)
+        options.content = .image(value)
+    }
+
+    /// What the live text depends on.
+    private struct LiveTextKey: Equatable {
+        let template: String
+        let source: URL?
+        let metadata: MetadataOptions?
+    }
+
+    private var liveTextKey: LiveTextKey {
+        LiveTextKey(template: text.text, source: model?.watermarkSampleSource, metadata: model?.pipeline.metadata)
+    }
+
     @ViewBuilder private var textControls: some View {
-        TextField("Text", text: Binding(
-            get: { text.text },
-            set: { var value = text; value.text = $0; options.content = .text(value) }))
-            .textFieldStyle(.roundedBorder)
-            .accessibilityLabel("Watermark text")
+        HStack(spacing: LadaGlass.Spacing.s) {
+            TextField("Text", text: Binding(get: { text.text }, set: { new in updateText { $0.text = new } }))
+                .textFieldStyle(.roundedBorder)
+                .accessibilityLabel("Watermark text")
+            Menu("Insert") {
+                ForEach(WatermarkText.tokens, id: \.self) { token in
+                    Button(token) { updateText { $0.text += token } }
+                }
+            }
+            .fixedSize()
+            .accessibilityLabel("Insert a token")
+            .help("Insert a token that is filled in for each image")
+        }
         if text.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             Text("Empty text: nothing is drawn.").font(LadaGlass.Typography.label)
                 .foregroundStyle(LadaGlass.Colors.muted)
+        } else if WatermarkText.usesTokens(text.text) {
+            liveTextLine
         }
-        Picker("Font", selection: Binding(
-            get: { text.fontName },
-            set: { var value = text; value.fontName = $0; options.content = .text(value) })) {
+        Picker("Font", selection: Binding(get: { text.fontName }, set: { new in updateText { $0.fontName = new } })) {
             ForEach(Self.fonts, id: \.name) { Text($0.label).tag($0.name) }
             if !Self.fonts.contains(where: { $0.name == text.fontName }) {
                 Text(text.fontName).tag(text.fontName)
             }
         }
         .accessibilityLabel("Watermark font")
-        ColorField(title: "Color", color: Binding(
-            get: { text.color },
-            set: { var value = text; value.color = $0; options.content = .text(value) }))
+        ColorField(title: "Color", color: Binding(get: { text.color }, set: { new in updateText { $0.color = new } }))
+        WatermarkShadowControl(shadow: Binding(get: { text.shadow }, set: { new in updateText { $0.shadow = new } }))
+        WatermarkOutlineControl(outline: Binding(get: { text.outline }, set: { new in updateText { $0.outline = new } }))
+    }
+
+    /// "On this image: …" for the selected image, as the batch will draw it.
+    @ViewBuilder private var liveTextLine: some View {
+        Group {
+            if model?.watermarkSampleSource == nil {
+                Text("Add images to see the text for one.")
+            } else if let liveText {
+                Text("On this image: " + (liveText.isEmpty ? "(empty, nothing is drawn)" : liveText))
+            } else {
+                Text("On this image: …")
+            }
+        }
+        .font(LadaGlass.Typography.label)
+        .foregroundStyle(LadaGlass.Colors.muted)
+        .lineLimit(2)
+        .task(id: liveTextKey) {
+            let key = liveTextKey
+            guard let source = key.source else {
+                liveText = nil
+                return
+            }
+            let rendered = await AppModel.watermarkText(key.template, source: source,
+                                                        metadata: key.metadata ?? MetadataOptions())
+            guard !Task.isCancelled else { return }
+            liveText = rendered
+        }
     }
 
     @ViewBuilder private var imageControls: some View {
         HStack(spacing: LadaGlass.Spacing.s) {
             Button("Choose image…") { chooseImage() }
+                .help("PNG, JPEG, HEIC, TIFF, … or a plain SVG logo")
             if !image.path.isEmpty {
-                Button("Remove") { options.content = .image(ImageWatermark()) }
+                Button("Remove") { updateImage { $0.path = "" } }
             }
         }
         WatermarkThumbnail(path: image.path)
+        WatermarkShadowControl(shadow: Binding(get: { image.shadow }, set: { new in updateImage { $0.shadow = new } }))
     }
 
     private func chooseImage() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.image]
+        panel.allowedContentTypes = [.image, .svg]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.message = "Choose the watermark image"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        options.content = .image(ImageWatermark(path: url.path))
-    }
-}
-
-/// A slider with its value as text and as the accessibility value.
-private struct PercentSlider: View {
-    let title: String
-    @Binding var value: Double
-    let range: ClosedRange<Double>
-
-    private var shown: Int { value.isFinite ? Int(min(max(value, range.lowerBound), range.upperBound).rounded()) : 0 }
-
-    var body: some View {
-        HStack(spacing: LadaGlass.Spacing.s) {
-            Text(title).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-                .frame(width: 52, alignment: .leading)
-            Slider(value: Binding(
-                get: { value.isFinite ? min(max(value, range.lowerBound), range.upperBound) : range.lowerBound },
-                set: { value = $0.rounded() }), in: range)
-                .accessibilityLabel(title)
-                .accessibilityValue("\(shown) %")
-            Text("\(shown) %").font(LadaGlass.Typography.mono).foregroundStyle(LadaGlass.Colors.text)
-                .frame(width: 44, alignment: .trailing)
-                .accessibilityHidden(true)
-        }
-    }
-}
-
-/// The chosen file's name with a small thumbnail, loaded off the main actor.
-private struct WatermarkThumbnail: View {
-    let path: String
-    @State private var thumbnail: NSImage?
-    @State private var unreadable = false
-
-    var body: some View {
-        if path.isEmpty {
-            Text("No image chosen").font(LadaGlass.Typography.body).foregroundStyle(LadaGlass.Colors.warnText)
-        } else {
-            HStack(spacing: LadaGlass.Spacing.s) {
-                Group {
-                    if let thumbnail {
-                        Image(nsImage: thumbnail).resizable().scaledToFit()
-                    } else {
-                        Color.clear
-                    }
-                }
-                .frame(width: 32, height: 32)
-                .accessibilityHidden(true)
-                if unreadable {
-                    Text("Can't read this image").font(LadaGlass.Typography.body)
-                        .foregroundStyle(LadaGlass.Colors.warnText)
-                } else {
-                    Text(URL(fileURLWithPath: path).lastPathComponent).font(LadaGlass.Typography.body)
-                        .foregroundStyle(LadaGlass.Colors.text).lineLimit(1).truncationMode(.middle)
-                }
-            }
-            .task(id: path) {
-                thumbnail = nil
-                unreadable = false
-                let loaded = await Self.loadThumbnail(path: path)
-                thumbnail = loaded
-                unreadable = loaded == nil
-            }
-        }
-    }
-
-    private static func loadThumbnail(path: String) async -> NSImage? {
-        await Task.detached(priority: .utility) { () -> NSImage? in
-            let fileURL = URL(fileURLWithPath: path)
-            guard let header = ImageLoader.header(of: fileURL),
-                  header.width <= ImageLoader.defaultMaxPixels / header.height else { return nil }
-            let url = fileURL as CFURL
-            guard let source = CGImageSourceCreateWithURL(url, nil) else { return nil }
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 64
-            ]
-            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
-            return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        }.value
+        updateImage { $0.path = url.path }
     }
 }

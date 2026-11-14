@@ -4,6 +4,8 @@ import ImageconverterCore
 @main
 struct ImageconverterApp: App {
     @State private var model = AppModel(defaults: AppDefaults.store, presetStore: PresetStore(directory: AppDefaults.presetsDirectory))
+    @State private var watermarkTemplates = WatermarkTemplatesModel(store: .watermark(
+        directory: AppDefaults.templatesDirectory(folder: WatermarkTemplateStore.watermarkFolderName)))
     @State private var settings = AppSettings(defaults: AppDefaults.store)
 
     init() {
@@ -14,6 +16,8 @@ struct ImageconverterApp: App {
     var body: some Scene {
         WindowGroup("imageconverter") {
             MainWindowContent(model: model, settings: settings)
+                .environment(model)
+                .environment(watermarkTemplates)
                 .onChange(of: PreviewRequest(model: model, mode: settings.outputMode), initial: true) { _, request in
                     model.schedulePreview(mode: request.mode)
                     model.scheduleEstimate()

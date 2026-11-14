@@ -27,4 +27,17 @@ enum AppDefaults {
         #endif
         return PresetStore.defaultDirectory
     }()
+
+    /// A template folder (`folder` under Application Support), or a temporary one per suite in DEBUG
+    /// screenshot launches.
+    static func templatesDirectory(folder: String) -> URL {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let index = args.firstIndex(of: "-debugDefaultsSuite"), index + 1 < args.count {
+            return FileManager.default.temporaryDirectory
+                .appendingPathComponent("imageconverter-\(args[index + 1])/\(folder)", isDirectory: true)
+        }
+        #endif
+        return WatermarkTemplateStore.defaultDirectory(folder: folder)
+    }
 }
