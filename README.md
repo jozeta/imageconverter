@@ -219,7 +219,10 @@ SVG watermarks: an SVG logo is checked and rewritten before it is drawn, and not
 It can be at most 1 MB and must be plain SVG in UTF-8: shapes, paths, gradients, clip paths, masks, patterns and
 text, linked only to parts of the same file. The standard SVG doctype and simple style sheets (as Adobe Illustrator
 exports them: rules like `.st0{fill:#E30613;}` for classes, ids or element names, setting colours, strokes, fonts
-and opacity, including `rgb()` and `hsl()` colours) are accepted. Anything else is refused with the reason, shown
+and opacity, including `rgb()` and `hsl()` colours) are accepted, up to 2 000 selectors. Style rules are applied in a
+simplified way: a later rule wins over an earlier one whatever its selector, and a colour or other setting written
+directly on a shape wins over the style sheet (browsers let the style sheet win), so a file that mixes both can look
+different here. Anything else is refused with the reason, shown
 under **Choose image…** and for each file in the batch:
 - "This SVG uses embedded images or links to other files, which aren't allowed." (embedded pictures, `data:` URLs,
   links to other files or websites, `@import`)

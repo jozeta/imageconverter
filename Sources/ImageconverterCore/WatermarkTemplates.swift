@@ -43,7 +43,7 @@ public enum WatermarkTemplates {
             anchor: .bottomLeft, sizePercent: 3, opacity: 0.9, marginPercent: 3)
         return [
             WatermarkTemplate(id: cornerID, name: "© corner (bottom right, 4 %)", options: corner, isBuiltIn: true),
-            WatermarkTemplate(id: tiledID, name: "Tiled diagonal (30°, 15 % opacity)", options: tiled, isBuiltIn: true),
+            WatermarkTemplate(id: tiledID, name: "Tiled diagonal (−30°, 15 % opacity)", options: tiled, isBuiltIn: true),
             WatermarkTemplate(id: filenameID, name: "Filename + date (bottom left)", options: filename, isBuiltIn: true)
         ]
     }()

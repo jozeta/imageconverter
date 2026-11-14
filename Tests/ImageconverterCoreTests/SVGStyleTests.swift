@@ -138,4 +138,55 @@ final class SVGStyleTests: XCTestCase {
         assertRefused(svg("") + svg11)
         assertRefused(svg11 + svg(##"<!ENTITY x "y">"##))
     }
+
+    func testHugeSelectorListsRefusedFast() {
+        // The reviewer's file: 120 000 selectors sharing 64 declarations, just under 1 MB. Each rule's
+        // declarations are stored once and the selector cap refuses it before any per-selector work.
+        let selectors = (0..<120_000).map { ".a\($0)" }.joined(separator: ",")
+        let declarations = (0..<64).map { "fill-p\($0):1" }.joined(separator: ";")
+        let start = Date()
+        assertRefused(svg("<style>" + selectors + "{" + declarations + "}</style><rect/>"))
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1)
+        // At the caps: 2 000 selectors are fine; 2 001 (also spread over rules and sheets) are not.
+        let atCap = (0..<2_000).map { ".b\($0)" }.joined(separator: ",")
+        XCTAssertNoThrow(try SVGSanitizer.sanitize(Data(svg("<style>" + atCap + "{fill:red}</style><rect class=\"b7\"/>").utf8)))
+        assertRefused(svg("<style>" + atCap + "{fill:red}</style><style>.c{fill:red}</style>"))
+        // 400 selectors × 64 declarations = 25 600 pairs: over the 20 000 cap.
+        let many = (0..<400).map { ".d\($0)" }.joined(separator: ",")
+        assertRefused(svg("<style>" + many + "{" + declarations + "}</style>"))
+        // A selector merging more than 64 properties over several rules refuses too.
+        let split = (0..<65).map { ".e{fill-q\($0):1}" }.joined()
+        assertRefused(svg("<style>" + split + "</style>"))
+    }
+
+    func testRulesDoNotSpanStyleElements() {
+        assertRefused(svg("<style>.a{fill:red</style><style>}</style><rect class=\"a\"/>"))
+    }
+
+    func testURLWithSpaceBeforeTheBracket() throws {
+        assertRefused(svg(##"<rect fill="url (http://e.com/x)"/>"##), .watermarkSVGExternal)
+        assertRefused(svg(##"<rect fill="URL\##t(http://e.com/x)"/>"##), .watermarkSVGExternal)
+        assertRefused(svg(##"<rect style="fill:url (http://e.com/x)"/>"##), .watermarkSVGExternal)
+        assertRefused(svg(##"<style>.a{fill:url (http://e.com/x)}</style><rect class="a"/>"##), .watermarkSVGExternal)
+        // A local one is stored as url(#id), so the reference checks see it: here it closes a cycle.
+        assertRefused(svg(##"<pattern id="p"><rect fill="url (#p)"/></pattern>"##))
+        assertRefused(svg(##"<style>.c{fill:url (#p)}</style><pattern id="p"><rect class="c"/></pattern>"##))
+        let out = try canonical(svg(##"<linearGradient id="g"/><rect fill="url  (#g)"/>"##))
+        XCTAssertTrue(out.contains(##"fill="url(#g)""##), out)
+    }
+
+    func testLooseDoctypeFormsRefused() {
+        let rest = ##"svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">"##
+        for keyword in ["<!DOCTYPE", "<!DOCTYPE\u{A0}", "<!DOCTYPE\u{2003}", "<!DOCTYPEX ", "<!DOCTYPE\u{0B}"] {
+            assertRefused(keyword + rest + svg(""))
+        }
+        let nbsp = ##"<!DOCTYPE svg\##u{A0}PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">"##
+        assertRefused(nbsp + svg(""))
+        // Tabs, CR, LF and CR LF are XML whitespace.
+        for space in ["\t", "\r", "\n", "\r\n"] {
+            XCTAssertNoThrow(try canonical("<!DOCTYPE" + space + "svg" + space + ##"PUBLIC "-//W3C//DTD SVG 1.1//EN""##
+                                           + space + ##""http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">"##
+                                           + svg("")), space.debugDescription)
+        }
+    }
 }

@@ -64,9 +64,10 @@ extension SVGSanitizer {
                 let parts = name.split(separator: ":", maxSplits: 1).map(String.init)
                 let uri: String? = parts.count == 2
                     ? (parts[0] == "xml" ? xmlNamespace : prefixes[parts[0]]?.last ?? "unbound:") : nil
-                let canonical = try validatedAttribute(element: element.name, name: name, uri: uri, value: value)
+                let normalized = normalizedURLs(value)
+                let canonical = try validatedAttribute(element: element.name, name: name, uri: uri, value: normalized)
                 // `href` and `xlink:href` both become `xlink:href`; keep one.
-                if seen.insert(canonical).inserted { element.attributes.append((canonical, value)) }
+                if seen.insert(canonical).inserted { element.attributes.append((canonical, normalized)) }
             }
         }
 

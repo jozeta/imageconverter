@@ -40,7 +40,7 @@ final class WatermarkTemplatesTests: XCTestCase {
     func testBuiltIns() {
         let templates = store.load().templates
         XCTAssertEqual(templates.prefix(3).map(\.name), ["© corner (bottom right, 4 %)",
-                                                         "Tiled diagonal (30°, 15 % opacity)",
+                                                         "Tiled diagonal (−30°, 15 % opacity)",
                                                          "Filename + date (bottom left)"])
         let builtIns = WatermarkTemplates.builtIns
         XCTAssertTrue(builtIns.allSatisfy(\.isBuiltIn))

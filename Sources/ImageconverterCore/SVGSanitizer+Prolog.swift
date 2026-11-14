@@ -45,13 +45,19 @@ extension SVGSanitizer {
     /// `text` without its doctype, when that is exactly one standard SVG doctype (no internal subset) after only
     /// the XML declaration, comments and whitespace; otherwise a refusal.
     static func strippingStandardDoctype(_ text: String) throws -> String {
-        guard let start = text.range(of: "<!DOCTYPE"),
+        guard let start = text.range(of: "<!DOCTYPE"), text[start.upperBound...].first.map(isXMLSpace) == true,
               let end = text[start.upperBound...].firstIndex(of: ">") else { throw ConversionError.watermarkSVGUnsafe }
-        let declaration = text[start.upperBound..<end].split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        // Only XML whitespace separates the parts; any other character (e.g. a no-break space) makes it no match.
+        let declaration = text[start.upperBound..<end].split(whereSeparator: isXMLSpace).joined(separator: " ")
         let rest = text[text.index(after: end)...]
         guard standardDoctypes.contains(declaration), isProlog(text[..<start.lowerBound]),
               !rest.lowercased().contains("<!doctype") else { throw ConversionError.watermarkSVGUnsafe }
         return String(text[..<start.lowerBound]) + rest
+    }
+
+    /// Space, tab, CR or LF (a CR LF pair is one `Character`).
+    static func isXMLSpace(_ character: Character) -> Bool {
+        character.unicodeScalars.allSatisfy { [" ", "\t", "\r", "\n"].contains($0) }
     }
 
     /// True when `prefix` is only whitespace, an XML declaration and comments.

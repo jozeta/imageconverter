@@ -125,9 +125,17 @@ enum SVGSanitizer {
         return id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" || $0 == "." }
     }
 
-    /// Every `url(` must be exactly `url(#id)`; a style value may not use `@`, `\`, `expression` or `import`.
+    /// `url` followed by whitespace and `(` written as `url(`, so every check (and the reference graph) sees it.
+    /// Values are stored in this form too.
+    static func normalizedURLs(_ value: String) -> String {
+        guard value.range(of: #"url\s+\("#, options: [.regularExpression, .caseInsensitive]) != nil else { return value }
+        return value.replacingOccurrences(of: #"url\s+\("#, with: "url(", options: [.regularExpression, .caseInsensitive])
+    }
+
+    /// Every `url(` (also `url (`) must be exactly `url(#id)`; a style value may not use `@`, `\`, `expression`
+    /// or `import`.
     static func checkValue(_ value: String, isStyle: Bool) throws {
-        let lower = value.lowercased()
+        let lower = normalizedURLs(value).lowercased()
         if isStyle {
             if lower.contains("import") { throw ConversionError.watermarkSVGExternal }
             if ["@", "\\", "expression"].contains(where: lower.contains) { throw ConversionError.watermarkSVGUnsafe }

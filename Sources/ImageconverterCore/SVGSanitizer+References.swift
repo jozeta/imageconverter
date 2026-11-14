@@ -120,7 +120,7 @@ extension SVGSanitizer {
         if name == "xlink:href" { return [String(value.dropFirst())] }
         var ids: [String] = []
         var rest = Substring(value)
-        while let open = rest.range(of: "url(", options: .caseInsensitive) {
+        while let open = rest.range(of: #"url\s*\("#, options: [.regularExpression, .caseInsensitive]) {
             guard let close = rest[open.upperBound...].firstIndex(of: ")") else { break }
             let reference = rest[open.upperBound..<close].trimmingCharacters(in: .whitespaces)
             if reference.hasPrefix("#") { ids.append(String(reference.dropFirst())) }
