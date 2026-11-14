@@ -323,3 +323,25 @@ extension JobRunnerTests {
         XCTAssertEqual(second.unchanged, 1)
     }
 }
+
+extension JobRunnerTests {
+    /// Task 7 fix round 1: when the Trash fails after the renamed file was saved, the new file is an output and the
+    /// original's version is done, so the next run neither renames the output again nor retries the original.
+    func testOverwriteRenameWithAFailingTrashDoesNotMultiplyFiles() async throws {
+        try drop("a.jpg")
+        var pipeline = Pipeline(output: OutputSettings(format: .jpeg))
+        pipeline.rename = RenameOptions(isEnabled: true, pattern: "{name}_web")
+        let job = job(pipeline, mode: .overwrite)
+        let failingTrash: Trasher = { _ in throw CocoaError(.fileWriteNoPermission) }
+        let later: @Sendable () -> Date = { Date().addingTimeInterval(10) }
+        let first = await JobRunner.run(job, store: store, trash: failingTrash, now: later)
+        XCTAssertEqual(first.batch.written.map(\.lastPathComponent), ["a_web.jpg"])
+        XCTAssertEqual(first.batch.failures, [])
+        XCTAssertTrue(first.batch.entries.first?.note?.hasPrefix(FileCommitter.trashFailurePrefix) == true)
+        let second = await JobRunner.run(job, store: store, trash: failingTrash, now: later)
+        XCTAssertEqual(second.batch.order, [])
+        XCTAssertEqual(second.batch.written, [])
+        let names = try FileManager.default.contentsOfDirectory(atPath: input.path).sorted()
+        XCTAssertEqual(names, ["a.jpg", "a_web.jpg"])
+    }
+}

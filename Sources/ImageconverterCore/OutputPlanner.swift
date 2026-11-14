@@ -110,6 +110,8 @@ public enum OutputPlanner {
     /// Plans one destination per target, in order, with the same rules as `plan(_:format:...)` but a format,
     /// extension and name per item (conditions can change them per image). `reservedSources` are files that
     /// are part of the batch but get no output (skipped by a condition): no plan may target them either.
+    /// `fileExists` is asked for every candidate name: a fake that always answers true (tests) makes every name
+    /// taken, so a plan that isn't in place never finds a free name; answer true only for the paths meant to exist.
     public static func plan(
         _ targets: [OutputTarget],
         mode: OutputMode,

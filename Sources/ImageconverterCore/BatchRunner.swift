@@ -216,6 +216,19 @@ public enum BatchRunner {
                 (entry.inputWidth, entry.inputHeight) = (item.inputSize?.width, item.inputSize?.height)
                 (entry.outputWidth, entry.outputHeight) = (item.outputSize?.width, item.outputSize?.height)
                 report.entries.append(entry)
+            case .failure(let error) where error.outputWasCommitted:
+                // Saved, only the Trash failed: a written file with a warning, so a job records the new file as an
+                // output and the original's version as done (it would otherwise rename its own output again).
+                // The note is the detail itself: "Converted, but couldn't move the original to the Trash: …".
+                let warning = if case .writeFailed(let detail) = error { detail } else { error.reason }
+                report.order.append(plan.item.source)
+                report.written.append(plan.destination)
+                report.notes.append(BatchNote(source: plan.item.source, text: warning))
+                var entry = BatchResultEntry(
+                    source: plan.item.source, destination: plan.destination, inputBytes: inputSizes[index],
+                    outputBytes: fileSize(plan.destination) ?? 0, note: warning)
+                entry.duration = index < durations.count ? durations[index] : 0
+                report.entries.append(entry)
             case .failure(let error):
                 report.order.append(plan.item.source)
                 var failure = BatchFailure(source: plan.item.source, reason: error.reason, inputBytes: inputSizes[index])

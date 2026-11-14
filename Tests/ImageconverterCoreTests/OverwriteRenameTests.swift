@@ -207,3 +207,22 @@ final class OverwriteRenameTests: XCTestCase {
         XCTAssertEqual(resume.missing, [url])
     }
 }
+
+extension OverwriteRenameTests {
+    /// Task 7 fix round 1: a failed Trash after the commit is a written file with a warning, not a failure.
+    func testTrashFailureReportsTheSavedFileWithAWarning() async throws {
+        let url = try source("a.jpg")
+        let failingTrash: Trasher = { _ in throw CocoaError(.fileWriteNoPermission) }
+        let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: renamePipeline("renamed"),
+                                           mode: .overwrite, trash: failingTrash)
+        let renamed = root.appendingPathComponent("renamed.jpg")
+        XCTAssertEqual(report.written, [renamed])
+        XCTAssertEqual(report.failures, [])
+        let entry = try XCTUnwrap(report.entries.first)
+        XCTAssertEqual(entry.destination, renamed)
+        XCTAssertTrue(entry.note?.hasPrefix(FileCommitter.trashFailurePrefix) == true, "\(entry.note ?? "")")
+        XCTAssertEqual(report.notes.map(\.source), [url])
+        XCTAssertGreaterThan(entry.outputBytes, 0)
+        XCTAssertTrue(exists(url), "the original stays when the Trash fails")
+    }
+}
