@@ -246,6 +246,7 @@ private struct ActionRow: View {
     let dragStarted: () -> Void
     let targetChanged: (Bool) -> Void
     let dropped: (String) -> Bool
+    @Environment(\.addDroppedFiles) private var addDroppedFiles
     @State private var isTargeted = false
     @State private var handleHovered = false
 
@@ -318,6 +319,8 @@ private struct ActionRow: View {
         }
         .dropDestination(for: String.self) { payloads, _ in
             guard let payload = payloads.first else { return false }
+            // Only an action's own payload reorders; file locations offered as text go to the window's file drop.
+            if !DropPayload.fileURLs(in: payloads).isEmpty { return addDroppedFiles(payloads) }
             return dropped(payload)
         } isTargeted: {
             isTargeted = $0

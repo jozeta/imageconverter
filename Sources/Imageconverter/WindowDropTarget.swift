@@ -19,6 +19,13 @@ private struct WindowDropTarget: ViewModifier {
                 return !files.isEmpty
             } isTargeted: { targeted = $0 && enabled }
             .overlay { DropOverlay(visible: forcedVisible || targeted) }
+            .environment(\.addDroppedFiles, AddDroppedFiles { [model] strings in
+                // Inner String targets (step rows) catch a file drag that also offers text; add those files.
+                let files = DropPayload.fileURLs(in: strings)
+                guard !model.isRunning, !files.isEmpty else { return false }
+                model.add(files, userChosen: false)
+                return true
+            })
     }
 
     private var forcedVisible: Bool {
@@ -27,6 +34,29 @@ private struct WindowDropTarget: ViewModifier {
         #else
         false
         #endif
+    }
+}
+
+/// What a step row does with a dropped text payload that isn't one of its own step ids: the window's file drop
+/// (see `DropPayload`). Default: nothing (rows outside a window drop target).
+struct AddDroppedFiles {
+    let handle: @MainActor ([String]) -> Bool
+
+    init(_ handle: @escaping @MainActor ([String]) -> Bool) {
+        self.handle = handle
+    }
+
+    @MainActor func callAsFunction(_ strings: [String]) -> Bool { handle(strings) }
+}
+
+private struct AddDroppedFilesKey: EnvironmentKey {
+    static let defaultValue = AddDroppedFiles { _ in false }
+}
+
+extension EnvironmentValues {
+    var addDroppedFiles: AddDroppedFiles {
+        get { self[AddDroppedFilesKey.self] }
+        set { self[AddDroppedFilesKey.self] = newValue }
     }
 }
 

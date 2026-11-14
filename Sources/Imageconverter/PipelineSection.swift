@@ -193,6 +193,7 @@ private struct StepRow: View {
     let dragStarted: () -> Void
     let dropped: (PipelineStep.ID) -> Bool
     let branchDefaults: BranchDefaults
+    @Environment(\.addDroppedFiles) private var addDroppedFiles
     @State private var isTargeted = false
     @State private var handleHovered = false
 
@@ -231,7 +232,8 @@ private struct StepRow: View {
             }
         }
         .dropDestination(for: String.self) { ids, _ in
-            guard let id = ids.first.flatMap(UUID.init(uuidString:)) else { return false }
+            // Only a step id reorders; file locations offered as text go to the window's file drop.
+            guard let id = ids.first.flatMap(UUID.init(uuidString:)) else { return addDroppedFiles(ids) }
             return dropped(id)
         } isTargeted: { isTargeted = $0 }
         .accessibilityAction(named: "Move up") { if canMoveUp { move(-1) } }
