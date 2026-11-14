@@ -27,9 +27,10 @@ public enum PrivacySummary {
         guard let (kind, count) = counts.filter({ $0.1 > 0 }).max(by: { $0.1 < $1.1 }) else { return nil }
         let noun = count == 1 ? "image" : "images"
         let verb = count == 1 ? "shares" : "share"
+        let their = count == 1 ? "its" : "their"
         let text: String
         switch kind {
-        case .location: text = "\(count) \(noun) \(verb) their location"
+        case .location: text = "\(count) \(noun) \(verb) \(their) location"
         case .serialNumbers: text = "\(count) \(noun) \(count == 1 ? "has" : "have") serial numbers"
         case .thumbnailMismatch: text = "\(count) \(noun) may show the uncropped photo"
         case .owner: text = "\(count) \(noun) name \(count == 1 ? "its" : "their") owner"

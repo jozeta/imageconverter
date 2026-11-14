@@ -4,7 +4,8 @@ import ImageconverterCore
 /// Decides whether the app may quit now (`applicationShouldTerminate`). With a manual batch or a job run going it
 /// asks "Stop and quit?" first; on yes it cancels everything, waits (at most `maxWait`) until runs have committed
 /// their files and saved their ledgers and history, removes the app's leftover temp files, forgets the manual run's
-/// journal (the user chose to stop; a crash still leaves it for the next launch), and then lets the app quit.
+/// journal (only when a manual batch was running; the user chose to stop, a crash still leaves it for the next
+/// launch), and then lets the app quit.
 @MainActor
 final class QuitCoordinator {
     static let shared = QuitCoordinator()
@@ -23,8 +24,10 @@ final class QuitCoordinator {
         guard anythingRunning else { return .terminateNow }
         guard confirm() else { return .terminateCancel }
         isStopping = true
+        // Only a manual batch's journal is forgotten; a job-only quit keeps any pending resume offer.
+        let manual = manualRunning
         stopEverything()
-        Task { await finishQuitting() }
+        Task { await finishQuitting(clearJournal: manual) }
         return .terminateLater
     }
 
@@ -55,7 +58,7 @@ final class QuitCoordinator {
         model?.cancel()
     }
 
-    private func finishQuitting() async {
+    private func finishQuitting(clearJournal: Bool) async {
         let deadline = Date().addingTimeInterval(Self.maxWait)
         // Runs end after committing their files and saving their ledgers; then their history is written.
         while anythingRunning || jobs.hasPendingWrites, Date() < deadline {
@@ -65,7 +68,7 @@ final class QuitCoordinator {
         await Task.detached(priority: .userInitiated) {
             FileCommitter.cleanUp(in: directories)
         }.value
-        RunJournal.discard(at: AppDefaults.journalURL)
+        if clearJournal { RunJournal.discard(at: AppDefaults.journalURL) }
         NSApp.reply(toApplicationShouldTerminate: true)
     }
 }

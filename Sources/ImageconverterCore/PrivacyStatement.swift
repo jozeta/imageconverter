@@ -4,8 +4,14 @@ import Foundation
 /// agree with the code that enforces them.
 public enum PrivacyStatement {
     public static let offline = "Works entirely offline. No network access, no telemetry, no uploads."
-    public static let frameworks = "Built only on Apple frameworks (SwiftUI, AppKit, ImageIO, Core Graphics, "
-        + "Core Image, Accelerate, Vision, UniformTypeIdentifiers); no third-party code."
+    /// Every Apple framework the sources import (besides the standard library and the app's own modules);
+    /// `PrivacyStatementTests` fails when a source imports one that is not listed.
+    public static let frameworkList = [
+        "SwiftUI", "AppKit", "Foundation", "Observation", "Charts", "ImageIO", "Core Graphics", "Core Image",
+        "Core Text", "Core Services", "Metal", "Accelerate", "Vision", "UniformTypeIdentifiers", "UserNotifications",
+    ]
+    public static let frameworks = "Built only on Apple frameworks (" + frameworkList.joined(separator: ", ")
+        + "); no third-party code."
     public static let tempFiles = "Temporary files written next to an output are deleted, not securely wiped: on "
         + "SSDs and APFS, overwriting a file does not reliably overwrite its old blocks."
 

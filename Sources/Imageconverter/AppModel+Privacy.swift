@@ -4,11 +4,15 @@ import ImageconverterCore
 /// What the privacy scan found per image (absent until scanned), and whether the chip's panel is open.
 @MainActor @Observable
 final class PrivacyState {
-    var findings: [URL: PrivacyFindings] = [:]
+    var findings: [URL: PrivacyFindings] = [:] { didSet { revision += 1 } }
     var showsPanel = false
     @ObservationIgnored let cache = PrivacyCache()
     @ObservationIgnored var task: Task<Void, Never>?
     @ObservationIgnored var scanQueued = false
+    struct RowsKey: Equatable { let items: Int; let results: Int; let revision: Int }
+    @ObservationIgnored var rows: (key: RowsKey, rows: [AppModel.PrivacyRow])?
+    /// Bumped whenever `findings` or the item list change in a way a count would miss.
+    @ObservationIgnored var revision = 0
 }
 
 extension AppModel {
@@ -19,8 +23,17 @@ extension AppModel {
         var id: URL { item.source }
     }
 
-    /// Images with something found, most severe first (stable within a severity).
+    /// Images with something found, most severe first (stable within a severity). Cached per scan result and
+    /// item list (`PrivacyState.rows`), since the panel reads it several times per render.
     var privacyRows: [PrivacyRow] {
+        let key = PrivacyState.RowsKey(items: items.count, results: privacy.findings.count, revision: privacy.revision)
+        if let cached = privacy.rows, cached.key == key { return cached.rows }
+        let rows = computePrivacyRows()
+        privacy.rows = (key, rows)
+        return rows
+    }
+
+    private func computePrivacyRows() -> [PrivacyRow] {
         items.compactMap { item in
             privacy.findings[item.source].flatMap { $0.isEmpty ? nil : PrivacyRow(item: item, findings: $0) }
         }
@@ -36,6 +49,7 @@ extension AppModel {
     /// Scans the images that have no result yet. Called through `items.didSet`, which fires once per appended item,
     /// so the work is queued once per main-actor turn.
     func schedulePrivacyScan() {
+        privacy.revision += 1  // the item list changed: cached rows are stale
         guard !privacy.scanQueued else { return }
         privacy.scanQueued = true
         Task { @MainActor [weak self] in

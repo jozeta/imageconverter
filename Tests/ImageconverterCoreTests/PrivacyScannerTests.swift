@@ -224,7 +224,7 @@ final class PrivacySummaryTests: XCTestCase {
         let chip = PrivacySummary.chip(all)
         XCTAssertEqual(chip?.text, "2 images share their location")
         XCTAssertEqual(chip?.severity, .high)
-        XCTAssertEqual(PrivacySummary.chip([found(.location)])?.text, "1 image shares their location")
+        XCTAssertEqual(PrivacySummary.chip([found(.location)])?.text, "1 image shares its location")
         XCTAssertEqual(PrivacySummary.chip([found(.device)])?.severity, .low)
     }
 

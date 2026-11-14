@@ -36,6 +36,11 @@ Everything that comes from outside the app is untrusted:
   overlong values and unreadable paths are rejected; every action but `open` waits for an in-app
   confirmation naming the files, preset and output, and overwrite mode is always confirmed. Names from
   links are never echoed.
+- **The command line** (`imageconverter`, the `ImageconverterCLIKit` target). Pipeline JSON from `--pipeline`
+  is decoded with the same lenient, validated decoder as presets (size-limited, invalid values fall back to
+  defaults); argv paths are checked for existence and read like dropped files (same decode limits); options
+  are parsed strictly (unknown options are errors). `--json` output is produced by the encoder, never by
+  string concatenation, so file names and reasons are escaped.
 - **Files are never lost.** Output goes to a temporary file next to its destination and is moved into
   place atomically; unrelated existing files are never replaced.
 
