@@ -119,6 +119,15 @@ final class AccessStore {
         return failed
     }
 
+    /// Starts access on loose files (a resumed batch's file bookmarks) for the rest of the session. They don't
+    /// count as covered folders: each opens only itself.
+    func holdFilesForSession(_ urls: [URL]) {
+        for url in urls {
+            let grant = FolderAccess.Grant([url])
+            if grant.givesAccess { sessionHeld.append(grant) } else { grant.release() }
+        }
+    }
+
     // MARK: Remembered folders
 
     /// Remembers `url` (chosen in an open panel, so the app has access to it now) as most recently used. Only a
@@ -203,6 +212,16 @@ final class AccessStore {
             }
             return false
         }
+    }
+
+    /// Resuming: asks for the folders of `unreadable` sources none of the allowed folders covers (sandbox only;
+    /// see `AccessPrompt.askToRead`). Returns the folders the user didn't allow.
+    func askToRead(_ unreadable: [URL]) -> [URL] {
+        guard Sandbox.isActive, !unreadable.isEmpty else { return [] }
+        activate()
+        return AccessPrompt.askToRead(unreadable, covered: covered,
+                                      ask: { need, again in self.ask(for: need, again: again) },
+                                      accept: { self.remember($0) })
     }
 
     /// The folders a run touches, for `touch`.

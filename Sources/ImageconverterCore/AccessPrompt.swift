@@ -36,6 +36,27 @@ public enum AccessPrompt {
         return .granted
     }
 
+    /// Resuming an interrupted batch: asks for the folders of the `unreadable` sources that no folder in `covered`
+    /// contains (`.readOriginals`), with the same rules as `run`. Returns the folders still not allowed when it
+    /// stops (empty when everything was allowed): after a Cancel, that folder and every one not asked yet.
+    public static func askToRead(_ unreadable: [URL], covered: [URL], caseSensitive: Bool? = nil,
+                                 ask: (AccessNeeds.Need, Bool) -> URL?, accept: (URL) -> Void) -> [URL] {
+        var covered = covered
+        var wrongAnswers: [String: Int] = [:]
+        while true {
+            let needs = AccessNeeds.readingNeeds(unreadable, covered: covered, caseSensitive: caseSensitive)
+            guard let need = needs.first else { return [] }
+            let wrong = wrongAnswers[need.folder.path, default: 0]
+            guard wrong < maxTries, let chosen = ask(need, wrong > 0) else { return needs.map(\.folder) }
+            guard AccessNeeds.isCovered(need.folder, by: chosen, caseSensitive: caseSensitive) else {
+                wrongAnswers[need.folder.path] = wrong + 1
+                continue
+            }
+            accept(chosen)
+            covered.append(chosen)
+        }
+    }
+
     /// The folders (standardised paths) of `sources` whose first file can't be read: one check per folder, so a
     /// batch of 100 000 files costs a few hundred calls. Run it off the main actor.
     public static func unreadableFolders(of sources: [URL],

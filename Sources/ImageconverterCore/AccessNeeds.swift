@@ -79,6 +79,22 @@ public enum AccessNeeds {
         return collapse(candidates)
     }
 
+    /// The folders of `sources` (files that can't be read now) that no folder in `covered` contains, each as
+    /// `.readOriginals`; outermost only, sorted by path.
+    public static func readingNeeds(_ sources: [URL], covered: [URL], caseSensitive: Bool? = nil) -> [Need] {
+        let roots = covered.map { Key($0, caseSensitive: caseSensitive) }
+        var seen = Set<String>()
+        var candidates: [(key: Key, need: Need)] = []
+        for source in sources {
+            let folder = source.deletingLastPathComponent()
+            guard seen.insert(folder.standardizedFileURL.path).inserted else { continue }
+            let key = Key(folder, caseSensitive: caseSensitive)
+            guard !roots.contains(where: { $0.contains(key) }) else { continue }
+            candidates.append((key, Need(folder: folder.standardizedFileURL, purpose: .readOriginals)))
+        }
+        return collapse(candidates)
+    }
+
     /// The outermost folders among `folders`: one per folder, a folder inside another left out, sorted by path.
     /// What the run journal keeps bookmarks for.
     public static func roots(of folders: [URL], caseSensitive: Bool? = nil) -> [URL] {

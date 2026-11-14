@@ -50,10 +50,16 @@ public struct RunJournal: Codable, Equatable, Sendable {
     /// new-folder output, so a resumed run in the sandbox can open them again. Nil in older journals.
     public var folderBookmarks: [FolderBookmark]?
     public var outputBookmark: Data?
+    /// Bookmarks of loose source files whose folder got no bookmark (in the sandbox a file added on its own can be
+    /// read, but its folder can't be bookmarked), at most `maxFileBookmarks`. Nil when there are none, and in
+    /// older journals. Resuming opens them again, so those files aren't lost to the sandbox.
+    public var fileBookmarks: [FolderBookmark]?
 
     public static let maxFolderBookmarks = 200
+    /// About 1.5 KB each in the file; more loose files than this are asked for by folder on resume.
+    public static let maxFileBookmarks = 2_000
 
-    /// A folder's path (for naming it when it can't be opened) and its bookmark.
+    /// A folder's (or a loose file's) path, for naming it when it can't be opened, and its bookmark.
     public struct FolderBookmark: Codable, Equatable, Sendable {
         public var path: String
         public var bookmark: Data
@@ -66,6 +72,7 @@ public struct RunJournal: Codable, Equatable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, id, started, items, pipeline, outputMode, completed, folderBookmarks, outputBookmark
+        case fileBookmarks
     }
 
     public init(from decoder: Decoder) throws {
@@ -85,6 +92,7 @@ public struct RunJournal: Codable, Equatable, Sendable {
         // Optional and untrusted: anything malformed is dropped (the run can still be resumed without it).
         folderBookmarks = try? container.decodeIfPresent([FolderBookmark].self, forKey: .folderBookmarks)
         outputBookmark = try? container.decodeIfPresent(Data.self, forKey: .outputBookmark)
+        fileBookmarks = try? container.decodeIfPresent([FolderBookmark].self, forKey: .fileBookmarks)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -98,6 +106,7 @@ public struct RunJournal: Codable, Equatable, Sendable {
         try container.encode(Self.runs(completed), forKey: .completed)
         try container.encodeIfPresent(folderBookmarks, forKey: .folderBookmarks)
         try container.encodeIfPresent(outputBookmark, forKey: .outputBookmark)
+        try container.encodeIfPresent(fileBookmarks, forKey: .fileBookmarks)
     }
 
     /// Consecutive indices as `[first, last]` pairs (duplicates collapse).
@@ -127,7 +136,8 @@ public struct RunJournal: Codable, Equatable, Sendable {
     }
 
     /// In overwrite mode each source's fingerprint is read now (`fingerprint`, injectable for tests). Bookmarks of
-    /// the sources' outermost folders and the output folder are made with `bookmarker` (while the run has access).
+    /// the sources' outermost folders and the output folder are made with `bookmarker` (while the run has access);
+    /// sources in a folder that got none are bookmarked one by one (`fileBookmarks`).
     public init(items: [InputItem], pipeline: Pipeline, mode: OutputMode, started: Date = Date(),
                 fingerprint: (URL) -> FileFingerprint? = FileFingerprint.of,
                 bookmarker: (URL) -> Data? = FolderAccess.usableBookmark) {
@@ -148,27 +158,10 @@ public struct RunJournal: Codable, Equatable, Sendable {
         }
         folderBookmarks = bookmarks.isEmpty ? nil : bookmarks
         if case .newFolder(let folder) = mode { outputBookmark = bookmarker(folder) }
-    }
-
-    /// What resuming can open again: the folders whose bookmarks resolve (start access on these exact URLs), and
-    /// the folders that can't be found or opened any more (by their recorded path). In the real sandbox
-    /// (`enforced`) a bookmark that resolves only as a plain one gives no access, so it counts as unavailable.
-    public func regainAccess(resolver: (Data) -> FolderAccess.Resolved? = FolderAccess.resolve,
-                             enforced: Bool = Sandbox.isEnforced) -> (access: [URL], unavailable: [URL]) {
-        var access: [URL] = []
-        var unavailable: [URL] = []
-        func regain(_ data: Data, folder: URL) {
-            if let resolved = resolver(data), resolved.isSecurityScoped || !enforced {
-                access.append(resolved.url)
-            } else {
-                unavailable.append(folder)
-            }
-        }
-        for folder in folderBookmarks ?? [] {
-            regain(folder.bookmark, folder: URL(fileURLWithPath: folder.path, isDirectory: true))
-        }
-        if let outputBookmark, case .newFolder(let folder) = outputMode { regain(outputBookmark, folder: folder) }
-        return (access, unavailable)
+        let files = Self.looseFileBookmarks(items.map(\.source),
+                                            bookmarked: bookmarks.map { URL(fileURLWithPath: $0.path, isDirectory: true) },
+                                            bookmarker: bookmarker)
+        fileBookmarks = files.isEmpty ? nil : files
     }
 
     public var inputItems: [InputItem] {
@@ -235,7 +228,10 @@ public struct RunJournal: Codable, Equatable, Sendable {
               (folderBookmarks?.count ?? 0) <= Self.maxFolderBookmarks,
               (folderBookmarks ?? []).allSatisfy({ Self.isValidPath($0.path)
                   && $0.bookmark.count <= FolderAccess.maxBookmarkSize }),
-              (outputBookmark?.count ?? 0) <= FolderAccess.maxBookmarkSize else {
+              (outputBookmark?.count ?? 0) <= FolderAccess.maxBookmarkSize,
+              (fileBookmarks?.count ?? 0) <= Self.maxFileBookmarks,
+              (fileBookmarks ?? []).allSatisfy({ Self.isValidPath($0.path)
+                  && $0.bookmark.count <= FolderAccess.maxBookmarkSize }) else {
             return false
         }
         if case .newFolder(let folder) = outputMode { return folder.isFileURL && Self.isValidPath(folder.path) }

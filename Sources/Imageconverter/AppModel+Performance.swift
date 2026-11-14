@@ -112,29 +112,31 @@ extension AppModel {
     /// Adds the images still to do and runs them with the batch's own pipeline and output mode, for this run
     /// only (the pipeline being edited and Save to stay as they are); files that are gone are reported. The sheet
     /// confirms overwriting first. The new run writes its own journal, replacing the old one.
+    /// In the sandbox the batch's folders and loose files are opened again through the journal's bookmarks (the
+    /// sandbox forgets them on quit); for any image still unreadable its folder is asked for before the plan is
+    /// made, and images in a folder the user doesn't allow are reported as "couldn't open", never dropped silently.
     func resumeInterruptedRun() {
         guard let journal = interruptedRun, !isRunning else { return }
         interruptedRun = nil
         let existing = items
-        // The batch's folders, opened again through the journal's bookmarks (the sandbox forgets them on quit).
         let regained = journal.regainAccess()
-        let unopened = regained.unavailable + AccessStore.shared.holdForSession(regained.access)
-        if !unopened.isEmpty {
-            let names = unopened.map(\.path).sorted()
-            let count = names.count
-            toasts.show("\(count) \(count == 1 ? "folder" : "folders") of the interrupted batch can't be opened", type: .bad,
-                        description: names.prefix(20).joined(separator: "\n") + (count > 20 ? "\n…" : "")
-                            + "\nIts images are listed as missing, or you're asked for the folder when the run starts.")
-        }
+        _ = AccessStore.shared.holdForSession(regained.access)
+        AccessStore.shared.holdFilesForSession(journal.regainFileAccess())
         Task { [weak self] in
+            let remaining = journal.remainingItems.map(\.source)
+            let unreadable = await Task.detached(priority: .userInitiated) {
+                remaining.filter { !FileManager.default.isReadableFile(atPath: $0.path) }
+            }.value
+            let refused = AccessStore.shared.askToRead(unreadable)
             let plan = await Task.detached(priority: .userInitiated) {
                 ResumePlan.make(journal: journal, existing: existing,
-                                fileExists: { FileManager.default.fileExists(atPath: $0) },
+                                isReadable: { FileManager.default.isReadableFile(atPath: $0) },
                                 directoryExists: { path in
                                     var isDirectory: ObjCBool = false
                                     return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
                                         && isDirectory.boolValue
-                                })
+                                },
+                                refusedFolders: refused)
             }.value
             self?.apply(plan)
         }
@@ -147,6 +149,13 @@ extension AppModel {
             let count = names.count
             toasts.show("\(count) \(count == 1 ? "file" : "files") of the interrupted batch \(count == 1 ? "is" : "are") missing",
                         type: .bad, description: names.prefix(20).joined(separator: "\n") + (count > 20 ? "\n…" : ""))
+        }
+        if !plan.unopened.isEmpty {
+            let names = plan.unopened.map(\.lastPathComponent).sorted()
+            let count = names.count
+            toasts.show("\(count) \(count == 1 ? "file" : "files") of the interrupted batch couldn't be opened",
+                        type: .bad, description: names.prefix(20).joined(separator: "\n") + (count > 20 ? "\n…" : "")
+                            + "\nNo access to \(count == 1 ? "its folder" : "their folders"). Add them again to convert them.")
         }
         if !plan.alreadyReplaced.isEmpty {
             let names = plan.alreadyReplaced.map(\.lastPathComponent).sorted()

@@ -185,7 +185,7 @@ final class OverwriteRenameTests: XCTestCase {
         let before = try Data(contentsOf: earlier)
         let journal = RunJournal(items: InputCollector.collect([url]), pipeline: renamePipeline("renamed"),
                                  mode: .overwrite, started: Date().addingTimeInterval(-60), bookmarker: { _ in nil })
-        let resume = ResumePlan.make(journal: journal, existing: [], fileExists: { FileManager.default.fileExists(atPath: $0) },
+        let resume = ResumePlan.make(journal: journal, existing: [], isReadable: { FileManager.default.isReadableFile(atPath: $0) },
                                      directoryExists: { _ in true })
         XCTAssertEqual(resume.toRun.map(\.source), [url], "the original is unchanged, so it is still to do")
         let (trash, _) = recordingTrash()
@@ -201,7 +201,7 @@ final class OverwriteRenameTests: XCTestCase {
         let journal = RunJournal(items: InputCollector.collect([url]), pipeline: renamePipeline("renamed"),
                                  mode: .overwrite, bookmarker: { _ in nil })
         try FileManager.default.removeItem(at: url)
-        let resume = ResumePlan.make(journal: journal, existing: [], fileExists: { FileManager.default.fileExists(atPath: $0) },
+        let resume = ResumePlan.make(journal: journal, existing: [], isReadable: { FileManager.default.isReadableFile(atPath: $0) },
                                      directoryExists: { _ in true })
         XCTAssertEqual(resume.toRun, [])
         XCTAssertEqual(resume.missing, [url])

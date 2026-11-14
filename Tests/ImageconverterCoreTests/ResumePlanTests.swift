@@ -14,7 +14,7 @@ final class ResumePlanTests: XCTestCase {
 
     func testRunsTheRemainingPresentItemsAndListsMissingOnes() {
         let plan = ResumePlan.make(journal: journal(["a.jpg", "b.jpg", "c.jpg", "d.jpg"], completed: [0]),
-                                   existing: [], fileExists: { !$0.hasSuffix("c.jpg") }, directoryExists: { _ in true })
+                                   existing: [], isReadable: { !$0.hasSuffix("c.jpg") }, directoryExists: { _ in true })
         XCTAssertEqual(plan.toRun.map(\.source.lastPathComponent), ["b.jpg", "d.jpg"])
         XCTAssertEqual(plan.missing.map(\.lastPathComponent), ["c.jpg"])
         XCTAssertNil(plan.problem)
@@ -23,14 +23,14 @@ final class ResumePlanTests: XCTestCase {
 
     func testAddsOnlyItemsNotAlreadyInTheList() {
         let plan = ResumePlan.make(journal: journal(["a.jpg", "b.jpg", "c.jpg"], completed: []),
-                                   existing: [item("b.jpg")], fileExists: { _ in true }, directoryExists: { _ in true })
+                                   existing: [item("b.jpg")], isReadable: { _ in true }, directoryExists: { _ in true })
         XCTAssertEqual(plan.toAdd.map(\.source.lastPathComponent), ["a.jpg", "c.jpg"])
         XCTAssertEqual(plan.toRun.count, 3)
     }
 
     func testNothingLeftWhenEverythingIsDoneOrMissing() {
         let plan = ResumePlan.make(journal: journal(["a.jpg", "b.jpg"], completed: [0]),
-                                   existing: [], fileExists: { _ in false }, directoryExists: { _ in true })
+                                   existing: [], isReadable: { _ in false }, directoryExists: { _ in true })
         XCTAssertEqual(plan.problem, .nothingLeft)
         XCTAssertTrue(plan.toRun.isEmpty)
     }
@@ -38,13 +38,13 @@ final class ResumePlanTests: XCTestCase {
     func testMissingOutputFolder() {
         let folder = URL(fileURLWithPath: "/out", isDirectory: true)
         let plan = ResumePlan.make(journal: journal(["a.jpg"], completed: [], mode: .newFolder(folder)),
-                                   existing: [], fileExists: { _ in true }, directoryExists: { _ in false })
+                                   existing: [], isReadable: { _ in true }, directoryExists: { _ in false })
         XCTAssertEqual(plan.problem, .outputFolderMissing(folder))
     }
 
     func testOverwriteNeedsConfirmationAndKeepsTheJournalMode() {
         let plan = ResumePlan.make(journal: journal(["a.jpg"], completed: [], mode: .overwrite),
-                                   existing: [], fileExists: { _ in true }, directoryExists: { _ in true })
+                                   existing: [], isReadable: { _ in true }, directoryExists: { _ in true })
         XCTAssertTrue(plan.needsOverwriteConfirmation)
         XCTAssertEqual(plan.mode, .overwrite)
     }
@@ -62,13 +62,13 @@ final class ResumePlanTests: XCTestCase {
             // No fingerprint recorded (an older journal): modified after the start counts as replaced.
             "/photos/c.jpg": FileFingerprint(path: "/photos/c.jpg", size: 10, modified: 1_200)
         ]
-        let plan = ResumePlan.make(journal: journal, existing: [], fileExists: { _ in true },
+        let plan = ResumePlan.make(journal: journal, existing: [], isReadable: { _ in true },
                                    directoryExists: { _ in true }, fingerprint: { now[$0] })
         XCTAssertEqual(plan.toRun.map(\.source.lastPathComponent), ["a.jpg"])
         XCTAssertEqual(plan.alreadyReplaced.map(\.lastPathComponent), ["b.jpg", "c.jpg"])
 
         // Outside overwrite mode sources never change, so nothing is checked.
-        let other = ResumePlan.make(journal: self.journal(names, completed: []), existing: [], fileExists: { _ in true },
+        let other = ResumePlan.make(journal: self.journal(names, completed: []), existing: [], isReadable: { _ in true },
                                     directoryExists: { _ in true }, fingerprint: { now[$0] })
         XCTAssertEqual(other.toRun.count, 3)
         XCTAssertEqual(other.alreadyReplaced, [])
@@ -81,7 +81,7 @@ final class ResumePlanTests: XCTestCase {
         journal.items.append(.init(path: "/photos/A.JPG", relativeDirectory: ""))
         let plan = ResumePlan.make(journal: journal, existing: [InputItem(source: URL(fileURLWithPath: "/photos/a.jpg"),
                                                                            relativeDirectory: "photos")],
-                                   fileExists: { _ in true }, directoryExists: { _ in true })
+                                   isReadable: { _ in true }, directoryExists: { _ in true })
         XCTAssertEqual(plan.toRun.count, 1)
         XCTAssertEqual(plan.toAdd, [], "already in the list through its folder")
     }
