@@ -4,7 +4,8 @@
 # Builds the DEBUG app, launches it once per screenshot with its own settings (`-debugDefaultsSuite readme`, so your real
 # settings, presets, jobs and history are never touched), the generated sample images in docs/screenshots/samples and the
 # prepared pipelines in docs/screenshots/pipelines, captures the app window by its window id (`screencapture -l`, no
-# shadow; it works even when other windows cover it) and quits the app. PNGs are scaled to 1300 px wide and palette-reduced to stay under 400 KB (scripts/shrink-png.py, needs Pillow).
+# shadow; it works even when other windows cover it) and quits the app. PNGs are scaled to 1300 px wide and their colours
+# reduced until they are 400 KB or less (scripts/shrink-png.swift, Apple frameworks only); over 500 KB is a warning.
 #
 # Needs: Screen Recording permission for your terminal, and a free main display (don't use the Mac while it runs: the app
 # windows open on the current Space). Usage: scripts/screenshots.sh [name ...]   (no names: all)
@@ -39,10 +40,12 @@ photos=("$work/Photos/sunset.jpg" "$work/Photos/meadow.jpg" "$work/Photos/night.
         "$work/Photos/shapes.png" "$work/Photos/located.jpg")
 cp "$shots/samples/sunset.jpg" "$work/Inbox/"
 
-# Scales to the window's size in points and reduces the palette until the file is 400 KB or less (Pillow); without
-# Pillow, sips only scales.
+# Scales to the window's size in points and reduces the colours until the file is 400 KB or less; if the script
+# fails, sips only scales (bigger files).
 shrink() {
-    python3 -c "import PIL" 2>/dev/null && python3 "$root/scripts/shrink-png.py" "$1" || sips -Z 1600 "$1" >/dev/null
+    if ! swift "$root/scripts/shrink-png.swift" "$1"; then
+        sips -Z 1300 "$1" >/dev/null
+    fi
 }
 
 # shot <name> <pipeline> [defaults key=value ...] -- <app arguments> [-- <window title>]
@@ -114,7 +117,7 @@ fi
 
 shot about main -- -debugShowAbout -- About
 
-# Keep the images small: a screenshot over 400 KB is a bug in this script, not something to commit.
+# Keep the images small: a screenshot over 500 KB is a bug in this script, not something to commit.
 for f in "$shots"/*.png; do
-    [ "$(stat -f %z "$f")" -le 409600 ] || echo "warning: $(basename "$f") is over 400 KB" >&2
+    [ "$(stat -f %z "$f")" -le 512000 ] || echo "warning: $(basename "$f") is over 500 KB" >&2
 done
