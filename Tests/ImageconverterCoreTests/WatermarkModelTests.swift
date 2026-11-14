@@ -138,4 +138,97 @@ final class WatermarkModelTests: XCTestCase {
         let options = WatermarkOptions(content: .text(TextWatermark(text: "a\nb\rc")))
         XCTAssertTrue(options.summary.hasPrefix("a b c · "), options.summary)
     }
+
+    func testOldWatermarkJSONDecodes() throws {
+        // A step as saved before rotation, layout, shadow and outline existed.
+        let json = #"{"content":{"text":{"_0":{"text":"© Me","fontName":"Helvetica-Bold","#
+            + #""color":{"red":1,"green":1,"blue":1,"alpha":1}}}},"anchor":"topLeft","sizePercent":5,"#
+            + #""opacity":0.5,"marginPercent":2}"#
+        let old = try JSONDecoder().decode(WatermarkOptions.self, from: Data(json.utf8))
+        XCTAssertEqual(old.rotation, 0)
+        XCTAssertEqual(old.layout, .single)
+        XCTAssertEqual(old.content, .text(TextWatermark(text: "© Me")))
+        guard case .text(let text) = old.content else { return XCTFail("text expected") }
+        XCTAssertNil(text.shadow)
+        XCTAssertNil(text.outline)
+        XCTAssertEqual(old.anchor, .topLeft)
+        let image = try JSONDecoder().decode(
+            WatermarkOptions.self, from: Data(#"{"content":{"image":{"_0":{"path":"/a.png"}}}}"#.utf8))
+        XCTAssertEqual(image.content, .image(ImageWatermark(path: "/a.png", shadow: nil)))
+    }
+
+    func testNewFieldsRoundTrip() throws {
+        let text = TextWatermark(text: "{filename}", shadow: WatermarkShadow(blur: 5, offset: 3),
+                                 outline: WatermarkOutline(color: .black, width: 4))
+        let options = WatermarkOptions(content: .text(text), rotation: -30, layout: .tiled(spacing: 50, stagger: false))
+        let data = try JSONEncoder().encode(options)
+        XCTAssertEqual(try JSONDecoder().decode(WatermarkOptions.self, from: data), options)
+        let image = WatermarkOptions(content: .image(ImageWatermark(path: "/l.svg", shadow: WatermarkShadow())))
+        XCTAssertEqual(try JSONDecoder().decode(WatermarkOptions.self, from: JSONEncoder().encode(image)), image)
+    }
+
+    func testNewFieldsClamped() {
+        XCTAssertEqual(WatermarkOptions(rotation: 400).clampedRotation, 180)
+        XCTAssertEqual(WatermarkOptions(rotation: -400).clampedRotation, -180)
+        XCTAssertEqual(WatermarkOptions(rotation: .nan).clampedRotation, 0)
+        XCTAssertEqual(WatermarkOptions(rotation: .infinity).clampedRotation, 0)
+        XCTAssertEqual(WatermarkShadow(blur: 99, offset: -1).clampedBlur, 50)
+        XCTAssertEqual(WatermarkShadow(blur: 99, offset: -1).clampedOffset, 0)
+        XCTAssertEqual(WatermarkOutline(width: 50).clampedWidth, 20)
+        XCTAssertEqual(WatermarkOutline(width: .nan).clampedWidth, 6)
+    }
+
+    func testRotationKeepsMarginForRotatedBox() throws {
+        let image = CGSize(width: 1000, height: 800)
+        for anchor in Anchor.allCases {
+            for degrees in [0.0, 30, 45, 90, -60, 180] {
+                let options = WatermarkOptions(content: .image(ImageWatermark(path: "a")), anchor: anchor,
+                                               sizePercent: 60, opacity: 1, marginPercent: 5, rotation: degrees)
+                let placement = try XCTUnwrap(Geometry.watermarkPlacement(
+                    imageSize: image, contentSize: CGSize(width: 400, height: 100), options: options))
+                let center = try XCTUnwrap(placement.centers.first)
+                XCTAssertEqual(placement.centers.count, 1)
+                // The rotated mark's real corners, not just the stored box, stay inside the margins.
+                let radians = degrees * .pi / 180
+                let half = CGSize(width: placement.markSize.width / 2, height: placement.markSize.height / 2)
+                for (signX, signY) in [(-1.0, -1.0), (1, -1), (1, 1), (-1, 1)] {
+                    let cornerX = center.x + signX * half.width * cos(radians) - signY * half.height * sin(radians)
+                    let cornerY = center.y + signX * half.width * sin(radians) + signY * half.height * cos(radians)
+                    XCTAssertGreaterThanOrEqual(cornerX, 40 - 0.001, "\(anchor) \(degrees)")
+                    XCTAssertLessThanOrEqual(cornerX, 960 + 0.001, "\(anchor) \(degrees)")
+                    XCTAssertGreaterThanOrEqual(cornerY, 40 - 0.001, "\(anchor) \(degrees)")
+                    XCTAssertLessThanOrEqual(cornerY, 760 + 0.001, "\(anchor) \(degrees)")
+                }
+                let box = placement.boundingBox(at: center)
+                if anchor == .bottomRight {
+                    XCTAssertEqual(box.maxX, 960, accuracy: 0.001)
+                    XCTAssertEqual(box.maxY, 760, accuracy: 0.001)
+                }
+            }
+        }
+        // 45°: the 480 x 120 mark's box is 424 px square, which fits, so the mark isn't shrunk.
+        let rotated = try XCTUnwrap(Geometry.watermarkPlacement(
+            imageSize: image, contentSize: CGSize(width: 400, height: 100),
+            options: WatermarkOptions(content: .image(ImageWatermark(path: "a")), sizePercent: 60,
+                                      marginPercent: 5, rotation: 45)))
+        XCTAssertEqual(rotated.markSize.width, 480, accuracy: 0.001)
+        XCTAssertEqual(rotated.boundingSize.width, 600 / 2.0.squareRoot(), accuracy: 0.001)
+    }
+
+    func testTiledGridIsCentredAndBounded() throws {
+        let image = CGSize(width: 400, height: 300)
+        let options = WatermarkOptions(content: .image(ImageWatermark(path: "a")), anchor: .topLeft,
+                                       sizePercent: 10, opacity: 1, marginPercent: 20,
+                                       layout: .tiled(spacing: 100, stagger: false))
+        let placement = try XCTUnwrap(Geometry.watermarkPlacement(
+            imageSize: image, contentSize: CGSize(width: 10, height: 10), options: options))
+        XCTAssertTrue(placement.centers.contains(CGPoint(x: 200, y: 150)))
+        XCTAssertTrue(placement.centers.contains(CGPoint(x: 260, y: 150)))
+        XCTAssertTrue(placement.centers.allSatisfy { placement.boundingBox(at: $0).intersects(CGRect(origin: .zero, size: image)) })
+        let tiny = WatermarkOptions(content: .image(ImageWatermark(path: "a")), sizePercent: 0.01,
+                                    layout: .tiled(spacing: 0, stagger: true))
+        let many = try XCTUnwrap(Geometry.watermarkPlacement(
+            imageSize: CGSize(width: 20000, height: 20000), contentSize: CGSize(width: 10, height: 10), options: tiny))
+        XCTAssertLessThanOrEqual(many.centers.count, Geometry.maxTiles)
+    }
 }

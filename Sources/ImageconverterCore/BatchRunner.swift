@@ -132,7 +132,7 @@ public enum BatchRunner {
         let total = plans.count
         if Task.isCancelled { return BatchReport(cancelled: true) }
         let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)
-        let missingAsset = assets.hasMissing(for: pipeline)
+        let missingAsset = assets.missingError(for: pipeline)
         var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
         var weights = [Int](repeating: 1, count: total)
         var outcomes = [Result<WrittenItem?, ConversionError>?](repeating: nil, count: total)
@@ -159,7 +159,7 @@ public enum BatchRunner {
                     next += 1
                     group.addTask {
                         // A watermark image that can't be read fails every file, before any source is decoded.
-                        if missingAsset { return (index, .failure(.watermarkImageUnreadable), fileSize(plan.item.source)) }
+                        if let missingAsset { return (index, .failure(missingAsset), fileSize(plan.item.source)) }
                         let outcome = convert(plan, pipeline: pipeline, assets: assets, maxPixels: maxPixels, trash: trash)
                         return (index, outcome.0, outcome.1)
                     }
@@ -305,10 +305,11 @@ public enum BatchRunner {
         _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int
     ) throws -> PreparedItem {
         // A watermark image that can't be read fails the file before its source is decoded.
-        if assets.hasMissing(for: pipeline) { throw ConversionError.watermarkImageUnreadable }
+        if let missing = assets.missingError(for: pipeline) { throw missing }
         let loaded = try ImageLoader.load(url, maxPixels: maxPixels, includeMetadata: pipeline.metadata.isActive)
         var stepNotes: [String] = []
-        let image = try pipeline.apply(to: loaded.image, assets: assets, notes: &stepNotes)
+        let textContext = pipeline.watermarkTextContext(source: url, properties: loaded.properties)
+        let image = try pipeline.apply(to: loaded.image, assets: assets, textContext: textContext, notes: &stepNotes)
         let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
                                                    sourceWidth: loaded.image.width, sourceHeight: loaded.image.height)
         return PreparedItem(source: loaded.image, image: image, properties: properties, notes: stepNotes)

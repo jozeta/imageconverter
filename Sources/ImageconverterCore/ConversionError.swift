@@ -10,6 +10,12 @@ public enum ConversionError: Error, Equatable, Sendable {
     case processingFailed(String)
     /// The watermark image is missing or can't be read.
     case watermarkImageUnreadable
+    /// The SVG watermark loads external content, runs scripts or defines entities.
+    case watermarkSVGUnsafe
+    /// The SVG watermark file is over the size limit.
+    case watermarkSVGTooLarge
+    /// This macOS can't render SVG.
+    case watermarkSVGUnsupported
     /// Maximum-size compression: even the lowest quality is larger than `limit` bytes.
     case sizeUnreachable(limit: Int, smallest: Int)
 
@@ -30,6 +36,12 @@ public enum ConversionError: Error, Equatable, Sendable {
             return "Couldn't apply the \(step) step"
         case .watermarkImageUnreadable:
             return "Couldn't read the watermark image"
+        case .watermarkSVGUnsafe:
+            return "This SVG can't be used (it loads external content or runs scripts)"
+        case .watermarkSVGTooLarge:
+            return "This SVG is too large (limit \(ByteSize.format(SVGRasterizer.maxFileSize)))"
+        case .watermarkSVGUnsupported:
+            return "SVG watermarks aren't supported on this version of macOS"
         case .sizeUnreachable(let limit, let smallest):
             return "Can't get under \(ByteSize.format(limit)) (smallest is \(ByteSize.format(smallest)))"
         }

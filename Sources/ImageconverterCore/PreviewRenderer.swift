@@ -47,6 +47,8 @@ public actor PreviewRenderer {
         let key: FileKey
         let image: CGImage
         let display: CGImage
+        /// The header properties, for the watermark's tokens.
+        let properties: [String: Any]
     }
 
     private let maxPixels: Int
@@ -79,11 +81,13 @@ public actor PreviewRenderer {
         let cancelled = PreviewOutcome.failed(reason: "Cancelled")
         if Task.isCancelled { return cancelled }
         let assets = watermarkAssets(for: pipeline)
-        if assets.hasMissing(for: pipeline) { return .failed(reason: ConversionError.watermarkImageUnreadable.reason) }
+        if let missing = assets.missingError(for: pipeline) { return .failed(reason: missing.reason) }
         let source: CGImage
         let before: CGImage
+        let properties: [String: Any]
         do {
-            (source, before) = try sourceImages(for: item.source)
+            let loaded = try sourceImages(for: item.source)
+            (source, before, properties) = (loaded.image, loaded.display, loaded.properties)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)
         } catch {
@@ -93,7 +97,8 @@ public actor PreviewRenderer {
         let result: CGImage
         do {
             // Synchronous and not interruptible; cancellation is only seen before and after it.
-            result = try pipeline.apply(to: source, assets: assets)
+            let context = pipeline.watermarkTextContext(source: item.source, properties: properties)
+            result = try pipeline.apply(to: source, assets: assets, textContext: context)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)
         } catch {
@@ -124,17 +129,17 @@ public actor PreviewRenderer {
         return destination
     }
 
-    private func sourceImages(for url: URL) throws -> (CGImage, CGImage) {
+    private func sourceImages(for url: URL) throws -> CachedSource {
         let key = FileKey(url)
-        if let cachedSource, cachedSource.key == key { return (cachedSource.image, cachedSource.display) }
+        if let cachedSource, cachedSource.key == key { return cachedSource }
         cachedSource = nil
         decodeCount += 1
-        let image = try ImageLoader.load(url, maxPixels: maxPixels).image
+        let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
+        let image = loaded.image
         guard let display = fit(image) else { throw ConversionError.processingFailed("preview") }
-        if image.width <= Self.maxCachedPixels / max(1, image.height) {
-            cachedSource = CachedSource(key: key, image: image, display: display)
-        }
-        return (image, display)
+        let decoded = CachedSource(key: key, image: image, display: display, properties: loaded.properties)
+        if image.width <= Self.maxCachedPixels / max(1, image.height) { cachedSource = decoded }
+        return decoded
     }
 
     private func watermarkAssets(for pipeline: Pipeline) -> WatermarkAssets {

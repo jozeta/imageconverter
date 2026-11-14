@@ -55,18 +55,7 @@ public struct RenameContext: Sendable {
         let exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any]
         let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
 
-        var date: Date?
-        if let raw = exif?[kCGImagePropertyExifDateTimeOriginal as String] as? String {
-            let parser = DateFormatter()
-            parser.locale = Locale(identifier: "en_US_POSIX")
-            parser.timeZone = TimeZone(identifier: "GMT")
-            parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
-            date = parser.date(from: raw)
-        }
-        if date == nil, let created = fileCreationDate {
-            let offset = TimeZone.current.secondsFromGMT(for: created)
-            date = created.addingTimeInterval(TimeInterval(offset))
-        }
+        let date = captureDate(properties: properties, fileCreationDate: fileCreationDate)
 
         var iso: Int?
         if let values = exif?[kCGImagePropertyExifISOSpeedRatings as String] as? [Any] {
@@ -91,6 +80,22 @@ public struct RenameContext: Sendable {
             exposureTime: (exif?[kCGImagePropertyExifExposureTime as String] as? NSNumber)?.doubleValue)
     }
     // swiftlint:enable function_parameter_count
+
+    /// EXIF DateTimeOriginal (parsed as GMT, since EXIF has no time zone); otherwise the file's creation
+    /// date, shifted so its GMT wall clock equals the wall clock in the user's time zone.
+    static func captureDate(properties: [String: Any], fileCreationDate: Date?) -> Date? {
+        let exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any]
+        if let raw = exif?[kCGImagePropertyExifDateTimeOriginal as String] as? String {
+            let parser = DateFormatter()
+            parser.locale = Locale(identifier: "en_US_POSIX")
+            parser.timeZone = TimeZone(identifier: "GMT")
+            parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
+            if let date = parser.date(from: raw) { return date }
+        }
+        guard let created = fileCreationDate else { return nil }
+        let offset = TimeZone.current.secondsFromGMT(for: created)
+        return created.addingTimeInterval(TimeInterval(offset))
+    }
 }
 
 /// A file-name pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`.
@@ -262,12 +267,29 @@ public struct RenameTemplate: Equatable, Sendable {
 
     private static func format(_ date: Date?, _ arg: String?, default fallback: String) -> String {
         guard let date else { return "" }
+        return formatDate(date, (arg?.isEmpty ?? true) ? fallback : arg ?? fallback)
+    }
+
+    /// `date` in `pattern` (POSIX locale, Gregorian, GMT: dates here are wall clocks stored as GMT).
+    static func formatDate(_ date: Date, _ pattern: String) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "GMT")
         formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = (arg?.isEmpty ?? true) ? fallback : arg
+        formatter.dateFormat = pattern
         return formatter.string(from: date)
+    }
+
+    /// Date-field letters a user pattern may use (year, month, day, weekday, hour, minute, second, AM/PM).
+    private static let dateLetters = Set("yMLdEeHhKkmsSa")
+    /// Separators a user pattern may use besides those letters.
+    private static let dateSeparators = Set(" -_.,/:")
+
+    /// True for a short pattern made only of date-field letters and plain separators (no quoted text,
+    /// time zones or other fields), at most 40 characters.
+    static func isSafeDateFormat(_ pattern: String) -> Bool {
+        !pattern.isEmpty && pattern.count <= 40
+            && pattern.allSatisfy { dateLetters.contains($0) || dateSeparators.contains($0) }
     }
 
     private static let separators: Set<Character> = ["_", "-", " "]

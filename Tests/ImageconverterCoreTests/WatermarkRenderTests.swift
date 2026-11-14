@@ -141,4 +141,95 @@ final class WatermarkRenderTests: XCTestCase {
             }
         }
     }
+
+    /// True when the (top-left origin) region has a pixel matching `test`.
+    private func contains(_ image: CGImage, x xRange: Range<Int>, y yRange: Range<Int>,
+                          _ test: (TestImages.Pixel) -> Bool) -> Bool {
+        for row in yRange {
+            for col in xRange where test(TestImages.pixel(of: image, x: col, y: row)) { return true }
+        }
+        return false
+    }
+
+    private func isRed(_ pixel: TestImages.Pixel) -> Bool { pixel.red > 200 && pixel.green < 60 && pixel.blue < 60 }
+
+    func testTiledCoversCorners() throws {
+        let base = TestImages.make(width: 400, height: 300, color: white)
+        let asset = solid(20, 20, [1, 0, 0])
+        let options = WatermarkOptions(content: .image(ImageWatermark(path: "x")), anchor: .center, sizePercent: 10,
+                                       opacity: 1, marginPercent: 3, rotation: 30,
+                                       layout: .tiled(spacing: 50, stagger: true))
+        let out = try ImageOps.watermark(base, options, asset: asset)
+        for (columns, rows) in [(0..<40, 0..<40), (360..<400, 0..<40), (0..<40, 260..<300), (360..<400, 260..<300)] {
+            XCTAssertTrue(contains(out, x: columns, y: rows, isRed), "no mark near \(columns) \(rows)")
+        }
+        // Spacing leaves white between the marks.
+        XCTAssertTrue(contains(out, x: 0..<400, y: 0..<300) { $0.green > 240 })
+    }
+
+    func testRotatedImageWatermarkUsesRotatedBox() throws {
+        let base = TestImages.make(width: 400, height: 300, color: white)
+        let asset = solid(100, 50, [1, 0, 0])
+        var options = imageOptions()
+        options.rotation = 90
+        let out = try ImageOps.watermark(base, options, asset: asset)
+        // 60 x 30 turned upright is 30 wide and 60 tall, flush with the 9 px margin at the bottom right.
+        XCTAssertTrue(isRed(TestImages.pixel(of: out, x: 376, y: 261)))
+        XCTAssertFalse(isRed(TestImages.pixel(of: out, x: 350, y: 276)))
+        XCTAssertFalse(contains(out, x: 392..<400, y: 0..<300, isRed))
+        XCTAssertFalse(contains(out, x: 0..<400, y: 292..<300, isRed))
+    }
+
+    func testShadowAndOutlineDrawn() throws {
+        let base = TestImages.make(width: 400, height: 300, color: black)
+        let plain = textOptions("IIII")
+        var styled = plain
+        styled.content = .text(TextWatermark(
+            text: "IIII", fontName: "Helvetica-Bold", color: .white,
+            shadow: WatermarkShadow(color: RGBAColor(red: 0, green: 0, blue: 1, alpha: 1), blur: 0, offset: 15),
+            outline: WatermarkOutline(color: RGBAColor(red: 1, green: 0, blue: 0, alpha: 1), width: 8)))
+        let plainOut = try ImageOps.watermark(base, plain, asset: nil)
+        let out = try ImageOps.watermark(base, styled, asset: nil)
+        // Pixels the plain fill leaves black are now coloured by the outline (red) and the shadow (blue).
+        var outlined = false
+        var shadowed = false
+        for row in 240..<300 {
+            for col in 0..<200 {
+                let before = TestImages.pixel(of: plainOut, x: col, y: row)
+                guard before.red < 10, before.green < 10, before.blue < 10 else { continue }
+                let after = TestImages.pixel(of: out, x: col, y: row)
+                if after.red > 150, after.green < 80 { outlined = true }
+                if after.blue > 150, after.red < 80 { shadowed = true }
+            }
+        }
+        XCTAssertTrue(outlined, "no outline outside the glyph fill")
+        XCTAssertTrue(shadowed, "no shadow outside the glyph fill")
+    }
+
+    func testImageShadowDrawn() throws {
+        let base = TestImages.make(width: 400, height: 300, color: white)
+        var options = imageOptions()
+        options.content = .image(ImageWatermark(path: "x", shadow: WatermarkShadow(
+            color: RGBAColor(red: 0, green: 0, blue: 1, alpha: 1), blur: 0, offset: 20)))
+        let out = try ImageOps.watermark(base, options, asset: solid(100, 50, [1, 0, 0]))
+        // Rect x 331...391, y 261...291; the shadow is 6 px down and right.
+        let below = TestImages.pixel(of: out, x: 388, y: 294)
+        XCTAssertGreaterThan(below.blue, 200)
+        XCTAssertLessThan(below.red, 60)
+    }
+
+    func testTokensRenderWithContext() throws {
+        let base = TestImages.make(width: 400, height: 300, color: black)
+        let context = WatermarkTextContext(fileName: "AB", fileNameWithExtension: "AB.jpg")
+        let viaToken = try ImageOps.watermark(base, textOptions("{filename}"), asset: nil, context: context)
+        let literal = try ImageOps.watermark(base, textOptions("AB"), asset: nil)
+        for row in stride(from: 250, to: 300, by: 3) {
+            for col in stride(from: 0, to: 200, by: 2) {
+                XCTAssertEqual(TestImages.pixel(of: viaToken, x: col, y: row).red,
+                               TestImages.pixel(of: literal, x: col, y: row).red, accuracy: 1)
+            }
+        }
+        // A token that renders to nothing draws nothing.
+        XCTAssertTrue(try ImageOps.watermark(base, textOptions("{artist}"), asset: nil, context: context) === base)
+    }
 }

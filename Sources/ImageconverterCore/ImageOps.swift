@@ -1,5 +1,4 @@
 import CoreGraphics
-import CoreText
 import Foundation
 
 /// Pixel operations behind the image steps. Inputs from `Geometry` are top-left origin (y down);
@@ -88,47 +87,6 @@ public enum ImageOps {
         }
     }
 
-    /// Draws a text or image watermark. `asset` is the already loaded watermark image (image content only).
-    public static func watermark(_ image: CGImage, _ options: WatermarkOptions, asset: CGImage?) throws -> CGImage {
-        let step = StepKind.watermark.displayName
-        var line: CTLine?
-        var origin = CGPoint.zero
-        let contentSize: CGSize
-        switch options.content {
-        case .text(let text):
-            guard !text.text.isEmpty else { return image }
-            guard let built = textLine(text) else { return image }
-            line = built.line
-            origin = built.origin
-            contentSize = built.size
-        case .image:
-            guard let asset else { throw ConversionError.watermarkImageUnreadable }
-            contentSize = CGSize(width: asset.width, height: asset.height)
-        }
-        let imageSize = CGSize(width: image.width, height: image.height)
-        guard let rect = Geometry.watermarkRect(imageSize: imageSize, contentSize: contentSize, options: options)
-        else { return image }
-
-        let ctx = try context(imageSize, like: image, step: step, alpha: hasAlpha(image))
-        draw(image, at: .zero, size: imageSize, in: ctx)
-        ctx.setAlpha(CGFloat(options.clampedOpacity))
-        if let line, case .text(let text) = options.content {
-            ctx.saveGState()
-            ctx.setFillColor(cgColor(text.color))
-            // The line was measured at `referenceFontSize`; scale it to the rect. `origin` is where the
-            // measured box starts relative to the baseline origin.
-            let scale = rect.height / contentSize.height
-            ctx.translateBy(x: rect.minX - origin.x * scale, y: CGFloat(ctx.height) - rect.maxY - origin.y * scale)
-            ctx.scaleBy(x: scale, y: scale)
-            ctx.textPosition = .zero
-            CTLineDraw(line, ctx)
-            ctx.restoreGState()
-        } else if let asset {
-            draw(asset, at: rect.origin, size: rect.size, in: ctx)
-        }
-        return try finish(ctx, step: step)
-    }
-
     // MARK: Helpers
 
     static func hasAlpha(_ image: CGImage) -> Bool {
@@ -193,43 +151,7 @@ public enum ImageOps {
         return image
     }
 
-    private static let referenceFontSize: CGFloat = 100
-
-    private struct TextLine {
-        var line: CTLine
-        /// The measured box's bottom-left corner relative to the line's origin (baseline start).
-        var origin: CGPoint
-        var size: CGSize
-    }
-
-    /// A line for `text` at the reference size, measured as the union of its typographic box and its
-    /// glyph outlines, so tall glyphs (stacked combining marks, emoji) stay inside the rect.
-    private static func textLine(_ text: TextWatermark) -> TextLine? {
-        // The colour comes from the context, so the opacity and colour apply the same way as for images.
-        let attributes = [kCTFontAttributeName: watermarkFont(named: text.fontName),
-                          kCTForegroundColorFromContextAttributeName: true] as CFDictionary
-        guard let string = CFAttributedStringCreate(nil, TextWatermark.singleLine(text.text) as CFString, attributes) else { return nil }
-        let line = CTLineCreateWithAttributedString(string)
-        var ascent: CGFloat = 0
-        var descent: CGFloat = 0
-        var leading: CGFloat = 0
-        let width = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
-        let typographic = CGRect(x: 0, y: -descent, width: CGFloat(width), height: ascent + descent)
-        let box = typographic.union(CTLineGetBoundsWithOptions(line, .useGlyphPathBounds))
-        guard box.width.isFinite, box.height.isFinite, box.width > 0, box.height > 0 else { return nil }
-        return TextLine(line: line, origin: box.origin, size: box.size)
-    }
-
-    /// The named font, or the system bold font when it doesn't exist (CoreText substitutes silently).
-    private static func watermarkFont(named name: String) -> CTFont {
-        let systemBold = CTFontCreateUIFontForLanguage(.emphasizedSystem, referenceFontSize, nil)
-            ?? CTFontCreateWithName("Helvetica-Bold" as CFString, referenceFontSize, nil)
-        if name == ".SystemBold" { return systemBold }
-        let font = CTFontCreateWithName(name as CFString, referenceFontSize, nil)
-        return CTFontCopyPostScriptName(font) as String == name ? font : systemBold
-    }
-
-    private static func cgColor(_ color: RGBAColor) -> CGColor {
+    static func cgColor(_ color: RGBAColor) -> CGColor {
         let clamp: (Double) -> CGFloat = { CGFloat($0.isFinite ? min(1, max(0, $0)) : 0) }
         let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         return CGColor(colorSpace: space, components: [clamp(color.red), clamp(color.green), clamp(color.blue),
@@ -245,7 +167,7 @@ public enum ImageOps {
     }
 
     /// Draws `image` with its top-left corner at `origin` (top-left coordinates).
-    private static func draw(_ image: CGImage, at origin: CGPoint, size: CGSize, in ctx: CGContext) {
+    static func draw(_ image: CGImage, at origin: CGPoint, size: CGSize, in ctx: CGContext) {
         let rect = CGRect(x: origin.x, y: CGFloat(ctx.height) - origin.y - size.height,
                           width: size.width, height: size.height)
         ctx.draw(image, in: rect)

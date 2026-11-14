@@ -204,14 +204,17 @@ private struct LossyStep: Decodable {
 
 extension Pipeline {
     /// Runs the enabled steps in order on `image`.
-    public func apply(to image: CGImage, assets: WatermarkAssets = .empty) throws -> CGImage {
+    public func apply(to image: CGImage, assets: WatermarkAssets = .empty,
+                      textContext: WatermarkTextContext? = nil) throws -> CGImage {
         var notes: [String] = []
-        return try apply(to: image, assets: assets, notes: &notes)
+        return try apply(to: image, assets: assets, textContext: textContext, notes: &notes)
     }
 
     /// Runs the enabled steps in order on `image`; steps that had nothing to do for a reason the user should
-    /// know (e.g. auto perspective found no document) append a short note to `notes`.
-    public func apply(to image: CGImage, assets: WatermarkAssets = .empty, notes: inout [String]) throws -> CGImage {
+    /// know (e.g. auto perspective found no document) append a short note to `notes`. `textContext` fills a text
+    /// watermark's tokens (nil: tokens are drawn as typed).
+    public func apply(to image: CGImage, assets: WatermarkAssets = .empty, textContext: WatermarkTextContext? = nil,
+                      notes: inout [String]) throws -> CGImage {
         var current = image
         for step in steps where step.isEnabled {
             switch step.operation {
@@ -224,10 +227,26 @@ extension Pipeline {
             case .colorProfile(let profile): current = try ImageOps.convertColor(current, to: profile)
             case .adjust(let options): current = try Adjustments.apply(options, to: current)
             case .watermark(let options):
-                current = try ImageOps.watermark(current, options, asset: Self.asset(for: options, in: assets))
+                current = try ImageOps.watermark(current, options, asset: Self.asset(for: options, in: assets),
+                                                 context: textContext)
             }
         }
         return current
+    }
+
+    /// The token context for `source`, or nil when no enabled text watermark uses a token. `properties` is the
+    /// header the load already read; the file's creation date is only read when a date token needs it.
+    public func watermarkTextContext(source: URL, properties: [String: Any]) -> WatermarkTextContext? {
+        let templates = steps.compactMap { step -> String? in
+            guard step.isEnabled, case .watermark(let options) = step.operation,
+                  case .text(let text) = options.content, WatermarkText.usesTokens(text.text) else { return nil }
+            return text.text
+        }
+        guard !templates.isEmpty else { return nil }
+        let created = templates.contains(where: WatermarkText.usesDate)
+            ? (try? source.resourceValues(forKeys: [.creationDateKey]))?.creationDate : nil
+        return WatermarkTextContext.make(source: source, properties: properties, metadata: metadata,
+                                         fileCreationDate: created)
     }
 
     /// The loaded image of an image watermark; nil for text.
