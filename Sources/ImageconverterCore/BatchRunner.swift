@@ -296,14 +296,17 @@ public enum BatchRunner {
         // A watermark image that can't be read fails the file before its source is decoded.
         if assets.hasMissing(for: pipeline) { throw ConversionError.watermarkImageUnreadable }
         let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
-        let image = try pipeline.apply(to: loaded.image, assets: assets)
+        var stepNotes: [String] = []
+        let image = try pipeline.apply(to: loaded.image, assets: assets, notes: &stepNotes)
         let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
                                                    sourceWidth: loaded.image.width, sourceHeight: loaded.image.height)
         let result = try CompressionSearch.encode(image, properties: properties, settings: pipeline.output)
         let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
             ? MetadataDates.dateTaken(in: properties) : nil
-        return EncodedItem(data: result.data, source: loaded.image, quality: result.quality, note: result.note,
-                           dateTaken: taken)
+        // Step notes (e.g. "No document edges found") come first, then the encoder's.
+        let notes = stepNotes + [result.note].compactMap { $0 }
+        return EncodedItem(data: result.data, source: loaded.image, quality: result.quality,
+                           note: notes.isEmpty ? nil : notes.joined(separator: "; "), dateTaken: taken)
     }
 }
 

@@ -97,3 +97,24 @@ final class PerspectivePlanningTests: XCTestCase {
         XCTAssertEqual(pipeline.peakPixels(sourceWidth: 400, sourceHeight: 300), 3 * 120_000 + 250_000)
     }
 }
+
+final class PerspectiveNoteBatchTests: XCTestCase {
+    private var dir: URL!
+
+    override func setUpWithError() throws { dir = try TestImages.tempDir() }
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: dir) }
+
+    func testNoEdgesNoteReachesReportAndEstimate() async throws {
+        let url = dir.appendingPathComponent("plain.png")
+        try TestImages.write(TestImages.make(width: 160, height: 120), to: url, type: .png)
+        let item = InputItem(source: url, relativeDirectory: "")
+        let pipeline = Pipeline(steps: [PipelineStep(operation: .perspective(PerspectiveOptions(auto: true)))],
+                                output: .init(format: .jpeg))
+        let estimate = try SizeEstimator.render(item: item, pipeline: pipeline)
+        XCTAssertEqual(estimate.note, Perspective.noEdgesNote)
+        let report = await BatchRunner.run([item], pipeline: pipeline,
+                                           mode: .newFolder(dir.appendingPathComponent("out", isDirectory: true)))
+        XCTAssertEqual(report.written.count, 1)
+        XCTAssertEqual(report.notes.map(\.text), [Perspective.noEdgesNote])
+    }
+}
