@@ -140,7 +140,9 @@ public enum JobRunner {
     /// Records the run; returns the source paths given up on in this run.
     static func update(_ ledger: inout ProcessedLedger, with batch: BatchReport,
                        fingerprints: [URL: FileFingerprint]) -> Set<String> {
+        // A file another run held wasn't processed by this one: it stays a candidate for the next run.
         let failed = Set(batch.failures.map(\.source))
+            .union(batch.skipped.filter { $0.reason == ActiveSources.busyReason }.map(\.source))
         var gaveUp: Set<String> = []
         // Sources as they were before the run (in overwrite mode the path's new version is an output).
         ledger.recordProcessed(batch.order.filter { !failed.contains($0) }.compactMap { fingerprints[$0] })

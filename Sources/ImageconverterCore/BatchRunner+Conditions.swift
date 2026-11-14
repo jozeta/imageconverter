@@ -17,8 +17,11 @@ extension BatchRunner {
         let plans: [PlannedOutput]
         /// The resolved pipeline of each plan.
         let jobs: [ResolvedPipeline]
-        /// Sources a condition skipped, in input order.
+        /// Sources a condition skipped or another run holds, in input order, with the reason for each.
         let skipped: [URL]
+        let skipReasons: [String]
+        /// The input indices of the sources another run holds.
+        let busyIndices: Set<Int>
         /// The input index of each plan, and of each skipped source.
         let planIndices: [Int]
         let skippedIndices: [Int]
@@ -27,9 +30,16 @@ extension BatchRunner {
     }
 
     /// Resolves, names and plans `items`; nil when the task is cancelled part-way (nothing is written then).
-    /// Skipped items take no name and no counter number, but their files stay reserved in the plan.
-    static func planRun(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode, maxPixels: Int) async -> RunPlan? {
-        guard let resolved = await resolveAll(items, pipeline: pipeline, maxPixels: maxPixels) else { return nil }
+    /// Skipped items take no name and no counter number, but their files stay reserved in the plan. Items whose
+    /// `pathKey` is in `busy` (held by another run) are skipped with `ActiveSources.busyReason`.
+    static func planRun(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode, maxPixels: Int,
+                        busy: Set<String> = []) async -> RunPlan? {
+        guard var resolved = await resolveAll(items, pipeline: pipeline, maxPixels: maxPixels) else { return nil }
+        let busyIndices = Set(items.indices.filter { busy.contains(items[$0].pathKey) })
+        for index in busyIndices {
+            resolved[index] = ResolvedPipeline(pipeline: pipeline.withoutConditions, disposition: .skip,
+                                               notes: [ActiveSources.busyReason])
+        }
         let active = items.indices.filter { resolved[$0].disposition != .skip }
         let jobs = active.map { resolved[$0] }
         guard let baseNames = renderedBaseNames(active.map { items[$0] }, jobs: jobs) else { return nil }
@@ -40,8 +50,10 @@ extension BatchRunner {
         }
         let skippedIndices = items.indices.filter { resolved[$0].disposition == .skip }
         let skipped = skippedIndices.map { items[$0].source }
+        let reasons = skippedIndices.map { resolved[$0].notes.first ?? ConditionalStep.skippedReason }
         return RunPlan(plans: OutputPlanner.plan(targets, mode: mode, reservedSources: skipped), jobs: jobs,
-                       skipped: skipped, planIndices: active, skippedIndices: skippedIndices,
+                       skipped: skipped, skipReasons: reasons, busyIndices: busyIndices, planIndices: active,
+                       skippedIndices: skippedIndices,
                        assetPipeline: assetPipeline(pipeline, resolved: jobs))
     }
 
@@ -176,16 +188,16 @@ extension BatchRunner {
 }
 
 extension BatchReport {
-    /// Adds the skipped files and puts them into `order` at their input positions.
-    func insertingSkipped(_ sources: [URL], inputOrder: [URL]) -> BatchReport {
+    /// Adds the skipped files (each with its reason) and puts them into `order` at their input positions.
+    func insertingSkipped(_ sources: [URL], reasons: [String], inputOrder: [URL]) -> BatchReport {
         guard !sources.isEmpty else { return self }
         var report = self
-        report.insertSkipped(sources, inputOrder: inputOrder)
+        report.insertSkipped(sources, reasons: reasons, inputOrder: inputOrder)
         return report
     }
 
-    private mutating func insertSkipped(_ sources: [URL], inputOrder: [URL]) {
-        skipped = sources.map { BatchSkip(source: $0, inputBytes: BatchRunner.fileSize($0)) }
+    private mutating func insertSkipped(_ sources: [URL], reasons: [String], inputOrder: [URL]) {
+        skipped = zip(sources, reasons).map { BatchSkip(source: $0, reason: $1, inputBytes: BatchRunner.fileSize($0)) }
         let listed = Set(order).union(sources)
         order = inputOrder.filter { listed.contains($0) }
     }

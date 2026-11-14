@@ -170,4 +170,20 @@ final class ConditionalBatchSafetyTests: XCTestCase {
         let planned = await BatchRunner.plan(duplicated, pipeline: rotate, mode: .overwrite)
         XCTAssertEqual(planned?.count, 1)
     }
+
+    /// Final review I4: a manual run skips, with a note, a file a job (or any other run here) is processing, and
+    /// releases its own files when it ends.
+    func testRunSkipsSourcesHeldByAnotherRun() async throws {
+        let held = try source("held.jpg")
+        let free = try source("free.jpg")
+        let (claimed, _) = ActiveSources.shared.claim([InputItem(source: held, relativeDirectory: "").pathKey])
+        let report = await BatchRunner.run(items([held, free]), pipeline: Pipeline(), mode: .overwrite, trash: noTrash)
+        ActiveSources.shared.release(claimed)
+        XCTAssertEqual(report.written, [free])
+        XCTAssertEqual(report.skipped.map(\.source), [held])
+        XCTAssertEqual(report.skipped.first?.reason, ActiveSources.busyReason)
+        XCTAssertEqual(report.order, [held, free])
+        XCTAssertFalse(ActiveSources.shared.isHeld(free), "released when the run ends")
+        XCTAssertFalse(ActiveSources.shared.isHeld(held))
+    }
 }

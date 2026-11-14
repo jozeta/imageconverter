@@ -68,6 +68,24 @@ final class JobRunnerTests: XCTestCase {
         XCTAssertEqual(third.unchanged, 1)
     }
 
+    /// Final review I4: a file another run in this process holds is skipped ("Busy in another run") and stays a
+    /// candidate, so the next run processes it.
+    func testFilesHeldByAnotherRunAreSkippedAndNotRecorded() async throws {
+        let held = try drop("held.jpg")
+        try drop("free.jpg")
+        let key = InputItem(source: held, relativeDirectory: "").pathKey
+        let (claimed, _) = ActiveSources.shared.claim([key])
+        XCTAssertEqual(claimed, [key])
+        let job = job()
+        let busyRun = await run(job)
+        ActiveSources.shared.release(claimed)
+        XCTAssertEqual(busyRun.batch.written.map(\.lastPathComponent), ["free.png"])
+        XCTAssertEqual(busyRun.batch.skipped.map(\.reason), [ActiveSources.busyReason])
+        XCTAssertTrue(busyRun.report.entries.contains { $0.status == .skipped && $0.note == ActiveSources.busyReason })
+        let next = await run(job)
+        XCTAssertEqual(next.batch.written.map(\.lastPathComponent), ["held.png"], "not recorded as processed")
+    }
+
     func testFailedFilesAreRetriedThreeTimesThenGivenUp() async throws {
         let bad = input.appendingPathComponent("bad.jpg")
         try Data("not an image".utf8).write(to: bad)

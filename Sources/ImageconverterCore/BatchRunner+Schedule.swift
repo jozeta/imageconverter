@@ -15,13 +15,17 @@ extension BatchRunner {
     ) async -> BatchReport {
         // One plan per file: two items for the same original would both replace it in overwrite mode.
         let items = InputItem.unique(items)
+        // Files another run in this process is working on are skipped ("Busy in another run"), not run twice.
+        let (claimed, busy) = ActiveSources.shared.claim(items.map(\.pathKey))
+        defer { ActiveSources.shared.release(claimed) }
         let writer = journal.map {
             RunJournalWriter(url: $0, journal: RunJournal(items: items, pipeline: pipeline, mode: mode))
         }
         writer?.writeNow()
         // A normal finish and a cancel both end here; only a crash or a forced quit leaves the journal.
         defer { writer?.remove() }
-        guard let plan = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels), !Task.isCancelled
+        guard let plan = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, busy: busy),
+              !Task.isCancelled
         else { return BatchReport(cancelled: true) }
         // Temp files never collide with planned names, so this can wait until every destination folder is known.
         let folders = StaleTempFiles.folders(for: plan.plans)
@@ -42,7 +46,7 @@ extension BatchRunner {
         return makeReport(plans: plan.plans, outcomes: scheduler.outcomes, inputSizes: scheduler.inputSizes,
                           cancelled: scheduler.cancelled,
                           durations: scheduler.durations)
-            .insertingSkipped(plan.skipped, inputOrder: items.map(\.source))
+            .insertingSkipped(plan.skipped, reasons: plan.skipReasons, inputOrder: items.map(\.source))
     }
 
     /// The first event of every item, in input order: skipped ones are done at once, the rest queued.
@@ -56,7 +60,8 @@ extension BatchRunner {
             let source = items[index].source
             events(ItemEvent(index: index, source: source, stage: stage,
                              inputBytes: stage == .skipped ? fileSize(source) : nil))
-            if stage == .skipped { writer?.markCompleted(index) }
+            // A busy file wasn't done here: a resumed run tries it again.
+            if stage == .skipped, plan.busyIndices.contains(index) == false { writer?.markCompleted(index) }
         }
     }
 }
