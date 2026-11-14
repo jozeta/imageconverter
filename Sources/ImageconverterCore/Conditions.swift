@@ -14,12 +14,13 @@ public enum Comparison: String, Codable, CaseIterable, Sendable {
         }
     }
 
-    public var symbol: String {
+    /// The comparison in words, as shown in the editor and the step summary ("is more than").
+    public var phrase: String {
         switch self {
-        case .greaterThan: return ">"
-        case .lessThan: return "<"
-        case .atLeast: return "≥"
-        case .atMost: return "≤"
+        case .greaterThan: return "is more than"
+        case .lessThan: return "is less than"
+        case .atLeast: return "is at least"
+        case .atMost: return "is at most"
         }
     }
 }

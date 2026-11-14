@@ -26,16 +26,13 @@ struct ConditionEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
             HStack(spacing: LadaGlass.Spacing.xs) {
-                Text("Match").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 Picker("Match", selection: $step.match) {
-                    Text("all").tag(ConditionalStep.Match.all)
-                    Text("any").tag(ConditionalStep.Match.any)
+                    Text("Match all of these").tag(ConditionalStep.Match.all)
+                    Text("Match any of these").tag(ConditionalStep.Match.any)
                 }
-                .pickerStyle(.segmented)
                 .labelsHidden()
                 .fixedSize()
                 .accessibilityLabel("Match all or any of the conditions")
-                Text("of:").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
             }
             ForEach(ids.rows(count: step.conditions.count), id: \.id) { _, index in
                 ConditionRow(condition: conditionBinding(index), number: index + 1,
@@ -144,10 +141,10 @@ private extension Condition {
 private extension Comparison {
     var spokenName: String {
         switch self {
-        case .greaterThan: return "greater than"
-        case .lessThan: return "less than"
-        case .atLeast: return "at least"
-        case .atMost: return "at most"
+        case .greaterThan: return "is more than"
+        case .lessThan: return "is less than"
+        case .atLeast: return "is at least"
+        case .atMost: return "is at most"
         }
     }
 }
@@ -197,18 +194,18 @@ private struct ConditionRow: View {
             yesNo(wanted, yesText: "has transparency", noText: "is opaque") { condition = .hasTransparency($0) }
         case .orientation(let orientation):
             Picker("Orientation", selection: Binding(get: { orientation }, set: { condition = .orientation($0) })) {
-                ForEach(Orientation.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(Orientation.allCases, id: \.self) { Text("is \($0.rawValue)").tag($0) }
             }
             .labelsHidden()
             .fixedSize()
             .accessibilityLabel("Condition \(number) orientation")
         case .hasGPS(let wanted):
-            yesNo(wanted, yesText: "has GPS", noText: "has no GPS") { condition = .hasGPS($0) }
+            yesNo(wanted, yesText: "has location", noText: "has no location") { condition = .hasGPS($0) }
         case .camera(let text):
             TextField("Camera contains", text: Binding(
                 get: { text },
                 set: { condition = .camera(contains: String($0.prefix(Condition.maxTextLength))) }),
-                      prompt: Text("contains, e.g. iPhone"))
+                      prompt: Text("camera contains, e.g. iPhone"))
                 .textFieldStyle(.roundedBorder)
                 .accessibilityLabel("Condition \(number): camera make or model contains")
         }
@@ -234,14 +231,14 @@ private struct ConditionRow: View {
     }
 }
 
-/// ">", "<", "≥", "≤", each read out in words.
+/// "is more than", "is less than", "is at least", "is at most".
 private struct ComparisonPicker: View {
     @Binding var comparison: Comparison
     let number: Int
 
     var body: some View {
         Picker("Comparison", selection: $comparison) {
-            ForEach(Comparison.allCases, id: \.self) { Text($0.symbol).tag($0).accessibilityLabel($0.spokenName) }
+            ForEach(Comparison.allCases, id: \.self) { Text($0.phrase).tag($0) }
         }
         .labelsHidden()
         .fixedSize()

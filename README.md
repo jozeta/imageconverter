@@ -565,10 +565,10 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
 1. Press **+ Add step** and pick **If … then … else** (at the bottom of the menu). The step tests each image's *source
    file* (not the image part-way through the pipeline) and runs the **Then** actions when it matches, the **Else**
    actions when it doesn't. Its actions take the step's place in the pipeline.
-2. Under **Match all / any of:**, set up to 10 conditions: **Longest edge**, **Width**, **Height** (>, <, ≥, ≤ a number
+2. Under **Match all of these / Match any of these**, set up to 10 conditions: **Longest edge**, **Width**, **Height** (is more than, is less than, is at least or is at most a number
    of pixels), **File size** (in KB or MB, 1 KB = 1000 bytes), **Format** (the writable formats, plus RAW from any camera,
-   WebP and any HEIF), **Transparency** (has transparency / is opaque), **Orientation** (portrait, landscape, square),
-   **Location** (has GPS / has no GPS) and **Camera** (make or model contains a text). **+ Add condition** adds one;
+   WebP and any HEIF), **Transparency** (has transparency / is opaque), **Orientation** (is portrait, is landscape, is square),
+   **Location** (has location / has no location) and **Camera** (make or model contains a text). **+ Add condition** adds one;
    the trash button removes one (a step always keeps at least one).
 3. Fill **Then** and **Else** with **+ Add**: any image step (Resize, Crop, Watermark, …), **Set output…** (format and
    compression for these images), **Set metadata…**, **Set rename…**, **Copy original unchanged** (the file is copied as
@@ -593,7 +593,7 @@ Examples (one step each):
 | Longest edge > 4000 px | Resize › Longest edge 2048 | (nothing) |
 | Format is PNG **and** has transparency | Set output… › PNG | Set output… › JPEG |
 | Format is JPEG | Set output… › HEIC (WebP can't be written by macOS) | (nothing) |
-| Location: has GPS | Set metadata… › Remove location (GPS) | (nothing) |
+| Location: has location | Set metadata… › Remove location (GPS) | (nothing) |
 | File size < 500 KB | Copy original unchanged | (nothing) |
 | Orientation: portrait | Resize › Longest edge 1080 | Resize › Longest edge 2048 |
 | Orientation: landscape | Set output… › HEIC at 70 % | Set output… › JPEG at 85 % |

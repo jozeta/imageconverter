@@ -201,7 +201,7 @@ extension WatermarkOptions {
 }
 
 extension ConditionalStep {
-    /// One-line description for the pipeline list: `if longest edge > 2048 px → resize · else → skip`.
+    /// One-line description for the pipeline list: `if longest edge is more than 2048 px → resize · else → skip`.
     public var summary: String {
         let joiner = match == .all ? " and " : " or "
         var text = "if " + conditions.map(\.summary).joined(separator: joiner) + " → " + Self.summary(of: then)
@@ -225,18 +225,18 @@ extension ConditionalStep {
 }
 
 extension Condition {
-    /// `longest edge > 2048 px`, `has transparency`, `camera contains “iPhone”`.
+    /// `longest edge is more than 2048 px`, `has transparency`, `camera contains “iPhone”`.
     public var summary: String {
         switch self {
-        case .longestEdge(let comparison, let value): return "longest edge \(comparison.symbol) \(value) px"
-        case .width(let comparison, let value): return "width \(comparison.symbol) \(value) px"
-        case .height(let comparison, let value): return "height \(comparison.symbol) \(value) px"
-        case .fileSize(let comparison, let bytes): return "file size \(comparison.symbol) \(SizeFormat.bytes(bytes))"
+        case .longestEdge(let comparison, let value): return "longest edge \(comparison.phrase) \(value) px"
+        case .width(let comparison, let value): return "width \(comparison.phrase) \(value) px"
+        case .height(let comparison, let value): return "height \(comparison.phrase) \(value) px"
+        case .fileSize(let comparison, let bytes): return "file size \(comparison.phrase) \(SizeFormat.bytes(bytes))"
         case .format(.format(let format)): return "format is \(format.displayName)"
         case .format(.type(let identifier)): return "type is \(identifier)"
-        case .hasTransparency(let wanted): return wanted ? "has transparency" : "no transparency"
-        case .orientation(let orientation): return orientation.rawValue
-        case .hasGPS(let wanted): return wanted ? "has location" : "no location"
+        case .hasTransparency(let wanted): return wanted ? "has transparency" : "has no transparency"
+        case .orientation(let orientation): return "is \(orientation.rawValue)"
+        case .hasGPS(let wanted): return wanted ? "has location" : "has no location"
         case .camera(let text): return "camera contains “\(text)”"
         }
     }
