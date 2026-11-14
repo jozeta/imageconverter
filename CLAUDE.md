@@ -94,8 +94,14 @@ swiftlint           # if installed (brew install swiftlint)
   hand-built header-only files in `Support/HeaderFixtures`, privacy scan before/after a real batch). `NoNetworkTests`
   scans `Sources/` and fails on networking APIs or web URLs outside comments (XML/XMP namespace names allowlisted)
 - `docs/superpowers/specs/`: design documents; `docs/superpowers/plans/`: implementation plans
-- Planned: `scripts/release.sh` (bundle `.app`, sign with Developer ID + hardened runtime,
-  notarize with a `notarytool` keychain profile, staple). Credentials stay in the keychain.
+- `scripts/release.sh [--notarize]`: universal release build → `dist/imageconverter.app` (Info.plist from
+  `scripts/Info.plist.template` + `Resources/Info-fragments.plist`, version from `VERSION`, build = commit count;
+  `AppIcon.icns` via `scripts/make-iconset.sh`; CLI at `Contents/Helpers/imageconverter`), signs (`SIGN_IDENTITY`,
+  default ad hoc `-`; hardened runtime; app with `Resources/imageconverter.entitlements`, CLI unsandboxed),
+  verifies, zips + SHA-256. `--notarize` needs a real identity and `NOTARY_PROFILE` (keychain profile);
+  never run it or sign with a real identity unless Johan asks. `BUNDLE_ID` there must equal
+  `CLIDataDirectory.bundleIdentifier` (the script checks). `scripts/install-cli.sh` links the CLI into `~/.local/bin`.
+  `dist/` is gitignored. Credentials stay in the keychain.
 
 ## Architecture rules
 

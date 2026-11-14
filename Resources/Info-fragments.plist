@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Info.plist keys for Finder services, AppleScript and imageconverter:// links. The app is still an unbundled
-  SwiftPM executable, so nothing here is active yet: milestone 6's release script (scripts/release.sh) merges
-  these keys into imageconverter.app/Contents/Info.plist (for example with
-  `/usr/libexec/PlistBuddy -c "Merge Resources/Info-fragments.plist" Info.plist`) and copies
-  Resources/imageconverter.sdef into Contents/Resources/.
+  Info.plist keys for Finder services, AppleScript and imageconverter:// links. They are active only in the
+  app bundle: scripts/release.sh merges them (with PlistBuddy's Merge) into imageconverter.app/Contents/Info.plist
+  on top of scripts/Info.plist.template, replacing BUNDLE_IDENTIFIER, and copies Resources/imageconverter.sdef
+  into Contents/Resources/. `swift run` has no bundle, so none of this applies there.
 
   NSServices
     * "Convert with imageconverter" calls ServicesProvider.convertWithImageconverter: adds the selected
@@ -23,8 +22,8 @@
   run batch, presets). The command classes are in Sources/Imageconverter/Scripting.swift.
 
   CFBundleURLTypes: the imageconverter:// scheme (open, preset?name=, add?path=, jobs/run?name=). Links are
-  untrusted; see URLAction.parse and Sources/Imageconverter/URLActions.swift. Replace CFBundleURLName's
-  "BUNDLE_IDENTIFIER" with the app's bundle identifier when the release script chooses it.
+  untrusted; see URLAction.parse and Sources/Imageconverter/URLActions.swift. The release script replaces
+  CFBundleURLName's "BUNDLE_IDENTIFIER" with the app's bundle identifier.
 -->
 <plist version="1.0">
 <dict>

@@ -11,11 +11,20 @@ permissions:
 jobs:
   test:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the release script counts commits for CFBundleVersion
       - run: swift --version
       - name: Lint
         run: if command -v swiftlint >/dev/null; then swiftlint --strict; else echo "SwiftLint not on this runner; skipped."; fi
       - name: Build and test
         run: swift test
+      - name: Lint scripts
+        run: if command -v shellcheck >/dev/null; then shellcheck scripts/*.sh; else bash -n scripts/release.sh; fi
+      - name: Build the app bundle (ad hoc signed) and verify it
+        run: |
+          scripts/release.sh
+          codesign --verify --strict --deep --verbose=2 dist/imageconverter.app
+          dist/imageconverter.app/Contents/Helpers/imageconverter --version

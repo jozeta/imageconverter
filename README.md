@@ -31,6 +31,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- **App bundle and release script:** `scripts/release.sh` builds a universal, sandboxed `imageconverter.app` with the command-line tool inside (`Contents/Helpers/imageconverter`), and `scripts/install-cli.sh` puts that tool on your PATH. See [Build the app bundle](#build-the-app-bundle).
 - **Folder access** for the sandboxed app: a run that needs a folder asks for it once with a pre-filled panel, and the answer is remembered (Help ▸ Folder Access… lists and removes them); the output folder, watermark images and an interrupted batch keep bookmarks so they still open after a relaunch. See [Folder access](#folder-access).
 - **Privacy**: an automatic privacy scan with a shield chip and panel ("Remove these from the output"), a Privacy row in the preview table, and Help ▸ Privacy… with the offline statement and the limits in force. See [Privacy](#privacy).
 - **Jobs** (Window ▸ Jobs, ⌘J): watch folders or run on a schedule with a saved pipeline or a linked preset, while the app is open; one run at a time per job, a catch-up run when watching starts, a report file per run, notifications, and an optional menu bar mode. See [Process a folder automatically](#process-a-folder-automatically).
@@ -146,6 +147,38 @@ Requires macOS 14 (Sonoma) or later.
   swift run           # opens the app window (or: claude-update)
   swift build
   ```
+
+- **App bundle from source:** `scripts/release.sh` builds `dist/imageconverter.app` (ad hoc signed, so it
+  runs on the Mac that built it); copy it to Applications. See [Build the app bundle](#build-the-app-bundle).
+- **Command-line tool:** the app carries it at `imageconverter.app/Contents/Helpers/imageconverter`.
+  `scripts/install-cli.sh` links it as `~/.local/bin/imageconverter` (no sudo; pass the app's path if it
+  isn't in `/Applications`) and tells you if that folder isn't on your PATH.
+
+### Build the app bundle
+
+```sh
+scripts/release.sh                 # ad hoc signed: dist/imageconverter.app + dist/imageconverter-<version>-unsigned-adhoc.zip
+SIGN_IDENTITY="Developer ID Application: …" NOTARY_PROFILE=<profile> scripts/release.sh --notarize
+```
+
+The script reads the version from `VERSION` (must be `x.y.z`), builds a universal (arm64 + x86_64) release
+(falling back to this Mac's architecture with a warning when that isn't possible), and assembles the bundle:
+the app, `AppIcon.icns` (from `Resources/AppIcon.png`), the AppleScript dictionary, and an `Info.plist` made
+from `scripts/Info.plist.template` plus `Resources/Info-fragments.plist` (Services, AppleScript, `imageconverter://`
+links), with `CFBundleShortVersionString` = `VERSION` and `CFBundleVersion` = the number of commits.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `SIGN_IDENTITY` | `-` (ad hoc) | The codesign identity. Ad hoc builds run only on this Mac without a Gatekeeper warning. |
+| `NOTARY_PROFILE` | none | A `notarytool` keychain profile (`xcrun notarytool store-credentials`); required by `--notarize`. |
+| `--notarize` | off | Submit to Apple's notary service, wait, staple, and write `dist/imageconverter-<version>.zip`. Refused with an ad hoc identity or without `NOTARY_PROFILE`. |
+
+Both executables get the hardened runtime. The app is signed with `Resources/imageconverter.entitlements`:
+App Sandbox, user-selected read/write files and app-scoped bookmarks, no network. The script checks the
+signature (`codesign --verify --strict --deep`), that the sandbox entitlement is there and that no network
+entitlement is. The command-line helper is signed **without** the sandbox: you run it from Terminal with your
+own permissions on whatever paths you name. A real identity without `--notarize` gives
+`…-not-notarized.zip`. Every zip gets a `.sha256` file next to it. Credentials stay in the keychain.
 
 ## Configuration
 
@@ -308,9 +341,10 @@ In this mode, when the format or name changes (for example HEIC → JPEG), the n
 and the original is **moved to the Trash**. In "New folder" mode, dropped folders keep their
 subfolder structure.
 
-Planned for the signed 1.0 release: the app will be sandboxed, so it can only touch files and
-folders you drop or pick. When you drop loose files and write next to them, it will ask once per
-folder for access and remember your answer. Until then it runs unsandboxed.
+The packaged app (built by `scripts/release.sh`) runs in the App Sandbox, so it can only touch files
+and folders you drop or pick. When you drop loose files and write next to them, it asks once per
+folder for access and remembers your answer (see [Folder access](#folder-access)). `swift run` runs
+unsandboxed.
 
 ## How to
 
@@ -754,11 +788,17 @@ Outside the sandbox (`swift run`) nothing is asked; bookmarks are still made, so
 The package also builds a command-line tool, so batches can run from Terminal, scripts, cron or a Shortcuts "Run Shell Script" action. It uses the same engine as the app.
 
 ```sh
-swift build -c release --product imageconverter-cli
-cp .build/release/imageconverter-cli /usr/local/bin/imageconverter   # named imageconverter once installed
+scripts/install-cli.sh             # links /Applications/imageconverter.app/Contents/Helpers/imageconverter as ~/.local/bin/imageconverter
 ```
 
-(The built file is called `imageconverter-cli` because `imageconverter` would clash with the app's `Imageconverter` on a case-insensitive disk.)
+Or build it alone from source:
+
+```sh
+swift build -c release --product imageconverter-cli
+cp .build/release/imageconverter-cli ~/.local/bin/imageconverter   # named imageconverter once installed
+```
+
+(The built file is called `imageconverter-cli` because `imageconverter` would clash with the app's `Imageconverter` on a case-insensitive disk; the app bundle carries it as `imageconverter`.)
 
 | Command | What it does |
 | --- | --- |
@@ -788,7 +828,7 @@ Progress goes to stderr and results to stdout. Missing input paths are reported 
 Example in Shortcuts: add **Run Shell Script** (Shell: zsh, Input: as arguments) with
 
 ```sh
-/usr/local/bin/imageconverter convert "$@" --preset "Web export" --out ~/Desktop/web --json
+~/.local/bin/imageconverter convert "$@" --preset "Web export" --out ~/Desktop/web --json
 ```
 
 and pass the files from a Finder action; a following **Get Dictionary from Input** reads the JSON (`summary.succeeded`, `summary.failed`, `entries`).

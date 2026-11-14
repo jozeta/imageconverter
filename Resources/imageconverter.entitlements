@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements of imageconverter.app (scripts/release.sh signs the app with these and checks them).
+  App Sandbox on; only files and folders the user drops or picks can be read and written, and they are
+  remembered as app-scoped security-scoped bookmarks. No network entitlement: the app makes no requests.
+  The command-line helper (Contents/Helpers/imageconverter) is signed without these: it is not sandboxed.
+-->
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.files.user-selected.read-write</key>
+	<true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+</dict>
+</plist>
