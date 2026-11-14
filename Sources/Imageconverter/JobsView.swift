@@ -13,6 +13,7 @@ struct JobsView: View {
     @State private var editing: JobDraft?
     @State private var confirmingDelete: Job?
     @State private var actionFailure: String?
+    @Environment(\.openWindow) private var openWindow
 
     private var selected: Job? { selection.flatMap(controller.job) }
 
@@ -134,6 +135,12 @@ struct JobsView: View {
                 .disabled(selected == nil)
             Button("Open Last Report") { open(selection.flatMap { controller.status(of: $0).lastReport }) }
                 .disabled(selection.flatMap { controller.status(of: $0).lastReport } == nil)
+            Button("History…") {
+                HistoryController.shared.jobFilter = selected?.name
+                openWindow(id: HistoryView.windowID)
+            }
+            .disabled(selected == nil)
+            .accessibilityLabel("Show the history of the selected job")
             Button("Reveal Output") { reveal(selected.flatMap(JobsController.outputFolder)) }
                 .disabled(selected.flatMap(JobsController.outputFolder) == nil)
             Spacer()

@@ -52,6 +52,7 @@ swiftlint           # if installed (brew install swiftlint)
     `RunMonitor.swift` (live stages via an ordered event stream, `RunMetrics`, 1 s `ResourceSampler` while running),
     `RunStatusViews.swift` (progress area, Performance panel, thumbnail `StageRing`, interrupted-run sheet),
     `AppModel+Performance.swift` (pause, Process Next, low-memory mode, run journal path and resume).
+    `ReportView.swift` (summary cards, export menu, per-file table, error log sheet), `HistoryView.swift` (History window, `HistoryController`), `AppModel+History.swift` (manual runs recorded once; jobs record in `JobsController.record`).
     `previewCollapsed` and `pipelineCollapsed` are persisted in UserDefaults
   - Jobs: `JobsController.swift` (+ `JobsController+Runs.swift`: watchers, schedules, the per-job run queue,
     background runs at half the cores, history/error log, bookmarks via `JobFolders`), `JobsView.swift` (Jobs

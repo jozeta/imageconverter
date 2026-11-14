@@ -5,7 +5,13 @@ struct SidebarView: View {
     @Bindable var model: AppModel
     var settings: AppSettings
     @State private var targeted = false
+    #if DEBUG
+    /// `-debugShowReport` starts with the Report section open (screenshots).
+    @State private var showReport = CommandLine.arguments.contains("-debugShowReport")
+    #else
     @State private var showReport = false
+    #endif
+    @State private var showErrorLog = false
 
     /// Panel padding plus the outer padding, top and bottom.
     private static let verticalChrome = 2 * LadaGlass.Spacing.l * LadaGlass.Density.paddingScale
@@ -107,9 +113,14 @@ struct SidebarView: View {
         if let report = model.runReport {
             let summary = report.summary
             DisclosureGroup(reportTitle(summary, report), isExpanded: $showReport) {
-                Text(reportTotals(summary)).font(LadaGlass.Typography.label)
-                    .foregroundStyle(LadaGlass.Colors.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                ReportCards(summary: summary)
+                HStack {
+                    ReportExportMenu(report: report)
+                    Button("Show error log") { showErrorLog = true }
+                        .buttonStyle(.lg(.ghost))
+                        .accessibilityLabel("Show the error log")
+                    Spacer()
+                }
                 LazyVStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
                     ForEach(Array(report.entries.enumerated()), id: \.offset) { _, entry in
                         reportRow(entry)
@@ -119,6 +130,7 @@ struct SidebarView: View {
             }
             .font(LadaGlass.Typography.body)
             .accessibilityLabel("Report")
+            .sheet(isPresented: $showErrorLog) { ErrorLogView() }
         }
     }
 
@@ -129,18 +141,6 @@ struct SidebarView: View {
         let notes = report.entries.filter { $0.status == .succeeded && $0.note != nil }.count
         if notes > 0 { parts.append("\(notes) \(notes == 1 ? "note" : "notes")") }
         return "Report · " + parts.joined(separator: ", ")
-    }
-
-    private func reportTotals(_ summary: RunSummary) -> String {
-        var parts = ["\(summary.succeeded) converted"]
-        if summary.skipped > 0 { parts.append("\(summary.skipped) skipped by \(summary.skipped == 1 ? "a condition" : "conditions")") }
-        if summary.failed > 0 { parts.append("\(summary.failed) failed") }
-        if summary.cancelled > 0 { parts.append("\(summary.cancelled) not run") }
-        if summary.succeeded > 0 {
-            let change = SizeFormat.percentChange(from: summary.inputBytes, to: summary.outputBytes).map { " (\($0))" } ?? ""
-            parts.append("\(SizeFormat.bytes(summary.inputBytes)) → \(SizeFormat.bytes(summary.outputBytes))\(change)")
-        }
-        return parts.joined(separator: " · ")
     }
 
     private func reportRow(_ entry: ReportEntry) -> some View {

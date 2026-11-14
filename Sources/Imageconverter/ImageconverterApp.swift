@@ -33,6 +33,7 @@ struct ImageconverterApp: App {
         .windowResizability(.contentSize)
         .commands {
             JobsCommands()
+            HistoryCommands()
             CommandGroup(after: .saveItem) {
                 Button("Save Preset") { model.saveCurrent() }
                     .keyboardShortcut("s", modifiers: .command)
@@ -72,6 +73,11 @@ struct ImageconverterApp: App {
                 .onAppear { MenuBarMode.shared.windowWillShow() }
         }
         .defaultSize(width: 860, height: 560)
+
+        Window("History", id: HistoryView.windowID) {
+            HistoryView(controller: HistoryController.shared)
+        }
+        .defaultSize(width: 900, height: 560)
 
         MenuBarExtra("imageconverter", systemImage: jobs.runningCount > 0 ? "arrow.triangle.2.circlepath" : "photo.stack",
                      isInserted: $jobs.keepInMenuBar) {
@@ -170,9 +176,11 @@ private struct MainWindowContent: View {
     #if DEBUG
     private static var debugArgumentsApplied = false
 
-    /// `-debugShowJobs` opens the Jobs window; `-debugEditJob <name>` also opens that job's editor.
+    /// `-debugShowJobs` opens the Jobs window; `-debugEditJob <name>` also opens that job's editor;
+    /// `-debugShowHistory` opens the History window.
     private func openJobsWindowIfAsked(_ arguments: [String]) {
         if arguments.contains("-debugShowJobs") || arguments.contains("-debugEditJob") { openWindow(id: JobsView.windowID) }
+        if arguments.contains("-debugShowHistory") { openWindow(id: HistoryView.windowID) }
     }
 
     /// Debug-only launch options for screenshots: `-debugAddFiles <path>…` adds images at launch,

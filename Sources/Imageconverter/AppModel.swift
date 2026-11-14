@@ -301,6 +301,7 @@ final class AppModel {
         scheduleEstimate()
         runReport = ProcessingReport(batch: report, total: runInfo.total, outputMode: runInfo.mode,
                                      presetName: presetName, startedAt: runInfo.started)
+        if let finished = runReport { recordRun(finished) }
         progress = nil
         dropMissingItems()
         let failed = report.failures.count

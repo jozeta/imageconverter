@@ -202,6 +202,7 @@ final class JobsController {
         if let problem = result.problem {
             errorLog.record(path: job.inputs.first?.path ?? job.name, reason: "Job \(job.name): \(problem)")
         }
+        NotificationCenter.default.post(name: .runHistoryChanged, object: nil)
         var entry = status(of: job.id)
         entry.lastChecked = summary.finishedAt
         if didWork { entry.lastSummary = summary }

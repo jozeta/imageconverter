@@ -17,6 +17,7 @@ Started 2026-11-13. The full design is in
 ### Unreleased
 
 - **Jobs** (Window ▸ Jobs, ⌘J): watch folders or run on a schedule with a saved pipeline or a linked preset, while the app is open; one run at a time per job, a catch-up run when watching starts, a report file per run, notifications, and an optional menu bar mode. See [Process a folder automatically](#process-a-folder-automatically).
+- **Reports and history**: after a run the Report section shows summary cards with Export (CSV, JSON, HTML, text) and the error log, and Window ▸ History (⌥⌘H) keeps the last 100 runs, manual and jobs. See [Reports and history](#reports-and-history).
 - **Performance**: Pause/Resume (⌥⌘.), "12 / 124 · 3.4 img/s · about 2 min left", each image's stage in the list and as a ring on the thumbnails, a Performance panel (CPU, memory, workers, img/s, MP/s, elapsed), Low-memory mode, Process Next, a preview that keeps working during a run, and an offer to resume a batch that was interrupted. See [Performance](#performance).
 - Finder Quick Actions ("Convert with imageconverter" and up to 5 pinned presets), AppleScript commands (`convert`, `add files`, `run batch`, `presets`) and `imageconverter://` links, active once the app is packaged (milestone 6). See [Finder, AppleScript and links](#finder-applescript-and-links).
 - Watermark editor: rotation (with 0°/−45°/45°/90° buttons), a Tiled layout (spacing, staggered rows), shadow and outline for text, an **Insert** menu for tokens such as `{filename}` and `{year}` with the text shown for the selected image, SVG logos (including Illustrator exports), and a **Templates** menu (Apply, Save as template…, Delete).
@@ -570,6 +571,22 @@ Good to know:
 - **Pause all jobs** stops every watcher and schedule until you switch it off (a run in progress finishes).
 - Every run that processed files is kept in the run history; failures also go to the error log
   (`~/Library/Application Support/imageconverter/logs/errors.log`).
+
+## Reports and history
+
+After a run the sidebar's **Report** section shows summary cards (processed, succeeded, failed, skipped,
+original → output, saved, average ratio, average time) above one row per file. **Export** saves the report
+as CSV, JSON, HTML or text through a save panel (you pick the file; nothing else is written), and
+**Show error log** lists the newest failures (reveal or clear the log from there).
+
+**Window ▸ History** (⌥⌘H) lists past runs, newest first: date, preset or job, counts and what was saved. The
+right side shows the selected run as the same cards plus a sortable table with a row per file, with
+**Export**, **Reveal Outputs** (the written files that still exist), **Delete** (one entry; the images are
+never touched) and **Clear History…**. The picker above the list filters by job; **History…** in the Jobs
+window opens it for the selected job. Manual runs and job runs are each stored once; job runs that found
+nothing to do are not. The last 100 runs are kept, each with at most 5,000 files. Files are kept in
+`~/Library/Application Support/imageconverter/history` and `logs/errors.log` (inside the app's container
+when sandboxed).
 
 ## Performance
 
