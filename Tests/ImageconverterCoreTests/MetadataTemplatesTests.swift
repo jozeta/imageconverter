@@ -194,4 +194,22 @@ final class MetadataTemplatesTests: XCTestCase {
         XCTAssertEqual(privacy.keepWhenRemovingAll, [.copyright])
         XCTAssertTrue(privacy.removeAuthor)
     }
+
+    func testApplyNeverWeakensExistingRemoveAll() {
+        var current = MetadataOptions(removeLocation: false)
+        current.removeAll = true
+        current.keepWhenRemovingAll = [.copyright, .author]
+        var set = MetadataOptions(removeAll: true, removeLocation: false)
+        set.keepWhenRemovingAll = [.copyright, .location]
+        let merged = MetadataTemplates.apply(MetadataTemplate(name: "t", options: set), to: current)
+        XCTAssertEqual(merged.keepWhenRemovingAll, [.copyright])
+        let everything = MetadataTemplates.apply(MetadataTemplates.builtIns[2], to: current)
+        XCTAssertTrue(everything.keepWhenRemovingAll.isEmpty)
+    }
+
+    func testBuiltInNamesAndIDsUnique() {
+        let all = MetadataTemplates.builtIns
+        XCTAssertEqual(Set(all.map { StoredFile.fold($0.name) }).count, all.count)
+        XCTAssertEqual(Set(all.map(\.id)).count, all.count)
+    }
 }

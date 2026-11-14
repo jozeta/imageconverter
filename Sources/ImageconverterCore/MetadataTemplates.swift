@@ -45,12 +45,14 @@ public enum MetadataTemplates {
         ]
     }()
 
-    /// Applies a template on top of the current options. Per field, "the template sets it" means:
+    /// Applies a template on top of the current options (an explicit user action). In short: removal switches only
+    /// ever turn on; other fields are replaced by the template's value when it sets one. Per field, "the template sets it" means:
     /// - text (artist, copyright, description, title): non-nil overrides (an empty string clears);
     /// - location and date taken: anything but `.keep` overrides;
     /// - keywords: non-nil overrides together with its mode, except an empty list in add mode (adds nothing);
     /// - the removal and file-date switches: true turns them on, false never turns one off;
-    /// - removeAll: true turns it on and the template's keep list replaces the current one; false leaves both;
+    /// - removeAll: true turns it on; the keep list becomes the template's, or the intersection of both lists when
+    ///   removeAll was already on; false leaves both;
     /// - custom fields: merged by namespace and key, the template's value wins.
     /// The step becomes included and enabled.
     public static func apply(_ template: MetadataTemplate, to current: MetadataOptions) -> MetadataOptions {
@@ -59,8 +61,10 @@ public enum MetadataTemplates {
         result.isEnabled = true
         result.isIncluded = true
         if set.removeAll {
+            // Already removing everything: keep only what both agree to keep, so a template never weakens removals.
+            result.keepWhenRemovingAll = current.removeAll
+                ? current.keepWhenRemovingAll.intersection(set.keepWhenRemovingAll) : set.keepWhenRemovingAll
             result.removeAll = true
-            result.keepWhenRemovingAll = set.keepWhenRemovingAll
         }
         if set.location != .keep { result.location = set.location }
         result.removeCamera = result.removeCamera || set.removeCamera

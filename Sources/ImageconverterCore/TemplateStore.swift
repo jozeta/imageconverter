@@ -39,7 +39,7 @@ public struct Template<Payload: Codable & Sendable>: Codable, Sendable, Identifi
 
 extension Template: Equatable where Payload: Equatable {}
 
-public struct TemplateLoadResult<Payload: Codable & Sendable> {
+public struct TemplateLoadResult<Payload: Codable & Sendable>: Sendable {
     public var templates: [Template<Payload>]
     public var skipped: [(file: String, reason: String)]
 }
