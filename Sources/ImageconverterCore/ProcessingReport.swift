@@ -153,6 +153,16 @@ public struct ProcessingReport: Equatable, Sendable {
     }
 }
 
+extension ProcessingReport {
+    /// The files this run wrote that still exist (Reveal Outputs). `exists` is injectable for tests.
+    public func existingOutputs(exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) -> [URL] {
+        entries.compactMap { entry in
+            guard entry.status == .succeeded, let path = entry.destination, exists(path) else { return nil }
+            return URL(fileURLWithPath: path)
+        }
+    }
+}
+
 /// Size and percentage text shared by the estimate line, the preview table, the toast and the report.
 public enum SizeFormat {
     public static func bytes(_ count: Int) -> String {

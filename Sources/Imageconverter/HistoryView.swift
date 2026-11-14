@@ -8,41 +8,88 @@ extension Notification.Name {
 }
 
 /// The History window's state, shared so the Jobs window can open it already filtered by a job.
+/// All file work runs in detached tasks; a generation counter drops results that were overtaken.
 @MainActor @Observable
 final class HistoryController {
     static let shared = HistoryController()
     /// Nil shows every run.
     var jobFilter: String?
-    var selection: UUID?
+    private(set) var selection: UUID?
     private(set) var summaries: [RunSummary] = []
     private(set) var record: RunRecord?
+    /// Written files of the selected run that still exist, checked once when the record loads.
+    private(set) var outputs: [URL] = []
+    /// Every job that has runs (not just the filtered ones), so the picker keeps its choices.
+    private(set) var jobNames: [String] = []
     @ObservationIgnored let history = RunHistory.shared(directory: AppDefaults.historyDirectory)
+    @ObservationIgnored private var generation = 0
 
-    var jobNames: [String] {
-        Array(Set(summaries.compactMap(\.jobName))).sorted()
+    private struct Loaded: Sendable {
+        var all: [RunSummary]
+        var shown: [RunSummary]
+        var selected: UUID?
+        var record: RunRecord?
+        var outputs: [URL]
+    }
+
+    private nonisolated static func load(_ history: RunHistory, filter: String?, wanted: UUID?) -> Loaded {
+        let all = history.summaries()
+        let shown = filter == nil ? all : all.filter { $0.jobName == filter }
+        let selected = shown.first { $0.id == wanted }?.id ?? shown.first?.id
+        let record = selected.flatMap { history.record(id: $0) }
+        return Loaded(all: all, shown: shown, selected: selected, record: record, outputs: record?.report.existingOutputs() ?? [])
     }
 
     func reload() {
-        summaries = history.summaries(jobName: jobFilter)
-        if let selection, !summaries.contains(where: { $0.id == selection }) { self.selection = nil }
-        if selection == nil { selection = summaries.first?.id }
-        record = selection.flatMap { history.record(id: $0) }
+        generation += 1
+        let token = generation
+        let (history, filter, wanted) = (history, jobFilter, selection)
+        Task.detached(priority: .userInitiated) {
+            let result = Self.load(history, filter: filter, wanted: wanted)
+            await MainActor.run { [weak self] in
+                guard let self, token == generation else { return }
+                summaries = result.shown
+                jobNames = Array(Set(result.all.compactMap(\.jobName))).sorted()
+                selection = result.selected
+                record = result.record
+                outputs = result.outputs
+            }
+        }
     }
 
     func select(_ id: UUID?) {
         selection = id
-        record = id.flatMap { history.record(id: $0) }
+        generation += 1
+        let token = generation
+        let history = history
+        Task.detached(priority: .userInitiated) {
+            let record = id.flatMap { history.record(id: $0) }
+            let outputs = record?.report.existingOutputs() ?? []
+            await MainActor.run { [weak self] in
+                guard let self, token == generation else { return }
+                self.record = record
+                self.outputs = outputs
+            }
+        }
     }
 
     func delete(_ id: UUID) {
-        history.delete(id: id)
-        reload()
+        let history = history
+        Task.detached(priority: .userInitiated) {
+            history.delete(id: id)
+            await MainActor.run { [weak self] in self?.reload() }
+        }
     }
 
     func clearAll() {
-        history.clear()
-        selection = nil
-        reload()
+        let history = history
+        Task.detached(priority: .userInitiated) {
+            history.clear()
+            await MainActor.run { [weak self] in
+                self?.selection = nil
+                self?.reload()
+            }
+        }
     }
 }
 
@@ -51,6 +98,7 @@ struct HistoryView: View {
     static let windowID = "history"
     @Bindable var controller: HistoryController
     @State private var confirmingClear = false
+    @State private var confirmingDelete: UUID?
 
     var body: some View {
         HSplitView {
@@ -63,6 +111,12 @@ struct HistoryView: View {
         .onAppear { controller.reload() }
         .onReceive(NotificationCenter.default.publisher(for: .runHistoryChanged)) { _ in controller.reload() }
         .onChange(of: controller.jobFilter) { controller.reload() }
+        .confirmationDialog("Delete this run from the history?", isPresented: Binding(
+            get: { confirmingDelete != nil }, set: { if !$0 { confirmingDelete = nil } })) {
+            Button("Delete", role: .destructive) { confirmingDelete.map(controller.delete) }
+        } message: {
+            Text("The converted images are not touched.")
+        }
         .confirmationDialog("Clear the whole run history?", isPresented: $confirmingClear) {
             Button("Clear History", role: .destructive) { controller.clearAll() }
         } message: {
@@ -126,9 +180,9 @@ struct HistoryView: View {
                     }
                     Spacer()
                     ReportExportMenu(report: record.report)
-                    Button("Reveal Outputs") { Self.reveal(record.report) }
-                        .disabled(Self.outputs(record.report).isEmpty)
-                    Button("Delete") { controller.delete(summary.id) }
+                    Button("Reveal Outputs") { NSWorkspace.shared.activateFileViewerSelecting(Array(controller.outputs.prefix(200))) }
+                        .disabled(controller.outputs.isEmpty)
+                    Button("Delete") { confirmingDelete = summary.id }
                         .accessibilityLabel("Delete this run from the history")
                 }
                 .buttonStyle(.lg(.secondary))
@@ -140,18 +194,6 @@ struct HistoryView: View {
                 .font(LadaGlass.Typography.body).foregroundStyle(LadaGlass.Colors.muted)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    /// Written files that still exist.
-    private static func outputs(_ report: ProcessingReport) -> [URL] {
-        report.entries.compactMap { entry in
-            guard entry.status == .succeeded, let path = entry.destination, FileManager.default.fileExists(atPath: path) else { return nil }
-            return URL(fileURLWithPath: path)
-        }
-    }
-
-    private static func reveal(_ report: ProcessingReport) {
-        NSWorkspace.shared.activateFileViewerSelecting(Array(outputs(report).prefix(200)))
     }
 }
 

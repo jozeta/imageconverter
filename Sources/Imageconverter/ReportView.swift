@@ -81,13 +81,18 @@ struct ReportExportMenu: View {
         panel.nameFieldStringValue = "report-\(Self.stamp(report.summary.finishedAt)).\(format.fileExtension)"
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            try ReportExporter.data(report, format: format).write(to: url, options: .atomic)
-        } catch {
-            let alert = NSAlert()
-            alert.messageText = "The report couldn't be saved"
-            alert.informativeText = error.localizedDescription
-            alert.runModal()
+        // Encoding and writing (a large HTML report) happen off the main actor.
+        Task.detached(priority: .userInitiated) {
+            do {
+                try ReportExporter.data(report, format: format).write(to: url, options: .atomic)
+            } catch {
+                await MainActor.run {
+                    let alert = NSAlert()
+                    alert.messageText = "The report couldn't be saved"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
+            }
         }
     }
 
@@ -118,8 +123,11 @@ struct ReportView: View {
 
     @State private var sortOrder = [KeyPathComparator(\Row.id)]
 
-    private var rows: [Row] {
-        report.entries.enumerated().map { Row(id: $0.offset, entry: $0.element) }.sorted(using: sortOrder)
+    /// Built and sorted only when the report or the sort order changes, not on every body evaluation.
+    @State private var rows: [Row] = []
+
+    private func rebuild() {
+        rows = report.entries.enumerated().map { Row(id: $0.offset, entry: $0.element) }.sorted(using: sortOrder)
     }
 
     var body: some View {
@@ -161,6 +169,9 @@ struct ReportView: View {
                 }
             }
             .accessibilityLabel("Files in this run")
+            .onAppear(perform: rebuild)
+            .onChange(of: report) { rebuild() }
+            .onChange(of: sortOrder) { rebuild() }
         }
     }
 }
@@ -190,7 +201,11 @@ struct ErrorLogView: View {
             HStack {
                 Button("Reveal Log File") { NSWorkspace.shared.activateFileViewerSelecting([log.logURL]) }
                     .disabled(entries.isEmpty)
-                Button("Clear Log") { log.clear(); entries = [] }
+                Button("Clear Log") {
+                    entries = []
+                    let log = log
+                    Task.detached { log.clear() }
+                }
                     .disabled(entries.isEmpty)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
@@ -201,6 +216,9 @@ struct ErrorLogView: View {
         .frame(width: 520, height: 360)
         .lgBackdrop()
         .lgCompact()
-        .onAppear { entries = log.recent(limit: 200) }
+        .task {
+            let log = log
+            entries = await Task.detached { log.recent(limit: 200) }.value
+        }
     }
 }
