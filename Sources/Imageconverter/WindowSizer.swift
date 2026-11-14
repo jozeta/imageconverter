@@ -2,9 +2,9 @@ import AppKit
 import Observation
 import ImageconverterCore
 
-/// Drives the main window's size by the rules in `WindowLayout`: preview hidden → exactly the sidebar
-/// and its content; preview open → resizable, at least 780 × 560, the sidebar panel stretching to the
-/// window height.
+/// Drives the main window's size by the rules in `WindowLayout`: the height always equals the sidebar's
+/// content height (clamped to the screen); preview hidden → exactly the sidebar's width; preview open →
+/// resizable in width only, at least 780 wide.
 ///
 /// SwiftUI applies `widthRange`/`heightRange` as the root view's min/max size, which
 /// `.windowResizability(.contentSize)` turns into the window's content min/max size. A change is
@@ -29,14 +29,15 @@ final class WindowSizer {
     /// The preview's fixed width while an animation reveals or hides it (the window edge clips it);
     /// nil when the pane follows the window width.
     private(set) var previewFrozenWidth: CGFloat?
+    /// True while a frame animation runs; the sidebar hides its scroller then, so the content that is
+    /// briefly taller than the shrinking or growing window doesn't flash one.
+    private(set) var isAnimating = false
 
     @ObservationIgnored private weak var window: NSWindow?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var behaviorObservation: NSKeyValueObservation?
     @ObservationIgnored private var previewShown: Bool
     @ObservationIgnored private var contentHeight: CGFloat?
-    /// The content height the window was last sized for (to tell whether it was snug).
-    @ObservationIgnored private var sizedContentHeight: CGFloat?
     @ObservationIgnored private var rememberedPreviewWidth: CGFloat?
     /// The width a running preview toggle aims for.
     @ObservationIgnored private var targetWidth: CGFloat?
@@ -50,11 +51,11 @@ final class WindowSizer {
     init(previewShown: Bool) {
         self.previewShown = previewShown
         previewMounted = previewShown
-        let limits = WindowLayout.limits(previewShown: previewShown, fittedHeight: 200,
+        let limits = WindowLayout.limits(previewShown: previewShown, fittedHeight: WindowLayout.minContentHeight,
                                          maxContent: CGSize(width: CGFloat.infinity, height: CGFloat.infinity))
         widthRange = limits.width
         // The height is unknown until the sidebar has been measured.
-        heightRange = previewShown ? limits.height : 200...CGFloat.infinity
+        heightRange = WindowLayout.minContentHeight...CGFloat.infinity
     }
 
     /// Called with the hosting window once it exists (and again on updates; repeats are ignored).
@@ -85,6 +86,14 @@ final class WindowSizer {
     /// followed at once instead of after the debounce.
     func pipelineWillToggle() {
         pipelineToggledAt = Date()
+        // The content changes before the window follows it: hide the scroller from now on.
+        isAnimating = true
+        Task { [weak self] in
+            // Fallback in case the toggle changed no height and so started no resize.
+            try? await Task.sleep(for: .seconds(Self.toggleWindow + Self.animationDuration))
+            guard let self, !isResizing else { return }
+            isAnimating = false
+        }
     }
 
     /// The sidebar's natural content height (panel plus its outer padding).
@@ -165,12 +174,9 @@ final class WindowSizer {
         let content = contentHeight ?? current.height
         // A height change during a running preview toggle keeps aiming for that toggle's width.
         let width = requestedWidth ?? (isResizing && previewShown ? targetWidth : nil)
-        let target = WindowLayout.targetSize(
-            previewShown: previewShown, current: current, contentHeight: content,
-            reason: width.map { .toggle(width: $0) } ?? .contentChanged(previous: isResizing ? nil : sizedContentHeight),
-            maxContent: maxContent)
+        let target = WindowLayout.targetSize(previewShown: previewShown, current: current, contentHeight: content,
+                                             requestedWidth: width, maxContent: maxContent)
         targetWidth = target.width
-        sizedContentHeight = content
         let final = WindowLayout.limits(previewShown: previewShown, fittedHeight: target.height, maxContent: maxContent)
         let during = WindowLayout.transitional(final, current: current, target: target)
         widthRange = during.width
@@ -178,6 +184,7 @@ final class WindowSizer {
         isResizing = true
 
         let shouldAnimate = animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if shouldAnimate { isAnimating = true }
         // Wait a runloop so SwiftUI has applied the widened limits before the frame changes.
         DispatchQueue.main.async { [weak self, weak window] in
             guard let self, let window, token == generation else { return }
@@ -190,6 +197,7 @@ final class WindowSizer {
                 previewFrozenWidth = nil
                 previewMounted = previewShown
                 isResizing = false
+                isAnimating = false
                 didInitialSize = true
             }
             guard shouldAnimate, frame != window.frame else {

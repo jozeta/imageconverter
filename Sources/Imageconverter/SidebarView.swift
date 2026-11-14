@@ -12,6 +12,8 @@ struct SidebarView: View {
     @State private var showReport = false
     #endif
     @State private var showErrorLog = false
+    /// The measured natural content height (panel plus paddings), for the scroller decision.
+    @State private var contentHeight: CGFloat = 0
 
     /// Panel padding plus the outer padding, top and bottom.
     private static let verticalChrome = 2 * LadaGlass.Spacing.l * LadaGlass.Density.paddingScale
@@ -36,17 +38,28 @@ struct SidebarView: View {
                                                value: $0.size.height + Self.verticalChrome)
                     }
                 }
-                // With the preview open the window can be taller than the content: the panel fills it.
+                // While the window animates to a new height (or at the minimum height) the panel fills it.
                 .frame(minHeight: max(viewport.size.height - Self.verticalChrome, 0), alignment: .top)
                 .lgPanel()
                 .padding(LadaGlass.Spacing.m)
             }
+            // The window is as tall as the content, so a scroller only belongs when the content is taller
+            // than the screen allows; never while the window animates (it would flash in and out).
+            .scrollIndicators(showsScroller(viewport: viewport.size.height) ? .automatic : .never)
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .onPreferenceChange(SidebarContentHeightKey.self) { model.windowSizer.contentHeightChanged($0) }
+        .onPreferenceChange(SidebarContentHeightKey.self) {
+            contentHeight = $0
+            model.windowSizer.contentHeightChanged($0)
+        }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .lgBackdrop()
         .lgCompact()
         .lgToasts(model.toasts)
+    }
+
+    private func showsScroller(viewport: CGFloat) -> Bool {
+        !model.windowSizer.isAnimating && contentHeight > viewport + 0.5
     }
 
     /// Collapses or expands the pipeline (Johan: between the drop zone and the image count).

@@ -2,14 +2,14 @@ import CoreGraphics
 
 /// The main window's size rules (pure maths; the app's `WindowSizer` applies them to the window).
 ///
-/// Preview hidden: the window is exactly the sidebar (fixed width) and exactly as tall as its content.
-/// Preview open: at least sidebar + preview minimum wide and `previewMinHeight` tall, user-resizable
-/// beyond that; the sidebar panel stretches to the window height.
+/// The window is always exactly as tall as the sidebar's content (Johan), preview open or not; only an
+/// open preview makes it user-resizable, and only in width (at least sidebar + preview minimum).
 /// All sizes are content sizes (the title bar excluded) and are clamped to the screen's visible area.
 public enum WindowLayout {
     public static let sidebarWidth: CGFloat = 360
     public static let previewMinWidth: CGFloat = 420
-    public static let previewMinHeight: CGFloat = 560
+    /// A floor for tiny content only; normally the content is taller.
+    public static let minContentHeight: CGFloat = 300
     public static let defaultPreviewWidth: CGFloat = 640
 
     public struct Limits: Equatable, Sendable {
@@ -22,15 +22,15 @@ public enum WindowLayout {
         }
     }
 
-    /// The window's min/max content size when no animation runs. `fittedHeight` is the hidden-preview
-    /// height (see `targetSize`); it is ignored while the preview is open.
+    /// The window's min/max content size when no animation runs. `fittedHeight` is the content-fitted
+    /// height (see `fittingHeight`); the height is fixed to it whether or not the preview is open.
     public static func limits(previewShown: Bool, fittedHeight: CGFloat, maxContent: CGSize) -> Limits {
+        let height = fittedHeight...fittedHeight
         if previewShown {
             let minWidth = min(sidebarWidth + previewMinWidth, maxContent.width)
-            let minHeight = min(previewMinHeight, maxContent.height)
-            return Limits(width: minWidth...CGFloat.infinity, height: minHeight...CGFloat.infinity)
+            return Limits(width: minWidth...CGFloat.infinity, height: height)
         }
-        return Limits(width: sidebarWidth...sidebarWidth, height: fittedHeight...fittedHeight)
+        return Limits(width: sidebarWidth...sidebarWidth, height: height)
     }
 
     /// Limits that allow both the current and the target size, used while an animation runs.
@@ -41,41 +41,20 @@ public enum WindowLayout {
                    ... max(final.height.upperBound, current.height, target.height))
     }
 
-    /// The height that fits the sidebar content (at least `previewMinHeight` with the preview open).
-    public static func fittingHeight(previewShown: Bool, contentHeight: CGFloat, maxContent: CGSize) -> CGFloat {
-        min(previewShown ? max(previewMinHeight, contentHeight) : contentHeight, maxContent.height)
+    /// The window height: the sidebar's content height (at least `minContentHeight`), clamped to the
+    /// screen. Content taller than the screen scrolls in the sidebar.
+    public static func fittingHeight(contentHeight: CGFloat, maxContent: CGSize) -> CGFloat {
+        min(max(contentHeight, minContentHeight), maxContent.height)
     }
 
-    /// Why the window is being sized.
-    public enum Reason: Equatable, Sendable {
-        /// A preview toggle aiming for this content width; the height then fits the content.
-        case toggle(width: CGFloat)
-        /// The content or the screen changed. `previous` is the content height the window was last sized
-        /// for: with the preview open, a window that was snug around it follows the content, one the user
-        /// made taller keeps its height and only grows when the content needs more room (nil: not snug).
-        case contentChanged(previous: CGFloat?)
-    }
-
-    /// The content size the window should have.
+    /// The content size the window should have. `requestedWidth` is the width a preview toggle aims
+    /// for; nil keeps the current width (within the open-preview minimum and the screen).
     public static func targetSize(previewShown: Bool, current: CGSize, contentHeight: CGFloat,
-                                  reason: Reason, maxContent: CGSize) -> CGSize {
-        var requestedWidth: CGFloat?
-        var previousContentHeight: CGFloat?
-        switch reason {
-        case .toggle(let width): requestedWidth = width
-        case .contentChanged(let previous): previousContentHeight = previous
-        }
-        let fit = fittingHeight(previewShown: previewShown, contentHeight: contentHeight, maxContent: maxContent)
-        guard previewShown else { return CGSize(width: sidebarWidth, height: fit) }
+                                  requestedWidth: CGFloat?, maxContent: CGSize) -> CGSize {
+        let height = fittingHeight(contentHeight: contentHeight, maxContent: maxContent)
+        guard previewShown else { return CGSize(width: sidebarWidth, height: height) }
         let minWidth = min(sidebarWidth + previewMinWidth, maxContent.width)
         let width = min(max(requestedWidth ?? current.width, minWidth), maxContent.width)
-        var height = fit
-        if requestedWidth == nil {
-            let wasSnug = previousContentHeight.map {
-                abs(current.height - fittingHeight(previewShown: true, contentHeight: $0, maxContent: maxContent)) < 1
-            } ?? false
-            if !wasSnug { height = min(max(current.height, fit), maxContent.height) }
-        }
         return CGSize(width: width, height: height)
     }
 
