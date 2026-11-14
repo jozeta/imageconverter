@@ -31,6 +31,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- **Overwrite with rename**: *Overwrite original files* now works with the Rename step. The renamed result is saved next to the original, which then goes to the Trash; an unchanged name and format still replaces the file in place.
 - **Hover help**: rest the pointer on a step's title (or Output) for 1.5 s to see what it does and how to use it.
 - **Many more conditions**: If … then … else can now check the file name, extension and folder, the date taken, created or modified, any metadata field (lens, ISO, copyright, keywords, …), megapixels, aspect ratio, bit depth, color space and profile, DPI, EXIF rotation and animation, each with **Not**; and its branches can save into a subfolder, add Finder tags or keywords, apply a saved preset, stop checking later conditions or add a note to the report. See [Process images differently](#process-images-differently-by-size-format-or-orientation).
 - **App bundle and release script:** `scripts/release.sh` builds a universal, sandboxed `imageconverter.app` with the command-line tool inside (`Contents/Helpers/imageconverter`), and `scripts/install-cli.sh` puts that tool on your PATH. See [Build the app bundle](#build-the-app-bundle).
@@ -45,7 +46,7 @@ Started 2026-11-13. The full design is in
 - Geometry editors: free angle and straighten, Perspective (Auto and keystone), Trim and the canvas Ratio mode.
 - Compression modes in the Output row: Quality, Target size, Maximum size and Smart, Progressive JPEG, Optimise PNG and AVIF; the estimate shows the chosen quality.
 - Compression report: size percentages in the estimate and preview, a "saved" toast after a run, and a Report section in the sidebar (per-file sizes, skipped files, notes).
-- **Save to** dropdown in the Output row (new folder, same folder, overwrite originals) replaces the Settings window; the Rename step is unavailable while overwriting, and the same-folder suffix defaults to `_new`.
+- **Save to** dropdown in the Output row (new folder, same folder, overwrite originals) replaces the Settings window, and the same-folder suffix defaults to `_new`.
 - Adjust step: exposure, brilliance, highlights, shadows, contrast, brightness, black point, saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction.
 - Find and replace (plain text or regular expression) in the Rename step.
 - Size estimate ("Original → about") under the quality slider.
@@ -204,7 +205,7 @@ The output settings are in the Output row of the sidebar (there is no Settings w
 
 | Setting | Options | Default |
 |---------|---------|---------|
-| Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row) | New folder |
+| Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
 
@@ -355,8 +356,10 @@ look the same). Gray images stay gray (with or without transparency), and wide-c
 images keep their colour space.
 
 Choosing **Overwrite originals** shows a warning once, when you select it, and never during runs.
-In this mode, when the format or name changes (for example HEIC → JPEG), the new file is written
-and the original is **moved to the Trash**. In "New folder" mode, dropped folders keep their
+In this mode, when the format or name changes (for example HEIC → JPEG, or a Rename pattern), the new
+file is written into the original's folder and only then is the original **moved to the Trash**. No other
+file is ever replaced: a new name that is taken by another file, by another image of the batch or by
+another image's new name gets `_2`, `_3`, … In "New folder" mode, dropped folders keep their
 subfolder structure.
 
 The packaged app (built by `scripts/release.sh`) runs in the App Sandbox, so it can only touch files
@@ -445,7 +448,7 @@ Your pipeline is kept between launches.
    *Progressive* toggle, PNG an *Optimise PNG* toggle (smaller, slower), TIFF a compression choice.
 3. Below the controls, the size estimate shows "Original → about" for the selected image, with the chosen quality ("at 74 %") when a size
    or Smart mode searched for one, or why a maximum size can't be met. Use **Save to** to pick *Overwrite original
-   files* (originals that are renamed or change format go to the Trash; Rename is unavailable), *Same folder as original* (the suffix, default `_new`, is added only if the output would have the same name as the original; or the Rename pattern applies) or *New folder*.
+   files* (originals that are renamed or change format go to the Trash after the new file is saved), *Same folder as original* (the suffix, default `_new`, is added only if the output would have the same name as the original; or the Rename pattern applies) or *New folder*.
 4. Press **Run on N images** (⌘R). In *New folder* mode with no folder chosen yet, you are asked to
    pick one first. Cancel with ⌘. at any time; files already finished stay, and no half-written
    files are left.
@@ -508,7 +511,10 @@ all of the file's language variants of it (only the one you typed remains).
    (`{date:yyyy-MM-dd}_{counter:000}`), *Camera + date* (`{camera}_{datetime}`) and *Name + size*
    (`{name}_{width}x{height}`).
 7. Optionally fill **Find** and **Replace** to change text in the resulting name; tick the regular
-   expression option for patterns. The Rename step is greyed out while *Overwrite original files* is selected.
+   expression option for patterns.
+   With *Overwrite original files* the renamed result is saved in the original's folder and the original goes to
+   the Trash once it is saved (an unchanged name and format replaces the file in place). A name that is already
+   taken, also by another image of the batch, gets `_2`, `_3`, …
 8. Use **Prefix**, **Suffix**, **Remove spaces**, **Special characters** and **Case** to tidy the result.
    Order: pattern, find and replace, prefix and suffix, spaces, special characters, case. The example line
    shows the effect of every option.
@@ -874,14 +880,14 @@ Convert options (options override the preset or pipeline file):
 | Option | Meaning |
 | --- | --- |
 | `--preset NAME` or `--pipeline FILE.json` | Start from a saved preset or from a pipeline/preset JSON file (at most 1 MB, validated like presets) |
-| `--out DIR`, `--same-folder [--suffix S]`, `--overwrite --yes` | Where results go; choose exactly one. `--overwrite` replaces originals and is refused without `--yes` (replaced originals go to the Trash) |
+| `--out DIR`, `--same-folder [--suffix S]`, `--overwrite --yes` | Where results go; choose exactly one. `--overwrite` replaces originals and is refused without `--yes` (with a preset's or pipeline's rename, or a new format, the result is saved next to the original, which goes to the Trash) |
 | `--format jpeg\|png\|heic\|avif\|tiff\|gif\|bmp\|jpeg2000` | Output format |
 | `--quality 0-100` | Quality for lossy formats |
 | `--max-size 500KB` | Largest file size (KB and MB are decimal) |
 | `--resize-long PX` | Scale so the longest edge is PX pixels |
 | `--strip-gps`, `--strip-all` | Remove the location (GPS and place names), or all metadata (the preset's "keep when removing all" list is ignored) |
 | `--report csv\|json\|text` | Print a full report on stdout |
-| `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked); writes nothing; honours `--report`/`--json` |
+| `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked; with `--overwrite`, each destination is marked "replace" or, when the name or format changes, "replace (original to Trash)"); writes nothing; honours `--report`/`--json` |
 | `--quiet`, `--json` | No progress; `--json` prints the JSON report |
 
 Progress goes to stderr and results to stdout. Missing input paths are reported on stderr and count as failed files; options that the chosen format ignores (`--quality`, `--max-size` with PNG, TIFF, ...) print a warning. Only long options exist; file names starting with `-` go after `--`. Ctrl-C stops cleanly (no temp files left), prints the partial report and exits 130. `--strip-gps` and `--strip-all` also hold for images a preset's condition sends to its own metadata settings or to "Copy original unchanged" (those are converted instead). The tool isn't coordinated with the app: don't run it over a folder an active job watches. Exit codes: 0 all done, 1 some files failed or missing, 2 usage error, 3 nothing to do, 130 interrupted. The tool reads presets and jobs from the sandboxed app's container (`~/Library/Containers/io.github.jozeta.imageconverter/Data/Library/Application Support/imageconverter/`) when it exists, else from `~/Library/Application Support/imageconverter/` (where an unsandboxed `swift run` keeps them); `--data-dir DIR` (anywhere before `--`) reads them from DIR instead. macOS may ask once whether Terminal may access another app's data the first time the tool reads the container.
