@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Info.plist keys for Finder services, AppleScript and imageconverter:// links. The app is still an unbundled
+  SwiftPM executable, so nothing here is active yet: milestone 6's release script (scripts/release.sh) merges
+  these keys into imageconverter.app/Contents/Info.plist (for example with
+  `/usr/libexec/PlistBuddy -c "Merge Resources/Info-fragments.plist" Info.plist`) and copies
+  Resources/imageconverter.sdef into Contents/Resources/.
+
+  NSServices
+    * "Convert with imageconverter" calls ServicesProvider.convertWithImageconverter: adds the selected
+      files and folders to the batch and shows the window.
+    * "Convert with Preset 1…5" call convertWithPinnedPreset1…5. Service titles are static, so each is a slot:
+      slot n is the n-th preset, by name, that the user showed in Finder Quick Actions (preset menu More >
+      Show in Finder Quick Actions, at most 5). They run at once with the global output mode; overwrite mode
+      asks in the app first. An empty slot shows a hint in the app.
+    * The slash in the titles puts them in an "imageconverter" submenu of Services. NSPortName must equal
+      the bundle's CFBundleName. NSRequiredContext (empty) lets them show in Finder's Quick Actions without
+      the user enabling them first; NSSendFileTypes limits them to images and folders.
+    * After installing, `/System/Library/CoreServices/pbs -update` (or logging out) refreshes the menu.
+
+  NSAppleScriptEnabled / OSAScriptingDefinition: the AppleScript dictionary (commands convert, add files,
+  run batch, presets). The command classes are in Sources/Imageconverter/Scripting.swift.
+
+  CFBundleURLTypes: the imageconverter:// scheme (open, preset?name=, add?path=, jobs/run?name=). Links are
+  untrusted; see URLAction.parse and Sources/Imageconverter/URLActions.swift. Replace CFBundleURLName's
+  "BUNDLE_IDENTIFIER" with the app's bundle identifier when the release script chooses it.
+-->
+<plist version="1.0">
+<dict>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>imageconverter/Convert with imageconverter</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>convertWithImageconverter</string>
+			<key>NSPortName</key>
+			<string>imageconverter</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.image</string>
+				<string>public.folder</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>imageconverter/Convert with Preset 1</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>convertWithPinnedPreset1</string>
+			<key>NSPortName</key>
+			<string>imageconverter</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.image</string>
+				<string>public.folder</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>imageconverter/Convert with Preset 2</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>convertWithPinnedPreset2</string>
+			<key>NSPortName</key>
+			<string>imageconverter</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.image</string>
+				<string>public.folder</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>imageconverter/Convert with Preset 3</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>convertWithPinnedPreset3</string>
+			<key>NSPortName</key>
+			<string>imageconverter</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.image</string>
+				<string>public.folder</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>imageconverter/Convert with Preset 4</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>convertWithPinnedPreset4</string>
+			<key>NSPortName</key>
+			<string>imageconverter</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.image</string>
+				<string>public.folder</string>
+			</array>
+		</dict>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>imageconverter/Convert with Preset 5</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>convertWithPinnedPreset5</string>
+			<key>NSPortName</key>
+			<string>imageconverter</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.image</string>
+				<string>public.folder</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSAppleScriptEnabled</key>
+	<true/>
+	<key>OSAScriptingDefinition</key>
+	<string>imageconverter.sdef</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>BUNDLE_IDENTIFIER.link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>imageconverter</string>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

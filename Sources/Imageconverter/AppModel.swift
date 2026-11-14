@@ -61,7 +61,7 @@ final class AppModel {
         didSet { defaults.set(pipelineCollapsed, forKey: Self.pipelineCollapsedKey) }
     }
 
-    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored var task: Task<Void, Never>?
     @ObservationIgnored var previewTask: Task<Void, Never>?
     @ObservationIgnored var previewGeneration = 0
     @ObservationIgnored var estimateTask: Task<Void, Never>?
@@ -227,9 +227,15 @@ final class AppModel {
             settings.outputFolder = url
         }
         guard let mode = settings.outputMode else { return }
+        startRun(items, pipeline: pipeline, mode: mode, presetName: session.selected?.name)
+    }
 
-        let batch = items
-        let pipeline = self.pipeline
+    /// Runs `batch` with `pipeline` (Run, or a service or script with its own files and preset), showing
+    /// progress and the report like Run. Returns false when a run is already going; `completion` gets the report.
+    @discardableResult
+    func startRun(_ batch: [InputItem], pipeline: Pipeline, mode: OutputMode, presetName: String?,
+                  completion: (@MainActor (BatchReport) -> Void)? = nil) -> Bool {
+        guard !isRunning, !batch.isEmpty else { return false }
         runInfo = (batch.count, Date(), mode.kind.rawValue)
         isRunning = true
         resetPreview()
@@ -244,8 +250,10 @@ final class AppModel {
                     self.progress = update
                 }
             })
-            self?.finish(report)
+            self?.finish(report, presetName: presetName)
+            completion?(report)
         }
+        return true
     }
 
     private static func isExistingDirectory(_ url: URL?) -> Bool {
@@ -256,14 +264,14 @@ final class AppModel {
 
     func cancel() { task?.cancel() }
 
-    private func finish(_ report: BatchReport) {
+    private func finish(_ report: BatchReport, presetName: String?) {
         isRunning = false
         task = nil
         Task { await previewRenderer.purge() }
         schedulePreview(mode: previewMode)
         scheduleEstimate()
         runReport = ProcessingReport(batch: report, total: runInfo.total, outputMode: runInfo.mode,
-                                     presetName: session.selected?.name, startedAt: runInfo.started)
+                                     presetName: presetName, startedAt: runInfo.started)
         progress = nil
         dropMissingItems()
         let failed = report.failures.count

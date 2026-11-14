@@ -1,0 +1,133 @@
+import AppKit
+import ImageconverterCore
+
+// AppleScript commands (Cocoa scripting). `Resources/imageconverter.sdef` names these classes; the
+// `@objc` names must match its `cocoa class` attributes. Checks live in `ExternalRequests` (tested in Core).
+//
+//   convert {alias "…"} using preset "Web export" [to folder alias "…"]   → list of written files
+//   add files {alias "…"}
+//   run batch                                                             → list of written files
+//   presets                                                               → list of preset names
+
+/// Shared error reporting and suspension for the commands.
+class ImageconverterScriptCommand: NSScriptCommand {
+    /// errOSAGeneralError: AppleScript shows `scriptErrorString` as the error message.
+    static let failure = -2700
+
+    func fail(_ error: Error) {
+        scriptErrorNumber = Self.failure
+        scriptErrorString = (error as? ExternalRequestError)?.message ?? error.localizedDescription
+    }
+
+    /// Suspends the script, runs `work` on the main actor and returns its result (or its error) to the script.
+    func runSuspended(_ work: @escaping @MainActor () async throws -> Any?) -> Any? {
+        suspendExecution()
+        Task { @MainActor in
+            do {
+                resumeExecution(withResult: try await work())
+            } catch {
+                fail(error)
+                resumeExecution(withResult: nil)
+            }
+        }
+        return nil
+    }
+
+    /// The model, or nil (with a script error) while the app is still starting up.
+    @MainActor func attached() -> (AppModel, AppSettings)? {
+        guard let model = ExternalActions.shared.model, let settings = ExternalActions.shared.settings else {
+            scriptErrorNumber = Self.failure
+            scriptErrorString = "imageconverter is still starting. Try again in a moment."
+            return nil
+        }
+        return (model, settings)
+    }
+}
+
+@objc(ICConvertCommand)
+final class ConvertScriptCommand: ImageconverterScriptCommand {
+    override func performDefaultImplementation() -> Any? {
+        MainActor.assumeIsolated {
+            guard let (model, settings) = attached() else { return nil }
+            let arguments = evaluatedArguments ?? [:]
+            do {
+                guard let files = ExternalRequests.fileURLs(fromScriptValue: directParameter) else {
+                    throw ExternalRequestError.noFiles
+                }
+                let presetName = arguments["preset"] as? String ?? ""
+                let folder: URL? = try arguments["folder"].map {
+                    guard let url = $0 as? URL else { throw ExternalRequestError.notAFolder(path: "\($0)") }
+                    return url
+                }
+                let plan = try ExternalRequests.convertPlan(files: files, presetName: presetName, folder: folder,
+                                                            presets: model.allPresets, globalMode: settings.outputMode)
+                return runSuspended { try await ExternalActions.shared.convert(plan, model: model) }
+            } catch {
+                fail(error)
+                return nil
+            }
+        }
+    }
+}
+
+@objc(ICAddFilesCommand)
+final class AddFilesScriptCommand: ImageconverterScriptCommand {
+    override func performDefaultImplementation() -> Any? {
+        MainActor.assumeIsolated {
+            guard let (model, _) = attached() else { return nil }
+            do {
+                guard let urls = ExternalRequests.fileURLs(fromScriptValue: directParameter) else {
+                    throw ExternalRequestError.noFiles
+                }
+                let files = try ExternalRequests.validatedFiles(urls)
+                guard !model.isRunning else { throw ExternalRequestError.busy }
+                ExternalActions.shared.add(files)
+            } catch {
+                fail(error)
+            }
+            return nil
+        }
+    }
+}
+
+/// "run batch" rather than "run": `run` is AppleScript's own launch command, which every `tell` may send.
+@objc(ICRunBatchCommand)
+final class RunBatchScriptCommand: ImageconverterScriptCommand {
+    override func performDefaultImplementation() -> Any? {
+        MainActor.assumeIsolated {
+            guard let (model, settings) = attached() else { return nil }
+            return runSuspended {
+                guard !model.isRunning else { throw ExternalRequestError.busy }
+                // Adding is asynchronous; a run straight after `add files` waits for the scan.
+                while model.isAdding { try await Task.sleep(for: .milliseconds(100)) }
+                guard !model.items.isEmpty else { throw ExternalRequestError.nothingToRun }
+                guard let mode = settings.outputMode else { throw ExternalRequestError.noOutputFolder }
+                let actions = ExternalActions.shared
+                if mode.kind == .overwrite {
+                    let count = model.items.count
+                    guard await actions.confirm(
+                        title: "Replace \(count) original \(count == 1 ? "image" : "images")?",
+                        message: "A script asks to run the batch. It " + ExternalRequests.describe(mode) + ".",
+                        confirm: "Replace Originals", destructive: true) else { throw ExternalRequestError.cancelled }
+                }
+                return try await withCheckedThrowingContinuation { continuation in
+                    let started = model.startRun(model.items, pipeline: model.pipeline, mode: mode,
+                                                 presetName: model.session.selected?.name) {
+                        continuation.resume(returning: $0.written)
+                    }
+                    if !started { continuation.resume(throwing: ExternalRequestError.busy) }
+                }
+            }
+        }
+    }
+}
+
+@objc(ICPresetsCommand)
+final class PresetsScriptCommand: ImageconverterScriptCommand {
+    override func performDefaultImplementation() -> Any? {
+        MainActor.assumeIsolated {
+            guard let (model, _) = attached() else { return nil }
+            return model.allPresets.map(\.name)
+        }
+    }
+}

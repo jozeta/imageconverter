@@ -49,7 +49,10 @@ swiftlint           # if installed (brew install swiftlint)
     `WindowSizer.swift` (applies `WindowLayout`: fixed 360 pt sidebar; preview hidden → window = sidebar content height,
     preview open → resizable, min 780 × 560, sidebar panel stretches; animated toggles via `NSAnimationContext`; the
     root view applies its ranges with `.windowResizability(.contentSize)`; full screen is off), `EdgeHandle.swift` (grab handles on the panel edges).
-    `previewCollapsed` and `pipelineCollapsed` are persisted in UserDefaults
+    `previewCollapsed` and `pipelineCollapsed` are persisted in UserDefaults.
+    `ExternalActions.swift` (`AppDelegate`: services provider and the `kAEGetURL` link handler; the bridge to the model,
+    confirmation sheets, background converts), `ServicesProvider.swift` (Finder services), `Scripting.swift`
+    (`NSScriptCommand` subclasses named in the sdef), `URLActions.swift` (confirmed link actions), `AppModel+External.swift` (job runs)
 - `Sources/ImageconverterCore/`: all logic: the pipeline model, each operation as a pure function
   (`CGImage → CGImage`, metadata → metadata), rename templating, collision naming, presets
   (JSON, `schemaVersion`), the batch runner. No SwiftUI here. Files so far:
@@ -64,6 +67,9 @@ swiftlint           # if installed (brew install swiftlint)
     `JobRunner` (candidates → ledger and 2 s stability check → `BatchRunner` → ledger update → report file), `ProcessingReport` (run summary + entries),
     `ReportExporter` (CSV with formula-injection guard, JSON with sorted keys, text, escaped self-contained HTML in `ReportExporter+HTML`), `ErrorLog` (rotating failure log), `RunHistory` (stored runs, 100 kept), `ZoomMath` (`ZoomState`, zoom around an anchor, pan, clamping), `WindowLayout` (main window size rules and frame maths), `NameReplacement` (find/replace in names, plain or regex), `SizeEstimator` (encodes a full-size render for the size estimate)
 - `Sources/ImageconverterCLIKit/`: the command line (hand-written `CLIParser`, `CLIRunner`, `ConvertCommand`, `ListCommands`); `Sources/ImageconverterCLI/main.swift` is a thin wrapper (product `imageconverter-cli`, installed as `imageconverter`; tests in `Tests/ImageconverterCLITests/`). Core: `AppInfo.version` (kept equal to `VERSION` by a test), `PipelineFile`
+- `Resources/`: `imageconverter.sdef` (AppleScript dictionary) and `Info-fragments.plist` (NSServices,
+  AppleScript and URL-scheme keys); not used by SwiftPM, merged into the bundle by milestone 6's release script.
+  Their logic is in Core: `URLAction` (link parsing), `ExternalRequests` (script/service checks), `ServicePins`
 - `Tests/ImageconverterCoreTests/`: tests (operations on small generated images, rename tokens,
   resize/crop maths, collisions, preset round-trip and rejection, metadata really stripped)
 - `docs/superpowers/specs/`: design documents; `docs/superpowers/plans/`: implementation plans

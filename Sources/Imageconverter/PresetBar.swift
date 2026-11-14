@@ -47,6 +47,12 @@ struct PresetBar: View {
                         .disabled(selected == nil || selected?.isBuiltIn == true)
                     Button("Reset to preset") { model.resetToPreset() }
                         .disabled(!model.session.isModified)
+                    Divider()
+                    Toggle(quickActionTitle, isOn: Binding(
+                        get: { model.selectedPinnedForServices },
+                        set: { model.setSelectedPinnedForServices($0) }))
+                        .disabled(!model.selectedPinnedForServices && !model.canPinSelected)
+                        .help(quickActionHelp)
                 }
                 .fixedSize()
                 .accessibilityLabel("More preset actions")
@@ -80,6 +86,19 @@ struct PresetBar: View {
                           _ = try PresetStore.validatedName($0, existing: presets, excluding: id)
                       }, onSubmit: { try model.renameSelected(to: $0) })
         }
+    }
+
+    /// Names the Finder service slot while pinned, so the user knows which "Convert with Preset n" it is.
+    private var quickActionTitle: String {
+        model.selectedServiceSlot.map { "Show in Finder Quick Actions (Preset \($0))" } ?? "Show in Finder Quick Actions"
+    }
+
+    private var quickActionHelp: String {
+        if selected == nil || selected?.isBuiltIn == true { return "Only your own presets can be shown in Finder." }
+        if !model.selectedPinnedForServices && !model.canPinSelected {
+            return "At most \(ServicePins.maxPinned) presets can be shown in Finder Quick Actions."
+        }
+        return "Finder's Quick Actions and Services menus convert the selected files with this preset."
     }
 
     private func cancelSwitch() {

@@ -61,6 +61,39 @@ extension AppModel {
         if let renamed = userPresets.first(where: { $0.id == selected.id }) { session.didRename(renamed) }
     }
 
+    /// The selected user preset's "Show in Finder Quick Actions" state; see `ServicePins`.
+    var selectedPinnedForServices: Bool {
+        guard let id = session.selected?.id else { return false }
+        return userPresets.first { $0.id == id }?.pinnedForServices ?? false
+    }
+
+    /// Whether the selected preset can be pinned (a user preset, and fewer than five others pinned).
+    var canPinSelected: Bool {
+        guard let selected = session.selected, !selected.isBuiltIn else { return false }
+        return ServicePins.canPin(selected.id, in: userPresets)
+    }
+
+    /// The service slot ("Convert with Preset n") the selected preset has while pinned.
+    var selectedServiceSlot: Int? {
+        guard let id = session.selected?.id else { return nil }
+        return ServicePins.pinned(userPresets).firstIndex { $0.id == id }.map { $0 + 1 }
+    }
+
+    func setSelectedPinnedForServices(_ pinned: Bool) {
+        guard let selected = session.selected, !selected.isBuiltIn else { return }
+        do {
+            try presetStore.setPinnedForServices(id: selected.id, pinned)
+            reloadPresets()
+            // Keeps the session's copy current, so Save doesn't write the old flag back.
+            if let updated = userPresets.first(where: { $0.id == selected.id }) { session.didRename(updated) }
+            let slot = selectedServiceSlot.map { " as Convert with Preset \($0)" } ?? ""
+            toasts.show(pinned ? "\(selected.name) shows in Finder Quick Actions\(slot)"
+                               : "\(selected.name) no longer shows in Finder Quick Actions", type: .ok)
+        } catch {
+            toasts.show("Couldn't change the preset", type: .bad, description: Self.message(error))
+        }
+    }
+
     func deleteSelected() {
         guard let selected = session.selected, !selected.isBuiltIn else { return }
         do {

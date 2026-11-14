@@ -3,6 +3,8 @@ import ImageconverterCore
 
 @main
 struct ImageconverterApp: App {
+    /// Finder services, AppleScript and `imageconverter://` links (see `ExternalActions.swift`).
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @State private var model = AppModel(defaults: AppDefaults.store, presetStore: PresetStore(directory: AppDefaults.presetsDirectory))
     @State private var watermarkTemplates = WatermarkTemplatesModel(store: .watermark(
         directory: AppDefaults.templatesDirectory(folder: WatermarkTemplateStore.watermarkFolderName)))
@@ -16,7 +18,7 @@ struct ImageconverterApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("imageconverter") {
+        WindowGroup("imageconverter", id: MainWindowContent.windowID) {
             MainWindowContent(model: model, settings: settings)
                 .environment(model)
                 .environment(watermarkTemplates)
@@ -90,8 +92,10 @@ extension ImageconverterApp {
 /// The sidebar and the preview side by side, sized by `WindowSizer`: the sidebar has a fixed width,
 /// the preview fills the rest, and the window edge clips the preview while it slides in or out.
 private struct MainWindowContent: View {
+    static let windowID = "main"
     @Bindable var model: AppModel
     var settings: AppSettings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let sizer = model.windowSizer
@@ -115,6 +119,9 @@ private struct MainWindowContent: View {
         .background(WindowAccessor { sizer.attach($0) })
         .onAppear {
             model.zoom.installKeyMonitor()
+            ExternalActions.shared.attach(model: model, settings: settings) { [openWindow] in
+                openWindow(id: Self.windowID)
+            }
             #if DEBUG
             applyDebugArguments()
             #endif

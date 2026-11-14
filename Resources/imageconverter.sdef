@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<!--
+  AppleScript dictionary for imageconverter. Milestone 6's release script copies this file into
+  imageconverter.app/Contents/Resources/ and sets OSAScriptingDefinition = imageconverter.sdef and
+  NSAppleScriptEnabled = YES in Info.plist (see Info-fragments.plist). The cocoa class names must match the
+  @objc names in Sources/Imageconverter/Scripting.swift.
+-->
+<dictionary title="imageconverter Terminology" xmlns:xi="http://www.w3.org/2001/XInclude">
+    <!-- The Standard Suite (application, window, quit, …) that Cocoa scripting expects. -->
+    <xi:include href="file:///System/Library/ScriptingDefinitions/CocoaStandard.sdef"
+                xpointer="xpointer(/dictionary/suite)"/>
+
+    <suite name="imageconverter Suite" code="ICnv" description="Batch image conversion.">
+        <command name="convert" code="ICnvConv"
+                 description="Convert files with a preset. Without a folder the files go where the app's output setting says; overwrite mode asks in the app first. Returns the written files.">
+            <cocoa class="ICConvertCommand"/>
+            <direct-parameter description="The image files and folders to convert.">
+                <type type="file" list="yes"/>
+                <type type="file"/>
+            </direct-parameter>
+            <parameter name="using preset" code="Pres" type="text"
+                       description="The name of a built-in or saved preset (case doesn't matter).">
+                <cocoa key="preset"/>
+            </parameter>
+            <parameter name="to folder" code="Fldr" type="file" optional="yes"
+                       description="Write the converted files into this folder instead.">
+                <cocoa key="folder"/>
+            </parameter>
+            <result description="The files that were written.">
+                <type type="file" list="yes"/>
+            </result>
+        </command>
+
+        <command name="add files" code="ICnvAddF"
+                 description="Add image files and folders to the batch and show the window.">
+            <cocoa class="ICAddFilesCommand"/>
+            <direct-parameter description="The image files and folders to add.">
+                <type type="file" list="yes"/>
+                <type type="file"/>
+            </direct-parameter>
+        </command>
+
+        <command name="run batch" code="ICnvRunB"
+                 description="Convert the batch with the current pipeline and output setting (overwrite mode asks in the app first). Returns the written files.">
+            <cocoa class="ICRunBatchCommand"/>
+            <result description="The files that were written.">
+                <type type="file" list="yes"/>
+            </result>
+        </command>
+
+        <command name="presets" code="ICnvPrst"
+                 description="The names of the built-in and saved presets.">
+            <cocoa class="ICPresetsCommand"/>
+            <result description="The preset names.">
+                <type type="text" list="yes"/>
+            </result>
+        </command>
+    </suite>
+</dictionary>

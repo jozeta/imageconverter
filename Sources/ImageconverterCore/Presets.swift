@@ -7,19 +7,24 @@ public struct Preset: Codable, Equatable, Sendable, Identifiable {
     public var pipeline: Pipeline
     /// True for the presets that ship with the app. Never stored in a file.
     public var isBuiltIn: Bool
+    /// Shown as a Finder service ("Convert with Preset"); at most `ServicePins.maxPinned` user presets.
+    /// Stored only when true, so older files and older app versions read the same.
+    public var pinnedForServices: Bool
 
-    public init(id: UUID = UUID(), name: String, pipeline: Pipeline, isBuiltIn: Bool = false) {
+    public init(id: UUID = UUID(), name: String, pipeline: Pipeline, isBuiltIn: Bool = false,
+                pinnedForServices: Bool = false) {
         self.id = id
         self.name = name
         self.pipeline = pipeline
         self.isBuiltIn = isBuiltIn
+        self.pinnedForServices = pinnedForServices
     }
 
     /// The version of the top-level preset file format.
     public static let schemaVersion = 1
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, id, name, pipeline
+        case schemaVersion, id, name, pipeline, pinnedForServices
     }
 
     public init(from decoder: Decoder) throws {
@@ -28,6 +33,7 @@ public struct Preset: Codable, Equatable, Sendable, Identifiable {
         name = try container.decode(String.self, forKey: .name)
         pipeline = try container.decode(Pipeline.self, forKey: .pipeline)
         isBuiltIn = false
+        pinnedForServices = try container.decodeIfPresent(Bool.self, forKey: .pinnedForServices) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -36,6 +42,7 @@ public struct Preset: Codable, Equatable, Sendable, Identifiable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(pipeline, forKey: .pipeline)
+        if pinnedForServices { try container.encode(true, forKey: .pinnedForServices) }
     }
 }
 
@@ -52,6 +59,7 @@ public enum PresetError: Error, Equatable {
     case folderUnreadable
     case idMismatch
     case builtInID
+    case tooManyPinned
 
     public var reason: String {
         switch self {
@@ -68,6 +76,8 @@ public enum PresetError: Error, Equatable {
         case .folderUnreadable: return "The presets folder couldn't be read."
         case .idMismatch: return "The preset's id doesn't match its file name."
         case .builtInID: return "The preset uses a built-in preset's id."
+        case .tooManyPinned:
+            return "At most \(ServicePins.maxPinned) presets can be shown in Finder Quick Actions. Remove one first."
         }
     }
 }
@@ -229,8 +239,9 @@ public final class PresetStore: @unchecked Sendable {
         defer { lock.unlock() }
         guard !preset.isBuiltIn, !Self.isBuiltIn(preset.id) else { throw PresetError.builtInReadOnly }
         var stored = preset
-        stored.name = try Self.validatedName(
-            preset.name, existing: loadUnlocked().presets, excluding: preset.id)
+        let existing = loadUnlocked().presets
+        stored.name = try Self.validatedName(preset.name, existing: existing, excluding: preset.id)
+        if stored.pinnedForServices, !ServicePins.canPin(stored.id, in: existing) { throw PresetError.tooManyPinned }
         try write(stored)
     }
 
@@ -241,6 +252,19 @@ public final class PresetStore: @unchecked Sendable {
         let presets = loadUnlocked().presets
         guard var preset = presets.first(where: { $0.id == id }) else { throw PresetError.unreadable }
         preset.name = try Self.validatedName(newName, existing: presets, excluding: id)
+        try write(preset)
+    }
+
+    /// Shows or hides a user preset in Finder Quick Actions; the pipeline and name are left as they are on disk.
+    public func setPinnedForServices(id: UUID, _ pinned: Bool) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !Self.isBuiltIn(id) else { throw PresetError.builtInReadOnly }
+        let presets = loadUnlocked().presets
+        guard var preset = presets.first(where: { $0.id == id }) else { throw PresetError.unreadable }
+        guard preset.pinnedForServices != pinned else { return }
+        if pinned, !ServicePins.canPin(id, in: presets) { throw PresetError.tooManyPinned }
+        preset.pinnedForServices = pinned
         try write(preset)
     }
 
