@@ -140,9 +140,9 @@ struct PreviewPane: View {
         }
     }
 
-    /// Low-memory mode leaves the preview alone while a batch runs.
+    /// Low-memory mode and overwrite runs leave the preview alone while a batch runs.
     private var pausedNote: some View {
-        Text("Preview paused during the run (low-memory mode)")
+        Text("Preview paused during the run (\(model.monitor.overwriting ? "overwriting the originals" : "low-memory mode"))")
             .font(LadaGlass.Typography.body)
             .foregroundStyle(LadaGlass.Colors.muted)
             .padding(LadaGlass.Spacing.s)

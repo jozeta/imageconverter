@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ImageconverterCore
 
@@ -17,13 +18,14 @@ extension AppDefaults {
 }
 
 extension AppModel {
-    /// The preview and the size estimate run during a batch too, unless low-memory mode is on.
-    var previewAllowed: Bool { !isRunning || !lowMemoryMode }
+    /// The preview and the size estimate run during a batch too, unless low-memory mode is on or the batch
+    /// overwrites its originals (they would read files that are being replaced or moved to the Trash).
+    var previewAllowed: Bool { !isRunning || (!lowMemoryMode && !monitor.overwriting) }
 
     /// Hands the mode to a running batch and starts or stops the preview to match.
     func lowMemoryModeChanged() {
         monitor.control?.setLowMemory(lowMemoryMode)
-        guard isRunning else { return }
+        guard isRunning, !monitor.overwriting else { return }
         if lowMemoryMode {
             resetPreview()
             cancelEstimate()
@@ -81,6 +83,7 @@ extension AppModel {
                 RunJournal.discard(at: url)
             } else {
                 interruptedRun = journal
+                showsInterruptedRun = true
             }
         }
     }
@@ -90,41 +93,63 @@ extension AppModel {
         RunJournal.discard(at: AppDefaults.journalURL)
     }
 
-    /// Adds the items still to do, restores the batch's pipeline and output mode, reports files that are gone
-    /// and runs the rest. The new run writes its own journal, replacing the old one.
-    func resumeInterruptedRun(settings: AppSettings) {
+    /// Before Run replaces a kept interrupted batch's journal: asks, and discards it on confirmation.
+    /// Returns false when the user keeps it (the run doesn't start).
+    func confirmDiscardingInterruptedRun() -> Bool {
+        guard let journal = interruptedRun else { return true }
+        let left = journal.remainingItems.count
+        let alert = NSAlert()
+        alert.messageText = "Discard the interrupted batch?"
+        alert.informativeText = "\(left) \(left == 1 ? "image" : "images") of the interrupted batch "
+            + "\(left == 1 ? "wasn't" : "weren't") converted. A new run replaces it, so it can't be resumed afterwards."
+        alert.addButton(withTitle: "Discard and Run")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        discardInterruptedRun()
+        return true
+    }
+
+    /// Adds the images still to do and runs them with the batch's own pipeline and output mode, for this run
+    /// only (the pipeline being edited and Save to stay as they are); files that are gone are reported. The sheet
+    /// confirms overwriting first. The new run writes its own journal, replacing the old one.
+    func resumeInterruptedRun() {
         guard let journal = interruptedRun, !isRunning else { return }
         interruptedRun = nil
-        let remaining = journal.remainingItems
+        let existing = items
         Task { [weak self] in
-            let missing = await Task.detached(priority: .userInitiated) {
-                Set(remaining.filter { !FileManager.default.fileExists(atPath: $0.source.path) }.map(\.source))
+            let plan = await Task.detached(priority: .userInitiated) {
+                ResumePlan.make(journal: journal, existing: existing,
+                                fileExists: { FileManager.default.fileExists(atPath: $0) },
+                                directoryExists: { path in
+                                    var isDirectory: ObjCBool = false
+                                    return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+                                        && isDirectory.boolValue
+                                })
             }.value
-            guard let self else { return }
-            let present = remaining.filter { !missing.contains($0.source) }
-            var seen = Set(items)
-            for item in present where seen.insert(item).inserted { items.append(item) }
-            session = PresetSession(selected: nil, pipeline: journal.pipeline)
-            settings.apply(journal.outputMode)
-            if !missing.isEmpty {
-                let names = missing.map(\.lastPathComponent).sorted()
-                toasts.show("\(missing.count) \(missing.count == 1 ? "file" : "files") of the interrupted batch "
-                            + "\(missing.count == 1 ? "is" : "are") missing", type: .bad,
-                            description: names.prefix(20).joined(separator: "\n") + (names.count > 20 ? "\n…" : ""))
-            }
-            guard !present.isEmpty, let mode = settings.outputMode, Self.folderExists(for: mode) else {
-                if !present.isEmpty { toasts.show("Choose an output folder, then Run", type: .info) }
-                RunJournal.discard(at: AppDefaults.journalURL)
-                return
-            }
-            startRun(present, pipeline: journal.pipeline, mode: mode, presetName: nil)
+            self?.apply(plan)
         }
     }
 
-    private static func folderExists(for mode: OutputMode) -> Bool {
-        guard case .newFolder(let folder) = mode else { return true }
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    private func apply(_ plan: ResumePlan) {
+        items.append(contentsOf: plan.toAdd)
+        if !plan.missing.isEmpty {
+            let names = plan.missing.map(\.lastPathComponent).sorted()
+            let count = names.count
+            toasts.show("\(count) \(count == 1 ? "file" : "files") of the interrupted batch \(count == 1 ? "is" : "are") missing",
+                        type: .bad, description: names.prefix(20).joined(separator: "\n") + (count > 20 ? "\n…" : ""))
+        }
+        switch plan.problem {
+        case .nothingLeft:
+            RunJournal.discard(at: AppDefaults.journalURL)
+        case .outputFolderMissing(let folder):
+            // Without its folder the batch can't run as it was: the images and pipeline are set up for a new Run.
+            RunJournal.discard(at: AppDefaults.journalURL)
+            session = PresetSession(selected: nil, pipeline: plan.pipeline)
+            toasts.show("The folder \(folder.lastPathComponent) can't be found", type: .bad,
+                        description: "The images and the batch's pipeline were added. Choose an output folder, then Run.")
+        case nil:
+            startRun(plan.toRun, pipeline: plan.pipeline, mode: plan.mode, presetName: nil)
+        }
     }
 
     #if DEBUG
@@ -135,7 +160,7 @@ extension AppModel {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard let self else { return }
                 if interruptedRun != nil {
-                    resumeInterruptedRun(settings: settings)
+                    resumeInterruptedRun()
                     return
                 }
             }
@@ -156,20 +181,4 @@ extension AppModel {
         }
     }
     #endif
-}
-
-extension AppSettings {
-    /// Sets the output mode a resumed batch had.
-    func apply(_ mode: OutputMode) {
-        switch mode {
-        case .newFolder(let folder):
-            outputFolder = folder
-            modeKind = .newFolder
-        case .sameFolder(let suffix):
-            sameFolderSuffix = suffix
-            modeKind = .sameFolder
-        case .overwrite:
-            modeKind = .overwrite
-        }
-    }
 }

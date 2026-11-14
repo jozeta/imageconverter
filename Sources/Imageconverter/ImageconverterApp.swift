@@ -155,7 +155,7 @@ private struct MainWindowContent: View {
                minHeight: sizer.heightRange.lowerBound, maxHeight: sizer.heightRange.upperBound,
                alignment: .topLeading)
         .clipped()
-        .interruptedRunSheet(model: model, settings: settings)
+        .interruptedRunSheet(model: model)
         .background(WindowAccessor {
             sizer.attach($0)
             ExternalActions.shared.attachWindow($0)

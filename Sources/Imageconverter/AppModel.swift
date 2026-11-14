@@ -22,10 +22,7 @@ final class AppModel {
     var progress: BatchProgress?
     /// The last run in the shared report model (summary plus one entry per file); cleared by a new run or Clear.
     var runReport: ProcessingReport?
-    /// A run that doesn't report stages (a saved job) starts from a clean monitor, not the last run's stages.
-    var isRunning = false {
-        didSet { if isRunning, !oldValue, !monitor.isActive { monitor.reset() } }
-    }
+    var isRunning = false
     /// Number of drops/pickers still being scanned off the main actor.
     private(set) var pendingAdds = 0
     var isAdding: Bool { pendingAdds > 0 }
@@ -73,8 +70,9 @@ final class AppModel {
     }
     /// Stages, throughput and resources of the running (or last) batch.
     let monitor = RunMonitor()
-    /// A batch the app never got to the end of, found at launch; the resume sheet shows while it is set.
+    /// An unfinished batch found at launch (see `AppModel+Performance.swift`); the sheet shows while `shows…` is set.
     var interruptedRun: RunJournal?
+    var showsInterruptedRun = false
 
     @ObservationIgnored var task: Task<Void, Never>?
     @ObservationIgnored var previewTask: Task<Void, Never>?
@@ -229,7 +227,7 @@ final class AppModel {
     }
 
     func run(settings: AppSettings) {
-        guard !isRunning, !isAdding, !items.isEmpty else { return }
+        guard !isRunning, !isAdding, !items.isEmpty, confirmDiscardingInterruptedRun() else { return }
         if settings.modeKind == .newFolder, !Self.isExistingDirectory(settings.outputFolder) {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false
@@ -256,23 +254,24 @@ final class AppModel {
         guard !isRunning, !batch.isEmpty else { return false }
         runInfo = (batch.count, Date(), mode.kind.rawValue)
         isRunning = true
-        // Without low-memory mode the preview stays alive, at a higher priority than the batch.
-        if lowMemoryMode {
+        let control = BatchControl(lowMemory: lowMemoryMode)
+        monitor.prepare(control: control, overwriting: mode == .overwrite)
+        // The preview stays alive, at a higher priority than the batch, unless `previewAllowed` says otherwise.
+        if !previewAllowed {
             resetPreview()
             cancelEstimate()
         }
         runReport = nil
         progress = BatchProgress(completed: 0, failed: 0, total: batch.count)
         interruptedRun = nil  // this run's journal replaces the old one
-        let control = BatchControl(lowMemory: lowMemoryMode)
-        monitor.prepare(control: control)
         // Batch work is `.utility` so the UI and the preview (`.userInitiated`) stay responsive.
         task = Task(priority: .utility) { [weak self] in
             let pixels = await Self.sourcePixels(of: batch)
             guard let events = self?.monitor.begin(sourcePixels: pixels) else { return }
             let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, control: control,
                                                journal: AppDefaults.journalURL, progress: { update in
-                Task { @MainActor in
+                // `.userInitiated`: inheriting the batch's `.utility` would let the bar lag behind the workers.
+                Task(priority: .userInitiated) { @MainActor in
                     // Updates can arrive out of order; only move forward.
                     guard let self, self.isRunning, update.completed > (self.progress?.completed ?? 0) else { return }
                     self.progress = update

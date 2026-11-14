@@ -618,12 +618,16 @@ are averaged over the last few seconds and weighted by image size, and appear on
 - **Low-memory mode** (the switch next to Performance, or **View ▸ Low-Memory Mode**; remembered): at most two
   images at a time and a quarter of the memory budget, from the next image of a running batch on. Use it for
   very large images or when other apps need the memory. Without it, the preview and the size estimate keep
-  working during a run at a higher priority than the batch, so you can look through the images while they convert.
+  working during a run at a higher priority than the batch, so you can look through the images while they convert,
+  except in *Overwrite original files* runs, where they pause until the run ends (the originals are being replaced).
 - **Interrupted batches**: while a batch runs, a small journal records which images are done. If the app quits
   before the end (a crash, a forced quit, or quitting during a run), the next launch asks
-  "The last batch was interrupted (18 of 30 images were done)": **Resume** adds the images still to do, restores
-  the batch's pipeline and Save to setting and runs them (files that are gone are listed); **Discard** forgets it;
-  **Not Now** asks again at the next launch. Starting another run replaces the journal.
+  "The last batch was interrupted (18 of 30 images were done)": **Resume** adds the images still to do and runs
+  them with the batch's own pipeline and output, for that run only (your current pipeline and Save to setting don't
+  change; files that are gone are listed). A batch that overwrote its originals shows the overwrite warning and
+  resumes only after you tick **Replace the original files**. **Discard** forgets it; **Not Now** keeps it and asks
+  again at the next launch, and pressing Run first asks "Discard the interrupted batch?" (Cancel keeps it). The
+  rate, time left and elapsed time leave out the time a run was paused.
 - The batch runs at a lower priority than the window, so the app stays responsive; the number of workers also
   drops by itself when the Mac gets hot or short of memory.
 

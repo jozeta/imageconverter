@@ -13,14 +13,20 @@ final class RunMonitor {
 
     private(set) var isPaused = false
     private(set) var isActive = false
+    /// The run replaces its originals: the preview and estimate stay off until it ends (they'd read files
+    /// that are being replaced or moved to the Trash).
+    private(set) var overwriting = false
     /// Throughput and ETA, refreshed every second while running; the final one after the run.
     private(set) var snapshot: RunMetrics.Snapshot?
     private(set) var resources: ResourceSampler.Sample?
     private(set) var workersInUse = 0
     private(set) var peakMemory: UInt64 = 0
     private(set) var averageCPU: Double?
-    /// Megapixels of the items written so far.
+    /// Megapixels of the items written so far (published with the stages, at most 10 times a second).
     private(set) var megapixelsDone = 0.0
+    @ObservationIgnored private var pendingMegapixels = 0.0
+    /// Stops while paused, so the rate, ETA and elapsed time leave pauses out.
+    @ObservationIgnored private var clock = PausableClock()
     /// Bumped when stages changed, so views that read `stage(for:)` refresh.
     private(set) var stageTick = 0
     /// The Performance disclosure.
@@ -58,6 +64,9 @@ final class RunMonitor {
         peakMemory = 0
         averageCPU = nil
         megapixelsDone = 0
+        pendingMegapixels = 0
+        overwriting = false
+        clock = PausableClock()
         cpuSamples = (0, 0)
         isPaused = false
         control = nil
@@ -65,16 +74,18 @@ final class RunMonitor {
     }
 
     /// A new run with `control`; `begin` follows once the source sizes are known.
-    func prepare(control: BatchControl) {
+    func prepare(control: BatchControl, overwriting: Bool) {
         reset()
         self.control = control
+        self.overwriting = overwriting
         isActive = true
     }
 
     /// Starts the clock and the sampling; returns the batch's event sink. `sourcePixels[i]` is item i's size.
     func begin(sourcePixels: [Int]) -> @Sendable (ItemEvent) -> Void {
         pixels = sourcePixels
-        metrics = RunMetrics(sourcePixels: sourcePixels) { ProcessInfo.processInfo.systemUptime }
+        let clock = self.clock
+        metrics = RunMetrics(sourcePixels: sourcePixels) { clock.now() }
         snapshot = metrics?.snapshot()
         // A stream keeps the order of one item's events, which separate main-actor tasks wouldn't promise.
         let (stream, continuation) = AsyncStream<ItemEvent>.makeStream()
@@ -109,6 +120,7 @@ final class RunMonitor {
             guard let self, run == generation else { return }
             tracker.finishRun()
             workersInUse = 0
+            megapixelsDone = pendingMegapixels
             snapshot = metrics?.snapshot()
             isActive = false
             isPaused = false
@@ -119,7 +131,13 @@ final class RunMonitor {
 
     func setPaused(_ paused: Bool) {
         guard let control else { return }
-        if paused { control.pause() } else { control.resume() }
+        if paused {
+            control.pause()
+            clock.pause()
+        } else {
+            control.resume()
+            clock.resume()
+        }
         isPaused = paused
     }
 
@@ -137,7 +155,7 @@ final class RunMonitor {
         tracker.record(event)
         metrics?.record(event)
         if event.stage == .done, pixels.indices.contains(event.index) {
-            megapixelsDone += Double(pixels[event.index]) / 1_000_000
+            pendingMegapixels += Double(pixels[event.index]) / 1_000_000
         }
         guard !flushPending else { return }
         flushPending = true
@@ -146,6 +164,7 @@ final class RunMonitor {
             guard let self else { return }
             flushPending = false
             workersInUse = tracker.workersInUse
+            megapixelsDone = pendingMegapixels
             stageTick += 1
         }
     }

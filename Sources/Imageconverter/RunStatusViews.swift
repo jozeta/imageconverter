@@ -179,13 +179,15 @@ struct StageRing: View {
     }
 }
 
-/// "The last batch was interrupted": Resume adds the images still to do and runs them, Discard forgets it.
-/// Escape closes the sheet and keeps the journal for the next launch.
+/// "The last batch was interrupted": Resume adds the images still to do and runs them with the batch's own pipeline
+/// and output (for that run only), Discard forgets it. Not Now (Escape) keeps it: asked again at the next launch, or
+/// before a new run replaces it. Resuming an overwrite batch needs an explicit confirmation.
 struct InterruptedRunSheet: View {
     @Bindable var model: AppModel
-    var settings: AppSettings
     let journal: RunJournal
-    @Environment(\.dismiss) private var dismiss
+    @State private var overwriteConfirmed = false
+
+    private var overwrites: Bool { journal.outputMode == .overwrite }
 
     var body: some View {
         let total = journal.items.count
@@ -196,51 +198,55 @@ struct InterruptedRunSheet: View {
                  + "on \(journal.started.formatted(date: .abbreviated, time: .shortened)).")
                 .font(LadaGlass.Typography.body)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("Resume runs the other \(total - done) with the same pipeline and output: \(modeText).")
+            Text("Resume converts the other \(total - done) with the batch's own pipeline and output: "
+                 + "\(ResumePlan.describe(journal.outputMode)). Your current pipeline and Save to setting don't change.")
                 .font(LadaGlass.Typography.label)
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .fixedSize(horizontal: false, vertical: true)
+            if overwrites { overwriteWarning }
             HStack {
-                Button("Not Now") { dismiss() }
+                Button("Not Now") { model.showsInterruptedRun = false }
                     .buttonStyle(.lg(.ghost))
                     .keyboardShortcut(.cancelAction)
-                    .help("Ask again at the next launch")
+                    .help("Keep it: asked again at the next launch, or before a new run replaces it")
                 Spacer()
-                Button("Discard") {
-                    model.discardInterruptedRun()
-                    dismiss()
-                }
-                .buttonStyle(.lg(.secondary))
-                .accessibilityLabel("Discard the interrupted batch")
-                Button("Resume") {
-                    model.resumeInterruptedRun(settings: settings)
-                    dismiss()
-                }
-                .buttonStyle(.lg(.primary))
-                .keyboardShortcut(.defaultAction)
-                .accessibilityLabel("Resume the interrupted batch")
+                Button("Discard") { model.discardInterruptedRun() }
+                    .buttonStyle(.lg(.secondary))
+                    .accessibilityLabel("Discard the interrupted batch")
+                Button(overwrites ? "Resume and Overwrite" : "Resume") { model.resumeInterruptedRun() }
+                    .buttonStyle(.lg(.primary))
+                    .keyboardShortcut(overwrites ? nil : .defaultAction)
+                    .disabled(overwrites && !overwriteConfirmed)
+                    .accessibilityLabel(overwrites ? "Resume and overwrite the originals" : "Resume the interrupted batch")
             }
         }
         .padding(LadaGlass.Spacing.l)
-        .frame(width: 400)
+        .frame(width: 420)
         .lgSheetSurface()
     }
 
-    private var modeText: String {
-        switch journal.outputMode {
-        case .newFolder(let folder): return "a new folder (\(folder.lastPathComponent))"
-        case .sameFolder(let suffix): return "same folder, suffix \(suffix)"
-        case .overwrite: return "overwrite the originals"
+    /// The same warning as choosing overwrite in Save to; Resume stays off until it is ticked.
+    private var overwriteWarning: some View {
+        VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
+            Text("Converted images will replace the originals. When the format or name changes, the original is "
+                 + "moved to the Trash.")
+                .font(LadaGlass.Typography.label)
+                .foregroundStyle(LadaGlass.Colors.warnText)
+                .fixedSize(horizontal: false, vertical: true)
+            Toggle("Replace the original files", isOn: $overwriteConfirmed)
+                .font(LadaGlass.Typography.body)
+                .accessibilityLabel("Confirm replacing the original files")
         }
     }
 }
 
 extension View {
-    /// The resume sheet, shown while `model.interruptedRun` is set.
-    func interruptedRunSheet(model: AppModel, settings: AppSettings) -> some View {
-        sheet(isPresented: Binding(get: { model.interruptedRun != nil }, set: { if !$0 { model.interruptedRun = nil } })) {
+    /// The resume sheet, shown while `model.showsInterruptedRun` is set and there is an interrupted batch.
+    func interruptedRunSheet(model: AppModel) -> some View {
+        sheet(isPresented: Binding(get: { model.showsInterruptedRun && model.interruptedRun != nil },
+                                   set: { if !$0 { model.showsInterruptedRun = false } })) {
             if let journal = model.interruptedRun {
-                InterruptedRunSheet(model: model, settings: settings, journal: journal)
+                InterruptedRunSheet(model: model, journal: journal)
             }
         }
     }
