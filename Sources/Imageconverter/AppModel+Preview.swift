@@ -45,6 +45,8 @@ extension AppModel {
             let removed = items.count - kept.count
             guard removed > 0 else { return }
             items = kept
+            let remaining = Set(kept.map(\.source))
+            Task { await self.factsCache.retain(only: remaining) }
             selectedIndex = min(selectedIndex, max(kept.count - 1, 0))
             resetPreview()
             toasts.show("Removed \(removed) \(removed == 1 ? "image" : "images") whose "

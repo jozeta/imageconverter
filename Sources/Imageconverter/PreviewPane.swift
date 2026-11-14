@@ -64,7 +64,7 @@ struct PreviewPane: View {
     @ViewBuilder private var conditionChips: some View {
         if let result = model.previewResult, model.previewFailure == nil,
            let conditions = model.previewConditions, !conditions.branches.isEmpty {
-            let text = Self.branchText(conditions.branches)
+            let text = ConditionBranch.chipText(conditions.branches)
             LGChip(text, status: .neutral)
                 .help("The pipeline this image gets from its conditions")
                 .accessibilityLabel("Condition: \(text)")
@@ -72,13 +72,6 @@ struct PreviewPane: View {
                 LGChip(note, status: result.disposition == .skip ? .warn : .ok)
             }
         }
-    }
-
-    /// "Then branch" / "Else branch"; with several conditions "1 then · 2 else".
-    static func branchText(_ branches: [ConditionBranch]) -> String {
-        if branches.count == 1 { return branches[0] == .then ? "Then branch" : "Else branch" }
-        return branches.enumerated().map { "\($0.offset + 1) \($0.element == .then ? "then" : "else")" }
-            .joined(separator: " · ")
     }
 
     private var spinner: some View {

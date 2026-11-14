@@ -14,6 +14,14 @@ struct BranchDefaults {
 struct ConditionEditor: View {
     @Binding var step: ConditionalStep
     let defaults: BranchDefaults
+    /// One stable id per condition, so a row's controls follow it when another row is removed.
+    @State private var ids: RowIDs
+
+    init(step: Binding<ConditionalStep>, defaults: BranchDefaults) {
+        _step = step
+        self.defaults = defaults
+        _ids = State(initialValue: RowIDs(count: step.wrappedValue.conditions.count))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
@@ -29,15 +37,19 @@ struct ConditionEditor: View {
                 .accessibilityLabel("Match all or any of the conditions")
                 Text("of:").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
             }
-            ForEach(Array(step.conditions.indices), id: \.self) { index in
+            ForEach(ids.rows(count: step.conditions.count), id: \.id) { _, index in
                 ConditionRow(condition: conditionBinding(index), number: index + 1,
                              canRemove: step.conditions.count > 1) {
                     guard step.conditions.indices.contains(index), step.conditions.count > 1 else { return }
+                    ids.sync(count: step.conditions.count)
+                    ids.remove(at: index)
                     step.conditions.remove(at: index)
                 }
             }
             Button("+ Add condition") {
+                ids.sync(count: step.conditions.count)
                 step.conditions.append(ConditionKind.orientation.defaultCondition)
+                ids.append()
             }
             .buttonStyle(.lg(.ghost))
             .disabled(step.conditions.count >= ConditionalStep.maxConditions)
@@ -47,6 +59,7 @@ struct ConditionEditor: View {
             ActionList(title: "Then", actions: $step.then, defaults: defaults)
             ActionList(title: "Else", actions: $step.otherwise, defaults: defaults)
         }
+        .onChange(of: step.conditions.count) { _, count in ids.sync(count: count) }
     }
 
     /// Reads by index on every access, so a row that outlives its condition cannot index out of range.
@@ -237,7 +250,8 @@ private struct ComparisonPicker: View {
     }
 }
 
-/// Comparison, number and KB/MB. The unit is the largest one the stored bytes divide evenly into.
+/// Comparison, number and KB/MB. The unit is derived from the stored bytes (MB when they are whole megabytes), so
+/// there is no view state to go stale when rows move.
 private struct FileSizeControls: View {
     let comparison: Comparison
     let bytes: Int
@@ -249,10 +263,8 @@ private struct FileSizeControls: View {
         var name: String { self == .kilobytes ? "KB" : "MB" }
     }
 
-    @State private var chosenUnit: Unit?
-
     private var unit: Unit {
-        chosenUnit ?? (bytes >= Unit.megabytes.rawValue && bytes % Unit.megabytes.rawValue == 0 ? .megabytes : .kilobytes)
+        bytes >= Unit.megabytes.rawValue && bytes % Unit.megabytes.rawValue == 0 ? .megabytes : .kilobytes
     }
 
     var body: some View {
@@ -267,14 +279,15 @@ private struct FileSizeControls: View {
                 set: { new in
                     // Keeps the number and changes what it means: 500 KB becomes 500 MB.
                     let shown = bytes / unit.rawValue
-                    chosenUnit = new
                     set(comparison, min(shown, Condition.maxBytesValue / new.rawValue) * new.rawValue)
                 })) {
                 ForEach(Unit.allCases, id: \.self) { Text($0.name).tag($0) }
             }
             .labelsHidden()
             .fixedSize()
+            .help("Changing the unit keeps the number: 500 KB becomes 500 MB")
             .accessibilityLabel("Condition \(number) size unit")
+            .accessibilityHint("Changing the unit keeps the number")
         }
     }
 }

@@ -2,6 +2,46 @@ import AppKit
 import SwiftUI
 import ImageconverterCore
 
+// MARK: - Row ids
+
+/// Stable row ids for a list whose elements have none (conditions, branch actions), kept in view state so a row's
+/// editor state follows it when rows move or are removed. A change from outside (a preset) only grows or shrinks
+/// the list from the end, so the rows that are still there keep their ids and stay open.
+struct RowIDs {
+    private(set) var ids: [UUID]
+
+    init(count: Int) {
+        ids = (0..<count).map { _ in UUID() }
+    }
+
+    mutating func sync(count: Int) {
+        if ids.count < count {
+            ids += (ids.count..<count).map { _ in UUID() }
+        } else if ids.count > count {
+            ids.removeLast(ids.count - count)
+        }
+    }
+
+    mutating func append() { ids.append(UUID()) }
+
+    @discardableResult
+    mutating func remove(at index: Int) -> UUID? {
+        ids.indices.contains(index) ? ids.remove(at: index) : nil
+    }
+
+    mutating func move(from: Int, to target: Int) {
+        guard ids.indices.contains(from), ids.indices.contains(target) else { return }
+        ids.insert(ids.remove(at: from), at: target)
+    }
+
+    func index(of id: UUID) -> Int? { ids.firstIndex(of: id) }
+
+    /// One (id, index) per row that has an id; never makes ids while a view is drawn.
+    func rows(count: Int) -> [(id: UUID, index: Int)] {
+        zip(ids, 0..<count).map { (id: $0, index: $1) }
+    }
+}
+
 // MARK: - Actions
 
 /// What one branch does: its actions in order, each with an editor where it has settings, reorderable by
@@ -11,9 +51,19 @@ struct ActionList: View {
     @Binding var actions: [ConditionalAction]
     let defaults: BranchDefaults
     /// One stable id per action (actions have none), so editors keep their state when rows move.
-    @State private var ids: [UUID] = []
+    @State private var ids: RowIDs
     @State private var expanded: Set<UUID> = []
     @State private var draggedID: UUID?
+    /// Rows a drag is over; when none is for a moment the drag has left or ended, so `draggedID` is cleared
+    /// (SwiftUI tells a source nothing when a drag is cancelled).
+    @State private var targetedRows: Set<UUID> = []
+
+    init(title: String, actions: Binding<[ConditionalAction]>, defaults: BranchDefaults) {
+        self.title = title
+        _actions = actions
+        self.defaults = defaults
+        _ids = State(initialValue: RowIDs(count: actions.wrappedValue.count))
+    }
 
     private static let dragPrefix = "condition-action:"
 
@@ -28,8 +78,7 @@ struct ActionList: View {
                 Text(title == "Then" ? "Nothing: the image goes on unchanged by this step" : "Nothing")
                     .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
             }
-            let rows = rowIDs
-            ForEach(Array(zip(rows, actions.indices)), id: \.0) { id, index in
+            ForEach(ids.rows(count: actions.count), id: \.id) { id, index in
                 ActionRow(
                     action: actionBinding(index),
                     branch: title,
@@ -43,6 +92,7 @@ struct ActionList: View {
                     dragPayload: Self.dragPrefix + id.uuidString,
                     dropEdge: { dropEdge(onto: id) },
                     dragStarted: { draggedID = id },
+                    targetChanged: { if $0 { targetedRows.insert(id) } else { targetedRows.remove(id) } },
                     dropped: { dropped($0, onto: id) })
             }
         }
@@ -50,21 +100,21 @@ struct ActionList: View {
             syncIDs()
             #if DEBUG
             // Screenshot aid: `-debugExpandSteps` opens the actions' editors too.
-            if CommandLine.arguments.contains("-debugExpandSteps") { expanded = Set(ids) }
+            if CommandLine.arguments.contains("-debugExpandSteps") { expanded = Set(ids.ids) }
             #endif
         }
         .onChange(of: actions.count) { syncIDs() }
+        .task(id: targetedRows.isEmpty) {
+            guard targetedRows.isEmpty, draggedID != nil else { return }
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            if targetedRows.isEmpty { draggedID = nil }
+        }
     }
 
-    /// The ids in step with `actions`; a change from outside (a preset) that changes the count gets new ones.
-    private var rowIDs: [UUID] {
-        ids.count == actions.count ? ids : actions.indices.map { _ in UUID() }
-    }
-
+    /// Keeps the ids in step with `actions` after a change from outside; open rows that remain stay open.
     private func syncIDs() {
-        guard ids.count != actions.count else { return }
-        ids = actions.indices.map { _ in UUID() }
-        expanded = []
+        ids.sync(count: actions.count)
+        expanded.formIntersection(ids.ids)
     }
 
     private func actionBinding(_ index: Int) -> Binding<ConditionalAction> {
@@ -132,40 +182,37 @@ struct ActionList: View {
     private func append(_ action: ConditionalAction) {
         syncIDs()
         actions.append(action)
-        ids.append(UUID())
+        ids.append()
     }
 
     private func remove(at index: Int) {
         guard actions.indices.contains(index) else { return }
         syncIDs()
-        expanded.remove(ids[index])
+        if let id = ids.remove(at: index) { expanded.remove(id) }
         actions.remove(at: index)
-        ids.remove(at: index)
     }
 
     private func move(from: Int, to target: Int) {
         guard actions.indices.contains(from), actions.indices.contains(target), from != target else { return }
         syncIDs()
-        let action = actions.remove(at: from)
-        actions.insert(action, at: target)
-        let id = ids.remove(at: from)
-        ids.insert(id, at: target)
+        actions.insert(actions.remove(at: from), at: target)
+        ids.move(from: from, to: target)
     }
 
     /// Like steps: the dragged action lands at the target's index (above it from below, below it from above).
     private func dropEdge(onto id: UUID) -> VerticalEdge? {
-        guard let dragged = draggedID, dragged != id, let from = ids.firstIndex(of: dragged),
-              let target = ids.firstIndex(of: id) else { return nil }
+        guard let dragged = draggedID, dragged != id, let from = ids.index(of: dragged),
+              let target = ids.index(of: id) else { return nil }
         return from > target ? .top : .bottom
     }
 
     /// Only actions of this same list move here; anything else (a step, the other branch) is refused.
     private func dropped(_ payload: String, onto id: UUID) -> Bool {
+        draggedID = nil
         guard payload.hasPrefix(Self.dragPrefix),
               let dragged = UUID(uuidString: String(payload.dropFirst(Self.dragPrefix.count))),
-              let from = ids.firstIndex(of: dragged), let target = ids.firstIndex(of: id) else { return false }
+              let from = ids.index(of: dragged), let target = ids.index(of: id) else { return false }
         move(from: from, to: target)
-        draggedID = nil
         return true
     }
 }
@@ -182,6 +229,7 @@ private struct ActionRow: View {
     let dragPayload: String
     let dropEdge: () -> VerticalEdge?
     let dragStarted: () -> Void
+    let targetChanged: (Bool) -> Void
     let dropped: (String) -> Bool
     @State private var isTargeted = false
     @State private var handleHovered = false
@@ -248,7 +296,10 @@ private struct ActionRow: View {
         .dropDestination(for: String.self) { payloads, _ in
             guard let payload = payloads.first else { return false }
             return dropped(payload)
-        } isTargeted: { isTargeted = $0 }
+        } isTargeted: {
+            isTargeted = $0
+            targetChanged($0)
+        }
         .accessibilityAction(named: "Move up") { if canMoveUp { move(-1) } }
         .accessibilityAction(named: "Move down") { if canMoveDown { move(1) } }
     }

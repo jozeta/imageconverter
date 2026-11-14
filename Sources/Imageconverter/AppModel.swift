@@ -193,6 +193,7 @@ final class AppModel {
         cancelEstimate()
         progress = nil
         runReport = nil
+        Task { await factsCache.removeAll() }
     }
 
     /// Asks for files and folders to add.
@@ -265,17 +266,8 @@ final class AppModel {
         let prefix = report.cancelled ? "Cancelled. " : ""
         let totals = runReport?.summary
         let saved = SizeFormat.savedPhrase(input: totals?.inputBytes ?? 0, output: totals?.outputBytes ?? 0).map { " · \($0)" } ?? ""
-        toasts.show("\(prefix)\(Self.toastCounts(written: report.written.count, skipped: report.skipped.count, failed: failed))\(saved)",
+        toasts.show("\(prefix)\(RunCountsText.make(written: report.written.count, skipped: report.skipped.count, failed: failed))\(saved)",
                     type: failed > 0 ? .bad : (report.cancelled ? .info : .ok))
-    }
-
-    /// "Converted 20 images", or "Converted 20 · 3 skipped by conditions · 1 failed".
-    static func toastCounts(written: Int, skipped: Int, failed: Int) -> String {
-        guard skipped > 0 || failed > 0 else { return "Converted \(written) \(written == 1 ? "image" : "images")" }
-        var parts = ["Converted \(written)"]
-        if skipped > 0 { parts.append("\(skipped) skipped by \(skipped == 1 ? "a condition" : "conditions")") }
-        if failed > 0 { parts.append("\(failed) failed") }
-        return parts.joined(separator: " · ")
     }
 
 }
