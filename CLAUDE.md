@@ -40,7 +40,7 @@ swiftlint           # if installed (brew install swiftlint)
     `AppModel.swift` (items, pipeline persisted as JSON under `currentPipeline`, run/cancel, toasts),
     `AppSettings.swift` (output mode, persisted in UserDefaults), `PipelineSection.swift` (step rows,
     reorder, add, fixed Output row), `StepEditors.swift` (one editor per step kind), `AdjustEditor.swift` (Adjust step sliders), `WatermarkEditor.swift` (watermark step editor, sliders, thumbnail), `StepControls.swift` (shared controls),
-    `FileStepEditors.swift` (Metadata and Rename rows and editors; the live rename example is computed in `AppModel`),
+    `FileStepEditors.swift` (Metadata and Rename rows, Metadata editor), `RenameEditor.swift` (Rename editor; the live rename example is computed in `AppModel`),
     `PresetBar.swift` and `AppModel+Presets.swift` (preset picker, save/rename/delete),
     `PreviewPane.swift` (before/after, Original | Result table, run progress bar), `Filmstrip.swift` (thumbnails, ←/→),
     `ZoomableComparison.swift` (`ZoomController` on the model: synced zoom shared by both preview sides and the View menu; pinch/scroll/drag NSView overlay),

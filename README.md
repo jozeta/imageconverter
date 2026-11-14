@@ -125,6 +125,10 @@ Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 | Rename | Switches the Rename step on | off |
 | Pattern | Rename pattern, see the token table below | `{name}` |
 | Find / Replace | Replaces text in the name after the pattern; plain text or a regular expression | empty |
+| Prefix / Suffix | Text added before and after the finished name (after find and replace) | empty |
+| Remove spaces | Deletes all spaces from the name | off |
+| Special characters | Keep, Replace (with `-`, `_`, `.` or nothing) or Remove everything except letters (any language), digits, `-`, `_` and `.` | Keep |
+| Case | Keep, lowercase, UPPERCASE, camelCase, PascalCase, snake_case, kebab-case or Title Case | Keep |
 | Counter starts at | First `{counter}` value, 0 to 999 999 999 | 1 |
 
 While the Metadata step is on, the file's XMP (Lightroom/Photoshop fields such as usage terms) is carried over
@@ -276,7 +280,13 @@ Your pipeline is kept between launches.
 4. Set **Counter starts at** if numbering should not begin at 1. The counter follows input order.
 5. In *Same folder* mode the pattern replaces the suffix (the summary says "Same folder,
    renamed"). Names that come out identical get `_2`, `_3`, …
-6. Optionally fill **Find** and **Replace** to change text in the resulting name; tick the regular
+6. **Insert** also holds three quick patterns that replace the whole pattern: *Date + counter*
+   (`{date:yyyy-MM-dd}_{counter:000}`), *Camera + date* (`{camera}_{datetime}`) and *Name + size*
+   (`{name}_{width}x{height}`).
+7. Use **Prefix**, **Suffix**, **Remove spaces**, **Special characters** and **Case** to tidy the result.
+   Order: pattern, find and replace, prefix and suffix, spaces, special characters, case. The example line
+   shows the effect of every option.
+8. Optionally fill **Find** and **Replace** to change text in the resulting name; tick the regular
    expression option for patterns. The Rename step is greyed out while *Overwrite original files* is selected.
 
 Rename tokens:
@@ -295,6 +305,11 @@ Rename tokens:
 | `{format}` | Output format | `JPEG` |
 | `{folder}` | Name of the source folder | `Holiday` |
 | `{counter}` / `{counter:000}` | Running number; the zeros set the padding | `1`, `{counter:000}` gives `001` |
+| `{seq}` | Same as `{counter}` (a sequence number) | `1` |
+| `{focal}` | Focal length | `24mm` |
+| `{aperture}` | Aperture | `f1.8` |
+| `{shutter}` | Shutter speed | `1-250s` |
+| `{datetime}` | Capture date and time | `2026-11-13_140509` |
 
 Metadata is untrusted, so names are sanitised: `/` and `:` become `-`; control, bidi and invisible
 (zero-width) characters are removed; an empty token drops one neighbouring separator (`_`, `-` or

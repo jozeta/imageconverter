@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Rename editor: Prefix and Suffix fields, Remove spaces, Special characters (Keep, Replace with `-`/`_`/`.`/nothing, Remove) and Case pickers, the new tokens in the Insert menu plus three quick patterns (Date + counter, Camera + date, Name + size); the live example reflects every option. The editor moved to `RenameEditor.swift`.
 - Rename options (Core): prefix and suffix, remove spaces, special characters (keep, replace with `-`/`_`/`.`/nothing, or remove; Unicode letters stay), case styles (lower, upper, camel, Pascal, snake, kebab, title), and new tokens `{focal}`, `{aperture}`, `{shutter}`, `{datetime}` and `{seq}`. Find and replace runs first, then prefix/suffix, spaces, characters and case. Older saved pipelines load unchanged; the editor arrives in a later update.
 - Resize editor: grouped mode picker (Pixels, Scale, Print) with longest edge, shortest edge, minimum size, percentage and physical size (cm/in at a DPI); clearer fill labels; a Presets menu (social media, resolutions); resampling picker; Set DPI. Crop: all common aspect ratios in the menu.
 - Output row: a Compression picker (Quality, Target size, Maximum size, Smart) with a size field in KB or MB (1 KB = 1000 bytes; invalid input keeps the previous value), Progressive toggle for JPEG, Optimise PNG toggle, AVIF in the format list; the size estimate (and the preview's Size row) shows the chosen quality ("at 74 %") and explains an impossible maximum size.
