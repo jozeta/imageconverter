@@ -183,6 +183,7 @@ private struct MainWindowContent: View {
                minHeight: sizer.heightRange.lowerBound, maxHeight: sizer.heightRange.upperBound,
                alignment: .topLeading)
         .clipped()
+        .windowDropTarget(model: model)
         .interruptedRunSheet(model: model)
         .background(WindowAccessor {
             sizer.attach($0)

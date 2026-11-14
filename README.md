@@ -49,6 +49,7 @@ Started 2026-11-13. The full design is in
 - Size estimate ("Original → about") under the quality slider.
 - Grab handles on the panel edges and View > Hide Preview (⌥⌘P) / Collapse Pipeline (⌥⌘L); the window resizes with them.
 - Original | Result table under the preview (name, folder, dimensions, size); progress bar and Cancel above it during a run.
+- Drop images or folders anywhere in the window (not only on the drop zone); the window highlights while you drag.
 - Pipeline rows reorder with a drag handle (Move Up/Down in the context menu).
 - Zoom the before/after preview with a trackpad pinch (or ⌘+ / ⌘− / ⌘0); both sides stay in sync, so encoder artifacts are easy to compare.
 - Compare modes (View ⌘1…⌘4): Side by side, Split with a draggable divider, Difference (amplified, with PSNR and mean error) and Single (hold Space or press B for Before); a checkerboard shows transparency; "Compare quality…" encodes the image at 40/60/80/95 % to pick a quality; the batch shows as a filmstrip, grid or list (with each file's result after a run).
