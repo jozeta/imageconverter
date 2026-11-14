@@ -75,6 +75,17 @@ public enum ZoomMath {
         return ZoomState(scale: target, center: clampCenter(center, displayed: after, view: view))
     }
 
+    /// The part of the image the view shows, in unit coordinates (origin top left). The whole image at fit;
+    /// an axis that still fits keeps its full extent.
+    public static func visibleRegion(_ state: ZoomState, imagePixels: CGSize, view: CGSize) -> CGRect {
+        let shown = displayedSize(imagePixels: imagePixels, view: view, scale: state.scale)
+        guard shown.width > 0, shown.height > 0 else { return CGRect(x: 0, y: 0, width: 1, height: 1) }
+        let center = clampCenter(state.center, displayed: shown, view: view)
+        let width = min(1, view.width / shown.width)
+        let height = min(1, view.height / shown.height)
+        return CGRect(x: max(0, center.x - width / 2), y: max(0, center.y - height / 2), width: width, height: height)
+    }
+
     /// Moves the image by `delta` points (positive x right, positive y down).
     public static func pan(_ state: ZoomState, by delta: CGSize, imagePixels: CGSize, view: CGSize) -> ZoomState {
         let shown = displayedSize(imagePixels: imagePixels, view: view, scale: state.scale)

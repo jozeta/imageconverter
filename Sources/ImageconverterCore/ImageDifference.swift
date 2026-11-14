@@ -12,6 +12,62 @@ public enum ImageDifference {
         public let psnr: Double
     }
 
+    public enum CompareError: Error, Equatable {
+        /// Before and after have different pixel sizes, so there is nothing to compare pixel by pixel.
+        case sizeMismatch
+        /// A bitmap couldn't be made (out of memory or an unsupported image).
+        case renderFailed
+    }
+
+    /// The amplified difference of one region and its error figures.
+    public struct Comparison: @unchecked Sendable {
+        public let image: CGImage
+        public let stats: Stats
+    }
+
+    /// The difference of `region` (unit coordinates, origin top left) of both images, drawn at most `maxSide`
+    /// pixels on the longer side, with error figures over the same pixels. Only the two crops and the result are
+    /// kept in memory. Stops with `CancellationError` between strips when the task is cancelled.
+    public static func compare(before: CGImage, after: CGImage, region: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1),
+                               maxSide: Int = 2048, amplify: Double = 4) throws -> Comparison {
+        guard before.width == after.width, before.height == after.height else { throw CompareError.sizeMismatch }
+        try Task.checkCancellation()
+        guard let left = RegionCrop.draw(before, region: region, maxSide: maxSide) else { throw CompareError.renderFailed }
+        try Task.checkCancellation()
+        guard let right = RegionCrop.draw(after, region: region, maxSide: maxSide) else { throw CompareError.renderFailed }
+        try Task.checkCancellation()
+        guard let pair = buffers(left, right) else { throw CompareError.renderFailed }
+        var bytes = pair.0
+        var factor = Float(max(0, amplify))
+        var low: Float = 0
+        var high: Float = 255
+        var sum = 0.0
+        var squares = 0.0
+        var maxError: Float = 0
+        try forEachStrip(left: &bytes, right: pair.1, cancellable: true) { delta, range, buffer in
+            let length = vDSP_Length(delta.count)
+            var stripSum: Float = 0
+            var stripSquares: Float = 0
+            var stripMax: Float = 0
+            vDSP_sve(delta, 1, &stripSum, length)
+            vDSP_svesq(delta, 1, &stripSquares, length)
+            vDSP_maxv(delta, 1, &stripMax, length)
+            sum += Double(stripSum)
+            squares += Double(stripSquares)
+            maxError = max(maxError, stripMax)
+            vDSP_vsmul(delta, 1, &factor, &delta, 1, length)
+            vDSP_vclip(delta, 1, &low, &high, &delta, 1, length)
+            buffer.withUnsafeMutableBufferPointer { vDSP_vfixru8(delta, 1, $0.baseAddress! + range.lowerBound, 1, length) }
+        }
+        for index in stride(from: 3, to: bytes.count, by: 4) { bytes[index] = 255 }
+        guard let image = makeImage(&bytes, width: left.width, height: left.height) else { throw CompareError.renderFailed }
+        let samples = Double(left.width * left.height * 3)
+        let stats = squares > 0
+            ? Stats(meanAbsError: sum / samples, maxError: Int(maxError), psnr: 10 * log10(255 * 255 * samples / squares))
+            : Stats(meanAbsError: 0, maxError: 0, psnr: .infinity)
+        return Comparison(image: image, stats: stats)
+    }
+
     /// Per-channel absolute difference times `amplify`, clamped, on black. Nil when the sizes differ.
     /// Works in row strips so memory stays at two 8-bit copies plus a small float scratch.
     public static func render(before: CGImage, after: CGImage, amplify: Double = 4) -> CGImage? {
@@ -21,7 +77,7 @@ public enum ImageDifference {
         var factor = Float(max(0, amplify))
         var low: Float = 0
         var high: Float = 255
-        forEachStrip(left: &left, right: right) { delta, range, buffer in
+        try? forEachStrip(left: &left, right: right) { delta, range, buffer in
             let length = vDSP_Length(delta.count)
             vDSP_vsmul(delta, 1, &factor, &delta, 1, length)
             vDSP_vclip(delta, 1, &low, &high, &delta, 1, length)
@@ -41,7 +97,7 @@ public enum ImageDifference {
         var squares = 0.0
         var maxError: Float = 0
         // Both images are opaque after `rgba`, so the alpha lane's difference is 0 and changes nothing.
-        forEachStrip(left: &left, right: right) { delta, _, _ in
+        try? forEachStrip(left: &left, right: right) { delta, _, _ in
             let length = vDSP_Length(delta.count)
             var stripSum: Float = 0
             var stripSquares: Float = 0
@@ -69,13 +125,15 @@ public enum ImageDifference {
     }
 
     /// Hands `body` the absolute difference of each strip as floats, the strip's byte range in `left`
-    /// and `left` itself, so a caller can write its result back in place.
+    /// and `left` itself, so a caller can write its result back in place. `cancellable` checks for task
+    /// cancellation before each strip.
     private static func forEachStrip(
-        left: inout [UInt8], right: [UInt8],
+        left: inout [UInt8], right: [UInt8], cancellable: Bool = false,
         _ body: (inout [Float], Range<Int>, inout [UInt8]) -> Void
-    ) {
+    ) throws {
         var start = 0
         while start < left.count {
+            if cancellable { try Task.checkCancellation() }
             let end = min(left.count, start + stripBytes)
             let length = vDSP_Length(end - start)
             var lhs = [Float](repeating: 0, count: end - start)

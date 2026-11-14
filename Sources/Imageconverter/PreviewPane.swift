@@ -56,6 +56,12 @@ struct PreviewPane: View {
         }
         .task(id: model.differenceKey) { await model.renderDifference(for: model.differenceKey) }
         .task(id: model.ladderKey) { await model.renderLadder(for: model.ladderKey) }
+        .task(id: model.ladderCropKey) { await model.recropLadder(for: model.ladderCropKey) }
+        // Single mode's Space/B monitor exists only while it can matter.
+        .onChange(of: model.compare.mode == .single && !model.items.isEmpty, initial: true) { _, active in
+            model.compare.setKeyMonitor(active: active)
+        }
+        .onDisappear { model.compare.setKeyMonitor(active: false) }
     }
 
     @State private var narrow = false
@@ -97,7 +103,7 @@ struct PreviewPane: View {
 
     @ViewBuilder private func compareControls(segmented: Bool) -> some View {
         let picker = Picker("Compare", selection: Bindable(model.compare).mode) {
-            ForEach(CompareMode.allCases) { Text($0.title).tag($0) }
+            ForEach(CompareMode.allCases) { Text($0.title).tag($0).help($0.help) }
         }
         .labelsHidden()
         .fixedSize()

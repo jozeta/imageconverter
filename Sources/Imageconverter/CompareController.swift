@@ -16,6 +16,15 @@ enum CompareMode: String, CaseIterable, Identifiable {
         }
     }
 
+    var help: String {
+        switch self {
+        case .sideBySide: "Before and After next to each other"
+        case .split: "One image: Before left of the divider, After right of it; drag the divider"
+        case .difference: "The encoding's difference from the original, amplified"
+        case .single: "After only; hold Space over the image or press B to see Before"
+        }
+    }
+
     /// The View menu shortcut digit (⌘1…⌘4).
     var shortcut: Character {
         switch self {
@@ -43,15 +52,28 @@ enum BrowserMode: String, CaseIterable, Identifiable {
 /// The amplified difference of the selected item, or why there is none.
 struct DifferenceOutcome {
     let item: URL
+    /// The difference of `region` only (a crop, or the whole image scaled down at fit).
     let image: CGImage?
     let stats: ImageDifference.Stats?
+    /// The full image's pixel size and the unit region `image` covers, so it is drawn in the right place.
+    let fullSize: CGSize
+    let region: CGRect
+    /// True when `image` has fewer pixels than the region (figures are for the scaled-down pair).
+    let scaled: Bool
     let unavailable: String?
+
+    static func unavailable(_ item: URL, _ reason: String) -> DifferenceOutcome {
+        DifferenceOutcome(item: item, image: nil, stats: nil, fullSize: .zero, region: QualityLadder.unitRegion,
+                          scaled: false, unavailable: reason)
+    }
 }
 
 /// The quality ladder of the selected item (empty while rendering or for formats without quality).
 struct LadderOutcome {
     let item: URL
-    let rungs: [QualityLadder.Rung]
+    /// Each rung keeps its encoded bytes and a crop of `region` only.
+    var rungs: [QualityLadder.Rung]
+    var region: CGRect
     /// The source file's size, for the saving percentages.
     let originalBytes: Int?
     let failure: String?
@@ -75,10 +97,9 @@ final class CompareController {
             if mode != .difference { difference = nil }
         }
     }
-    /// Where the split divider sits, as a fraction of the image box's width.
-    var splitPosition: CGFloat {
-        didSet { defaults.set(Double(splitPosition), forKey: Self.splitKey) }
-    }
+    /// Where the split divider sits, as a fraction of the image box's width; saved by `commitSplit()` (drag end,
+    /// key presses), not on every drag event.
+    var splitPosition: CGFloat
     var browserMode: BrowserMode {
         didSet { defaults.set(browserMode.rawValue, forKey: Self.browserKey) }
     }
@@ -99,11 +120,14 @@ final class CompareController {
     var summaries: [URL: ItemSummary] = [:]
 
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private var keyMonitor: Any?
-    @ObservationIgnored private var spaceHeld = false
+    @ObservationIgnored var keyMonitor: Any?
+    @ObservationIgnored var resignObserver: NSObjectProtocol?
+    @ObservationIgnored var spaceHeld = false
     /// Space only means "show Before" while the pointer is over the image, so it still presses a focused
     /// button or toggle elsewhere in the window. B works anywhere.
     @ObservationIgnored var pointerInPreview = false
+    /// The batch's files, kept by the list view so per-row checks don't scan the whole batch.
+    @ObservationIgnored var activeSources: Set<URL> = []
 
     static let modeKey = "compareMode"
     static let splitKey = "compareSplitPosition"
@@ -123,7 +147,22 @@ final class CompareController {
     }
 
     func moveSplit(by delta: CGFloat) {
-        splitPosition = min(max(splitPosition + delta, Self.splitRange.lowerBound), Self.splitRange.upperBound)
+        setSplit(splitPosition + delta)
+        commitSplit()
+    }
+
+    func setSplit(_ value: CGFloat) {
+        splitPosition = min(max(value, Self.splitRange.lowerBound), Self.splitRange.upperBound)
+    }
+
+    func commitSplit() { defaults.set(Double(splitPosition), forKey: Self.splitKey) }
+
+    /// The list view's current batch: remembered for quick lookups, and facts of removed files are dropped.
+    func setActiveSources(_ sources: Set<URL>) {
+        activeSources = sources
+        if summaries.keys.contains(where: { !sources.contains($0) }) {
+            summaries = summaries.filter { sources.contains($0.key) }
+        }
     }
 
     func resizeBrowser(by delta: CGFloat) {
@@ -140,50 +179,5 @@ final class CompareController {
     func clear() {
         selectionChanged()
         summaries = [:]
-    }
-
-    /// Single mode: hold Space (pointer over the image) to see Before, or press B to toggle it. Only in the
-    /// main window and not while a text field is being edited; other keys pass through.
-    func installKeyMonitor() {
-        guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.capsLock, .numericPad])
-            guard let self, flags.isEmpty,
-                  let window = event.window, window === NSApp.mainWindow, window.isKeyWindow,
-                  !(window.firstResponder is NSText) else { return event }
-            let key = KeyPress(isDown: event.type == .keyDown, isRepeat: event.isARepeat,
-                               character: event.charactersIgnoringModifiers?.lowercased() ?? "")
-            return MainActor.assumeIsolated { self.handle(key) } ? nil : event
-        }
-    }
-
-    private struct KeyPress: Sendable {
-        let isDown: Bool
-        let isRepeat: Bool
-        let character: String
-    }
-
-    /// True when the key was used.
-    private func handle(_ key: KeyPress) -> Bool {
-        guard mode == .single else { return false }
-        switch (key.isDown, key.character) {
-        case (true, " "):
-            guard pointerInPreview || spaceHeld else { return false }
-            if !key.isRepeat {
-                spaceHeld = true
-                showingBefore = true
-            }
-            return true
-        case (false, " "):
-            guard spaceHeld else { return false }
-            spaceHeld = false
-            showingBefore = false
-            return true
-        case (true, "b"):
-            if !key.isRepeat { showingBefore.toggle() }
-            return true
-        default:
-            return false
-        }
     }
 }

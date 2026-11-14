@@ -301,15 +301,20 @@ folder for access and remember your answer. Until then it runs unsandboxed.
    - **Split**: one image, Before left of a divider and After right of it. Drag the divider (or focus
      the image and press ← / →); its position is remembered. Zoom and pan work as usual.
    - **Difference**: the difference between the original and the really encoded result, amplified
-     four times on black, with PSNR, mean and maximum error underneath. It needs the size estimate
-     and the same pixel size on both sides; otherwise it says "Not available: the size changes".
-   - **Single**: After as large as possible. Hold Space with the pointer over the image, press B, or
-     click **Show Before** to see the original; the label says which one is shown.
+     four times on black, with PSNR, mean and maximum error underneath. At fit it is computed on the
+     whole image scaled down to at most 2048 px ("scaled down"); zoomed in, on the visible region only
+     ("visible region"), at full resolution up to that size, again after each pan or zoom. It needs the
+     size estimate and the same pixel size on both sides; otherwise it says "Not available: the size changes".
+   - **Single**: After as large as possible. Hold Space **with the pointer over the image** (elsewhere
+     Space keeps pressing the focused button), press B (not while typing or in the list), or click
+     **Show Before** to see the original; the label says which one is shown.
    Transparent areas show a light or dark checkerboard (8 pt squares) in every mode and in the
    thumbnails.
 7. For JPEG, HEIC, JPEG 2000 and AVIF, **Compare quality…** opens four tiles with the selected image
    encoded at 40, 60, 80 and 95 %, each with its file size and the change from the original. They
-   show the same zoomed region as the preview. Click a tile to use that quality (Target size and
+   show the region the preview shows (cropped again after a pan or zoom, without encoding again; only
+   that crop and the encoded files are kept). Images over 100 megapixels show "Too large to compare
+   here". Click a tile to use that quality (Target size and
    Smart switch to Quality; Maximum size keeps its limit). The tiles are rendered in the background
    and start again when you select another image or change the pipeline.
 

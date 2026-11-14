@@ -38,6 +38,9 @@ final class BrowserNavigationTests: XCTestCase {
         XCTAssertEqual(CompareText.differenceSummary(identical), "Identical: no pixel changed")
         let lossy = ImageDifference.Stats(meanAbsError: 1.234, maxError: 37, psnr: 41.26)
         XCTAssertEqual(CompareText.differenceSummary(lossy), "PSNR 41.3 dB · mean error 1.23 · max 37 (shown ×4)")
+        XCTAssertEqual(CompareText.differenceSummary(identical, region: true), "Identical: no pixel changed · visible region")
+        XCTAssertEqual(CompareText.differenceSummary(lossy, region: true, scaled: true),
+                       "PSNR 41.3 dB · mean error 1.23 · max 37 (shown ×4) · visible region, scaled down")
     }
 
     func testSaving() {

@@ -2,8 +2,8 @@ import AppKit
 import SwiftUI
 import ImageconverterCore
 
-/// Which preview side an input or a geometry comes from (quality tiles never become the reference).
-enum ZoomSide { case before, after, qualityTile }
+/// Which preview side an input or a geometry comes from.
+enum ZoomSide { case before, after }
 
 /// The before/after zoom, shared by both sides so they always show the same region. Kept on the model
 /// (not in the pane) so the View menu can reach it.
@@ -116,6 +116,9 @@ struct ZoomableImage: View {
     /// The split divider (fraction of the width) and what dragging it does; nil outside the split view.
     var divider: CGFloat?
     var onDivider: ((CGFloat) -> Void)?
+    var onDividerEnd: (() -> Void)?
+    /// The unit region of the full image that `image` covers (a crop); the whole image when nil.
+    var region: CGRect?
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
@@ -125,6 +128,7 @@ struct ZoomableImage: View {
             let shown = ZoomMath.displayedSize(imagePixels: pixelSize, view: proxy.size, scale: state.scale)
             let center = ZoomMath.clampCenter(state.center, displayed: shown, view: proxy.size)
             let drawn = state.isZoomed ? (fullImage ?? image) : image
+            let cover = region ?? CGRect(x: 0, y: 0, width: 1, height: 1)
             let frame = CGRect(x: proxy.size.width / 2 + (0.5 - center.x) * shown.width - shown.width / 2,
                                y: proxy.size.height / 2 + (0.5 - center.y) * shown.height - shown.height / 2,
                                width: shown.width, height: shown.height)
@@ -135,8 +139,8 @@ struct ZoomableImage: View {
                         .resizable()
                         // Past actual pixels every image pixel is a crisp square, so artifacts are easy to see.
                         .interpolation(geometry.percent(at: state.scale) > 100.5 ? .none : .high)
-                        .frame(width: shown.width, height: shown.height)
-                        .position(x: frame.midX, y: frame.midY)
+                        .frame(width: shown.width * cover.width, height: shown.height * cover.height)
+                        .position(x: frame.minX + shown.width * cover.midX, y: frame.minY + shown.height * cover.midY)
                 }
                 // The enlarged image reaches far outside the clipped box; only the event view takes input.
                 .allowsHitTesting(false)
@@ -151,6 +155,7 @@ struct ZoomableImage: View {
                         isZoomed: state.isZoomed,
                         divider: divider,
                         onDivider: onDivider ?? { _ in },
+                        onDividerEnd: onDividerEnd ?? {},
                         onMagnify: { factor, anchor in zoom.zoom(to: zoom.state.scale * factor, anchor: anchor, in: geometry) },
                         onPan: { zoom.pan(by: $0, in: geometry) },
                         onToggle: { zoom.toggleActual(at: $0, in: geometry) })
@@ -191,6 +196,7 @@ private struct ZoomEventView: NSViewRepresentable {
     let isZoomed: Bool
     let divider: CGFloat?
     let onDivider: (CGFloat) -> Void
+    let onDividerEnd: () -> Void
     let onMagnify: (CGFloat, CGPoint) -> Void
     let onPan: (CGSize) -> Void
     let onToggle: (CGPoint) -> Void
@@ -202,6 +208,7 @@ private struct ZoomEventView: NSViewRepresentable {
         view.onPan = onPan
         view.onToggle = onToggle
         view.onDivider = onDivider
+        view.onDividerEnd = onDividerEnd
         view.isZoomed = isZoomed
         view.divider = divider
     }
@@ -211,6 +218,7 @@ private struct ZoomEventView: NSViewRepresentable {
         var onPan: (CGSize) -> Void = { _ in }
         var onToggle: (CGPoint) -> Void = { _ in }
         var onDivider: (CGFloat) -> Void = { _ in }
+        var onDividerEnd: () -> Void = {}
         var isZoomed = false {
             didSet { if isZoomed != oldValue { window?.invalidateCursorRects(for: self) } }
         }
@@ -278,6 +286,7 @@ private struct ZoomEventView: NSViewRepresentable {
         }
 
         override func mouseUp(with event: NSEvent) {
+            if draggingDivider { onDividerEnd() }
             draggingDivider = false
             endDrag()
         }

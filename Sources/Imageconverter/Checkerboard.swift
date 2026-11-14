@@ -10,7 +10,7 @@ struct Checkerboard: View {
     var body: some View {
         let colors = colorScheme == .dark
             ? (Color(white: 0.20), Color(white: 0.28))
-            : (Color(white: 0.86), Color(white: 0.97))
+            : (Color(white: 0.80), Color(white: 0.95))
         Canvas(rendersAsynchronously: false) { context, size in
             context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(colors.0))
             let side = Self.square

@@ -115,7 +115,6 @@ private struct MainWindowContent: View {
         .background(WindowAccessor { sizer.attach($0) })
         .onAppear {
             model.zoom.installKeyMonitor()
-            model.compare.installKeyMonitor()
             #if DEBUG
             applyDebugArguments()
             #endif

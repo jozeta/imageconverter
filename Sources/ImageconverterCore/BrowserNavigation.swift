@@ -34,11 +34,15 @@ public enum CompareText {
     /// The amplification `ImageDifference.render` is called with by the preview.
     public static let amplify = 4
 
-    public static func differenceSummary(_ stats: ImageDifference.Stats) -> String {
-        guard stats.psnr.isFinite else { return "Identical: no pixel changed" }
+    /// The error figures; `region` says they cover the zoomed region only, `scaled` that they were measured on
+    /// a scaled-down pair (fine artifacts count less).
+    public static func differenceSummary(_ stats: ImageDifference.Stats, region: Bool = false, scaled: Bool = false) -> String {
+        let scope = [region ? "visible region" : nil, scaled ? "scaled down" : nil].compactMap { $0 }
+        let suffix = scope.isEmpty ? "" : " · " + scope.joined(separator: ", ")
+        guard stats.psnr.isFinite else { return "Identical: no pixel changed" + suffix }
         let psnr = String(format: "%.1f", stats.psnr)
         let mean = String(format: "%.2f", stats.meanAbsError)
-        return "PSNR \(psnr) dB · mean error \(mean) · max \(stats.maxError) (shown ×\(amplify))"
+        return "PSNR \(psnr) dB · mean error \(mean) · max \(stats.maxError) (shown ×\(amplify))" + suffix
     }
 
     /// "−75 %" against the original's size; nil when the original's size is unknown.

@@ -102,7 +102,8 @@ struct SplitComparison: View {
                                   visible: 0...position)
                     ZoomableImage(image: afterImage, fullImage: after.full, pixelSize: afterSize, label: "After image",
                                   side: .after, isReference: true, zoom: model.zoom, visible: position...1,
-                                  divider: position, onDivider: { compare.splitPosition = Self.clamp($0) })
+                                  divider: position, onDivider: { compare.setSplit($0) },
+                                  onDividerEnd: { compare.commitSplit() })
                     dividerLine(at: position)
                 } else {
                     ZoomableImage(image: beforeImage, fullImage: before.full, pixelSize: beforeSize, label: "Before image",
@@ -133,10 +134,6 @@ struct SplitComparison: View {
             @unknown default: break
             }
         }
-    }
-
-    private static func clamp(_ value: CGFloat) -> CGFloat {
-        min(max(value, CompareController.splitRange.lowerBound), CompareController.splitRange.upperBound)
     }
 
     private func label(_ text: String) -> some View {
@@ -176,9 +173,11 @@ struct DifferenceComparison: View {
             LGChip("Difference", status: .neutral)
             ZStack {
                 if let outcome, let image = outcome.image {
-                    ZoomableImage(image: image, fullImage: nil,
-                                  pixelSize: CGSize(width: image.width, height: image.height),
-                                  label: "Difference image", side: .after, isReference: true, zoom: model.zoom)
+                    // Drawn where its region sits in the full image, so pan and zoom stay live while the next
+                    // region is computed.
+                    ZoomableImage(image: image, fullImage: nil, pixelSize: outcome.fullSize,
+                                  label: "Difference image", side: .after, isReference: true, zoom: model.zoom,
+                                  region: outcome.region)
                 } else if let reason = outcome?.unavailable ?? model.previewFailure {
                     Text(reason)
                         .font(LadaGlass.Typography.body)
@@ -192,8 +191,9 @@ struct DifferenceComparison: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if let stats = outcome?.stats {
-                Text(CompareText.differenceSummary(stats))
+            if let outcome, let stats = outcome.stats {
+                Text(CompareText.differenceSummary(stats, region: outcome.region != QualityLadder.unitRegion,
+                                                   scaled: outcome.scaled))
                     .font(LadaGlass.Typography.mono)
                     .foregroundStyle(LadaGlass.Colors.muted)
                     .lineLimit(2)
@@ -219,7 +219,11 @@ struct SingleComparison: View {
                 Button(compare.showingBefore ? "Show After" : "Show Before") { compare.showingBefore.toggle() }
                     .buttonStyle(.lg(.ghost))
                     .disabled(after.image == nil)
-                    .help("Hold Space over the image, or press B, to see Before")
+                    .help(CompareMode.single.help)
+                Text("Hold Space over the image or press B")
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
+                    .lineLimit(1)
                     .accessibilityLabel(compare.showingBefore ? "Show After" : "Show Before")
             }
             ZStack {

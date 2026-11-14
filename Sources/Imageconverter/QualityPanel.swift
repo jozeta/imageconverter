@@ -1,8 +1,8 @@
 import SwiftUI
 import ImageconverterCore
 
-/// Four tiles with the selected image encoded at 40, 60, 80 and 95 %, all at the shared zoom, with size and
-/// saving. Clicking a tile makes its quality the Output quality.
+/// Four tiles with the selected image encoded at 40, 60, 80 and 95 %, each showing the region the preview
+/// shows (re-cropped after a pan or zoom), with size and saving. Clicking a tile makes its quality the Output quality.
 struct QualityPanel: View {
     @Bindable var model: AppModel
     /// A narrow pane gets lower tiles, so the images above keep their room.
@@ -51,10 +51,13 @@ struct QualityPanel: View {
             model.chooseQuality(rung.quality)
         } label: {
             VStack(spacing: LadaGlass.Spacing.xxs) {
-                ZoomableImage(image: rung.image, fullImage: nil,
-                              pixelSize: CGSize(width: rung.image.width, height: rung.image.height),
-                              label: "Quality \(percent) percent", side: .qualityTile, isReference: false,
-                              zoom: model.zoom, interactive: false)
+                // The rung is already a crop of the region on screen, so it is shown whole.
+                Image(rung.image, scale: 1, label: Text("Quality \(percent) percent"))
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .background(Checkerboard())
+                    .frame(maxWidth: .infinity)
                     .frame(height: tileHeight)
                     .clipShape(RoundedRectangle(cornerRadius: LadaGlass.Radius.small))
                 Text("\(percent) %").font(LadaGlass.Typography.label)

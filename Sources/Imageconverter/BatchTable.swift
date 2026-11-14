@@ -12,10 +12,12 @@ private struct BatchRow: Identifiable {
 /// and how the last run ended for each file. Dimensions and sizes are read lazily for the rows on screen.
 struct BatchTable: View {
     @Bindable var model: AppModel
+    /// Rebuilt only when the batch changes, not on every body pass.
+    @State private var rows: [BatchRow] = []
+    @State private var statuses: [String: ReportStatus] = [:]
 
     var body: some View {
-        let rows = model.items.enumerated().map { BatchRow(index: $0.offset, item: $0.element) }
-        let statuses = Self.statuses(model.runReport)
+        let hasReport = model.runReport != nil
         let selection = Binding<URL?>(
             get: { model.selectedItemIndex.map { model.items[$0].source } },
             set: { url in
@@ -42,10 +44,16 @@ struct BatchTable: View {
             .width(min: 60, ideal: 80)
             TableColumn("Estimated") { row in mono(estimate(for: row.id)) }
                 .width(min: 70, ideal: 90)
-            TableColumn("Status") { row in status(statuses[row.id.path]) }
+            // After a cancelled run, files without an entry were never processed.
+            TableColumn("Status") { row in status(statuses[row.id.path] ?? (hasReport ? .cancelled : nil)) }
                 .width(min: 60, ideal: 80)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
+        .onChange(of: model.items, initial: true) { _, items in
+            rows = items.enumerated().map { BatchRow(index: $0.offset, item: $0.element) }
+            model.compare.setActiveSources(Set(items.map(\.source)))
+        }
+        .onChange(of: model.runReport, initial: true) { _, report in statuses = Self.statuses(report) }
         .accessibilityLabel("Image list")
     }
 
