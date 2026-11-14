@@ -20,6 +20,9 @@ decisions in it marked "(Johan)" are the user's and must not be changed without 
 ```sh
 swift run           # opens the app window (or: claude-update)
 swift build
+scripts/release.sh       # dist/imageconverter.app + zip (ad hoc signed; --notarize needs SIGN_IDENTITY and NOTARY_PROFILE)
+scripts/install-cli.sh  # links the app's command-line tool as ~/.local/bin/imageconverter
+scripts/screenshots.sh  # regenerates docs/screenshots/*.png (DEBUG app, own settings suite `readme`, sample images)
 # Debug builds only, for screenshots: add images at launch, start the preview zoomed (× fit), widen the window,
 # open every step's editor
 .build/debug/Imageconverter -debugAddFiles /path/a.jpg /path/b.png -debugZoom 4 -debugWindowWidth 1300 -debugExpandSteps
@@ -102,6 +105,9 @@ swiftlint           # if installed (brew install swiftlint)
   resize/crop maths, collisions, preset round-trip and rejection, metadata really stripped, decode limits on
   hand-built header-only files in `Support/HeaderFixtures`, privacy scan before/after a real batch). `NoNetworkTests`
   scans `Sources/` and fails on networking APIs or web URLs outside comments (XML/XMP namespace names allowlisted)
+- `scripts/`: `release.sh`, `install-cli.sh`, `Info.plist.template`, icon scripts, and the screenshot tooling: `screenshots.sh`
+  (drives it), `make-sample-images.swift` (synthetic samples), `window-id.swift` (CGWindowList helper), `shrink-png.py` (Pillow)
+- `docs/screenshots/`: the README images, `samples/` (generated sample images), `pipelines/` and `jobs/` (JSON the script loads)
 - `docs/superpowers/specs/`: design documents; `docs/superpowers/plans/`: implementation plans
 - `scripts/release.sh [--notarize]`: universal release build → `dist/imageconverter.app` (Info.plist from
   `scripts/Info.plist.template` + `Resources/Info-fragments.plist`, version from `VERSION`, build = commit count;

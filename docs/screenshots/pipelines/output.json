@@ -1,0 +1,73 @@
+{
+ "metadata": {
+  "custom": [],
+  "dateTaken": {
+   "mode": "keep"
+  },
+  "isEnabled": false,
+  "isIncluded": false,
+  "keepWhenRemovingAll": [],
+  "keywordsMode": "add",
+  "location": {
+   "mode": "remove"
+  },
+  "removeAll": false,
+  "removeAuthor": false,
+  "removeCamera": false,
+  "removeIPTC": false,
+  "removeThumbnail": false,
+  "removeXMP": false,
+  "setFileDates": false
+ },
+ "output": {
+  "compression": {
+   "targetSize": {
+    "bytes": 40000
+   }
+  },
+  "format": "jpeg",
+  "optimizePNG": true,
+  "progressive": false,
+  "quality": 0.82,
+  "tiffCompression": "lzw"
+ },
+ "rename": {
+  "caseStyle": "keep",
+  "counterStart": 1,
+  "isEnabled": false,
+  "isIncluded": false,
+  "pattern": "{name}",
+  "prefix": "",
+  "removeSpaces": false,
+  "replacement": "-",
+  "replacements": [],
+  "specialCharacters": "keep",
+  "suffix": ""
+ },
+ "schemaVersion": 1,
+ "steps": [
+  {
+   "id": "A51B225D-3F5B-4FE5-94D9-1566F88A9F88",
+   "isEnabled": true,
+   "operation": {
+    "resize": {
+     "_0": {
+      "allowEnlarge": false,
+      "mode": {
+       "maxWidth": {
+        "_0": 1600
+       }
+      },
+      "padColor": {
+       "alpha": 1,
+       "blue": 1,
+       "green": 1,
+       "red": 1
+      },
+      "resampling": "lanczos"
+     }
+    }
+   }
+  }
+ ]
+}

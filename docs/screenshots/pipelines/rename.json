@@ -1,0 +1,47 @@
+{
+ "metadata": {
+  "custom": [],
+  "dateTaken": {
+   "mode": "keep"
+  },
+  "isEnabled": false,
+  "isIncluded": false,
+  "keepWhenRemovingAll": [],
+  "keywordsMode": "add",
+  "location": {
+   "mode": "remove"
+  },
+  "removeAll": false,
+  "removeAuthor": false,
+  "removeCamera": true,
+  "removeIPTC": false,
+  "removeThumbnail": false,
+  "removeXMP": false,
+  "setFileDates": false
+ },
+ "output": {
+  "compression": {
+   "quality": {}
+  },
+  "format": "jpeg",
+  "optimizePNG": true,
+  "progressive": false,
+  "quality": 0.82,
+  "tiffCompression": "lzw"
+ },
+ "rename": {
+  "caseStyle": "keep",
+  "counterStart": 1,
+  "isEnabled": true,
+  "isIncluded": true,
+  "pattern": "{date:yyyy-MM-dd}_{name}_{counter:3}",
+  "prefix": "",
+  "removeSpaces": false,
+  "replacement": "-",
+  "replacements": [],
+  "specialCharacters": "keep",
+  "suffix": ""
+ },
+ "schemaVersion": 1,
+ "steps": []
+}

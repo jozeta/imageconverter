@@ -1,0 +1,120 @@
+{
+ "metadata": {
+  "custom": [],
+  "dateTaken": {
+   "mode": "keep"
+  },
+  "isEnabled": false,
+  "isIncluded": false,
+  "keepWhenRemovingAll": [],
+  "keywordsMode": "add",
+  "location": {
+   "mode": "remove"
+  },
+  "removeAll": false,
+  "removeAuthor": false,
+  "removeCamera": false,
+  "removeIPTC": false,
+  "removeThumbnail": false,
+  "removeXMP": false,
+  "setFileDates": false
+ },
+ "output": {
+  "compression": {
+   "quality": {}
+  },
+  "format": "jpeg",
+  "optimizePNG": true,
+  "progressive": false,
+  "quality": 0.82,
+  "tiffCompression": "lzw"
+ },
+ "rename": {
+  "caseStyle": "keep",
+  "counterStart": 1,
+  "isEnabled": false,
+  "isIncluded": false,
+  "pattern": "{name}",
+  "prefix": "",
+  "removeSpaces": false,
+  "replacement": "-",
+  "replacements": [],
+  "specialCharacters": "keep",
+  "suffix": ""
+ },
+ "schemaVersion": 1,
+ "steps": [
+  {
+   "id": "DDB56C5F-DABA-4B53-B863-D6AFA378C910",
+   "isEnabled": true,
+   "operation": {
+    "condition": {
+     "_0": {
+      "conditions": [
+       {
+        "longestEdge": {
+         "_0": "greaterThan",
+         "_1": 1600
+        }
+       },
+       {
+        "hasGPS": {
+         "_0": true
+        }
+       }
+      ],
+      "match": "all",
+      "otherwise": [
+       {
+        "copyOriginal": {}
+       }
+      ],
+      "then": [
+       {
+        "step": {
+         "_0": {
+          "id": "E5B5B69E-6546-480C-AB85-10B41DD01A6D",
+          "isEnabled": true,
+          "operation": {
+           "resize": {
+            "_0": {
+             "allowEnlarge": false,
+             "mode": {
+              "longestEdge": {
+               "_0": 1200
+              }
+             },
+             "padColor": {
+              "alpha": 1,
+              "blue": 1,
+              "green": 1,
+              "red": 1
+             },
+             "resampling": "lanczos"
+            }
+           }
+          }
+         }
+        }
+       },
+       {
+        "output": {
+         "_0": {
+          "compression": {
+           "quality": {}
+          },
+          "format": "heic",
+          "optimizePNG": true,
+          "progressive": false,
+          "quality": 0.82,
+          "tiffCompression": "lzw"
+         }
+        }
+       }
+      ]
+     }
+    }
+   }
+  }
+ ]
+}

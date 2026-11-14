@@ -1,0 +1,73 @@
+{
+ "metadata": {
+  "custom": [],
+  "dateTaken": {
+   "mode": "keep"
+  },
+  "isEnabled": false,
+  "isIncluded": false,
+  "keepWhenRemovingAll": [],
+  "keywordsMode": "add",
+  "location": {
+   "mode": "remove"
+  },
+  "removeAll": false,
+  "removeAuthor": false,
+  "removeCamera": false,
+  "removeIPTC": false,
+  "removeThumbnail": false,
+  "removeXMP": false,
+  "setFileDates": false
+ },
+ "output": {
+  "compression": {
+   "quality": {}
+  },
+  "format": "jpeg",
+  "optimizePNG": true,
+  "progressive": false,
+  "quality": 0.82,
+  "tiffCompression": "lzw"
+ },
+ "rename": {
+  "caseStyle": "keep",
+  "counterStart": 1,
+  "isEnabled": false,
+  "isIncluded": false,
+  "pattern": "{name}",
+  "prefix": "",
+  "removeSpaces": false,
+  "replacement": "-",
+  "replacements": [],
+  "specialCharacters": "keep",
+  "suffix": ""
+ },
+ "schemaVersion": 1,
+ "steps": [
+  {
+   "id": "F93CB76F-5E35-4923-AE56-18829529675F",
+   "isEnabled": true,
+   "operation": {
+    "adjust": {
+     "_0": {
+      "blackPoint": 0,
+      "brightness": 0,
+      "brilliance": 0,
+      "contrast": 15,
+      "definition": 0,
+      "exposure": 25,
+      "highlights": 0,
+      "hue": 0,
+      "noiseReduction": 0,
+      "saturation": 0,
+      "shadows": 20,
+      "sharpness": 0,
+      "tint": 0,
+      "vibrance": 40,
+      "warmth": 20
+     }
+    }
+   }
+  }
+ ]
+}
