@@ -40,7 +40,7 @@ swiftlint           # if installed (brew install swiftlint)
     `AppModel.swift` (items, pipeline persisted as JSON under `currentPipeline`, run/cancel, toasts),
     `AppSettings.swift` (output mode, persisted in UserDefaults), `PipelineSection.swift` (step rows,
     reorder, add, fixed Output row), `StepEditors.swift` (one editor per step kind), `AdjustEditor.swift` (Adjust step sliders), `WatermarkEditor.swift` (watermark step editor) with `WatermarkControls.swift` (sliders, rotation, layout, shadow, outline), `WatermarkTemplatesMenu.swift` + `WatermarkTemplatesModel.swift` (templates menu and store, injected with `.environment`), `WatermarkThumbnail.swift` (chosen image, SVG refusal reason), `AppModel+WatermarkText.swift` (live token text), `NameSheet.swift` (name sheet for presets and templates), `StepControls.swift` (shared controls),
-    `FileStepEditors.swift` (Metadata and Rename rows, Metadata editor), `RenameEditor.swift` (Rename editor; the live rename example is computed in `AppModel`),
+    `FileStepEditors.swift` (Metadata and Rename rows), `MetadataEditor.swift` + `MetadataDateEditor.swift` + `MetadataCustomFieldsEditor.swift` (Metadata editor groups), `MetadataTemplatesMenu.swift`/`MetadataTemplatesModel.swift` (templates, like the watermark ones), `RenameEditor.swift` (Rename editor; the live rename example is computed in `AppModel`),
     `ConditionEditor.swift` (if/then/else editor: match, condition rows) and `ConditionActions.swift` (Then/Else action lists reusing the step editors),
     `PresetBar.swift` and `AppModel+Presets.swift` (preset picker, save/rename/delete),
     `PreviewPane.swift` (before/after, Original | Result table, run progress bar), `Filmstrip.swift` (thumbnails, ←/→),
