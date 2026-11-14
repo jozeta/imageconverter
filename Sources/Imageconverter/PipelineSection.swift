@@ -6,14 +6,11 @@ import ImageconverterCore
 /// The sidebar puts it in a scroll view above the Output panel (`OutputPanel`).
 struct PipelineSection: View {
     @Bindable var model: AppModel
-    var settings: AppSettings
     @State private var expanded: Set<PipelineStep.ID> = []
     /// Set when a drag starts, so rows can show the slot a drop will land in.
     @State private var draggedID: PipelineStep.ID?
     @State fileprivate var metadataExpanded = false
     @State fileprivate var renameExpanded = false
-
-    static let overwriteHelp = "Not available when overwriting originals"
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
@@ -98,8 +95,7 @@ struct PipelineSection: View {
     }
 
     private var branchDefaults: BranchDefaults {
-        BranchDefaults(output: model.pipeline.output, metadata: model.pipeline.metadata, rename: model.pipeline.rename,
-                       renameLockedHelp: settings.modeKind == .overwrite ? Self.overwriteHelp : nil)
+        BranchDefaults(output: model.pipeline.output, metadata: model.pipeline.metadata, rename: model.pipeline.rename)
     }
 
     private var addMenu: some View {
@@ -130,8 +126,6 @@ struct PipelineSection: View {
                                 renameExpanded = false
                             }
                         }
-                        .disabled(settings.modeKind == .overwrite)
-                        .help(settings.modeKind == .overwrite ? Self.overwriteHelp : "")
                     }
                 }
             }
@@ -162,7 +156,6 @@ extension PipelineSection {
                 FileStepRow(
                     title: "Rename", summary: model.pipeline.rename.summary,
                     isEnabled: $model.pipeline.rename.isEnabled, isExpanded: $renameExpanded,
-                    lockedHelp: settings.modeKind == .overwrite ? Self.overwriteHelp : nil,
                     remove: removeRename) {
                     RenameEditor(options: $model.pipeline.rename, example: model.renameExample)
                         .task(id: model.renameExampleKey) { await model.refreshRenameExample() }

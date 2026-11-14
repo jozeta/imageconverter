@@ -117,7 +117,8 @@ public enum ExternalRequests {
         case .sameFolder(let suffix):
             return "writes the converted images next to the originals, with \"\(suffix)\" added to their names"
         case .overwrite:
-            return "replaces the original images (originals whose name or format changes are moved to the Trash)"
+            return "replaces the original images (when the name or format changes, the original is moved to the Trash "
+                + "after the new file is saved)"
         }
     }
 

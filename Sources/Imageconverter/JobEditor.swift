@@ -92,8 +92,7 @@ struct JobEditor: View {
                     pipelineSection
                     inputsSection
                     Section("Output") {
-                        SaveToControl(kind: $draft.outputKind, folder: $draft.outputFolder, suffix: $draft.suffix,
-                                      overwriteNote: "Converted images replace the originals.")
+                        SaveToControl(kind: $draft.outputKind, folder: $draft.outputFolder, suffix: $draft.suffix)
                     }
                     triggerSection
                     Section("Report and status") {

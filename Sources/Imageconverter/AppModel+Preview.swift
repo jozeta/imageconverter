@@ -30,7 +30,7 @@ extension AppModel {
         SidebarMotion.perform { pipelineCollapsed.toggle() }
     }
 
-    /// After a run, forgets items whose file is gone (overwrite mode trashes originals when the format changes).
+    /// After a run, forgets items whose file is gone (overwrite mode trashes originals when the name or format changes).
     /// The file checks run off the main actor; the result is applied (and announced) back on it.
     func dropMissingItems() {
         let sources = items.map(\.source)

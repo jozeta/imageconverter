@@ -6,8 +6,6 @@ struct BranchDefaults {
     var output = OutputSettings()
     var metadata = MetadataOptions()
     var rename = RenameOptions()
-    /// Set while overwriting originals: renaming is off then, in branches too.
-    var renameLockedHelp: String?
 }
 
 /// The if/then/else step: "Match all/any of:" with the conditions, then a Then and an Else list of actions.

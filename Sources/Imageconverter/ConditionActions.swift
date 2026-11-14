@@ -165,8 +165,7 @@ struct ActionList: View {
                     rename.isEnabled = true
                     append(.rename(rename))
                 }
-                .disabled(present.rename || defaults.renameLockedHelp != nil)
-                .help(defaults.renameLockedHelp ?? "")
+                .disabled(present.rename)
                 Button("Save into subfolder…") { append(.subfolder("{date:yyyy}/{date:MM}")) }.disabled(present.subfolder)
                 Button("Add Finder tags…") { append(.finderTags(["Converted"])) }
                 Button("Copy original unchanged") { append(.copyOriginal) }.disabled(present.copy)
@@ -347,9 +346,6 @@ private struct ActionRow: View {
                 get: { if case .metadata(let current) = action { return current } else { return options } },
                 set: { action = .metadata($0) }))
         case .rename(let options):
-            if let help = defaults.renameLockedHelp {
-                Text(help).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.warnText)
-            }
             RenameEditor(options: Binding(
                 get: { if case .rename(let current) = action { return current } else { return options } },
                 set: { action = .rename($0) }), example: "")

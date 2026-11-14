@@ -97,7 +97,7 @@ struct SidebarView: View {
     private var pipelineArea: some View {
         VStack(alignment: .leading, spacing: 0) {
             ScrollView {
-                PipelineSection(model: model, settings: settings)
+                PipelineSection(model: model)
                     .fixedSize(horizontal: false, vertical: true)
                     .measured(.steps)
                     // Room for the rows' focus rings and shadows, which the scroll view would clip.

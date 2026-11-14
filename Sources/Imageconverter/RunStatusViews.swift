@@ -228,8 +228,7 @@ struct InterruptedRunSheet: View {
     /// The same warning as choosing overwrite in Save to; Resume stays off until it is ticked.
     private var overwriteWarning: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-            Text("Converted images will replace the originals. When the format or name changes, the original is "
-                 + "moved to the Trash.")
+            Text(SaveToControl.overwriteText)
                 .font(LadaGlass.Typography.label)
                 .foregroundStyle(LadaGlass.Colors.warnText)
                 .fixedSize(horizontal: false, vertical: true)

@@ -180,7 +180,8 @@ public enum StepHelp {
                 ],
                 tips: [
                     "Find and replace rules run in order; tick Regular expression to use one, with $1 for a captured group.",
-                    "If a name is already taken, _2, _3 and so on is added; other existing files are never replaced."
+                    "If a name is already taken, _2, _3 and so on is added; other existing files are never replaced.",
+                    "When overwriting originals, the renamed file is saved next to the original, which then goes to the Trash."
                 ])
         case .output:
             return StepHelpInfo(
