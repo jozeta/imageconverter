@@ -11,12 +11,10 @@ struct MetadataDateEditor: View {
     /// Only matters while the shift is zero (then the sign can't be read from the stored value).
     @State private var laterWhenZero = true
 
-    private var shiftSeconds: Int {
-        if case .shift(let seconds) = options.dateTaken { return seconds }
-        return 0
+    private var shift: DateShift {
+        if case .shift(let seconds) = options.dateTaken { return DateShift(seconds: seconds, laterWhenZero: laterWhenZero) }
+        return DateShift(later: laterWhenZero)
     }
-
-    private var later: Bool { shiftSeconds == 0 ? laterWhenZero : shiftSeconds > 0 }
 
     private var mode: DateMode {
         switch options.dateTaken {
@@ -52,36 +50,30 @@ struct MetadataDateEditor: View {
 
     private var shiftControls: some View {
         FieldRow {
-            Picker("Direction", selection: Binding(get: { later }, set: { laterWhenZero = $0; commit(sign: $0, parts: parts) })) {
+            Picker("Direction", selection: Binding(get: { shift.later }, set: { later in
+                laterWhenZero = later
+                var updated = shift
+                updated.later = later
+                options.dateTaken = .shift(seconds: updated.seconds)
+            })) {
                 Text("Later").tag(true)
                 Text("Earlier").tag(false)
             }
             .labelsHidden()
             .fixedSize()
             .accessibilityLabel("Shift direction")
-            shiftField("Days", 0, "d")
-            shiftField("Hours", 1, "h")
-            shiftField("Minutes", 2, "min")
+            shiftField("Days", \.days, "d")
+            shiftField("Hours", \.hours, "h")
+            shiftField("Minutes", \.minutes, "min")
         }
     }
 
-    /// Days, hours and minutes of the stored shift (hours and minutes may exceed their usual range once typed).
-    private var parts: [Int] {
-        let total = abs(shiftSeconds)
-        return [total / 86_400, total % 86_400 / 3_600, total % 3_600 / 60]
-    }
-
-    private func shiftField(_ title: String, _ slot: Int, _ suffix: String) -> some View {
-        NumberField(title: title, value: Binding(get: { parts[slot] }, set: { new in
-            var updated = parts
-            updated[slot] = new
-            commit(sign: later, parts: updated)
+    private func shiftField(_ title: String, _ part: WritableKeyPath<DateShift, Int>, _ suffix: String) -> some View {
+        NumberField(title: title, value: Binding(get: { shift[keyPath: part] }, set: { new in
+            var updated = shift
+            updated[keyPath: part] = new
+            options.dateTaken = .shift(seconds: updated.seconds)
         }), minimum: 0, maximum: 73_000, suffix: suffix, showsTitle: false)
-    }
-
-    private func commit(sign: Bool, parts: [Int]) {
-        let total = parts[0] * 86_400 + parts[1] * 3_600 + parts[2] * 60
-        options.dateTaken = .shift(seconds: min(total, DateEdit.maxShift) * (sign ? 1 : -1))
     }
 
     private func choose(_ new: DateMode) {
@@ -92,7 +84,7 @@ struct MetadataDateEditor: View {
             options.dateTaken = .set(Date())
         case .shift:
             if case .shift = options.dateTaken { return }
-            commit(sign: laterWhenZero, parts: [0, 0, 0])
+            options.dateTaken = .shift(seconds: 0)
         }
     }
 }
@@ -101,24 +93,23 @@ struct MetadataDateEditor: View {
 
 private enum LocationMode: String, CaseIterable { case keep = "Keep", remove = "Remove", set = "Set" }
 
-/// GPS: keep, remove, or set latitude, longitude and optional altitude (validated as you type).
+/// GPS: keep, remove, or set latitude, longitude and optional altitude (validated as you type). While "Set" is
+/// chosen but the fields aren't valid, the location is removed, never kept, so the original position can't leak.
 struct MetadataLocationEditor: View {
     @Binding var location: LocationEdit
-    @State private var picked: LocationMode?
-    @State private var latitude = ""
-    @State private var longitude = ""
-    @State private var altitude = ""
+    /// The chosen mode lives here, not in the stored value, so it survives half-typed fields and collapsing.
+    @State private var mode: LocationMode
+    @State private var draft: LocationDraft
 
-    private var storedMode: LocationMode {
-        switch location {
-        case .keep: .keep
-        case .remove: .remove
-        case .set: .set
+    init(location: Binding<LocationEdit>) {
+        _location = location
+        _draft = State(initialValue: LocationDraft(location.wrappedValue))
+        switch location.wrappedValue {
+        case .keep: _mode = State(initialValue: .keep)
+        case .remove: _mode = State(initialValue: .remove)
+        case .set: _mode = State(initialValue: .set)
         }
     }
-
-    /// The choice shown: while "Set" is picked but the fields aren't valid yet, the stored value is `.keep`.
-    private var mode: LocationMode { picked ?? storedMode }
 
     var body: some View {
         Picker("Location", selection: Binding(get: { mode }, set: choose)) {
@@ -126,75 +117,50 @@ struct MetadataLocationEditor: View {
         }
         .pickerStyle(.segmented)
         .accessibilityLabel("Location")
-        .onAppear(perform: load)
-        .onChange(of: location) { _, new in
-            // A preset or template changed it from outside.
-            if case .set = new { picked = nil; load() } else if picked == .set { picked = nil }
-        }
+        .onChange(of: location) { _, new in external(new) }
         if mode == .set {
             FieldRow {
-                coordinateField("Latitude", $latitude)
-                coordinateField("Longitude", $longitude)
-                coordinateField("Altitude (m)", $altitude)
+                coordinateField("Latitude", \.latitude)
+                coordinateField("Longitude", \.longitude)
+                coordinateField("Altitude (m)", \.altitude)
             }
-            if let problem {
-                Text(problem).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.warnText)
+            if let problem = draft.problem {
+                Text("\(problem) Until then the location is removed.")
+                    .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.warnText)
                     .accessibilityLabel("Problem: \(problem)")
             }
         }
     }
 
-    private func coordinateField(_ title: String, _ text: Binding<String>) -> some View {
-        TextField(title, text: Binding(get: { text.wrappedValue }, set: { text.wrappedValue = $0; commit() }),
-                  prompt: Text(title))
+    private func coordinateField(_ title: String, _ field: WritableKeyPath<LocationDraft, String>) -> some View {
+        TextField(title, text: Binding(get: { draft[keyPath: field] }, set: { new in
+            draft[keyPath: field] = new
+            location = draft.edit
+        }), prompt: Text(title))
             .textFieldStyle(.roundedBorder)
             .multilineTextAlignment(.trailing)
             .accessibilityLabel(title)
     }
 
-    private static func number(_ text: String) -> Double? {
-        Double(text.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ",", with: "."))
-    }
-
-    /// What is wrong with the fields, or nil when they make a valid position.
-    private var problem: String? {
-        guard let lat = Self.number(latitude) else { return "Enter a latitude from -90 to 90." }
-        guard (-90...90).contains(lat) else { return "Latitude must be from -90 to 90." }
-        guard let lon = Self.number(longitude) else { return "Enter a longitude from -180 to 180." }
-        guard (-180...180).contains(lon) else { return "Longitude must be from -180 to 180." }
-        if !altitude.trimmingCharacters(in: .whitespaces).isEmpty {
-            guard let alt = Self.number(altitude), abs(alt) <= LocationEdit.maxAltitude else {
-                return "Altitude is in metres, at most 100 000 either way (leave empty for none)."
-            }
+    /// A change that didn't come from these fields (a preset, a template): follow it, without reformatting
+    /// what is being typed.
+    private func external(_ new: LocationEdit) {
+        if mode == .set, new == draft.edit { return }
+        switch new {
+        case .keep: mode = .keep
+        case .remove: mode = .remove
+        case .set:
+            mode = .set
+            draft = LocationDraft(new)
         }
-        return nil
-    }
-
-    private func load() {
-        guard case .set(let lat, let lon, let alt) = location else { return }
-        latitude = lat.formatted(.number.grouping(.never).precision(.fractionLength(0...6)))
-        longitude = lon.formatted(.number.grouping(.never).precision(.fractionLength(0...6)))
-        altitude = alt.map { $0.formatted(.number.grouping(.never).precision(.fractionLength(0...2))) } ?? ""
-    }
-
-    private func commit() {
-        guard problem == nil, let lat = Self.number(latitude), let lon = Self.number(longitude) else {
-            // Never keep a stale position while the fields are wrong.
-            if case .set = location { location = .keep }
-            return
-        }
-        let alt = altitude.trimmingCharacters(in: .whitespaces).isEmpty ? nil : Self.number(altitude)
-        location = .set(latitude: lat, longitude: lon, altitude: alt)
     }
 
     private func choose(_ new: LocationMode) {
+        mode = new
         switch new {
-        case .keep: picked = nil; location = .keep
-        case .remove: picked = nil; location = .remove
-        case .set:
-            picked = .set
-            commit()
-            if case .set = location { picked = nil } else { location = .keep }
+        case .keep: location = .keep
+        case .remove: location = .remove
+        case .set: location = draft.edit
         }
     }
 }

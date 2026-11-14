@@ -8,7 +8,7 @@ public enum MetadataNamespace: String, Codable, Sendable, CaseIterable {
 
 /// One custom field the Metadata step sets. Only keys in `MetadataFields.writable` are written or
 /// decoded; the value is sanitised (no control characters, at most 2000 characters). An empty value
-/// clears the field.
+/// is ignored (the field is left as it is); use the removal options to clear fields.
 public struct MetadataField: Codable, Equatable, Hashable, Sendable {
     public var namespace: MetadataNamespace
     public var key: String

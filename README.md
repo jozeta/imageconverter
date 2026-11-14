@@ -332,17 +332,17 @@ The Metadata editor has five collapsible groups and a **Templates** menu:
   are shown ticked and locked), or individually location (GPS), camera details, author, the embedded thumbnail,
   IPTC and XMP.
 - **Describe**: title, artist, copyright, description and keywords. Keywords are tokens (Return or a comma
-  adds one); **Add** merges them with the file's own, **Replace** replaces them (empty Replace clears them).
+  adds one); **Add** merges them with the file's own, **Replace** replaces them (removing the last token in Replace mode clears them; switching mode keeps the tokens).
 - **Date**: keep the date taken, **Set** it, or **Shift** it earlier or later by days, hours and minutes
   (files without a date keep none). **Set file dates to date taken** also changes the file's own dates.
 - **Location**: keep, remove, or set latitude (-90 to 90), longitude (-180 to 180) and an optional altitude in
-  metres; wrong values show a message and nothing is written until they are fixed.
+  metres; wrong or missing values show a message and, until the fields are valid, the location is removed (never kept).
 - **More fields**: rows of namespace (EXIF, IPTC, XMP), field and value. Only fields on a fixed **allowlist**
   can be chosen (EXIF: ImageDescription, Artist, Copyright, Software, Make, Model, LensModel, UserComment,
   BodySerialNumber; IPTC: ObjectName, Headline, Byline, BylineTitle, Credit, Source, CopyrightNotice,
   CaptionAbstract, City, SubLocation, ProvinceState, CountryName, CountryCode, Writer, SpecialInstructions,
   OriginalTransmissionReference; XMP: dc, photoshop, xmpRights and Iptc4xmpCore fields). Anything else in a
-  saved pipeline or template is dropped when it loads. An empty value clears the field.
+  saved pipeline or template is dropped when it loads. A row with an empty value is ignored (to clear a field, use the removal options or a text field).
 - **Templates**: *Apply* adds a template's settings on top of the current ones (removals only ever turn on,
   fields it sets replace yours, custom fields merge), *Save as template...* stores the current settings under a
   name, *Delete* removes a saved one. Three built-ins: Privacy, Web (keep copyright) and Remove everything.

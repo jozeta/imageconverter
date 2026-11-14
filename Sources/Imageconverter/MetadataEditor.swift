@@ -158,6 +158,7 @@ struct SetFieldRow: View {
                     draft = (text ?? draft) + insert
                     text = draft
                 }
+                .disabled(text == nil)
                 .help("Insert \(insert)")
                 .accessibilityLabel("Insert \(insert) into \(title.lowercased())")
             }
@@ -175,13 +176,22 @@ private struct KeywordsEditor: View {
     @Binding var keywords: [String]?
     @Binding var mode: KeywordsMode
     @State private var draft = ""
+    @State private var ids: RowIDs
+    @FocusState private var focused: Bool
+
+    init(keywords: Binding<[String]?>, mode: Binding<KeywordsMode>) {
+        _keywords = keywords
+        _mode = mode
+        _ids = State(initialValue: RowIDs(count: keywords.wrappedValue?.count ?? 0))
+    }
 
     private var list: [String] { keywords ?? [] }
 
     var body: some View {
         FieldRow {
             Text("Keywords").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-            Picker("Keywords mode", selection: modeBinding) {
+            // Switching the mode only changes how the keywords are applied; the typed ones stay.
+            Picker("Keywords mode", selection: $mode) {
                 Text("Add").tag(KeywordsMode.add)
                 Text("Replace").tag(KeywordsMode.replace)
             }
@@ -192,23 +202,21 @@ private struct KeywordsEditor: View {
         }
         if !list.isEmpty {
             KeywordFlow {
-                ForEach(Array(list.enumerated()), id: \.offset) { index, word in
-                    HStack(spacing: 2) {
-                        Text(word).font(LadaGlass.Typography.label)
-                        Button { remove(at: index) } label: { Image(systemName: "xmark.circle.fill") }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Remove keyword \(word)")
+                ForEach(ids.rows(count: list.count), id: \.id) { row in
+                    if list.indices.contains(row.index) {
+                        token(list[row.index], at: row.index)
                     }
-                    .padding(.horizontal, LadaGlass.Spacing.s)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(LadaGlass.Colors.muted.opacity(0.2)))
                 }
             }
         }
         TextField("Add keywords", text: $draft, prompt: Text("Type a keyword, press Return"))
             .textFieldStyle(.roundedBorder)
+            .focused($focused)
             .onSubmit(commit)
             .onChange(of: draft) { _, new in if new.contains(",") { commit() } }
+            // A keyword typed but not confirmed still counts when the field loses focus.
+            .onChange(of: focused) { _, isFocused in if !isFocused { commit() } }
+            .onChange(of: list.count) { _, count in ids.sync(count: count) }
             .accessibilityLabel("New keyword")
         if mode == .replace && keywords != nil && list.isEmpty {
             Text("Replace with no keywords removes all keywords.")
@@ -216,25 +224,31 @@ private struct KeywordsEditor: View {
         }
     }
 
-    private var modeBinding: Binding<KeywordsMode> {
-        Binding(get: { mode }, set: { new in
-            mode = new
-            // Replace is a choice even with nothing typed (it clears); Add with nothing adds nothing.
-            if new == .replace, keywords == nil { keywords = [] }
-            if new == .add, list.isEmpty { keywords = nil }
-        })
+    private func token(_ word: String, at index: Int) -> some View {
+        HStack(spacing: 2) {
+            Text(word).font(LadaGlass.Typography.label)
+            Button { remove(at: index) } label: { Image(systemName: "xmark.circle.fill") }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove keyword \(word)")
+        }
+        .padding(.horizontal, LadaGlass.Spacing.s)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(LadaGlass.Colors.muted.opacity(0.2)))
     }
 
     private func commit() {
         let words = draft.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         draft = ""
+        guard !words.isEmpty else { return }
         let merged = MetadataFields.normalizedKeywords(list + words)
-        if merged != list || keywords == nil { keywords = merged.isEmpty && mode == .add ? nil : merged }
+        if merged != list { keywords = merged }
     }
 
     private func remove(at index: Int) {
         var updated = list
+        guard updated.indices.contains(index) else { return }
         updated.remove(at: index)
+        ids.remove(at: index)
         keywords = updated.isEmpty && mode == .add ? nil : updated
     }
 }

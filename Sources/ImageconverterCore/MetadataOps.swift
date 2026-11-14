@@ -69,7 +69,7 @@ public enum MetadataOps {
             setKeywords(keywords, mode: options.keywordsMode, extra: sourceKept ? xmpKeywords(metadata) : [],
                         in: &props)
         }
-        for field in options.custom { setCustom(field, in: &props) }
+        for field in options.custom where !field.value.isEmpty { setCustom(field, in: &props) }
         if options.removeXMP {
             props[kCGImageMetadataShouldExcludeXMP as String] = true
             // IPTC fields that only exist in XMP; PNG, HEIC and GIF would otherwise still write them.

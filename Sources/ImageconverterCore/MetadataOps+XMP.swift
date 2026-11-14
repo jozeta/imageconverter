@@ -207,7 +207,7 @@ extension MetadataOps {
             let value = MetadataDates.xmpValue(options.dateTaken, current: current, zone: zone)
             if value != current { set(value ?? "", at: path, in: meta) }
         }
-        for field in options.custom where field.namespace == .xmp && MetadataFields.isWritable(.xmp, field.key) {
+        for field in options.custom where field.namespace == .xmp && !field.value.isEmpty && MetadataFields.isWritable(.xmp, field.key) {
             set(field.value, at: field.key, in: meta)
         }
     }

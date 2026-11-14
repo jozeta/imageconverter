@@ -26,7 +26,7 @@ struct MetadataCustomFieldsEditor: View {
         .buttonStyle(.lg(.ghost))
         .disabled(fields.count >= Self.maxRows)
         .accessibilityLabel("Add custom field")
-        Text("Only fields on the allowlist can be written. An empty value removes the field.")
+        Text("Only fields on the allowlist can be written. An empty value is ignored.")
             .font(LadaGlass.Typography.label)
             .foregroundStyle(LadaGlass.Colors.muted)
             .onChange(of: fields.count) { _, count in ids.sync(count: count) }
@@ -54,13 +54,13 @@ struct MetadataCustomFieldsEditor: View {
                     .labelsHidden()
                     .fixedSize()
                     .accessibilityLabel("Field")
-                Spacer(minLength: 0)
-                removeButton(index)
+                    Spacer(minLength: 0)
+                    removeButton(index)
                 }
                 TextField("Value", text: Binding(
                     get: { fields.indices.contains(index) ? fields[index].value : "" },
                     set: { if fields.indices.contains(index) { fields[index].value = $0 } }),
-                    prompt: Text("Empty removes"))
+                    prompt: Text("Empty is ignored"))
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Value")
             }
