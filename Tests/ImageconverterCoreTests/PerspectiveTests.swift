@@ -65,3 +65,35 @@ final class PerspectiveTests: XCTestCase {
                        "auto · vertical +20 · horizontal −10")
     }
 }
+
+final class PerspectivePlanningTests: XCTestCase {
+    func testAutoNotesWhenNothingFound() throws {
+        let pipeline = Pipeline(steps: [PipelineStep(operation: .perspective(PerspectiveOptions(auto: true)))])
+        var notes: [String] = []
+        let image = TestImages.make(width: 200, height: 150)
+        XCTAssertTrue(try pipeline.apply(to: image, notes: &notes) === image)
+        XCTAssertEqual(notes, [Perspective.noEdgesNote])
+        var none: [String] = []
+        _ = try Pipeline(steps: [PipelineStep(operation: .perspective(PerspectiveOptions(vertical: 20)))])
+            .apply(to: image, notes: &none)
+        XCTAssertTrue(none.isEmpty)
+    }
+
+    func testNearZeroSlidersAreNoOp() throws {
+        let image = TestImages.make(width: 120, height: 90)
+        let tiny = PerspectiveOptions(vertical: 0.004, horizontal: -0.009)
+        XCTAssertTrue(Perspective.isNoOp(tiny))
+        XCTAssertTrue(try Perspective.apply(tiny, to: image) === image)
+        XCTAssertEqual(Pipeline.workingCopies(.perspective(tiny)), 1)
+        XCTAssertEqual(Pipeline.workingCopies(.perspective(PerspectiveOptions(auto: true))), 3)
+    }
+
+    func testAutoPlanningKeepsInputSizeAndBoundsPeak() {
+        let options = PerspectiveOptions(vertical: 50, auto: true)
+        XCTAssertEqual(Pipeline.size(after: .perspective(options), from: CGSize(width: 400, height: 300)),
+                       CGSize(width: 400, height: 300))
+        let pipeline = Pipeline(steps: [PipelineStep(operation: .perspective(options))])
+        // 3 input copies + a corrected image up to the diagonal squared (500² for 400 x 300).
+        XCTAssertEqual(pipeline.peakPixels(sourceWidth: 400, sourceHeight: 300), 3 * 120_000 + 250_000)
+    }
+}

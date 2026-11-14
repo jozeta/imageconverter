@@ -47,9 +47,9 @@ struct Quad: Equatable {
 extension Geometry {
     /// Where the source corners go for the manual keystone, or nil when the sliders are at 0.
     static func keystoneQuad(source: CGSize, options: PerspectiveOptions) -> Quad? {
-        let vertical = PerspectiveOptions.clamped(options.vertical) / 100
-        let horizontal = PerspectiveOptions.clamped(options.horizontal) / 100
-        guard abs(vertical) > 1e-6 || abs(horizontal) > 1e-6 else { return nil }
+        let vertical = Perspective.effective(options.vertical) / 100
+        let horizontal = Perspective.effective(options.horizontal) / 100
+        guard vertical != 0 || horizontal != 0 else { return nil }
         let wide = source.width
         let high = source.height
         var quad = Quad(topLeft: .zero, topRight: CGPoint(x: wide, y: 0),
@@ -89,12 +89,37 @@ extension Geometry {
 
 /// Renders `PerspectiveOptions` with Core Image (and Vision for the automatic correction).
 public enum Perspective {
+    /// The note added when auto correction finds nothing to straighten.
+    public static let noEdgesNote = "No document edges found"
+
     public static func apply(_ options: PerspectiveOptions, to image: CGImage) throws -> CGImage {
+        var notes: [String] = []
+        return try apply(options, to: image, notes: &notes)
+    }
+
+    /// As `apply(_:to:)`, adding `noEdgesNote` to `notes` when auto correction found no rectangle.
+    public static func apply(_ options: PerspectiveOptions, to image: CGImage, notes: inout [String]) throws -> CGImage {
         var current = image
-        if options.auto, let quad = try? detectRectangle(in: current) {
-            current = try correct(current, to: quad)
+        if options.auto {
+            // A Vision error is treated like "nothing found": the image is left as it is.
+            if let quad = try? detectRectangle(in: current) {
+                current = try correct(current, to: quad)
+            } else {
+                notes.append(noEdgesNote)
+            }
         }
         return try keystone(current, options)
+    }
+
+    /// A slider value as applied: clamped, and 0 below 0.01 (no visible change).
+    static func effective(_ value: Double) -> Double {
+        let clean = PerspectiveOptions.clamped(value)
+        return abs(clean) < 0.01 ? 0 : clean
+    }
+
+    /// True when the options change nothing (no auto, sliders effectively at 0).
+    public static func isNoOp(_ options: PerspectiveOptions) -> Bool {
+        !options.auto && effective(options.vertical) == 0 && effective(options.horizontal) == 0
     }
 
     /// The most confident rectangle in `image` (top-left origin pixels), or nil when there is none.

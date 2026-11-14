@@ -205,13 +205,20 @@ private struct LossyStep: Decodable {
 extension Pipeline {
     /// Runs the enabled steps in order on `image`.
     public func apply(to image: CGImage, assets: WatermarkAssets = .empty) throws -> CGImage {
+        var notes: [String] = []
+        return try apply(to: image, assets: assets, notes: &notes)
+    }
+
+    /// Runs the enabled steps in order on `image`; steps that had nothing to do for a reason the user should
+    /// know (e.g. auto perspective found no document) append a short note to `notes`.
+    public func apply(to image: CGImage, assets: WatermarkAssets = .empty, notes: inout [String]) throws -> CGImage {
         var current = image
         for step in steps where step.isEnabled {
             switch step.operation {
             case .resize(let options): current = try ImageOps.resize(current, options)
             case .crop(let options): current = try ImageOps.crop(current, options)
             case .rotateFlip(let options): current = try ImageOps.rotateFlip(current, options)
-            case .perspective(let options): current = try Perspective.apply(options, to: current)
+            case .perspective(let options): current = try Perspective.apply(options, to: current, notes: &notes)
             case .trim(let options): current = try Trim.apply(options, to: current)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
             case .colorProfile(let profile): current = try ImageOps.convertColor(current, to: profile)
@@ -238,11 +245,13 @@ extension Pipeline {
         walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { size, operation in
             let pixels = Self.pixels(size)
             // Core Image keeps intermediates: count its steps as 3 working copies of the input.
-            // Trim scans an 8-bit copy of its input next to the input itself.
             let copies = operation.map { Self.workingCopies($0) } ?? 1
             if copies > 1 {
                 let (product, overflow) = pixels.multipliedReportingOverflow(by: copies)
                 peak = max(peak, overflow ? Int.max : product)
+            }
+            if case .perspective(let options) = operation, options.auto {
+                peak = max(peak, Self.autoPerspectiveWorkingPixels(input: size))
             }
             if case .resize(let options) = operation {
                 peak = max(peak, Self.resizeWorkingPixels(input: size, options: options))
@@ -273,24 +282,31 @@ extension Pipeline {
     static func size(after operation: ImageOperation, from size: CGSize) -> CGSize {
         switch operation {
         case .resize(let options):
-            switch Geometry.resizePlan(source: size, options: options) {
-            case .unchanged: return size
-            case .scale(let target): return target
-            case .fitAndPad(_, let canvas): return canvas
-            case .fillAndCrop(_, let crop): return crop
-            }
+            return resized(size, options)
         case .crop(let options):
             return Geometry.cropRect(source: size, options: options).size
         case .rotateFlip(let options):
             return Geometry.rotated(source: size, options: options)
         case .perspective(let options):
-            // Auto correction depends on the content; the manual keystone is planned from the size alone.
+            // Auto correction depends on the content, and the keystone then runs on the corrected image,
+            // so its size is unknown: keep the input size. The manual keystone alone is planned exactly.
+            if options.auto { return size }
             return Geometry.perspectiveCrop(source: size, options: options)?.size ?? size
         case .canvas(let options):
             return Geometry.canvas(source: size, options: options).canvas
         case .trim, .colorProfile, .adjust, .watermark:
             // Trim only ever shrinks, by an amount that depends on the content: the input is an upper bound.
+            // It scans in strips, so it needs no input-sized working copy.
             return size
+        }
+    }
+
+    private static func resized(_ size: CGSize, _ options: ResizeOptions) -> CGSize {
+        switch Geometry.resizePlan(source: size, options: options) {
+        case .unchanged: return size
+        case .scale(let target): return target
+        case .fitAndPad(_, let canvas): return canvas
+        case .fillAndCrop(_, let crop): return crop
         }
     }
 
@@ -298,10 +314,22 @@ extension Pipeline {
     static func workingCopies(_ operation: ImageOperation) -> Int {
         switch operation {
         case .adjust(let options): return options.isNeutral ? 1 : 3
-        case .perspective(let options): return options == PerspectiveOptions() ? 1 : 3
-        case .trim: return 2
+        case .perspective(let options): return Perspective.isNoOp(options) ? 1 : 3
         default: return 1
         }
+    }
+
+    /// Auto perspective's corrected image can be larger than its input on one side (its sides are the detected
+    /// quad's edges, each at most the diagonal), so count the input copies plus a diagonal-squared result,
+    /// capped by the pixel guard that rendering enforces anyway.
+    static func autoPerspectiveWorkingPixels(input: CGSize) -> Int {
+        let diagonal = (Double(clamped(input.width)) * Double(clamped(input.width))
+            + Double(clamped(input.height)) * Double(clamped(input.height))).squareRoot()
+        let corrected = Int(min(diagonal * diagonal, Double(ImageOps.maxPixels)))
+        let (copies, overflow) = pixels(input).multipliedReportingOverflow(by: 3)
+        if overflow { return Int.max }
+        let (sum, overflowSum) = copies.addingReportingOverflow(corrected)
+        return overflowSum ? Int.max : sum
     }
 
     /// A dimension limited to 1...Int32.max (1 when not finite), safe to convert to `Int`.

@@ -55,6 +55,34 @@ final class TrimTests: XCTestCase {
         XCTAssertEqual(out.height, 40)
     }
 
+    func testTrimAsymmetricKeepsTheRightRegion() throws {
+        // Content near the top left: columns 5...34, rows 10...29 (top-left origin), in a 100 x 80 image.
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: 100, height: 80, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return XCTFail("context")
+        }
+        ctx.setFillColor(red)
+        ctx.fill(CGRect(x: 5, y: 80 - 30, width: 30, height: 20))
+        // One blue pixel marks the content's top-left corner.
+        ctx.setFillColor(CGColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
+        ctx.fill(CGRect(x: 5, y: 80 - 11, width: 1, height: 1))
+        guard let image = ctx.makeImage() else { return XCTFail("image") }
+        let out = try Trim.apply(TrimOptions(), to: image)
+        XCTAssertEqual(out.width, 30)
+        XCTAssertEqual(out.height, 20)
+        XCTAssertGreaterThan(TestImages.pixel(of: out, x: 0, y: 0).blue, 240)
+        XCTAssertGreaterThan(TestImages.pixel(of: out, x: 29, y: 19).red, 240)
+    }
+
+    func testTrimStripsMatchAFullScan() throws {
+        // Strips smaller than the image exercise the strip boundaries.
+        let image = framed(size: 3000, inner: 1234...2001, background: clear, content: red)
+        let out = try Trim.apply(TrimOptions(), to: image)
+        XCTAssertEqual(out.width, 768)
+        XCTAssertEqual(out.height, 768)
+    }
+
     func testTrimPadding() throws {
         let image = framed(inner: 20...79, background: clear, content: red)
         let out = try Trim.apply(TrimOptions(padding: 5), to: image)
