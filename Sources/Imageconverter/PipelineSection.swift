@@ -222,6 +222,7 @@ private struct StepRow: View {
                         .lineLimit(1)
                 }
                 .opacity(step.isEnabled ? 1 : 0.5)
+                .stepHelp(.step(step.operation.kind))
                 Spacer(minLength: 0)
                 RemoveStepButton(label: name, action: remove)
             }
@@ -304,6 +305,7 @@ struct OutputPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
             Text("Output").font(LadaGlass.Typography.subtitle)
+                .stepHelp(.output)
             OutputFormatControls(output: $model.pipeline.output)
                 .disabled(model.isRunning)
             estimateLine

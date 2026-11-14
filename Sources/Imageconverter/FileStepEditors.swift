@@ -36,6 +36,7 @@ struct FileStepRow<Content: View>: View {
                         .lineLimit(1)
                 }
                 .help(lockedHelp ?? "")
+                .stepHelp(title == "Rename" ? .rename : .metadata)
                 Spacer(minLength: 0)
                 RemoveStepButton(label: title, action: remove)
             }
