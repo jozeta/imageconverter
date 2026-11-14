@@ -76,7 +76,7 @@ extension AppModel {
     /// The service slot ("Convert with Preset n") the selected preset has while pinned.
     var selectedServiceSlot: Int? {
         guard let id = session.selected?.id else { return nil }
-        return ServicePins.pinned(userPresets).firstIndex { $0.id == id }.map { $0 + 1 }
+        return userPresets.first { $0.id == id }?.serviceSlot
     }
 
     func setSelectedPinnedForServices(_ pinned: Bool) {

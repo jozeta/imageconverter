@@ -106,4 +106,27 @@ final class URLActionTests: XCTestCase {
         try FileManager.default.removeItem(at: file)
         XCTAssertNil(URLAction.parse(url))
     }
+
+    func testPercentEncodedPartsDecodeToKnownValuesOnly() {
+        // Encoded host, path and parameter names mean the same as written out; nothing else becomes valid.
+        XCTAssertEqual(parse("imageconverter://op%65n"), .open)
+        XCTAssertEqual(parse("imageconverter://jobs/%72un?name=Nightly"), .runJob(name: "Nightly"))
+        XCTAssertEqual(parse("imageconverter://preset?na%6De=Mine"), .selectPreset(name: "Mine"))
+        XCTAssertEqual(parse("imageconverter://add?p%61th=%2FUsers%2Fme%2Fa.jpg"),
+                       .addFiles([URL(fileURLWithPath: "/Users/me/a.jpg")]))
+        XCTAssertNil(parse("imageconverter://de%6Cete"))
+        XCTAssertNil(parse("imageconverter://jobs/%72un%2F?name=Nightly"))
+        XCTAssertNil(parse("imageconverter://preset?na%6De=Mine&n%61me=Other"))
+        XCTAssertNil(parse("imageconverter://add?path=%2FUsers%2Fme%2F..%2Fme%2Fmissing.jpg"))
+    }
+
+    func testFormatAndInvisibleCharactersInNamesAreRejected() {
+        XCTAssertNil(parse("imageconverter://preset?name=Web%E2%80%AEtropxe"))   // right-to-left override
+        XCTAssertNil(parse("imageconverter://preset?name=Web%E2%80%8Bexport"))   // zero-width space
+        XCTAssertNil(parse("imageconverter://preset?name=Web%C2%ADexport"))      // soft hyphen
+        XCTAssertNil(parse("imageconverter://jobs/run?name=Nightly%EF%BB%BF"))   // byte order mark
+        XCTAssertNil(parse("imageconverter://preset?name=Web%00"))
+        XCTAssertNil(parse("imageconverter://add?path=/Users/me/a.jpg%E2%80%AE"))
+        XCTAssertEqual(parse("imageconverter://preset?name=Caf%C3%A9"), .selectPreset(name: "Café"))
+    }
 }

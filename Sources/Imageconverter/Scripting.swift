@@ -4,7 +4,7 @@ import ImageconverterCore
 // AppleScript commands (Cocoa scripting). `Resources/imageconverter.sdef` names these classes; the
 // `@objc` names must match its `cocoa class` attributes. Checks live in `ExternalRequests` (tested in Core).
 //
-//   convert {alias "…"} using preset "Web export" [to folder alias "…"]   → list of written files
+//   convert {alias "…" or "/posix/path"} using preset "Web export" [to folder alias "…"]   → list of written files
 //   add files {alias "…"}
 //   run batch                                                             → list of written files
 //   presets                                                               → list of preset names
@@ -51,12 +51,13 @@ final class ConvertScriptCommand: ImageconverterScriptCommand {
             guard let (model, settings) = attached() else { return nil }
             let arguments = evaluatedArguments ?? [:]
             do {
-                guard let files = ExternalRequests.fileURLs(fromScriptValue: directParameter) else {
-                    throw ExternalRequestError.noFiles
-                }
+                let files = try ExternalRequests.fileURLs(fromScriptValue: directParameter)
                 let presetName = arguments["preset"] as? String ?? ""
+                // Like the files, the folder may be an alias, a POSIX file or a full POSIX path.
                 let folder: URL? = try arguments["folder"].map {
-                    guard let url = $0 as? URL else { throw ExternalRequestError.notAFolder(path: "\($0)") }
+                    guard let url = try ExternalRequests.fileURLs(fromScriptValue: $0).first else {
+                        throw ExternalRequestError.notAFolder(path: "\($0)")
+                    }
                     return url
                 }
                 let plan = try ExternalRequests.convertPlan(files: files, presetName: presetName, folder: folder,
@@ -76,10 +77,8 @@ final class AddFilesScriptCommand: ImageconverterScriptCommand {
         MainActor.assumeIsolated {
             guard let (model, _) = attached() else { return nil }
             do {
-                guard let urls = ExternalRequests.fileURLs(fromScriptValue: directParameter) else {
-                    throw ExternalRequestError.noFiles
-                }
-                let files = try ExternalRequests.validatedFiles(urls)
+                let files = try ExternalRequests.validatedFiles(
+                    ExternalRequests.fileURLs(fromScriptValue: directParameter))
                 guard !model.isRunning else { throw ExternalRequestError.busy }
                 ExternalActions.shared.add(files)
             } catch {
@@ -105,9 +104,15 @@ final class RunBatchScriptCommand: ImageconverterScriptCommand {
                 let actions = ExternalActions.shared
                 if mode.kind == .overwrite {
                     let count = model.items.count
+                    let pipelineName = model.session.selected.map {
+                        model.session.isModified ? "the preset \($0.name) (with unsaved changes)" : "the preset \($0.name)"
+                    } ?? "the current pipeline (no preset)"
                     guard await actions.confirm(
                         title: "Replace \(count) original \(count == 1 ? "image" : "images")?",
-                        message: "A script asks to run the batch. It " + ExternalRequests.describe(mode) + ".",
+                        message: "A script asks to run the batch. It "
+                            + ExternalRequests.runSummary(files: model.items.map(\.source), pipelineName: pipelineName,
+                                                          mode: mode).replacingOccurrences(of: "Converts", with: "converts",
+                                                                                           options: .anchored),
                         confirm: "Replace Originals", destructive: true) else { throw ExternalRequestError.cancelled }
                 }
                 return try await withCheckedThrowingContinuation { continuation in

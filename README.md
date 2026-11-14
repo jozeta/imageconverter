@@ -523,9 +523,9 @@ bundle's Info.plist, and `swift run` has no bundle. The keys are ready in
 | Convert with Preset 1 … 5 | Converts the selection right away with a pinned preset and your **Save to** setting. In overwrite mode it always asks first. |
 
 To pin a preset, select one of your own presets and choose **More ▸ Show in Finder Quick Actions** (at most 5;
-built-in presets can't be pinned, save a copy first). Service names are fixed by macOS, so the pinned presets
-fill the slots in name order; the menu item shows the slot, e.g. "Show in Finder Quick Actions (Preset 2)".
-A slot without a preset shows a hint in the app.
+built-in presets can't be pinned, save a copy first). Service names are fixed by macOS, so a pinned preset takes
+the lowest free slot and keeps it until you unpin it (renaming it or pinning others never moves it); the menu item
+shows the slot, e.g. "Show in Finder Quick Actions (Preset 2)". A slot without a preset shows a hint in the app.
 
 **AppleScript.**
 
@@ -541,18 +541,20 @@ end tell
 
 | Command | What it does |
 | --- | --- |
-| `convert {files} using preset "Name" [to folder f]` | Converts with a built-in or saved preset (name case doesn't matter). Without `to folder` the files go where **Save to** says. Returns the written files. |
+| `convert {files} using preset "Name" [to folder f]` (files and folder as aliases, `POSIX file` values or full POSIX paths) | Converts with a built-in or saved preset (name case doesn't matter). Without `to folder` the files go where **Save to** says. Returns the written files. |
 | `add files {files}` | Adds files and folders to the batch and shows the window. |
 | `run batch` | Runs the current batch with the current pipeline (`run` alone is AppleScript's own launch command). Returns the written files. |
 | `presets` | The preset names. |
 
 Files must exist and be readable, the folder must be writable, and only one run happens at a time. In overwrite
-mode `convert` and `run batch` ask in the app first. Long runs may need `with timeout of 3600 seconds`.
+mode `convert` and `run batch` ask in the app first, naming the preset, where the files go and the files
+themselves. Long runs may need `with timeout of 3600 seconds`.
 
 **Links.** Any web page or app can open an `imageconverter://` link, so the app treats them as untrusted: unknown
 actions, unknown or repeated parameters, overlong links (16 KB, names over 80 characters, more than 50 paths) and
 paths that don't exist or can't be read are rejected, and everything except `open` asks in the app first, saying
-exactly what will happen. Links never convert, write or delete anything without that confirmation.
+exactly what will happen (the files, the preset and where the results go). Only one link question is shown at a
+time: links that arrive meanwhile are ignored and counted in one message. Escape or Cancel declines. Links never convert, write or delete anything without that confirmation.
 
 | Link | What it does (after you confirm) |
 | --- | --- |

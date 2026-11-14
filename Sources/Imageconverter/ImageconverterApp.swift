@@ -116,7 +116,10 @@ private struct MainWindowContent: View {
                minHeight: sizer.heightRange.lowerBound, maxHeight: sizer.heightRange.upperBound,
                alignment: .topLeading)
         .clipped()
-        .background(WindowAccessor { sizer.attach($0) })
+        .background(WindowAccessor {
+            sizer.attach($0)
+            ExternalActions.shared.attachWindow($0)
+        })
         .onAppear {
             model.zoom.installKeyMonitor()
             ExternalActions.shared.attach(model: model, settings: settings) { [openWindow] in

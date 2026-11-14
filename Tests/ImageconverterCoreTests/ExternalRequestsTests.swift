@@ -75,14 +75,46 @@ final class ExternalRequestsTests: XCTestCase {
         XCTAssertFalse(ExternalRequestError.busy.message.isEmpty)
     }
 
-    func testScriptValues() {
+    func testScriptValues() throws {
         let file = URL(fileURLWithPath: "/in/a.jpg")
-        XCTAssertEqual(ExternalRequests.fileURLs(fromScriptValue: file), [file])
-        XCTAssertEqual(ExternalRequests.fileURLs(fromScriptValue: [file, file] as [Any]), [file, file])
-        XCTAssertEqual(ExternalRequests.fileURLs(fromScriptValue: [] as [Any]), [])
-        XCTAssertNil(ExternalRequests.fileURLs(fromScriptValue: "/in/a.jpg"))
-        XCTAssertNil(ExternalRequests.fileURLs(fromScriptValue: [file, "/in/b.png"] as [Any]))
-        XCTAssertNil(ExternalRequests.fileURLs(fromScriptValue: nil))
+        XCTAssertEqual(try ExternalRequests.fileURLs(fromScriptValue: file), [file])
+        XCTAssertEqual(try ExternalRequests.fileURLs(fromScriptValue: [file, file] as [Any]), [file, file])
+        XCTAssertEqual(try ExternalRequests.fileURLs(fromScriptValue: [] as [Any]), [])
+        // Full POSIX paths as text work too, alone or mixed with files.
+        XCTAssertEqual(try ExternalRequests.fileURLs(fromScriptValue: "/in/a.jpg"), [file])
+        XCTAssertEqual(try ExternalRequests.fileURLs(fromScriptValue: [file, "/in/b.png"] as [Any]),
+                       [file, URL(fileURLWithPath: "/in/b.png")])
+        XCTAssertThrowsError(try ExternalRequests.fileURLs(fromScriptValue: "a.jpg")) {
+            XCTAssertEqual($0 as? ExternalRequestError, .notAFile(description: "a.jpg"))
+        }
+        XCTAssertThrowsError(try ExternalRequests.fileURLs(fromScriptValue: 42)) {
+            XCTAssertTrue(($0 as? ExternalRequestError)?.message.contains("POSIX") == true)
+        }
+        XCTAssertThrowsError(try ExternalRequests.fileURLs(fromScriptValue: nil)) {
+            XCTAssertEqual($0 as? ExternalRequestError, .noFiles)
+        }
+    }
+
+    func testMissingPathStringsGiveAClearError() throws {
+        let urls = try ExternalRequests.fileURLs(fromScriptValue: "/in/gone.jpg")
+        XCTAssertThrowsError(try ExternalRequests.validatedFiles(urls) { _ in false }) {
+            XCTAssertEqual(($0 as? ExternalRequestError)?.message, "/in/gone.jpg doesn't exist or can't be read.")
+        }
+    }
+
+    func testFileListShowsFiveThenACount() {
+        let urls = (1...7).map { URL(fileURLWithPath: "/in/\($0).jpg") }
+        XCTAssertEqual(ExternalRequests.fileList(Array(urls.prefix(2))), "/in/1.jpg\n/in/2.jpg")
+        let list = ExternalRequests.fileList(urls)
+        XCTAssertEqual(list.components(separatedBy: "\n").count, 6)
+        XCTAssertTrue(list.hasSuffix("/in/5.jpg\n…and 2 more"))
+    }
+
+    func testRunSummaryNamesPresetModeAndFiles() {
+        let text = ExternalRequests.runSummary(files: [URL(fileURLWithPath: "/in/a.jpg")],
+                                               pipelineName: "the preset Web export", mode: .overwrite)
+        XCTAssertTrue(text.hasPrefix("Converts 1 image with the preset Web export and replaces the original"))
+        XCTAssertTrue(text.hasSuffix("\n\n/in/a.jpg"))
     }
 
     func testModeDescriptions() {
@@ -93,32 +125,43 @@ final class ExternalRequestsTests: XCTestCase {
 
     // MARK: Service pins
 
-    private func presets(pinned: [String], unpinned: [String] = []) -> [Preset] {
-        pinned.map { Preset(name: $0, pipeline: Pipeline(), pinnedForServices: true) }
-            + unpinned.map { Preset(name: $0, pipeline: Pipeline()) }
+    private func preset(_ name: String, slot: Int? = nil) -> Preset {
+        Preset(name: name, pipeline: Pipeline(), serviceSlot: slot)
     }
 
-    func testPinnedAreSortedAndCapped() {
-        let list = presets(pinned: ["f", "B", "a", "e", "d", "c"], unpinned: ["0"])
-        XCTAssertEqual(ServicePins.pinned(list).map(\.name), ["a", "B", "c", "d", "e"])
-        XCTAssertEqual(ServicePins.preset(forSlot: 1, in: list)?.name, "a")
-        XCTAssertEqual(ServicePins.preset(forSlot: 5, in: list)?.name, "e")
-        XCTAssertNil(ServicePins.preset(forSlot: 6, in: list))
+    func testSlotsAreExplicit() {
+        let list = [preset("z", slot: 1), preset("a", slot: 3), preset("m"), preset("b", slot: 2)]
+        XCTAssertEqual(ServicePins.pinned(list).map(\.name), ["z", "b", "a"])
+        XCTAssertEqual(ServicePins.preset(forSlot: 1, in: list)?.name, "z")
+        XCTAssertEqual(ServicePins.preset(forSlot: 3, in: list)?.name, "a")
+        XCTAssertNil(ServicePins.preset(forSlot: 4, in: list))
         XCTAssertNil(ServicePins.preset(forSlot: 0, in: list))
+        XCTAssertEqual(ServicePins.freeSlot(in: list), 4)
+    }
+
+    func testAFreedSlotIsReusedFirst() {
+        let list = [preset("a", slot: 1), preset("c", slot: 3)]
+        XCTAssertEqual(ServicePins.freeSlot(in: list), 2)
+    }
+
+    func testDuplicateSlotsPickTheFirstByName() {
+        let list = [preset("b", slot: 2), preset("A", slot: 2)]
+        XCTAssertEqual(ServicePins.preset(forSlot: 2, in: list)?.name, "A")
+        XCTAssertEqual(ServicePins.pinned(list).count, 1)
     }
 
     func testBuiltInsAreNeverPinned() {
         var builtIn = PresetStore.builtIns[0]
-        builtIn.pinnedForServices = true
+        builtIn.serviceSlot = 1
         XCTAssertTrue(ServicePins.pinned([builtIn]).isEmpty)
+        XCTAssertEqual(ServicePins.freeSlot(in: [builtIn]), 1)
     }
 
-    func testCanPinUpToFive() {
-        let four = presets(pinned: ["a", "b", "c", "d"], unpinned: ["e"])
-        XCTAssertTrue(ServicePins.canPin(four[4].id, in: four))
-        let five = presets(pinned: ["a", "b", "c", "d", "e"], unpinned: ["f"])
-        XCTAssertFalse(ServicePins.canPin(five[5].id, in: five))
+    func testCanPinWhileASlotIsFree() {
+        let full = (1...5).map { preset("p\($0)", slot: $0) } + [preset("free")]
+        XCTAssertNil(ServicePins.freeSlot(in: full))
+        XCTAssertFalse(ServicePins.canPin(full[5].id, in: full))
         // A pinned preset can always be pinned again (and unpinned).
-        XCTAssertTrue(ServicePins.canPin(five[0].id, in: five))
+        XCTAssertTrue(ServicePins.canPin(full[0].id, in: full))
     }
 }

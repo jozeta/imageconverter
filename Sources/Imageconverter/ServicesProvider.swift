@@ -3,7 +3,7 @@ import ImageconverterCore
 
 /// Finder services (Quick Actions). The menu titles and messages are declared in Info.plist (`NSServices`, see
 /// `Resources/Info-fragments.plist`), so the pinned-preset services are fixed slots: "Convert with Preset n"
-/// runs the n-th preset (by name) the user showed in Finder Quick Actions.
+/// runs the preset whose `serviceSlot` is n (kept from pinning until unpinning; see `ServicePins`).
 final class ServicesProvider: NSObject {
     /// "Convert with imageconverter": adds the selected files and folders and shows the window.
     @objc func convertWithImageconverter(_ pasteboard: NSPasteboard, userData: String?,

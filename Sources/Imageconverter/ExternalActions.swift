@@ -40,6 +40,8 @@ final class ExternalActions {
 
     private(set) weak var model: AppModel?
     private(set) weak var settings: AppSettings?
+    /// The document window hosting the model (from the root view's window accessor).
+    private weak var window: NSWindow?
     private var openWindow: (() -> Void)?
     private var waiting: [(AppModel, AppSettings) -> Void] = []
     /// Saved jobs, for `imageconverter://jobs/run`.
@@ -54,40 +56,51 @@ final class ExternalActions {
         for work in pending { work(model, settings) }
     }
 
+    /// Called by the main window's accessor, so sheets go to that window and never to Settings or a panel.
+    func attachWindow(_ window: NSWindow?) {
+        if let window { self.window = window }
+    }
+
     /// Runs `work` now, or once the model is attached.
     func withModel(_ work: @escaping (AppModel, AppSettings) -> Void) {
         if let model, let settings { work(model, settings) } else { waiting.append(work) }
     }
 
-    /// Brings the app forward with its window (reopening it when it was closed).
+    /// Brings the app forward with its main window: restored from the Dock when minimised, reopened only
+    /// when it was closed (never a second one).
     func showWindow() {
         NSApp.activate()
-        if let window = mainWindow {
-            window.makeKeyAndOrderFront(nil)
-        } else {
+        guard let window, window.isVisible || window.isMiniaturized else {
             openWindow?()
+            return
         }
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
     }
 
-    private var mainWindow: NSWindow? {
-        NSApp.windows.first { $0.isVisible && $0.canBecomeMain && !($0 is NSPanel) }
-    }
-
-    /// Asks in a sheet on the main window (or an alert when there is none) whether to go ahead.
-    /// `message` must say exactly what will happen.
-    func confirm(title: String, message: String, confirm: String, destructive: Bool = false) async -> Bool {
-        showWindow()
+    /// The alert for `confirm`: Escape (and the Cancel button) cancels; the confirm button has no key
+    /// equivalent, so neither Return nor a stray keypress can approve something a link or script asked for.
+    static func makeConfirmation(title: String, message: String, confirm: String, destructive: Bool) -> NSAlert {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = destructive ? .critical : .warning
         let button = alert.addButton(withTitle: confirm)
         button.hasDestructiveAction = destructive
-        // Cancel is the default (Return) for anything that writes, so a stray keypress can't confirm.
-        let cancel = alert.addButton(withTitle: "Cancel")
-        cancel.keyEquivalent = "\r"
         button.keyEquivalent = ""
-        guard let window = mainWindow else { return alert.runModal() == .alertFirstButtonReturn }
+        let cancel = alert.addButton(withTitle: "Cancel")
+        cancel.keyEquivalent = "\u{1b}"
+        return alert
+    }
+
+    /// Asks in a sheet on the main window (or an alert when it isn't open yet) whether to go ahead.
+    /// `message` must say exactly what will happen.
+    func confirm(title: String, message: String, confirm: String, destructive: Bool = false) async -> Bool {
+        showWindow()
+        let alert = Self.makeConfirmation(title: title, message: message, confirm: confirm, destructive: destructive)
+        guard let window, window.isVisible || window.isMiniaturized else {
+            return alert.runModal() == .alertFirstButtonReturn
+        }
         return await withCheckedContinuation { continuation in
             alert.beginSheetModal(for: window) { continuation.resume(returning: $0 == .alertFirstButtonReturn) }
         }
@@ -111,8 +124,8 @@ final class ExternalActions {
             let count = plan.files.count
             let confirmed = await confirm(
                 title: "Replace \(count) original \(count == 1 ? "image" : "images")?",
-                message: "Converting with the preset \(plan.preset.name) "
-                    + ExternalRequests.describe(plan.mode) + ". Output is set to overwrite in Settings.",
+                message: ExternalRequests.runSummary(files: plan.files, pipelineName: "the preset \(plan.preset.name)",
+                                                     mode: plan.mode),
                 confirm: "Replace Originals", destructive: true)
             guard confirmed else { throw ExternalRequestError.cancelled }
         }
@@ -131,9 +144,20 @@ final class ExternalActions {
 
     func reportProblem(_ error: Error, title: String) {
         let message = (error as? ExternalRequestError)?.message ?? error.localizedDescription
+        reportProblem(title: title, message: message)
+    }
+
+    func reportProblem(title: String, message: String) {
         withModel { model, _ in
             self.showWindow()
             model.toasts.show(title, type: .bad, description: message)
         }
     }
+
+    // MARK: Link confirmations
+
+    /// True while a link's confirmation is waiting; further links are dropped (see `URLActions.swift`).
+    var linkPending = false
+    /// Links dropped while one was pending, reported in one toast when it closes.
+    var droppedLinks = 0
 }

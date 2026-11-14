@@ -7,24 +7,27 @@ public struct Preset: Codable, Equatable, Sendable, Identifiable {
     public var pipeline: Pipeline
     /// True for the presets that ship with the app. Never stored in a file.
     public var isBuiltIn: Bool
-    /// Shown as a Finder service ("Convert with Preset"); at most `ServicePins.maxPinned` user presets.
-    /// Stored only when true, so older files and older app versions read the same.
-    public var pinnedForServices: Bool
+    /// The Finder service slot ("Convert with Preset n", 1...`ServicePins.maxPinned`) this user preset runs
+    /// from, or nil. Assigned when pinned and kept across renames, so a slot never silently changes preset.
+    /// Stored only when set, so older files and older app versions read the same.
+    public var serviceSlot: Int?
+    /// Shown in Finder Quick Actions.
+    public var pinnedForServices: Bool { serviceSlot != nil }
 
     public init(id: UUID = UUID(), name: String, pipeline: Pipeline, isBuiltIn: Bool = false,
-                pinnedForServices: Bool = false) {
+                serviceSlot: Int? = nil) {
         self.id = id
         self.name = name
         self.pipeline = pipeline
         self.isBuiltIn = isBuiltIn
-        self.pinnedForServices = pinnedForServices
+        self.serviceSlot = serviceSlot
     }
 
     /// The version of the top-level preset file format.
     public static let schemaVersion = 1
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, id, name, pipeline, pinnedForServices
+        case schemaVersion, id, name, pipeline, serviceSlot
     }
 
     public init(from decoder: Decoder) throws {
@@ -33,7 +36,9 @@ public struct Preset: Codable, Equatable, Sendable, Identifiable {
         name = try container.decode(String.self, forKey: .name)
         pipeline = try container.decode(Pipeline.self, forKey: .pipeline)
         isBuiltIn = false
-        pinnedForServices = try container.decodeIfPresent(Bool.self, forKey: .pinnedForServices) ?? false
+        // An out-of-range slot (a hand-edited file) just means "not pinned".
+        serviceSlot = (try? container.decodeIfPresent(Int.self, forKey: .serviceSlot))
+            .flatMap { $0 }.flatMap { ServicePins.slots.contains($0) ? $0 : nil }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -42,7 +47,7 @@ public struct Preset: Codable, Equatable, Sendable, Identifiable {
         try container.encode(id, forKey: .id)
         try container.encode(name, forKey: .name)
         try container.encode(pipeline, forKey: .pipeline)
-        if pinnedForServices { try container.encode(true, forKey: .pinnedForServices) }
+        try container.encodeIfPresent(serviceSlot, forKey: .serviceSlot)
     }
 }
 
@@ -60,6 +65,7 @@ public enum PresetError: Error, Equatable {
     case idMismatch
     case builtInID
     case tooManyPinned
+    case serviceSlotTaken
 
     public var reason: String {
         switch self {
@@ -78,6 +84,7 @@ public enum PresetError: Error, Equatable {
         case .builtInID: return "The preset uses a built-in preset's id."
         case .tooManyPinned:
             return "At most \(ServicePins.maxPinned) presets can be shown in Finder Quick Actions. Remove one first."
+        case .serviceSlotTaken: return "Another preset already uses this Finder Quick Actions slot."
         }
     }
 }
@@ -241,7 +248,12 @@ public final class PresetStore: @unchecked Sendable {
         var stored = preset
         let existing = loadUnlocked().presets
         stored.name = try Self.validatedName(preset.name, existing: existing, excluding: preset.id)
-        if stored.pinnedForServices, !ServicePins.canPin(stored.id, in: existing) { throw PresetError.tooManyPinned }
+        if let slot = stored.serviceSlot {
+            guard ServicePins.slots.contains(slot) else { throw PresetError.tooManyPinned }
+            guard ServicePins.preset(forSlot: slot, in: existing.filter { $0.id != stored.id }) == nil else {
+                throw PresetError.serviceSlotTaken
+            }
+        }
         try write(stored)
     }
 
@@ -263,8 +275,13 @@ public final class PresetStore: @unchecked Sendable {
         let presets = loadUnlocked().presets
         guard var preset = presets.first(where: { $0.id == id }) else { throw PresetError.unreadable }
         guard preset.pinnedForServices != pinned else { return }
-        if pinned, !ServicePins.canPin(id, in: presets) { throw PresetError.tooManyPinned }
-        preset.pinnedForServices = pinned
+        if pinned {
+            guard let slot = ServicePins.freeSlot(in: presets) else { throw PresetError.tooManyPinned }
+            preset.serviceSlot = slot
+        } else {
+            // Frees the slot; the other pinned presets keep theirs.
+            preset.serviceSlot = nil
+        }
         try write(preset)
     }
 

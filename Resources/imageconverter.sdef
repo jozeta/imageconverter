@@ -15,17 +15,21 @@
         <command name="convert" code="ICnvConv"
                  description="Convert files with a preset. Without a folder the files go where the app's output setting says; overwrite mode asks in the app first. Returns the written files.">
             <cocoa class="ICConvertCommand"/>
-            <direct-parameter description="The image files and folders to convert.">
+            <direct-parameter description="The image files and folders to convert: aliases, POSIX files or full POSIX paths.">
                 <type type="file" list="yes"/>
                 <type type="file"/>
+                <type type="text" list="yes"/>
+                <type type="text"/>
             </direct-parameter>
             <parameter name="using preset" code="Pres" type="text"
                        description="The name of a built-in or saved preset (case doesn't matter).">
                 <cocoa key="preset"/>
             </parameter>
-            <parameter name="to folder" code="Fldr" type="file" optional="yes"
-                       description="Write the converted files into this folder instead.">
+            <parameter name="to folder" code="Fldr" optional="yes"
+                       description="Write the converted files into this folder instead (an alias, POSIX file or full POSIX path).">
                 <cocoa key="folder"/>
+                <type type="file"/>
+                <type type="text"/>
             </parameter>
             <result description="The files that were written.">
                 <type type="file" list="yes"/>
@@ -38,6 +42,8 @@
             <direct-parameter description="The image files and folders to add.">
                 <type type="file" list="yes"/>
                 <type type="file"/>
+                <type type="text" list="yes"/>
+                <type type="text"/>
             </direct-parameter>
         </command>
 

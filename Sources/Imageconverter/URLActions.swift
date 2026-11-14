@@ -1,18 +1,38 @@
 import Foundation
 import ImageconverterCore
 
-/// `imageconverter://` links. Any web page can open one, so `URLAction.parse` rejects anything unknown and
-/// every action except `open` waits for the user to confirm a sheet that says what will happen.
+/// `imageconverter://` links. Any web page can open one, so `URLAction.parse` rejects anything unknown, every
+/// action except `open` waits for the user to confirm a sheet that says what will happen, only one link
+/// confirmation is open at a time (links arriving meanwhile are dropped and counted), and nothing a link
+/// says is echoed back in a message.
 extension ExternalActions {
     func handle(_ url: URL) {
-        guard let action = URLAction.parse(url) else {
-            // Not echoed back: the link's text is untrusted and could be crafted to mislead.
-            reportProblem(LinkError.rejected, title: "Ignored a link")
+        guard !linkPending else {
+            droppedLinks += 1
             return
         }
-        withModel { model, _ in
-            Task { await self.perform(action, model: model) }
+        guard let action = URLAction.parse(url) else {
+            reportProblem(title: "Ignored a link", message: "An imageconverter link was malformed, too long, used an "
+                          + "unknown action or named a file that can't be read.")
+            return
         }
+        guard action.needsConfirmation else { return showWindow() }
+        linkPending = true
+        withModel { model, _ in
+            Task {
+                await self.perform(action, model: model)
+                self.linkFinished(model: model)
+            }
+        }
+    }
+
+    private func linkFinished(model: AppModel) {
+        linkPending = false
+        guard droppedLinks > 0 else { return }
+        let count = droppedLinks
+        droppedLinks = 0
+        model.toasts.show("Ignored \(count) more \(count == 1 ? "link" : "links")", type: .info,
+                          description: "They arrived while another link was waiting for your answer.")
     }
 
     private func perform(_ action: URLAction, model: AppModel) async {
@@ -23,12 +43,10 @@ extension ExternalActions {
             await selectPreset(named: name, model: model)
         case .addFiles(let urls):
             let count = urls.count
-            let shown = urls.prefix(5).map(\.path).joined(separator: "\n")
-            let more = count > 5 ? "\n…and \(count - 5) more" : ""
             guard await confirm(
                 title: "Add \(count) \(count == 1 ? "item" : "items") from a link?",
                 message: "A link asks to add these files and folders to the batch. Nothing is converted.\n\n"
-                    + shown + more,
+                    + ExternalRequests.fileList(urls),
                 confirm: "Add") else { return }
             add(urls)
         case .runJob(let name):
@@ -38,9 +56,8 @@ extension ExternalActions {
 
     private func selectPreset(named name: String, model: AppModel) async {
         guard !model.isRunning else { return reportProblem(ExternalRequestError.busy, title: "Couldn't switch presets") }
-        let preset: Preset
-        do { preset = try ExternalRequests.preset(named: name, in: model.allPresets) } catch {
-            return reportProblem(error, title: "Couldn't switch presets")
+        guard let preset = try? ExternalRequests.preset(named: name, in: model.allPresets) else {
+            return reportProblem(title: "Couldn't switch presets", message: "A link asked for a preset that doesn't exist.")
         }
         let discards = model.session.isModified
         let unsaved = discards ? " Your unsaved changes to \(model.session.selected?.name ?? "the preset") are discarded." : ""
@@ -51,27 +68,22 @@ extension ExternalActions {
     }
 
     private func runJob(named name: String, model: AppModel) async {
-        let job: Job
-        do { job = try ExternalRequests.job(named: name, in: jobStore.load().jobs) } catch {
-            return reportProblem(error, title: "Couldn't run the job")
+        guard let job = try? ExternalRequests.job(named: name, in: jobStore.load().jobs) else {
+            return reportProblem(title: "Couldn't run the job", message: "A link asked for a job that doesn't exist.")
         }
-        let folders = job.inputs.map(\.path).joined(separator: "\n")
-        let overwrite = job.output.kind == .overwrite
+        let pipeline = job.presetID.map { id in
+            model.allPresets.first { $0.id == id }.map { "the preset \($0.name)" } ?? "a preset that no longer exists"
+        } ?? "the job's own pipeline"
+        let folders = job.inputs.isEmpty ? "It has no input folders, so nothing is converted."
+            : "It converts the new or changed images in these folders with \(pipeline) and "
+                + ExternalRequests.describe(job.output) + ":\n\n" + ExternalRequests.fileList(job.inputs)
+        let overwrite = job.output.kind == .overwrite && !job.inputs.isEmpty
         guard await confirm(
             title: "Run the job \(job.name)?",
-            message: "A link asks to run this job now. It converts the new or changed images in:\n\(folders)\n\n"
-                + "and " + ExternalRequests.describe(job.output) + ".",
+            message: "A link asks to run this job now. " + folders,
             confirm: overwrite ? "Run and Replace Originals" : "Run Job", destructive: overwrite) else { return }
         if !model.startJobRun(job, store: jobStore) {
             reportProblem(ExternalRequestError.busy, title: "Couldn't run the job")
         }
-    }
-}
-
-private enum LinkError: LocalizedError {
-    case rejected
-
-    var errorDescription: String? {
-        "An imageconverter link was malformed, too long, used an unknown action or named a file that can't be read."
     }
 }

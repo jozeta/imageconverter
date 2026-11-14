@@ -11,8 +11,8 @@
     * "Convert with imageconverter" calls ServicesProvider.convertWithImageconverter: adds the selected
       files and folders to the batch and shows the window.
     * "Convert with Preset 1…5" call convertWithPinnedPreset1…5. Service titles are static, so each is a slot:
-      slot n is the n-th preset, by name, that the user showed in Finder Quick Actions (preset menu More >
-      Show in Finder Quick Actions, at most 5). They run at once with the global output mode; overwrite mode
+      a preset gets the lowest free slot when the user shows it in Finder Quick Actions (preset menu More >
+      Show in Finder Quick Actions, at most 5) and keeps it (Preset.serviceSlot) until it is hidden again. They run at once with the global output mode; overwrite mode
       asks in the app first. An empty slot shows a hint in the app.
     * The slash in the titles puts them in an "imageconverter" submenu of Services. NSPortName must equal
       the bundle's CFBundleName. NSRequiredContext (empty) lets them show in Finder's Quick Actions without

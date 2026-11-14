@@ -6,6 +6,7 @@ public enum ExternalRequestError: Error, Equatable, Sendable {
     case tooManyFiles(max: Int)
     case unreadable(path: String)
     case notAFolder(path: String)
+    case notAFile(description: String)
     case unknownPreset(name: String)
     case unknownJob(name: String)
     case noOutputFolder
@@ -18,6 +19,8 @@ public enum ExternalRequestError: Error, Equatable, Sendable {
         case .noFiles: return "No files were given."
         case .tooManyFiles(let max): return "At most \(max) files can be given at once."
         case .unreadable(let path): return "\(path) doesn't exist or can't be read."
+        case .notAFile(let description):
+            return "\(description) isn't a file. Give an alias, a POSIX file or a full POSIX path such as \"/Users/me/a.jpg\"."
         case .notAFolder(let path): return "\(path) isn't a folder you can write to."
         case .unknownPreset(let name): return "There is no preset named \"\(name)\"."
         case .unknownJob(let name): return "There is no job named \"\(name)\"."
@@ -44,20 +47,35 @@ public struct ConvertPlan: Equatable, Sendable {
 public enum ExternalRequests {
     public static let maxFiles = 10_000
 
-    /// The files in an AppleScript parameter: one file or a list of files (aliases and `file` values arrive as
-    /// URLs). Nil when anything else is in it, so a typo'd parameter is an error, not an empty list.
-    public static func fileURLs(fromScriptValue value: Any?) -> [URL]? {
-        switch value {
-        case let url as URL: return [url]
-        case let list as [Any]:
-            var urls: [URL] = []
-            for element in list {
-                guard let url = element as? URL else { return nil }
-                urls.append(url)
+    /// The files in an AppleScript parameter: one or a list of aliases, `POSIX file` values (both arrive as
+    /// URLs) or full POSIX paths as text. Anything else, or a relative path, throws a message that says so.
+    public static func fileURLs(fromScriptValue value: Any?) throws -> [URL] {
+        func one(_ element: Any) throws -> URL {
+            if let url = element as? URL { return url }
+            if let path = element as? String {
+                guard path.hasPrefix("/") else { throw ExternalRequestError.notAFile(description: path) }
+                return URL(fileURLWithPath: path)
             }
-            return urls
-        default: return nil
+            throw ExternalRequestError.notAFile(description: String(describing: type(of: element)))
         }
+        switch value {
+        case nil: throw ExternalRequestError.noFiles
+        case let list as [Any]: return try list.map(one)
+        case let element?: return [try one(element)]
+        }
+    }
+
+    /// Up to `limit` paths, one per line, then "…and N more": what a confirmation lists.
+    public static func fileList(_ urls: [URL], limit: Int = 5) -> String {
+        let shown = urls.prefix(limit).map(\.path).joined(separator: "\n")
+        return urls.count > limit ? shown + "\n…and \(urls.count - limit) more" : shown
+    }
+
+    /// The body of a run confirmation: how many images, which preset (or pipeline), where they go, and which files.
+    public static func runSummary(files: [URL], pipelineName: String, mode: OutputMode) -> String {
+        let count = files.count
+        return "Converts \(count) \(count == 1 ? "image" : "images") with \(pipelineName) and "
+            + describe(mode) + ".\n\n" + fileList(files)
     }
 
     /// Where a run writes, for the confirmation that names what will happen.
@@ -139,26 +157,31 @@ public enum ExternalRequests {
 }
 
 /// The user presets shown as Finder services ("Show in Finder Quick Actions"). Services are declared in the
-/// app's Info.plist, so there is a fixed number of slots; slot n runs the n-th pinned preset by name.
+/// app's Info.plist, so there is a fixed number of slots; each pinned preset keeps its own slot number
+/// (`Preset.serviceSlot`) until it is unpinned, so renaming or (un)pinning others never moves it.
 public enum ServicePins {
     public static let maxPinned = 5
+    public static let slots = 1...maxPinned
 
-    /// The pinned user presets sorted by name, at most `maxPinned` (a hand-edited folder could pin more).
+    /// The user presets with a slot, in slot order; for a duplicated slot (hand-edited files) the first by name.
     public static func pinned(_ presets: [Preset]) -> [Preset] {
-        Array(presets.filter { $0.pinnedForServices && !$0.isBuiltIn }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-            .prefix(maxPinned))
+        slots.compactMap { preset(forSlot: $0, in: presets) }
     }
 
-    /// Slot 1...maxPinned; nil when the slot is empty.
+    /// The user preset in `slot`, or nil when the slot is empty.
     public static func preset(forSlot slot: Int, in presets: [Preset]) -> Preset? {
-        let list = pinned(presets)
-        guard slot >= 1, slot <= list.count else { return nil }
-        return list[slot - 1]
+        presets.filter { !$0.isBuiltIn && $0.serviceSlot == slot }
+            .min { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    /// Pinning `id` is allowed while fewer than `maxPinned` other presets are pinned; unpinning always is.
+    /// The lowest slot no user preset uses, or nil when all are taken.
+    public static func freeSlot(in presets: [Preset]) -> Int? {
+        let used = Set(presets.filter { !$0.isBuiltIn }.compactMap(\.serviceSlot))
+        return slots.first { !used.contains($0) }
+    }
+
+    /// Pinning `id` is allowed while a slot is free (or it already has one); unpinning always is.
     public static func canPin(_ id: UUID, in presets: [Preset]) -> Bool {
-        presets.filter { $0.pinnedForServices && !$0.isBuiltIn && $0.id != id }.count < maxPinned
+        presets.contains { $0.id == id && $0.pinnedForServices } || freeSlot(in: presets) != nil
     }
 }
