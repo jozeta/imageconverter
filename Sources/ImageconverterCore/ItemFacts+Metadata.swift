@@ -127,7 +127,7 @@ extension ItemFacts {
     /// EXIF dates have no time zone: read as the Mac's wall clock.
     private static func exifDate(_ raw: Any?) -> Date? {
         guard let text = raw as? String else { return nil }
-        return formatter("yyyy:MM:dd HH:mm:ss").date(from: String(text.prefix(19)))
+        return exifFormatter.date(from: String(text.prefix(19)))
     }
 
     /// The XMP date created (`2024-05-01T10:20:30`, or a day only), its zone ignored like EXIF's.
@@ -136,13 +136,18 @@ extension ItemFacts {
         for path in ["exif:DateTimeOriginal", "photoshop:DateCreated", "xmp:CreateDate"] {
             guard let text = CGImageMetadataCopyStringValueWithPath(metadata, nil, path as CFString) as String?
             else { continue }
-            if text.count >= 19, let date = formatter("yyyy-MM-dd'T'HH:mm:ss").date(from: String(text.prefix(19))) {
+            if text.count >= 19, let date = xmpFormatter.date(from: String(text.prefix(19))) {
                 return date
             }
-            if text.count >= 10, let date = formatter("yyyy-MM-dd").date(from: String(text.prefix(10))) { return date }
+            if text.count >= 10, let date = dayFormatter.date(from: String(text.prefix(10))) { return date }
         }
         return nil
     }
+
+    // Made once: a batch parses the same few formats over and over (DateFormatter is thread-safe).
+    private static let exifFormatter = formatter("yyyy:MM:dd HH:mm:ss")
+    private static let xmpFormatter = formatter("yyyy-MM-dd'T'HH:mm:ss")
+    private static let dayFormatter = formatter("yyyy-MM-dd")
 
     private static func formatter(_ format: String) -> DateFormatter {
         let formatter = DateFormatter()

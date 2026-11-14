@@ -37,8 +37,9 @@ extension BatchRunner {
     /// Skipped items take no name and no counter number, but their files stay reserved in the plan. Items whose
     /// `fileKey` is in `busy` (held by another run) are skipped with `ActiveSources.busyReason`.
     static func planRun(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode, maxPixels: Int,
-                        busy: Set<String> = []) async -> RunPlan? {
-        guard var resolved = await resolveAll(items, pipeline: pipeline, maxPixels: maxPixels) else { return nil }
+                        busy: Set<String> = [], presets: PresetLibrary = .standard) async -> RunPlan? {
+        guard var resolved = await resolveAll(items, pipeline: pipeline, maxPixels: maxPixels, presets: presets)
+        else { return nil }
         let busyIndices = Set(items.indices.filter { busy.contains(items[$0].fileKey) })
         for index in busyIndices {
             resolved[index] = ResolvedPipeline(pipeline: pipeline.withoutConditions, disposition: .skip,
@@ -46,9 +47,12 @@ extension BatchRunner {
         }
         let active = items.indices.filter { resolved[$0].disposition != .skip }
         var jobs = active.map { resolved[$0] }
-        guard let baseNames = renderedBaseNames(active.map { items[$0] }, jobs: jobs),
+        guard let (baseNames, slowNames) = renderedBaseNames(active.map { items[$0] }, jobs: jobs),
               let extras = renderedExtras(active.map { items[$0] }, jobs: jobs) else { return nil }
         for index in jobs.indices {
+            if slowNames.contains(index), !jobs[index].notes.contains(BoundedRegex.timeoutNote) {
+                jobs[index].notes.append(BoundedRegex.timeoutNote)
+            }
             jobs[index].notes += extras[index].notes
             if mode == .overwrite, jobs[index].subfolder != nil { jobs[index].notes.append(Self.subfolderIgnoredNote) }
         }
@@ -106,9 +110,10 @@ extension BatchRunner {
     /// What `run` would do with each item, without writing anything: conditions resolved, names rendered and
     /// destinations planned by the same path the batch uses. In input order; nil when the task is cancelled.
     public static func plan(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode,
-                            maxPixels: Int = 250_000_000) async -> [PlannedFile]? {
+                            maxPixels: Int = 250_000_000, presets: PresetLibrary = .standard) async -> [PlannedFile]? {
         let items = InputItem.unique(items)
-        guard let run = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels) else { return nil }
+        guard let run = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, presets: presets)
+        else { return nil }
         var byPlan: [URL: (PlannedOutput, Disposition)] = [:]
         for (plan, job) in zip(run.plans, run.jobs) { byPlan[plan.item.source] = (plan, job.disposition) }
         return items.map { item in
@@ -124,10 +129,17 @@ extension BatchRunner {
     static func process(_ plan: PlannedOutput, job: ResolvedPipeline, assets: WatermarkAssets, maxPixels: Int,
                         trash: Trasher, options: ItemRunOptions = ItemRunOptions())
         -> (Result<WrittenItem?, ConversionError>, Int?) {
-        // Refused by the planner (a second plan for one original): fail before anything is read or written.
-        if plan.isRefused { return (.failure(.writeFailed("Invalid output plan")), fileSize(plan.item.source)) }
+        // Refused by the planner (a second plan for one original, or no free name): fail before anything is read
+        // or written.
+        if plan.isRefused {
+            return (.failure(.writeFailed(plan.failureReason ?? "Invalid output plan")), fileSize(plan.item.source))
+        }
         if job.disposition == .copyOriginal {
             options.stage(.writing)
+            // Overwrite mode leaves the original as it is: an untouched original is never tagged.
+            guard !plan.replacesSource || job.finderTags.isEmpty else {
+                return copyOriginal(plan, trash: trash, notes: job.notes + [FinderTags.untouchedNote])
+            }
             return tagged(copyOriginal(plan, trash: trash, notes: job.notes), tags: job.finderTags)
         }
         // A watermark image that can't be read fails every file using it, before its source is decoded.
@@ -161,7 +173,8 @@ extension BatchRunner {
     /// Each item's pipeline with its conditions resolved, from header-only facts (plus a small alpha scan when a
     /// condition asks about transparency), read a few at a time and returned in input order. Nil when the task
     /// is cancelled part-way.
-    static func resolveAll(_ items: [InputItem], pipeline: Pipeline, maxPixels: Int) async -> [ResolvedPipeline]? {
+    static func resolveAll(_ items: [InputItem], pipeline: Pipeline, maxPixels: Int,
+                           presets: PresetLibrary = .standard) async -> [ResolvedPipeline]? {
         guard pipeline.hasConditions else {
             let plain = ResolvedPipeline(pipeline: pipeline.withoutConditions)
             return items.map { _ in plain }
@@ -173,7 +186,7 @@ extension BatchRunner {
                 let index = next
                 let url = items[index].source
                 next += 1
-                group.addTask { (index, pipeline.resolved(forSource: url, maxPixels: maxPixels)) }
+                group.addTask { (index, pipeline.resolved(forSource: url, maxPixels: maxPixels, presets: presets)) }
             }
             while next < min(items.count, factReaders) { startNext() }
             while let (index, result) = await group.next() {
@@ -190,21 +203,28 @@ extension BatchRunner {
         return resolved.compactMap { $0 }
     }
 
-    /// One pipeline holding every image step the items use, so each watermark image is loaded once per batch.
-    private static func assetPipeline(_ pipeline: Pipeline, resolved: [ResolvedPipeline]) -> Pipeline {
+    /// One pipeline holding every image-watermark step the items use, once per image path (not per step id: steps
+    /// a preset brings keep the preset's ids, which can repeat with another image), so each watermark image is
+    /// loaded once per batch.
+    static func assetPipeline(_ pipeline: Pipeline, resolved: [ResolvedPipeline]) -> Pipeline {
         guard pipeline.hasConditions else { return pipeline }
         var union = pipeline
-        var seen = Set<UUID>()
-        union.steps = resolved.filter { $0.disposition == .process }.flatMap(\.pipeline.steps)
-            .filter { seen.insert($0.id).inserted }
+        var seen = Set<String>()
+        union.steps = resolved.filter { $0.disposition == .process }.flatMap(\.pipeline.steps).filter { step in
+            guard step.isEnabled, case .watermark(let options) = step.operation,
+                  case .image(let watermark) = options.content else { return false }
+            return seen.insert(watermark.path).inserted
+        }
         return union
     }
 
     /// Renders each item's rename template, serially in input order (the counter depends on it); an item whose
     /// pipeline doesn't rename gets nil. Nil when the task is cancelled part-way (nothing is written then).
     /// The header and creation date are only read when the template uses them.
-    private static func renderedBaseNames(_ items: [InputItem], jobs: [ResolvedPipeline]) -> [String?]? {
+    /// Also returns the positions whose find-and-replace pattern was stopped for taking too long.
+    private static func renderedBaseNames(_ items: [InputItem], jobs: [ResolvedPipeline]) -> ([String?], Set<Int>)? {
         var names: [String?] = []
+        var slow = Set<Int>()
         names.reserveCapacity(items.count)
         for (index, (item, job)) in zip(items, jobs).enumerated() {
             guard job.pipeline.rename.isActive else {
@@ -212,11 +232,13 @@ extension BatchRunner {
                 continue
             }
             if Task.isCancelled { return nil }
-            guard let name = RenameRendering.baseName(for: item, index: index, pipeline: job.pipeline,
-                                                      isCopy: job.disposition == .copyOriginal) else { return nil }
-            names.append(name)
+            guard let rendered = RenameRendering.checkedBaseName(for: item, index: index, pipeline: job.pipeline,
+                                                                 isCopy: job.disposition == .copyOriginal)
+            else { return nil }
+            names.append(rendered.name)
+            if rendered.timedOut { slow.insert(index) }
         }
-        return names
+        return (names, slow)
     }
 
     /// Writes the source's bytes unchanged (no decode) through the same atomic commit. Overwrite mode plans

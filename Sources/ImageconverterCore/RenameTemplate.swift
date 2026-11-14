@@ -183,7 +183,7 @@ public struct RenameTemplate: Equatable, Sendable {
         Self.sanitize(joined(context))
     }
 
-    /// Text for a report line: token values as they are (no file-name rules), control characters removed,
+    /// Text for a report line: token values as they are (no file-name rules), control and format characters removed,
     /// at most `ConditionalAction.maxNoteLength` characters.
     public func renderText(_ context: RenameContext) -> String {
         var out = ""
@@ -194,7 +194,12 @@ public struct RenameTemplate: Equatable, Sendable {
                 out += Self.knownTokens.contains(name) ? Self.value(of: name, arg: arg, context: context) : raw
             }
         }
-        return String(MetadataFields.sanitized(out).trimmingCharacters(in: .whitespacesAndNewlines)
+        // As for names: no control, bidi, zero-width or other format characters (metadata could spoof the report).
+        let scalars = out.unicodeScalars.filter {
+            $0.properties.generalCategory != .control && $0.properties.generalCategory != .format
+                && !Self.invisible.contains($0.value)
+        }
+        return String(String(String.UnicodeScalarView(scalars)).trimmingCharacters(in: .whitespacesAndNewlines)
             .prefix(ConditionalAction.maxNoteLength))
     }
 

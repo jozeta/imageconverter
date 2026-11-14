@@ -111,9 +111,27 @@ public enum ConditionCheck: Codable, Equatable, Sendable {
         }
     }
 
-    // One case per check keeps every test in one place.
-    // swiftlint:disable:next cyclomatic_complexity
     public func matches(_ facts: ItemFacts) -> Bool {
+        var timedOut = false
+        return matches(facts, timedOut: &timedOut)
+    }
+
+    /// False when the value this check reads is missing from the file (presence checks always have a value).
+    func hasValue(in facts: ItemFacts) -> Bool {
+        switch self {
+        case .date(let field, let rule): return rule == .exists || facts.date(field) != nil
+        case .metadata(let test): return !test.operation.takesValue || !facts.values(of: test.subject).isEmpty
+        case .camera: return facts.make != nil || facts.model != nil
+        case .bitDepth: return facts.bitsPerComponent != nil
+        case .colorSpace: return facts.colorModel != nil || facts.profileName != nil
+        default: return true
+        }
+    }
+
+    // One case per check keeps every test in one place.
+    // swiftlint:disable cyclomatic_complexity
+    /// As `matches`; `timedOut` is set when a name pattern was stopped (it then doesn't match).
+    func matches(_ facts: ItemFacts, timedOut: inout Bool) -> Bool {
         switch self {
         case .longestEdge(let comparison, let value): return comparison.test(max(facts.width, facts.height), value)
         case .width(let comparison, let value): return comparison.test(facts.width, value)
@@ -124,7 +142,7 @@ public enum ConditionCheck: Codable, Equatable, Sendable {
         case .orientation(let wanted): return Orientation(width: facts.width, height: facts.height) == wanted
         case .hasGPS(let wanted): return facts.hasGPS == wanted
         case .camera(let text): return Self.contains([facts.make, facts.model].compactMap { $0 }, text)
-        case .name(let match): return match.matches(facts.fileName)
+        case .name(let match): return match.matches(facts.fileName, timedOut: &timedOut)
         case .fileExtension(let list):
             let ext = Self.normalizedExtension(facts.fileExtension)
             return list.contains { Self.normalizedExtension($0) == ext }
@@ -134,6 +152,7 @@ public enum ConditionCheck: Codable, Equatable, Sendable {
         default: return matchesImage(facts)
         }
     }
+    // swiftlint:enable cyclomatic_complexity
 
     private func matchesImage(_ facts: ItemFacts) -> Bool {
         switch self {
@@ -146,7 +165,10 @@ public enum ConditionCheck: Codable, Equatable, Sendable {
         case .colorSpace(let kind):
             return ColorSpaceKind(colorModel: facts.colorModel, profileName: facts.profileName) == kind
         case .hasProfile: return facts.profileName != nil
-        case .dpi(let comparison, let value): return comparison.test(Int((facts.dpi ?? 72).rounded()), value)
+        case .dpi(let comparison, let value):
+            // Untrusted headers: anything not a sane number counts as missing (72).
+            let dpi = facts.dpi.flatMap { $0.isFinite && $0 >= 0 && $0 <= Double(Self.maxDPI) * 10 ? $0 : nil } ?? 72
+            return comparison.test(Int(dpi.rounded()), value)
         case .isRotated: return facts.exifOrientation != 1
         case .isAnimated: return facts.frameCount > 1
         default: return false

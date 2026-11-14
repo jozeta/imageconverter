@@ -63,7 +63,24 @@ public struct Condition: Codable, Equatable, Sendable {
     /// False for values out of range (e.g. from a hand-edited preset); such conditions are dropped on load.
     public var isValid: Bool { check.isValid }
 
-    public func matches(_ facts: ItemFacts) -> Bool { check.matches(facts) != negated }
+    public func matches(_ facts: ItemFacts) -> Bool {
+        var timedOut = false
+        return matches(facts, timedOut: &timedOut)
+    }
+
+    /// Whether the condition holds. A check whose value the file doesn't have (no date taken, no ISO, no camera, …)
+    /// is false in both forms: "is not before 2020" doesn't match an undated file. Only the explicit presence
+    /// checks ("has no date taken", "is missing", "has no location") match missing values.
+    public func matches(_ facts: ItemFacts, timedOut: inout Bool) -> Bool {
+        guard check.hasValue(in: facts) else { return false }
+        var stopped = false
+        let result = check.matches(facts, timedOut: &stopped)
+        if stopped {
+            timedOut = true
+            return false
+        }
+        return result != negated
+    }
 
     /// The same condition, negated the other way.
     public var inverted: Condition { Condition(check, negated: !negated) }
@@ -120,6 +137,7 @@ public struct ConditionalStep: Codable, Equatable, Sendable {
     public static let skippedReason = "Skipped by a condition"
     public static let copiedNote = "Copied unchanged"
     public static let convertedForPrivacyNote = "Converted instead of copied to remove metadata"
+    public static let ignoredForCopyPrefix = "Ignored for a copied original: "
 
     public var match: Match
     /// 1...10 conditions.
@@ -136,9 +154,21 @@ public struct ConditionalStep: Codable, Equatable, Sendable {
     }
 
     public func matches(_ facts: ItemFacts) -> Bool {
+        var timedOut = false
+        return matches(facts, timedOut: &timedOut)
+    }
+
+    /// As `matches`, setting `timedOut` when a name pattern was stopped for taking too long (it counts as no
+    /// match). Every condition is evaluated in order until the result is known.
+    public func matches(_ facts: ItemFacts, timedOut: inout Bool) -> Bool {
         switch match {
-        case .all: return !conditions.isEmpty && conditions.allSatisfy { $0.matches(facts) }
-        case .any: return conditions.contains { $0.matches(facts) }
+        case .all:
+            guard !conditions.isEmpty else { return false }
+            for condition in conditions where !condition.matches(facts, timedOut: &timedOut) { return false }
+            return true
+        case .any:
+            for condition in conditions where condition.matches(facts, timedOut: &timedOut) { return true }
+            return false
         }
     }
 

@@ -9,7 +9,7 @@ extension BatchRunner {
         _ items: [InputItem], pipeline: Pipeline, mode: OutputMode, maxPixels: Int = 250_000_000,
         concurrency: Int = ProcessInfo.processInfo.activeProcessorCount,
         memoryBudgetPixels: Int = BatchRunner.defaultMemoryBudgetPixels, trash: @escaping Trasher = systemTrash,
-        control: BatchControl? = nil, journal: URL? = nil, hooks: BatchHooks,
+        control: BatchControl? = nil, journal: URL? = nil, presets: PresetLibrary = .standard, hooks: BatchHooks,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in },
         events: @escaping @Sendable (ItemEvent) -> Void = { _ in }
     ) async -> BatchReport {
@@ -24,7 +24,8 @@ extension BatchRunner {
         writer?.writeNow()
         // A normal finish and a cancel both end here; only a crash or a forced quit leaves the journal.
         defer { writer?.remove() }
-        guard let plan = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, busy: busy),
+        guard let plan = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, busy: busy,
+                                           presets: presets),
               !Task.isCancelled
         else { return BatchReport(cancelled: true) }
         // Temp files never collide with planned names, so this can wait until every destination folder is known.
@@ -281,6 +282,12 @@ final class BatchScheduler {
             outcomes[index] = .success(written)
             finish(index, .done, result: result, outputBytes: written.outputBytes)
             writer?.markCompleted(plan.planIndices[index])
+        case .failure(let error) where error.outputWasCommitted:
+            // Written, only the Trash failed: done with a warning, as the final report lists it (not a failure in
+            // the live count), and resuming would convert it again into `name_2`.
+            outcomes[index] = .failure(error)
+            finish(index, .done, result: result, outputBytes: BatchRunner.fileSize(plan.plans[index].destination))
+            writer?.markCompleted(plan.planIndices[index])
         case .failure(let error):
             outcomes[index] = .failure(error)
             if attempts[index] == 1, error.isRetryable {
@@ -290,8 +297,6 @@ final class BatchScheduler {
             }
             failed += 1
             finish(index, .failed(error.reason), result: result, outputBytes: nil)
-            // Written, only the Trash failed: resuming would convert it again into `name_2`.
-            if error.outputWasCommitted { writer?.markCompleted(plan.planIndices[index]) }
         }
     }
 

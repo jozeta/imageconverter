@@ -41,6 +41,8 @@ public enum FinderTags {
     public static let maxTags = 20
     public static let maxLength = 64
     public static let failedNote = "Finder tags couldn't be added"
+    /// Overwrite mode leaves a copied original as it is, and an untouched original is never tagged.
+    public static let untouchedNote = "Finder tags not added: the original was left as it is"
 
     /// Tags cleaned for writing: no control characters, trimmed, at most 64 characters, repeats (ignoring
     /// case) and empty ones dropped, at most 20.

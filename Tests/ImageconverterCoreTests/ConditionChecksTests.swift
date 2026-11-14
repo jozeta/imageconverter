@@ -97,18 +97,11 @@ final class ConditionChecksTests: XCTestCase {
         let item = facts { $0.created = Date() }
         check(.date(.taken, .exists), item, false)
         XCTAssertTrue(Condition(.date(.taken, .exists), negated: true).matches(item), "has no date taken")
-        check(.date(.taken, .inYear(2024)), item, false)
-        check(.date(.taken, .withinLastDays(30)), item, false)
-    }
-
-    func testDateValidity() {
-        XCTAssertFalse(CalendarDay(year: 2026, month: 2, day: 30).isValid)
-        XCTAssertTrue(CalendarDay(year: 2024, month: 2, day: 29).isValid)
-        XCTAssertFalse(ConditionCheck.date(.taken, .inMonth(13)).isValid)
-        XCTAssertFalse(ConditionCheck.date(.taken, .withinLastDays(0)).isValid)
-        XCTAssertFalse(ConditionCheck.date(.taken, .inYear(99)).isValid)
-        XCTAssertTrue(ConditionCheck.date(.created, .between(CalendarDay(year: 2020, month: 1, day: 1),
-                                                             CalendarDay(year: 2021, month: 1, day: 1))).isValid)
+        // A value rule on a missing date is false in both forms: an undated file isn't "not in 2024" either.
+        for rule in [DateRule.inYear(2024), .withinLastDays(30), .before(CalendarDay(year: 2020, month: 1, day: 1))] {
+            XCTAssertFalse(Condition(.date(.taken, rule)).matches(item), "\(rule)")
+            XCTAssertFalse(Condition(.date(.taken, rule), negated: true).matches(item), "not \(rule)")
+        }
     }
 
     // MARK: Metadata
@@ -144,8 +137,9 @@ final class ConditionChecksTests: XCTestCase {
         check(.metadata(MetadataTest(.named(.aperture), .atMost, "2.8")), item, true)
         check(.metadata(MetadataTest(.named(.shutterSpeed), .equals, "1/250")), item, true)
         check(.metadata(MetadataTest(.named(.shutterSpeed), .greaterThan, "1/125")), item, false)
-        // A missing number matches no comparison (and so its negation matches).
-        check(.metadata(MetadataTest(.named(.iso), .greaterThan, "1")), facts(), false)
+        // A missing number matches no comparison, in either form.
+        XCTAssertFalse(Condition(.metadata(MetadataTest(.named(.iso), .greaterThan, "1"))).matches(facts()))
+        XCTAssertFalse(Condition(.metadata(MetadataTest(.named(.iso), .greaterThan, "1")), negated: true).matches(facts()))
         XCTAssertEqual(MetadataTest.number("1/250"), 0.004)
         XCTAssertNil(MetadataTest.number("fast"))
     }
@@ -255,5 +249,102 @@ final class ConditionChecksTests: XCTestCase {
         """
         let decoded = try JSONDecoder().decode(ConditionalStep.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.conditions, [Condition(.isAnimated, negated: true)])
+    }
+}
+
+/// Fix round 1: missing values, pattern time limits, calendar days and untrusted DPI.
+extension ConditionChecksTests {
+    func testNegatedChecksOnMissingValuesAreFalse() {
+        let bare = facts {
+            $0.make = nil
+            $0.model = nil
+        }
+        let negatedMissing: [ConditionCheck] = [
+            .metadata(MetadataTest(.named(.iso), .greaterThan, "1600")), .metadata(MetadataTest(.named(.lens), .contains, "50")),
+            .metadata(MetadataTest(.named(.copyright), .equals, "Me")), .camera(contains: "Canon"), .bitDepth(.eight),
+            .colorSpace(.sRGB),
+        ]
+        for check in negatedMissing {
+            XCTAssertFalse(Condition(check).matches(bare), "\(check)")
+            XCTAssertFalse(Condition(check, negated: true).matches(bare), "not \(check)")
+        }
+        // The explicit presence checks still match missing values.
+        XCTAssertTrue(Condition(.metadata(MetadataTest(.named(.copyright), .missing))).matches(bare))
+        XCTAssertTrue(Condition(.metadata(MetadataTest(.named(.copyright), .exists)), negated: true).matches(bare))
+        XCTAssertTrue(Condition(.hasProfile, negated: true).matches(bare), "has no color profile")
+        XCTAssertTrue(Condition(.hasGPS(true), negated: true).matches(bare))
+        // With the value present, negation works as usual.
+        XCTAssertTrue(Condition(.camera(contains: "Canon"), negated: true).matches(facts()))
+    }
+
+    func testRegexTimeLimit() {
+        var item = facts()
+        item.fileName = String(repeating: "a", count: 40) + "b"
+        let slow = TextMatch(.matchesRegex, "(a+)+$")
+        var timedOut = false
+        let started = Date()
+        XCTAssertFalse(slow.matches(item.fileName, timedOut: &timedOut))
+        XCTAssertTrue(timedOut)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1, "stopped after about 50 ms")
+        // A stopped pattern is no match in both forms, and the resolution says so.
+        timedOut = false
+        XCTAssertFalse(Condition(.name(slow), negated: true).matches(item, timedOut: &timedOut))
+        XCTAssertTrue(timedOut)
+        let pipeline = Pipeline(steps: [PipelineStep(operation: .condition(ConditionalStep(
+            conditions: [Condition(.name(slow))], then: [.skip])))])
+        let resolved = pipeline.resolved(for: item)
+        XCTAssertEqual(resolved.disposition, .process)
+        XCTAssertEqual(resolved.notes, [BoundedRegex.timeoutNote])
+        // A quick pattern is unaffected.
+        timedOut = false
+        XCTAssertTrue(TextMatch(.matchesRegex, "a+b$").matches(item.fileName, timedOut: &timedOut))
+        XCTAssertFalse(timedOut)
+    }
+
+    func testRenameRegexTimeLimit() {
+        let name = String(repeating: "a", count: 40) + "b"
+        var timedOut = false
+        XCTAssertEqual(NameReplacement.apply(name, find: "(a+)+$", replace: "x", regex: true, timedOut: &timedOut), name)
+        XCTAssertTrue(timedOut)
+        timedOut = false
+        XCTAssertEqual(NameReplacement.apply("a-b-c", find: "-(\\w)", replace: "_$1", regex: true, timedOut: &timedOut),
+                       "a_b_c")
+        XCTAssertFalse(timedOut)
+    }
+
+    func testWithinLastDaysCountsCalendarDaysAcrossDaylightSaving() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try XCTUnwrap(TimeZone(identifier: "Europe/Stockholm"))
+        func local(_ month: Int, _ day: Int, _ hour: Int, _ minute: Int) -> Date {
+            calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute))!
+        }
+        // Clocks went back on 25 October: 24 h 50 min passed, but it was yesterday.
+        let now = local(10, 26, 0, 30)
+        XCTAssertTrue(DateRule.withinLastDays(1).matches(local(10, 25, 0, 40), now: now, calendar: calendar))
+        XCTAssertFalse(DateRule.withinLastDays(1).matches(local(10, 24, 23, 50), now: now, calendar: calendar))
+        // Clocks went forward on 29 March: still yesterday, and two days back is still two days.
+        let spring = local(3, 30, 23, 50)
+        XCTAssertTrue(DateRule.withinLastDays(1).matches(local(3, 29, 0, 10), now: spring, calendar: calendar))
+        XCTAssertTrue(DateRule.withinLastDays(2).matches(local(3, 28, 0, 10), now: spring, calendar: calendar))
+        XCTAssertFalse(DateRule.withinLastDays(2).matches(local(3, 27, 23, 59), now: spring, calendar: calendar))
+        XCTAssertFalse(DateRule.withinLastDays(2).matches(spring.addingTimeInterval(60), now: spring, calendar: calendar),
+                       "the future isn't in the last days")
+    }
+
+    func testDPIFromUntrustedHeadersNeverTraps() {
+        for bad in [Double.infinity, -Double.infinity, .nan, 1e30, -5] {
+            let item = facts { $0.dpi = bad }
+            XCTAssertTrue(Condition(.dpi(.atMost, 72)).matches(item), "\(bad) counts as 72")
+        }
+    }
+
+    func testDateValidity() {
+        XCTAssertFalse(CalendarDay(year: 2026, month: 2, day: 30).isValid)
+        XCTAssertTrue(CalendarDay(year: 2024, month: 2, day: 29).isValid)
+        XCTAssertFalse(ConditionCheck.date(.taken, .inMonth(13)).isValid)
+        XCTAssertFalse(ConditionCheck.date(.taken, .withinLastDays(0)).isValid)
+        XCTAssertFalse(ConditionCheck.date(.taken, .inYear(99)).isValid)
+        XCTAssertTrue(ConditionCheck.date(.created, .between(CalendarDay(year: 2020, month: 1, day: 1),
+                                                             CalendarDay(year: 2021, month: 1, day: 1))).isValid)
     }
 }

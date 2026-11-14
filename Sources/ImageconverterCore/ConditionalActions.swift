@@ -71,31 +71,44 @@ public struct PresetLink: Codable, Equatable, Hashable, Sendable {
     public var missingNote: String { "Preset “\(name)” wasn't found, so it wasn't applied" }
 }
 
-/// The presets an "Apply preset" action can use: the built-ins and the files in one presets folder (the app's,
-/// or the command line's), read again whenever the folder changes. One per process.
+/// The presets an "Apply preset" action can use: the built-ins and the files of one presets folder, read again
+/// whenever the folder changes. One instance per folder (`folder(_:)`); the app, the command line and each job
+/// pass the one for their own folder, and `standard` is the default folder's.
 public final class PresetLibrary: @unchecked Sendable {
-    public static let shared = PresetLibrary()
-
+    private let directory: URL?
     private let lock = NSLock()
-    private var directory = PresetStore.defaultDirectory
     private var presets: [UUID: Preset] = [:]
     /// The folder's modification date when it was last read; nil before the first read.
     private var stamp: Date??
 
-    public init() {}
-
-    /// Reads presets from `directory` from now on.
-    public func use(directory: URL) {
-        lock.lock()
-        defer { lock.unlock() }
-        guard directory.standardizedFileURL != self.directory.standardizedFileURL else { return }
+    private init(directory: URL?) {
         self.directory = directory
-        stamp = nil
     }
+
+    private static let registryLock = NSLock()
+    nonisolated(unsafe) private static var registry: [String: PresetLibrary] = [:]
+
+    /// The library of `directory`, shared by everyone who asks for that folder.
+    public static func folder(_ directory: URL) -> PresetLibrary {
+        let key = directory.standardizedFileURL.path
+        registryLock.lock()
+        defer { registryLock.unlock() }
+        if let library = registry[key] { return library }
+        let library = PresetLibrary(directory: directory.standardizedFileURL)
+        registry[key] = library
+        return library
+    }
+
+    /// The default presets folder's library.
+    public static var standard: PresetLibrary { folder(PresetStore.defaultDirectory) }
+
+    /// Only the built-in presets (no folder).
+    public static let builtInsOnly = PresetLibrary(directory: nil)
 
     /// The preset with `id`, or nil when there is none.
     public func preset(id: UUID) -> Preset? {
         if let builtIn = PresetStore.builtIns.first(where: { $0.id == id }) { return builtIn }
+        guard let directory else { return nil }
         lock.lock()
         defer { lock.unlock() }
         // A fresh URL: a URL caches its resource values. Saving, renaming or deleting a preset changes the folder.

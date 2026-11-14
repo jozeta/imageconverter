@@ -82,11 +82,11 @@ public actor PreviewRenderer {
     /// file for `mode` (nil: new-folder mode with no folder yet, named as if a folder existed). It
     /// plans the one item alone, so the batch's collision numbers (`_2`) are not shown.
     /// Conditions are resolved for this item first (from its header), so the preview shows its own branch.
-    public func render(item: InputItem, index: Int, pipeline unresolved: Pipeline, mode: OutputMode? = nil) async
-        -> PreviewOutcome {
+    public func render(item: InputItem, index: Int, pipeline unresolved: Pipeline, mode: OutputMode? = nil,
+                       presets: PresetLibrary = .standard) async -> PreviewOutcome {
         let cancelled = PreviewOutcome.failed(reason: "Cancelled")
         if Task.isCancelled { return cancelled }
-        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels)
+        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         let pipeline = resolved.pipeline
         if resolved.disposition != .process { return unchanged(item: item, index: index, resolved: resolved, mode: mode) }
         let assets = watermarkAssets(for: pipeline)

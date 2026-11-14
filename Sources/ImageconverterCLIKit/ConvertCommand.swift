@@ -39,7 +39,8 @@ enum ConvertCommand {
         let progress = CLIRunner.progressReporter(quiet: options.quiet || options.json, environment: environment)
         let batch = await environment.cancel.run {
             await BatchRunner.run(items, pipeline: pipeline, mode: mode, trash: environment.trash,
-                                  control: environment.control, progress: progress)
+                                  control: environment.control, presets: PresetLibrary.folder(environment.presetDirectory),
+                                  progress: progress)
         }
         var report = ProcessingReport(batch: batch, total: items.count, outputMode: mode.kind.rawValue,
                                       presetName: presetName, startedAt: started, finishedAt: Date())
@@ -80,8 +81,6 @@ enum ConvertCommand {
     // MARK: pipeline
 
     static func resolvePipeline(_ options: ConvertOptions, environment: CLIEnvironment) throws -> (Pipeline, String?) {
-        // "Apply preset" actions in conditions read this folder's presets.
-        PresetLibrary.shared.use(directory: environment.presetDirectory)
         var pipeline = Pipeline()
         var presetName: String?
         if let name = options.preset {
@@ -146,7 +145,8 @@ enum ConvertCommand {
         let (items, missing, pipeline, mode) = (setup.items, setup.missing, setup.pipeline, setup.mode)
         let started = Date()
         let planned = await environment.cancel.run {
-            await BatchRunner.plan(items, pipeline: pipeline, mode: mode)
+            await BatchRunner.plan(items, pipeline: pipeline, mode: mode,
+                                   presets: PresetLibrary.folder(environment.presetDirectory))
         }
         guard let planned else { return CLIExit.interrupted }
         let entries = planned.map { file -> ReportEntry in

@@ -56,11 +56,21 @@ public struct TextMatch: Codable, Equatable, Sendable {
     }
 
     public func matches(_ value: String) -> Bool {
+        var timedOut = false
+        return matches(value, timedOut: &timedOut)
+    }
+
+    /// As `matches`; a pattern that takes longer than `BoundedRegex.timeLimit` doesn't match and sets `timedOut`.
+    public func matches(_ value: String, timedOut: inout Bool) -> Bool {
         guard !text.isEmpty else { return false }
         if operation == .matchesRegex {
             let options: NSRegularExpression.Options = ignoresCase ? [.caseInsensitive] : []
             guard let regex = try? NSRegularExpression(pattern: text, options: options) else { return false }
-            return regex.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) != nil
+            guard let found = BoundedRegex.firstMatch(regex, in: value) else {
+                timedOut = true
+                return false
+            }
+            return found
         }
         let options: String.CompareOptions = ignoresCase ? [.caseInsensitive, .diacriticInsensitive] : []
         switch operation {
@@ -162,17 +172,19 @@ public enum DateRule: Codable, Equatable, Sendable {
         }
     }
 
-    /// Whether `date` passes; a missing date passes nothing.
-    public func matches(_ date: Date?, now: Date) -> Bool {
+    /// Whether `date` passes; a missing date passes nothing. Days are calendar days in `calendar` (the Mac's time
+    /// zone): "within the last 1 day" is today and yesterday, whatever the clock time or a daylight-saving change.
+    public func matches(_ date: Date?, now: Date, calendar: Calendar = CalendarDay.calendar) -> Bool {
         guard let date else { return false }
-        let day = CalendarDay(date)
+        let day = CalendarDay(date, calendar: calendar)
         switch self {
         case .exists: return true
         case .before(let limit): return day < limit
         case .after(let limit): return day > limit
         case .between(let from, let until): return min(from, until) <= day && day <= max(from, until)
         case .withinLastDays(let days):
-            return date <= now && date >= now.addingTimeInterval(-Double(days) * 86_400)
+            guard let first = calendar.date(byAdding: .day, value: -days, to: now) else { return false }
+            return date <= now && day >= CalendarDay(first, calendar: calendar)
         case .inYear(let year): return day.year == year
         case .inMonth(let month): return day.month == month
         }

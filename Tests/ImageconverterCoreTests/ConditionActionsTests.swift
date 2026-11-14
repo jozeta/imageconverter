@@ -14,7 +14,6 @@ final class ConditionActionsTests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
-        PresetLibrary.shared.use(directory: PresetStore.defaultDirectory)
         try? FileManager.default.removeItem(at: root)
     }
 
@@ -151,8 +150,7 @@ final class ConditionActionsTests: XCTestCase {
             steps: [resize, disabled, inner], output: OutputSettings(format: .png),
             rename: RenameOptions(isEnabled: true, pattern: "{name}_thumb")))
         try store.save(saved)
-        let library = PresetLibrary()
-        library.use(directory: directory)
+        let library = PresetLibrary.folder(directory)
         let crop = PipelineStep(operation: .crop(CropOptions()))
         var base = pipeline([.preset(PresetLink(saved))])
         base.steps.append(crop)
@@ -172,10 +170,10 @@ final class ConditionActionsTests: XCTestCase {
     }
 
     func testMissingPresetIsNotedInTheReport() async throws {
-        PresetLibrary.shared.use(directory: root.appendingPathComponent("no-presets", isDirectory: true))
         let photo = try source("a.jpg")
         let link = PresetLink(id: UUID(), name: "Gone")
-        let report = await BatchRunner.run(items([photo]), pipeline: pipeline([.preset(link)]), mode: .newFolder(out))
+        let report = await BatchRunner.run(items([photo]), pipeline: pipeline([.preset(link)]), mode: .newFolder(out),
+                                           presets: .folder(root.appendingPathComponent("no-presets", isDirectory: true)))
         XCTAssertEqual(report.written.count, 1)
         XCTAssertEqual(report.entries.first?.note, link.missingNote)
     }

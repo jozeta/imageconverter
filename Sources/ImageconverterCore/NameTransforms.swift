@@ -114,7 +114,12 @@ extension RenameOptions {
     /// The raw-name pipeline: find/replace, prefix and suffix, spaces, special characters, case style.
     /// Sanitising and the fallback name follow in `RenameTemplate.render`.
     func transformName(_ rendered: String) -> String {
-        var name = replacing(in: rendered)
+        var timedOut = false
+        return transformName(rendered, timedOut: &timedOut)
+    }
+
+    func transformName(_ rendered: String, timedOut: inout Bool) -> String {
+        var name = replacing(in: rendered, timedOut: &timedOut)
         name = prefix + name + suffix
         if removeSpaces { name = NameTransforms.removeSpaces(name) }
         name = NameTransforms.specialCharacters(name, mode: specialCharacters, replacement: replacement)
@@ -123,6 +128,13 @@ extension RenameOptions {
 
     /// The one place a base name is made: used by the batch, the preview and the live example.
     func render(_ template: RenameTemplate, _ context: RenameContext) -> String {
-        template.render(context, transform: transformName)
+        renderChecked(template, context).name
+    }
+
+    /// The base name, and whether a find-and-replace pattern was stopped for taking too long.
+    func renderChecked(_ template: RenameTemplate, _ context: RenameContext) -> (name: String, timedOut: Bool) {
+        var timedOut = false
+        let name = template.render(context) { transformName($0, timedOut: &timedOut) }
+        return (name, timedOut)
     }
 }

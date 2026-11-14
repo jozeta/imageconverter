@@ -308,7 +308,6 @@ extension CLIRunnerTests {
         let real = await run(["convert", photo.path, "--pipeline", file.path, "--out", outDir.path])
         XCTAssertEqual(real.code, 0, real.err)
         XCTAssertTrue(FileManager.default.fileExists(atPath: outDir.appendingPathComponent("Wide/JPEG/photo.jpg").path))
-        PresetLibrary.shared.use(directory: PresetStore.defaultDirectory)
     }
 }
 

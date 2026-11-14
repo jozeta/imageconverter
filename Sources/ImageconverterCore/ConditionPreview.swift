@@ -138,11 +138,13 @@ public actor ItemFactsCache {
 
     /// The counter index, branches and resolved pipeline of `items[index]`, as the batch would see them.
     /// Items before it are only read when a condition can skip files. Nil when cancelled part-way or out of range.
-    public func preview(of index: Int, in items: [InputItem], pipeline: Pipeline) -> ConditionPreview? {
+    public func preview(of index: Int, in items: [InputItem], pipeline: Pipeline,
+                        presets: PresetLibrary = .standard) -> ConditionPreview? {
         guard items.indices.contains(index) else { return nil }
         guard pipeline.hasConditions else {
             return ConditionPreview(counterIndex: index, branches: [],
-                                    resolved: pipeline.resolved(forSource: items[index].source, maxPixels: maxPixels))
+                                    resolved: pipeline.resolved(forSource: items[index].source, maxPixels: maxPixels,
+                                                                       presets: presets))
         }
         let needs = pipeline.conditionFactNeeds
         var counter = index
@@ -151,11 +153,13 @@ public actor ItemFactsCache {
             for item in items[..<index] {
                 if Task.isCancelled { return nil }
                 // Unreadable files aren't skipped: the batch gives them a number and fails them later.
-                if pipeline.resolved(for: facts(for: item.source, needs: needs)).disposition != .skip { counter += 1 }
+                if pipeline.resolved(for: facts(for: item.source, needs: needs), presets: presets).disposition != .skip {
+                    counter += 1
+                }
             }
         }
         let facts = facts(for: items[index].source, needs: needs)
         return ConditionPreview(counterIndex: counter, branches: facts.map(pipeline.branches(for:)) ?? [],
-                                resolved: pipeline.resolved(for: facts))
+                                resolved: pipeline.resolved(for: facts, presets: presets))
     }
 }

@@ -225,4 +225,17 @@ extension OverwriteRenameTests {
         XCTAssertGreaterThan(entry.outputBytes, 0)
         XCTAssertTrue(exists(url), "the original stays when the Trash fails")
     }
+
+    /// The live progress and item events agree with the report: a failed Trash ends as done, not failed.
+    func testTrashFailureEndsAsDoneInTheLiveProgress() async throws {
+        let url = try source("a.jpg")
+        let failingTrash: Trasher = { _ in throw CocoaError(.fileWriteNoPermission) }
+        let progress = LockedLog<BatchProgress>()
+        let stages = LockedLog<ItemEvent.Stage>()
+        _ = await BatchRunner.run(InputCollector.collect([url]), pipeline: renamePipeline("renamed"), mode: .overwrite,
+                                  trash: failingTrash, progress: { progress.append($0) }, events: { stages.append($0.stage) })
+        XCTAssertEqual(progress.last, BatchProgress(completed: 1, failed: 0, total: 1))
+        XCTAssertEqual(stages.last, .done)
+        XCTAssertFalse(stages.values.contains { if case .failed = $0 { return true } else { return false } })
+    }
 }

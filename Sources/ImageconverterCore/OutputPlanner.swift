@@ -30,14 +30,20 @@ public struct PlannedOutput: Equatable, Sendable {
     public let replacesSource: Bool
     public let trashesSource: Bool
 
-    public init(item: InputItem, destination: URL, replacesSource: Bool, trashesSource: Bool) {
+    /// Why a refused plan was refused (the item's failure), when the planner says.
+    public var failureReason: String?
+
+    public init(item: InputItem, destination: URL, replacesSource: Bool, trashesSource: Bool,
+                failureReason: String? = nil) {
         self.item = item
         self.destination = destination
         self.replacesSource = replacesSource
         self.trashesSource = trashesSource
+        self.failureReason = failureReason
     }
 
-    /// A plan the planner refused (a second plan for the same original): `FileCommitter` rejects it.
+    /// A plan the planner refused (a second plan for the same original, or no free name): `FileCommitter`
+    /// rejects it.
     public var isRefused: Bool { replacesSource && trashesSource }
 }
 
@@ -163,13 +169,15 @@ public enum OutputPlanner {
                 directory = sourceDir
             }
 
-            var number = 1
-            var candidate: URL
-            repeat {
+            // Every name up to `_10000` taken: this item fails, nothing is replaced.
+            guard let candidate = (1...maxNameAttempts).lazy.map({ number -> URL in
                 let base = number == 1 ? "\(name)\(suffix)" : "\(name)\(suffix)_\(number)"
-                candidate = directory.appendingPathComponent("\(base)\(dotExt)")
-                number += 1
-            } while claimed.contains(key(candidate)) || fileExists(candidate)
+                return directory.appendingPathComponent("\(base)\(dotExt)")
+            }).first(where: { !claimed.contains(key($0)) && !fileExists($0) }) else {
+                plans.append(PlannedOutput(item: item, destination: item.source, replacesSource: true,
+                                           trashesSource: true, failureReason: noFreeNameReason))
+                continue
+            }
 
             claimed.insert(key(candidate))
             plans.append(PlannedOutput(item: item, destination: candidate,
@@ -188,12 +196,24 @@ public enum OutputPlanner {
             .appendingPathExtension(source.pathExtension), source)
     }
 
-    /// `base` with the folder names added; `base` itself if the result would somehow lie outside it.
+    /// How many names (`a`, `a_2`, … `a_10000`) are tried before an item fails.
+    static let maxNameAttempts = 10_000
+    public static let noFreeNameReason = "Couldn't find a free name"
+
+    /// `base` with the folder names added; `base` itself if the result would lie outside it. Checked on resolved
+    /// paths, one folder at a time: an existing folder that is a symbolic link is followed as a write would be, so a
+    /// link to somewhere else can't take the output out of `base`.
     private static func within(_ base: URL, _ folders: [String]) -> URL {
-        let nested = folders.reduce(base) { $0.appendingPathComponent($1, isDirectory: true) }
-        let root = base.standardizedFileURL.path
-        let path = nested.standardizedFileURL.path
-        return path.hasPrefix(root.hasSuffix("/") ? root : root + "/") ? nested : base
+        guard !folders.isEmpty else { return base }
+        let root = base.resolvingSymlinksInPath().standardizedFileURL.path
+        let prefix = root.hasSuffix("/") ? root : root + "/"
+        var resolved = URL(fileURLWithPath: root, isDirectory: true)
+        for name in folders {
+            guard SubfolderTemplate.isSafeName(name) else { return base }
+            resolved = resolved.appendingPathComponent(name, isDirectory: true).resolvingSymlinksInPath()
+            guard resolved.standardizedFileURL.path.hasPrefix(prefix) else { return base }
+        }
+        return folders.reduce(base) { $0.appendingPathComponent($1, isDirectory: true) }
     }
 
     private static func sameFile(_ lhs: URL, _ rhs: URL) -> Bool {

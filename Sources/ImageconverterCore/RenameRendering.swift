@@ -10,10 +10,16 @@ enum RenameRendering {
     /// `isCopy`: the item is copied unchanged, so `{ext}` and `{format}` describe the source file itself
     /// (its extension lower-cased; the pipeline of a copy has no image steps, so the size is the source's).
     static func baseName(for item: InputItem, index: Int, pipeline: Pipeline, isCopy: Bool = false) -> String? {
+        checkedBaseName(for: item, index: index, pipeline: pipeline, isCopy: isCopy)?.name
+    }
+
+    /// As `baseName`, with whether a find-and-replace pattern was stopped for taking too long.
+    static func checkedBaseName(for item: InputItem, index: Int, pipeline: Pipeline,
+                                isCopy: Bool = false) -> (name: String, timedOut: Bool)? {
         guard pipeline.rename.isActive else { return nil }
         let template = RenameTemplate(pipeline.rename.pattern)
         let context = context(for: item, index: index, pipeline: pipeline, isCopy: isCopy, templates: [template])
-        return pipeline.rename.render(template, context)
+        return pipeline.rename.renderChecked(template, context)
     }
 
     /// The values `templates` can draw on for the item: the header and creation date are only read when one

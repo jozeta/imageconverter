@@ -70,8 +70,10 @@ extension Pipeline {
     /// conditions are dropped and the file fails as usual later.
     /// The Metadata step's removals are a floor: a metadata override keeps them (`withRemovals(from:)`), and a
     /// copy whose metadata would have to change is converted instead, in the source's own format at the best
-    /// quality, with a note. "Apply preset" reads presets from `presets`.
-    public func resolved(for facts: ItemFacts?, presets: PresetLibrary = .shared) -> ResolvedPipeline {
+    /// quality, with a note. "Apply preset" reads presets from `presets`. A copied original ignores added keywords
+    /// and a preset's image steps, with a note; a name pattern stopped for taking too long counts as no match,
+    /// with a note.
+    public func resolved(for facts: ItemFacts?, presets: PresetLibrary = .standard) -> ResolvedPipeline {
         var state = Resolution(pipeline: self, floor: metadata, presets: presets)
         state.pipeline.steps = []
         for step in steps {
@@ -80,9 +82,10 @@ extension Pipeline {
                 continue
             }
             guard step.isEnabled, let facts, !state.stopped else { continue }
-            for action in conditional.matches(facts) ? conditional.then : conditional.otherwise {
-                state.apply(action)
-            }
+            var timedOut = false
+            let branch = conditional.matches(facts, timedOut: &timedOut) ? conditional.then : conditional.otherwise
+            if timedOut, !state.notes.contains(BoundedRegex.timeoutNote) { state.notes.append(BoundedRegex.timeoutNote) }
+            for action in branch { state.apply(action) }
         }
         var result = state.pipeline
         var disposition = state.disposition
@@ -99,6 +102,9 @@ extension Pipeline {
             // its own format where the app knows it (the rename context takes the extension from the file).
             result.steps = []
             if let format = facts?.format { result.output.format = format }
+            let ignored = [(state.addedKeywords, "added keywords"), (state.addedPresetSteps, "the preset's image steps")]
+                .filter(\.0).map(\.1)
+            if !ignored.isEmpty { notes.append(ConditionalStep.ignoredForCopyPrefix + ignored.joined(separator: ", ")) }
         }
         return ResolvedPipeline(pipeline: result, disposition: disposition, notes: notes, subfolder: state.subfolder,
                                 finderTags: FinderTags.normalized(state.tags), noteTemplates: state.noteTemplates)
@@ -106,9 +112,10 @@ extension Pipeline {
 
     /// Resolves for the file at `url`, reading its facts only when there are conditions (and only what they
     /// need: the transparency scan, XMP, frame count), with the transparency scan only within `maxPixels`.
-    public func resolved(forSource url: URL, maxPixels: Int = ImageLoader.defaultMaxPixels) -> ResolvedPipeline {
+    public func resolved(forSource url: URL, maxPixels: Int = ImageLoader.defaultMaxPixels,
+                         presets: PresetLibrary = .standard) -> ResolvedPipeline {
         guard hasConditions else { return ResolvedPipeline(pipeline: withoutConditions) }
-        return resolved(for: ItemFacts.read(url, needs: conditionFactNeeds, maxPixels: maxPixels))
+        return resolved(for: ItemFacts.read(url, needs: conditionFactNeeds, maxPixels: maxPixels), presets: presets)
     }
 
     /// This pipeline without its (disabled) condition steps, so a resolved pipeline never holds one.
@@ -133,6 +140,9 @@ private struct Resolution {
     var tags: [String] = []
     var noteTemplates: [String] = []
     var stopped = false
+    /// What a copied original ignores (for its note).
+    var addedKeywords = false
+    var addedPresetSteps = false
 
     init(pipeline: Pipeline, floor: MetadataOptions, presets: PresetLibrary) {
         self.pipeline = pipeline
@@ -184,10 +194,12 @@ private struct Resolution {
             return
         }
         let applied = preset.pipeline
-        pipeline.steps += applied.steps.filter { step in
+        let steps = applied.steps.filter { step in
             if case .condition = step.operation { return false }
             return step.isEnabled
         }
+        pipeline.steps += steps
+        if !steps.isEmpty { addedPresetSteps = true }
         pipeline.output = applied.output
         if applied.metadata.isActive { setMetadata(applied.metadata) }
         if applied.rename.isActive { setRename(applied.rename) }
@@ -202,5 +214,6 @@ private struct Resolution {
             pipeline.metadata = options.withRemovals(from: floor)
         }
         pipeline.metadata.keywords = MetadataFields.normalizedKeywords((pipeline.metadata.keywords ?? []) + keywords)
+        addedKeywords = true
     }
 }

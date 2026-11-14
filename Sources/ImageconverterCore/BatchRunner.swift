@@ -166,12 +166,13 @@ public enum BatchRunner {
         trash: @escaping Trasher = systemTrash,
         control: BatchControl? = nil,
         journal: URL? = nil,
+        presets: PresetLibrary = .standard,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in },
         events: @escaping @Sendable (ItemEvent) -> Void = { _ in }
     ) async -> BatchReport {
         await run(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, concurrency: concurrency,
                   memoryBudgetPixels: memoryBudgetPixels, trash: trash, control: control, journal: journal,
-                  hooks: BatchHooks(), progress: progress, events: events)
+                  presets: presets, hooks: BatchHooks(), progress: progress, events: events)
     }
 
     /// Peak pixels of one item, from a header-only read; unreadable files weigh 1 and fail later in `convert`.

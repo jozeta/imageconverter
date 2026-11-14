@@ -6,6 +6,9 @@ extension AppModel {
 
     var allPresets: [Preset] { PresetStore.builtIns + userPresets }
 
+    /// The presets "Apply preset" actions in conditions read: this app's own presets folder.
+    var presetLibrary: PresetLibrary { PresetLibrary.folder(presetStore.folder) }
+
     func reloadPresets() {
         userPresets = PresetStore.userPresets(from: presetStore.loadAll().presets)
         // A selected user preset whose file is gone becomes an ad hoc pipeline (the pipeline is kept).

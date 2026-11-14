@@ -36,10 +36,11 @@ public enum QualityLadder {
     public static func render(
         item: InputItem, pipeline: Pipeline, qualities: [Double] = [0.4, 0.6, 0.8, 0.95],
         region: CGRect = unitRegion, maxSide: Int = 1024,
-        maxPixels: Int = ImageLoader.defaultMaxPixels, maxComparePixels: Int = defaultMaxComparePixels
+        maxPixels: Int = ImageLoader.defaultMaxPixels, maxComparePixels: Int = defaultMaxComparePixels,
+        presets: PresetLibrary = .standard
     ) throws -> [Rung] {
         // A copied or skipped item has no quality to choose.
-        let resolved = pipeline.resolved(forSource: item.source, maxPixels: maxPixels)
+        let resolved = pipeline.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         guard resolved.disposition == .process else { return [] }
         let pipeline = resolved.pipeline
         guard pipeline.output.format.supportsQuality else { return [] }

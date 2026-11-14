@@ -87,13 +87,15 @@ extension AppModel {
         isRenderingPreview = true
         previewTask = Task(priority: .userInitiated) { [weak self] in
             do { try await Task.sleep(for: Self.previewDebounce) } catch { return }
-            guard let renderer = self?.previewRenderer, let cache = self?.factsCache else { return }
+            guard let renderer = self?.previewRenderer, let cache = self?.factsCache,
+                  let presets = self?.presetLibrary else { return }
             // The counter number the batch would give this item (skipped items before it take none), and the
             // branch each condition takes. Only read from files when the pipeline has conditions.
-            let conditions = pipeline.hasConditions ? await cache.preview(of: index, in: batch, pipeline: pipeline) : nil
+            let conditions = pipeline.hasConditions ? await cache.preview(of: index, in: batch, pipeline: pipeline, presets: presets)
+                : nil
             guard !Task.isCancelled else { return }
             let outcome = await renderer.render(item: item, index: conditions?.counterIndex ?? index, pipeline: pipeline,
-                                                mode: mode)
+                                                mode: mode, presets: presets)
             guard let self, generation == self.previewGeneration else { return }
             isRenderingPreview = false
             switch outcome {

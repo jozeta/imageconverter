@@ -265,6 +265,7 @@ final class AppModel {
         runInfo = (batch.count, Date(), mode.kind.rawValue)
         isRunning = true
         let control = BatchControl(lowMemory: lowMemoryMode)
+        let presets = presetLibrary
         monitor.prepare(control: control, overwriting: mode == .overwrite)
         // The preview stays alive, at a higher priority than the batch, unless `previewAllowed` says otherwise.
         if !previewAllowed {
@@ -279,7 +280,7 @@ final class AppModel {
             let pixels = await Self.sourcePixels(of: batch)
             guard let events = self?.monitor.begin(sourcePixels: pixels) else { return }
             let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, control: control,
-                                               journal: AppDefaults.journalURL, progress: { update in
+                                               journal: AppDefaults.journalURL, presets: presets, progress: { update in
                 // `.userInitiated`: inheriting the batch's `.utility` would let the bar lag behind the workers.
                 Task(priority: .userInitiated) { @MainActor in
                     // Updates can arrive out of order; only move forward.

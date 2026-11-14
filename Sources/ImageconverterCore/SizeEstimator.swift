@@ -30,9 +30,10 @@ public enum SizeEstimator {
     /// limit either), and a skipped
     /// item throws `.skippedByCondition`.
     public static func render(
-        item: InputItem, pipeline unresolved: Pipeline, maxPixels: Int = ImageLoader.defaultMaxPixels
+        item: InputItem, pipeline unresolved: Pipeline, maxPixels: Int = ImageLoader.defaultMaxPixels,
+        presets: PresetLibrary = .standard
     ) throws -> EncodedPreview {
-        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels)
+        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         switch resolved.disposition {
         case .skip: throw ConversionError.skippedByCondition
         case .copyOriginal:
