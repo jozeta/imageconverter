@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 
 extension Pipeline {
     /// The DPI written to the output for a `sourceWidth` x `sourceHeight` image, or nil to keep the source's.
@@ -29,10 +30,12 @@ extension Pipeline {
         return dpi
     }
 
-    /// The metadata written with the output: the metadata options applied to `source`, then the DPI.
-    public func outputProperties(from source: [String: Any], sourceWidth: Int, sourceHeight: Int) -> [String: Any] {
+    /// The metadata written with the output: the metadata options applied to `source` (and its XMP view
+    /// `metadata`, see `MetadataOps.output`), then the DPI.
+    public func outputProperties(from source: [String: Any], metadata sourceXMP: CGImageMetadata? = nil,
+                                 sourceWidth: Int, sourceHeight: Int) -> [String: Any] {
         MetadataOps.setDPI(outputDPI(sourceWidth: sourceWidth, sourceHeight: sourceHeight), format: output.format,
-                           in: MetadataOps.apply(metadata, to: source))
+                           in: MetadataOps.output(metadata, properties: source, metadata: sourceXMP))
     }
 
     /// Pixels held at once by a Lanczos resize of an `input`-sized image: the input, vImage's copy of

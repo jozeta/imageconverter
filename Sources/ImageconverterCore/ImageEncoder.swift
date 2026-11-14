@@ -4,6 +4,8 @@ import ImageIO
 
 public enum ImageEncoder {
     /// Encodes `image` in `settings.format`, carrying over `properties` (metadata) with orientation reset to 1.
+    /// An `OutputXMP` under `MetadataOps.xmpPropertyKey` is written as the file's XMP; the rest of
+    /// `properties` (EXIF, IPTC, GPS, DPI, compression) still applies.
     ///
     /// Stale pixel-size keys are dropped so ImageIO derives the real size from `image`.
     /// Formats without alpha (JPEG, BMP) get transparent pixels flattened onto white.
@@ -64,7 +66,13 @@ public enum ImageEncoder {
         guard let dest = CGImageDestinationCreateWithData(data, format.utType.identifier as CFString, 1, nil) else {
             throw ConversionError.encodeFailed
         }
-        CGImageDestinationAddImage(dest, image, props as CFDictionary)
+        var props = props
+        if let xmp = props.removeValue(forKey: MetadataOps.xmpPropertyKey) as? OutputXMP {
+            // ImageIO still honours the property dictionaries passed as options here.
+            CGImageDestinationAddImageAndMetadata(dest, image, xmp.metadata, props as CFDictionary)
+        } else {
+            CGImageDestinationAddImage(dest, image, props as CFDictionary)
+        }
         guard CGImageDestinationFinalize(dest) else { throw ConversionError.encodeFailed }
         return data as Data
     }

@@ -92,6 +92,8 @@ struct EncodedItem {
     /// The quality the compression mode chose; nil for formats without one.
     let quality: Double?
     let note: String?
+    /// The date taken as written, when the Metadata step sets file dates (nil: none written).
+    var dateTaken: Date?
 }
 
 /// A written file and its note, if any.
@@ -234,8 +236,16 @@ public enum BatchRunner {
         return (autoreleasepool { () -> Result<WrittenItem?, ConversionError> in
             do {
                 let encoded = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
+                let setsDates = pipeline.metadata.isActive && pipeline.metadata.setFileDates
+                // Read before the commit: overwrite mode replaces or trashes the source.
+                let sourceDates = setsDates ? fileDates(plan.item.source) : nil
                 try FileCommitter.commit(encoded.data, for: plan, trash: trash)
-                return .success(WrittenItem(url: plan.destination, note: encoded.note,
+                var notes = [encoded.note].compactMap { $0 }
+                if setsDates, let failure = setFileDates(of: plan.destination, taken: encoded.dateTaken,
+                                                         source: sourceDates) {
+                    notes.append(failure)
+                }
+                return .success(WrittenItem(url: plan.destination, note: notes.isEmpty ? nil : notes.joined(separator: "; "),
                                             inputBytes: inputBytes, outputBytes: encoded.data.count))
             } catch is CancellationError {
                 return .success(nil)
@@ -245,6 +255,33 @@ public enum BatchRunner {
                 return .failure(.writeFailed(error.localizedDescription))
             }
         }, inputBytes)
+    }
+
+    private static func fileDates(_ url: URL) -> (created: Date?, modified: Date?)? {
+        guard let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]) else {
+            return nil
+        }
+        return (values.creationDate, values.contentModificationDate)
+    }
+
+    /// Sets the written file's creation and modification dates to the date taken, or to the source's own
+    /// dates when there is none. Returns a note for the report when that fails (the file itself is fine).
+    private static func setFileDates(of url: URL, taken: Date?,
+                                     source: (created: Date?, modified: Date?)?) -> String? {
+        var attributes: [FileAttributeKey: Any] = [:]
+        if let taken {
+            attributes = [.creationDate: taken, .modificationDate: taken]
+        } else {
+            if let created = source?.created { attributes[.creationDate] = created }
+            if let modified = source?.modified { attributes[.modificationDate] = modified }
+        }
+        guard !attributes.isEmpty else { return nil }
+        do {
+            try FileManager.default.setAttributes(attributes, ofItemAtPath: url.path)
+            return nil
+        } catch {
+            return "Couldn't set the file dates: \(error.localizedDescription)"
+        }
     }
 
     static func fileSize(_ url: URL) -> Int? {
@@ -260,10 +297,13 @@ public enum BatchRunner {
         if assets.hasMissing(for: pipeline) { throw ConversionError.watermarkImageUnreadable }
         let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
         let image = try pipeline.apply(to: loaded.image, assets: assets)
-        let properties = pipeline.outputProperties(from: loaded.properties, sourceWidth: loaded.image.width,
-                                                   sourceHeight: loaded.image.height)
+        let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
+                                                   sourceWidth: loaded.image.width, sourceHeight: loaded.image.height)
         let result = try CompressionSearch.encode(image, properties: properties, settings: pipeline.output)
-        return EncodedItem(data: result.data, source: loaded.image, quality: result.quality, note: result.note)
+        let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
+            ? MetadataDates.dateTaken(in: properties) : nil
+        return EncodedItem(data: result.data, source: loaded.image, quality: result.quality, note: result.note,
+                           dateTaken: taken)
     }
 }
 

@@ -123,20 +123,37 @@ extension ImageOperation {
 extension MetadataOptions {
     /// One-line description for the pipeline list.
     public var summary: String {
-        var text: String
-        switch (removeAll, removeLocation, removeCamera) {
-        case (true, _, _): text = "strip all"
-        case (false, true, true): text = "strip location + camera"
-        case (false, true, false): text = "strip location"
-        case (false, false, true): text = "strip camera"
-        case (false, false, false): text = "keep"
-        }
+        var text = removalSummary
         var fields: [String] = []
         if artist != nil { fields.append("artist") }
         if copyright != nil { fields.append("copyright") }
         if description != nil { fields.append("description") }
+        if title != nil { fields.append("title") }
+        if keywords != nil { fields.append("keywords") }
+        if case .set = location { fields.append("GPS") }
+        switch dateTaken {
+        case .keep: break
+        case .set: fields.append("date")
+        case .shift: fields.append("shifted date")
+        }
+        if !custom.isEmpty { fields.append(custom.count == 1 ? "1 field" : "\(custom.count) fields") }
+        if setFileDates { fields.append("file dates") }
         if !fields.isEmpty { text += " · set " + fields.joined(separator: ", ") }
         return text
+    }
+
+    private var removalSummary: String {
+        if removeAll {
+            // Orientation and colour profile always survive, so they aren't worth mentioning.
+            let names: [KeepField: String] = [.copyright: "copyright", .author: "author", .dateTaken: "date",
+                                              .cameraInfo: "camera", .location: "location"]
+            let kept = KeepField.allCases.filter(keepWhenRemovingAll.contains).compactMap { names[$0] }
+            return kept.isEmpty ? "strip all" : "strip all except " + kept.joined(separator: ", ")
+        }
+        let parts = [(location == .remove, "location"), (removeCamera, "camera"), (removeAuthor, "author"),
+                     (removeThumbnail, "thumbnail"), (removeIPTC, "IPTC"), (removeXMP, "XMP")]
+            .filter(\.0).map(\.1)
+        return parts.isEmpty ? "keep" : "strip " + parts.joined(separator: " + ")
     }
 }
 

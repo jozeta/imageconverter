@@ -7,6 +7,8 @@ public struct LoadedImage: @unchecked Sendable {
     public let image: CGImage
     /// The source's property dictionary, with orientation reset to 1 (already applied to `image`).
     public let properties: [String: Any]
+    /// The source's metadata view (XMP plus ImageIO's EXIF/IPTC mirrors); nil when it has none.
+    public let metadata: CGImageMetadata?
 }
 
 /// A file's first-frame size and properties, without decoding pixels.
@@ -87,6 +89,7 @@ public enum ImageLoader {
             tiff[kCGImagePropertyTIFFOrientation as String] = 1
             properties[tiffKey] = tiff
         }
-        return LoadedImage(image: image, properties: properties)
+        return LoadedImage(image: image, properties: properties,
+                           metadata: CGImageSourceCopyMetadataAtIndex(source, 0, nil))
     }
 }

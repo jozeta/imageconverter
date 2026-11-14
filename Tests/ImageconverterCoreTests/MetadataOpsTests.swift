@@ -168,3 +168,223 @@ final class MetadataOpsTests: XCTestCase {
         XCTAssertNotEqual(chroma?.first, 0.3127)
     }
 }
+
+/// Metadata edits checked on written, re-read files (every format that holds EXIF, IPTC and XMP).
+final class MetadataWriteTests: XCTestCase {
+    private let gps = kCGImagePropertyGPSDictionary as String
+    private let iptc = kCGImagePropertyIPTCDictionary as String
+    private let tiff = kCGImagePropertyTIFFDictionary as String
+    private let exif = kCGImagePropertyExifDictionary as String
+
+    private var root: URL!
+
+    override func setUpWithError() throws { root = try TestImages.tempDir().resolvingSymlinksInPath() }
+    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
+
+    private func source(_ name: String, properties: [String: Any] = [:], xmp: [(String, Any)] = [],
+                        thumbnail: Bool = false) throws -> URL {
+        try MetadataTestSupport.source(root.appendingPathComponent(name), properties: properties, xmp: xmp,
+                                       thumbnail: thumbnail)
+    }
+
+    private var richProps: [String: Any] {
+        [tiff: [kCGImagePropertyTIFFArtist as String: "SECRETAUTHOR", kCGImagePropertyTIFFCopyright as String: "COPYX",
+                kCGImagePropertyTIFFMake as String: "MAKEX"],
+         exif: [kCGImagePropertyExifDateTimeOriginal as String: "2020:01:02 03:04:05",
+                kCGImagePropertyExifLensModel as String: "LENSX"],
+         iptc: [kCGImagePropertyIPTCByline as String: ["SECRETAUTHOR"], kCGImagePropertyIPTCBylineTitle as String: ["SECRETTITLE"],
+                kCGImagePropertyIPTCWriterEditor as String: "SECRETWRITER", kCGImagePropertyIPTCCity as String: "CITYX",
+                kCGImagePropertyIPTCCredit as String: "CREDITX", kCGImagePropertyIPTCKeywords as String: ["KEYX"]],
+         gps: [kCGImagePropertyGPSLatitude as String: 59.3, kCGImagePropertyGPSLatitudeRef as String: "N"]]
+    }
+
+    private let richXMP: [(String, Any)] = [("dc:creator", ["SECRETAUTHOR"]), ("photoshop:CaptionWriter", "SECRETWRITER"),
+                                            ("xmpRights:UsageTerms", "TERMSX"), ("dc:rights", "COPYX"),
+                                            ("photoshop:City", "CITYX"), ("dc:subject", ["KEYX"])]
+
+    func testSetTitleAndKeywordsAddAndReplace() async throws {
+        for format in MetadataTestSupport.richFormats {
+            let url = try source("kw-\(format).jpg", properties: [iptc: [kCGImagePropertyIPTCKeywords as String: ["old"]]])
+            var options = MetadataTestSupport.active()
+            options.title = "TITLEX"
+            options.keywords = ["new", "more"]
+            var written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            XCTAssertEqual(written.sub(kCGImagePropertyIPTCDictionary)?[kCGImagePropertyIPTCObjectName as String] as? String,
+                           "TITLEX", "\(format)")
+            XCTAssertEqual(written.xmp("dc:title"), "TITLEX", "\(format)")
+            XCTAssertEqual(written.sub(kCGImagePropertyIPTCDictionary)?[kCGImagePropertyIPTCKeywords as String] as? [String],
+                           ["old", "new", "more"], "\(format)")
+            XCTAssertEqual(written.xmpArray("dc:subject"), ["old", "new", "more"], "\(format)")
+
+            options.keywordsMode = .replace
+            written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            XCTAssertEqual(written.sub(kCGImagePropertyIPTCDictionary)?[kCGImagePropertyIPTCKeywords as String] as? [String],
+                           ["new", "more"], "\(format)")
+            XCTAssertEqual(written.xmpArray("dc:subject"), ["new", "more"], "\(format)")
+        }
+    }
+
+    func testSetGPSWritesRefs() async throws {
+        for format in MetadataTestSupport.richFormats {
+            let url = try source("gps-\(format).jpg", properties: [gps: [kCGImagePropertyGPSLatitude as String: 10.0,
+                                                                         kCGImagePropertyGPSLatitudeRef as String: "N",
+                                                                         kCGImagePropertyGPSMapDatum as String: "OLDDATUM"]])
+            var options = MetadataTestSupport.active()
+            options.location = .set(latitude: -33.86, longitude: 151.21, altitude: -5)
+            let written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            let out = try XCTUnwrap(written.sub(kCGImagePropertyGPSDictionary), "\(format)")
+            XCTAssertEqual(try XCTUnwrap(out[kCGImagePropertyGPSLatitude as String] as? Double), 33.86, accuracy: 1e-4)
+            XCTAssertEqual(out[kCGImagePropertyGPSLatitudeRef as String] as? String, "S", "\(format)")
+            XCTAssertEqual(try XCTUnwrap(out[kCGImagePropertyGPSLongitude as String] as? Double), 151.21, accuracy: 1e-4)
+            XCTAssertEqual(out[kCGImagePropertyGPSLongitudeRef as String] as? String, "E", "\(format)")
+            XCTAssertEqual(try XCTUnwrap(out[kCGImagePropertyGPSAltitude as String] as? Double), 5, accuracy: 1e-4)
+            XCTAssertEqual(out[kCGImagePropertyGPSAltitudeRef as String] as? Int, 1, "\(format)")
+            XCTAssertFalse(written.contains("OLDDATUM"), "\(format)")
+            XCTAssertNotNil(written.xmp("exif:GPSLatitude"), "\(format)")
+        }
+    }
+
+    func testRemoveAuthorEverywhere() async throws {
+        for format in MetadataTestSupport.richFormats {
+            let url = try source("author-\(format).jpg", properties: richProps, xmp: richXMP)
+            var options = MetadataTestSupport.active()
+            options.removeAuthor = true
+            let written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            for secret in ["SECRETAUTHOR", "SECRETWRITER", "SECRETTITLE"] {
+                XCTAssertFalse(written.contains(secret), "\(format) \(secret)")
+            }
+            XCTAssertNil(written.sub(kCGImagePropertyPNGDictionary)?[kCGImagePropertyPNGAuthor as String])
+            XCTAssertEqual(written.sub(kCGImagePropertyTIFFDictionary)?[kCGImagePropertyTIFFCopyright as String] as? String,
+                           "COPYX", "\(format)")
+            XCTAssertEqual(written.xmp("xmpRights:UsageTerms"), "TERMSX", "\(format)")
+        }
+    }
+
+    func testRemoveThumbnail() async throws {
+        let url = try source("thumb.jpg", properties: richProps, thumbnail: true)
+        XCTAssertTrue(Self.hasEmbeddedThumbnail(try Data(contentsOf: url)), "source must hold a thumbnail")
+        var options = MetadataTestSupport.active()
+        options.removeThumbnail = true
+        let written = try await MetadataTestSupport.convert(url, options: options, root: root)
+        XCTAssertFalse(Self.hasEmbeddedThumbnail(written.data))
+        XCTAssertEqual(written.sub(kCGImagePropertyTIFFDictionary)?[kCGImagePropertyTIFFArtist as String] as? String,
+                       "SECRETAUTHOR")
+    }
+
+    /// A JPEG with an EXIF thumbnail holds a second embedded JPEG (another start-of-image marker).
+    private static func hasEmbeddedThumbnail(_ data: Data) -> Bool {
+        let bytes = [UInt8](data)
+        let starts = (0..<max(0, bytes.count - 2)).filter { bytes[$0] == 0xFF && bytes[$0 + 1] == 0xD8 && bytes[$0 + 2] == 0xFF }
+        return starts.count > 1
+    }
+
+    func testRemoveIPTCOnly() async throws {
+        for format in MetadataTestSupport.richFormats {
+            var props = richProps
+            props.removeValue(forKey: tiff) // ImageIO mirrors the TIFF artist into IPTC; leave it out here.
+            let url = try source("iptc-\(format).jpg", properties: props, xmp: richXMP)
+            var options = MetadataTestSupport.active()
+            options.removeIPTC = true
+            let written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            for secret in ["CITYX", "CREDITX", "KEYX", "SECRETWRITER"] {
+                XCTAssertFalse(written.contains(secret), "\(format) \(secret)")
+            }
+            XCTAssertNil(written.xmp("photoshop:City"), "\(format)")
+            XCTAssertNotNil(written.sub(kCGImagePropertyGPSDictionary), "\(format)")
+            XCTAssertEqual(written.sub(kCGImagePropertyExifDictionary)?[kCGImagePropertyExifLensModel as String] as? String,
+                           "LENSX", "\(format)")
+        }
+    }
+
+    func testRemoveXMPOnly() async throws {
+        let url = try source("xmp.jpg", properties: richProps, xmp: richXMP)
+        XCTAssertTrue(try WrittenFile(url: url).hasXMPPacket)
+        var options = MetadataTestSupport.active()
+        options.removeXMP = true
+        options.title = "TITLEX"
+        for format: OutputFormat in [.jpeg, .tiff] {
+            let written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            XCTAssertFalse(written.hasXMPPacket, "\(format)")
+            XCTAssertFalse(written.contains("TERMSX"), "\(format)")
+            let iptcOut = written.sub(kCGImagePropertyIPTCDictionary)
+            XCTAssertEqual(iptcOut?[kCGImagePropertyIPTCObjectName as String] as? String, "TITLEX", "\(format)")
+            XCTAssertEqual(iptcOut?[kCGImagePropertyIPTCKeywords as String] as? [String], ["KEYX"], "\(format)")
+            XCTAssertEqual(written.sub(kCGImagePropertyTIFFDictionary)?[kCGImagePropertyTIFFArtist as String] as? String,
+                           "SECRETAUTHOR", "\(format)")
+        }
+        // Formats that keep EXIF and IPTC inside XMP still drop the XMP-only fields.
+        for format in MetadataTestSupport.richFormats where format != .jpeg && format != .tiff {
+            let written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            XCTAssertFalse(written.contains("TERMSX"), "\(format)")
+        }
+    }
+
+    func testRemoveAllAlsoClearsXMP() async throws {
+        for format in MetadataTestSupport.richFormats {
+            let url = try source("all-\(format).jpg", properties: richProps, xmp: richXMP)
+            let options = MetadataOptions(isEnabled: true, removeAll: true)
+            let written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            for secret in ["SECRETAUTHOR", "TERMSX", "COPYX", "CITYX", "KEYX", "MAKEX", "LENSX", "2020:01:02"] {
+                XCTAssertFalse(written.contains(secret), "\(format) \(secret)")
+            }
+            XCTAssertNil(written.xmp("xmpRights:UsageTerms"), "\(format)")
+            XCTAssertNil(written.xmp("dc:creator"), "\(format)")
+            XCTAssertNil(written.sub(kCGImagePropertyGPSDictionary), "\(format)")
+        }
+    }
+
+    func testRemoveAllKeepsCopyrightAndDate() async throws {
+        for format in MetadataTestSupport.richFormats {
+            let url = try source("keep-\(format).jpg", properties: richProps, xmp: richXMP)
+            var options = MetadataOptions(isEnabled: true, removeAll: true)
+            options.keepWhenRemovingAll = [.copyright, .dateTaken]
+            let written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            XCTAssertEqual(written.sub(kCGImagePropertyTIFFDictionary)?[kCGImagePropertyTIFFCopyright as String] as? String,
+                           "COPYX", "\(format)")
+            XCTAssertEqual(written.xmp("dc:rights"), "COPYX", "\(format)")
+            XCTAssertEqual(written.xmp("xmpRights:UsageTerms"), "TERMSX", "\(format)")
+            XCTAssertEqual(written.sub(kCGImagePropertyExifDictionary)?[kCGImagePropertyExifDateTimeOriginal as String]
+                           as? String, "2020:01:02 03:04:05", "\(format)")
+            for secret in ["SECRETAUTHOR", "CITYX", "KEYX", "MAKEX", "LENSX", "CREDITX"] {
+                XCTAssertFalse(written.contains(secret), "\(format) \(secret)")
+            }
+            XCTAssertNil(written.sub(kCGImagePropertyGPSDictionary), "\(format)")
+        }
+    }
+
+    func testRemoveAllKeepsAuthorCameraAndLocation() async throws {
+        let url = try source("keep2.jpg", properties: richProps, xmp: richXMP)
+        var options = MetadataOptions(isEnabled: true, removeAll: true)
+        options.keepWhenRemovingAll = [.author, .cameraInfo, .location]
+        let written = try await MetadataTestSupport.convert(url, options: options, root: root)
+        XCTAssertEqual(written.sub(kCGImagePropertyTIFFDictionary)?[kCGImagePropertyTIFFArtist as String] as? String,
+                       "SECRETAUTHOR")
+        XCTAssertEqual(written.sub(kCGImagePropertyTIFFDictionary)?[kCGImagePropertyTIFFMake as String] as? String, "MAKEX")
+        XCTAssertEqual(written.sub(kCGImagePropertyExifDictionary)?[kCGImagePropertyExifLensModel as String] as? String,
+                       "LENSX")
+        XCTAssertNotNil(written.sub(kCGImagePropertyGPSDictionary))
+        XCTAssertEqual(written.sub(kCGImagePropertyIPTCDictionary)?[kCGImagePropertyIPTCCity as String] as? String, "CITYX")
+        for secret in ["COPYX", "TERMSX", "KEYX", "CREDITX", "2020:01:02"] {
+            XCTAssertFalse(written.contains(secret), secret)
+        }
+    }
+
+    func testXMPPathKeepsQualityAndDPI() async throws {
+        let url = try source("q.jpg", properties: richProps, xmp: richXMP)
+        var pipeline = Pipeline(output: OutputSettings(format: .jpeg))
+        pipeline.metadata = MetadataTestSupport.active()
+        pipeline.metadata.custom = [MetadataField(namespace: .xmp, key: "dc:title", value: "T")]
+        let props = pipeline.outputProperties(from: try TestImages.properties(of: Data(contentsOf: url)),
+                                              metadata: nil, sourceWidth: 40, sourceHeight: 20)
+        let noisy = TestImages.noise(width: 64, height: 64)
+        let low = try ImageEncoder.encode(noisy, properties: props, settings: OutputSettings(format: .jpeg, quality: 0.1))
+        let high = try ImageEncoder.encode(noisy, properties: props, settings: OutputSettings(format: .jpeg, quality: 1))
+        XCTAssertLessThan(low.count, high.count)
+        XCTAssertNotNil(try WrittenFile.decode(low).xmp("dc:title"))
+        let dpi = MetadataOps.setDPI(300, format: .jpeg, in: props)
+        let out = try TestImages.properties(of: ImageEncoder.encode(noisy, properties: dpi,
+                                                                    settings: OutputSettings(format: .jpeg)))
+        XCTAssertEqual(out[kCGImagePropertyDPIWidth as String] as? Int, 300)
+        XCTAssertEqual((out[exif] as? [String: Any])?[kCGImagePropertyExifDateTimeOriginal as String] as? String, "2020:01:02 03:04:05")
+    }
+}

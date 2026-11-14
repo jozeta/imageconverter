@@ -3,26 +3,26 @@ import ImageIO
 
 /// Strips and sets image metadata on an ImageIO property dictionary.
 public enum MetadataOps {
-    private static let gpsKey = kCGImagePropertyGPSDictionary as String
-    private static let iptcKey = kCGImagePropertyIPTCDictionary as String
-    private static let tiffKey = kCGImagePropertyTIFFDictionary as String
-    private static let exifKey = kCGImagePropertyExifDictionary as String
-    private static let pngKey = kCGImagePropertyPNGDictionary as String
+    static let gpsKey = kCGImagePropertyGPSDictionary as String
+    static let iptcKey = kCGImagePropertyIPTCDictionary as String
+    static let tiffKey = kCGImagePropertyTIFFDictionary as String
+    static let exifKey = kCGImagePropertyExifDictionary as String
+    static let pngKey = kCGImagePropertyPNGDictionary as String
     private static let makerPrefix = "{Maker"
 
-    private static let iptcLocationKeys: [String] = [
+    static let iptcLocationKeys: [String] = [
         kCGImagePropertyIPTCCity, kCGImagePropertyIPTCSubLocation, kCGImagePropertyIPTCProvinceState,
         kCGImagePropertyIPTCCountryPrimaryLocationName, kCGImagePropertyIPTCCountryPrimaryLocationCode,
         kCGImagePropertyIPTCContentLocationCode, kCGImagePropertyIPTCContentLocationName,
         kCGImagePropertyIPTCExtLocationShown, kCGImagePropertyIPTCExtLocationCreated
     ].map { $0 as String }
 
-    private static let tiffCameraKeys: [String] = [
+    static let tiffCameraKeys: [String] = [
         kCGImagePropertyTIFFMake, kCGImagePropertyTIFFModel, kCGImagePropertyTIFFSoftware,
         kCGImagePropertyTIFFHostComputer
     ].map { $0 as String }
 
-    private static let exifCameraKeys: [String] = [
+    static let exifCameraKeys: [String] = [
         kCGImagePropertyExifLensMake, kCGImagePropertyExifLensModel, kCGImagePropertyExifLensSpecification,
         kCGImagePropertyExifBodySerialNumber, kCGImagePropertyExifLensSerialNumber,
         kCGImagePropertyExifCameraOwnerName, kCGImagePropertyExifMakerNote, kCGImagePropertyExifImageUniqueID
@@ -33,32 +33,88 @@ public enum MetadataOps {
         kCGImagePropertyRawDictionary
     ]).map { $0 as String }
 
+    static let iptcAuthorKeys: [String] = [
+        kCGImagePropertyIPTCByline, kCGImagePropertyIPTCBylineTitle, kCGImagePropertyIPTCWriterEditor
+    ].map { $0 as String }
+
     private struct Field {
-        let tiff: CFString
+        let tiff: CFString?
         let iptc: CFString
         let png: CFString
         var iptcAsArray = false
     }
 
-    /// Returns `properties` with the options applied: strip (all, location, camera), then set fields.
-    public static func apply(_ options: MetadataOptions, to properties: [String: Any]) -> [String: Any] {
+    /// Returns `properties` with the options applied: strip (all but the kept fields, or location, camera,
+    /// author, IPTC, thumbnail), then set fields (GPS, dates, text fields, keywords, custom fields).
+    /// `metadata` is the source's XMP view; its keywords join the IPTC ones when keywords are added.
+    public static func apply(_ options: MetadataOptions, to properties: [String: Any],
+                             metadata: CGImageMetadata? = nil) -> [String: Any] {
         guard options.isActive else { return properties }
-        var props: [String: Any] = options.removeAll ? [:] : properties
-
-        if !options.removeAll {
-            if options.removeLocation {
-                props.removeValue(forKey: gpsKey)
-                remove(iptcLocationKeys, from: iptcKey, in: &props)
-            }
-            if options.removeCamera {
-                remove(tiffCameraKeys, from: tiffKey, in: &props)
-                remove(exifCameraKeys, from: exifKey, in: &props)
-                remove([kCGImagePropertyPNGSoftware as String], from: pngKey, in: &props)
-                for key in cameraDictionaries { props.removeValue(forKey: key) }
-                for key in props.keys where key.hasPrefix(makerPrefix) { props.removeValue(forKey: key) }
+        var props: [String: Any] = options.removeAll ? kept(options.keepWhenRemovingAll, from: properties) : properties
+        if !options.removeAll { strip(options, in: &props) }
+        if options.removeThumbnail {
+            props.removeValue(forKey: kCGImagePropertyThumbnailImages as String)
+            props[kCGImageDestinationEmbedThumbnail as String] = false
+        }
+        if case let .set(latitude, longitude, altitude) = options.location,
+           LocationEdit.isValid(latitude: latitude, longitude: longitude, altitude: altitude) {
+            props[gpsKey] = gps(latitude: latitude, longitude: longitude, altitude: altitude)
+        }
+        MetadataDates.apply(options.dateTaken, to: &props)
+        setTextFields(options, in: &props)
+        if let keywords = options.keywords {
+            setKeywords(keywords, mode: options.keywordsMode, extra: xmpKeywords(metadata), in: &props)
+        }
+        for field in options.custom { setCustom(field, in: &props) }
+        if options.removeXMP {
+            props[kCGImageMetadataShouldExcludeXMP as String] = true
+            // IPTC fields that only exist in XMP; PNG, HEIC and GIF would otherwise still write them.
+            if let iptc = props[iptcKey] as? [String: Any] {
+                store(iptc.filter { iimKeys.contains($0.key) }, at: iptcKey, in: &props)
             }
         }
+        return props
+    }
 
+    private static func strip(_ options: MetadataOptions, in props: inout [String: Any]) {
+        switch options.location {
+        case .keep: break
+        case .remove:
+            props.removeValue(forKey: gpsKey)
+            remove(iptcLocationKeys, from: iptcKey, in: &props)
+        case .set:
+            props.removeValue(forKey: gpsKey) // replaced, with nothing of the old position left
+        }
+        if options.removeCamera {
+            remove(tiffCameraKeys, from: tiffKey, in: &props)
+            remove(exifCameraKeys, from: exifKey, in: &props)
+            remove([kCGImagePropertyPNGSoftware as String], from: pngKey, in: &props)
+            for key in cameraDictionaries { props.removeValue(forKey: key) }
+            for key in props.keys where key.hasPrefix(makerPrefix) { props.removeValue(forKey: key) }
+        }
+        if options.removeAuthor {
+            remove([kCGImagePropertyTIFFArtist as String], from: tiffKey, in: &props)
+            remove(iptcAuthorKeys, from: iptcKey, in: &props)
+            remove([kCGImagePropertyPNGAuthor as String], from: pngKey, in: &props)
+        }
+        if options.removeIPTC { props.removeValue(forKey: iptcKey) }
+    }
+
+    private static func gps(latitude: Double, longitude: Double, altitude: Double?) -> [String: Any] {
+        var gps: [String: Any] = [
+            kCGImagePropertyGPSLatitude as String: abs(latitude),
+            kCGImagePropertyGPSLatitudeRef as String: latitude < 0 ? "S" : "N",
+            kCGImagePropertyGPSLongitude as String: abs(longitude),
+            kCGImagePropertyGPSLongitudeRef as String: longitude < 0 ? "W" : "E",
+        ]
+        if let altitude {
+            gps[kCGImagePropertyGPSAltitude as String] = abs(altitude)
+            gps[kCGImagePropertyGPSAltitudeRef as String] = altitude < 0 ? 1 : 0
+        }
+        return gps
+    }
+
+    private static func setTextFields(_ options: MetadataOptions, in props: inout [String: Any]) {
         if let artist = options.artist {
             set(artist, field: Field(tiff: kCGImagePropertyTIFFArtist, iptc: kCGImagePropertyIPTCByline,
                                       png: kCGImagePropertyPNGAuthor, iptcAsArray: true), in: &props)
@@ -72,7 +128,53 @@ public enum MetadataOps {
                                            iptc: kCGImagePropertyIPTCCaptionAbstract,
                                            png: kCGImagePropertyPNGDescription), in: &props)
         }
-        return props
+        if let title = options.title {
+            set(title, field: Field(tiff: nil, iptc: kCGImagePropertyIPTCObjectName, png: kCGImagePropertyPNGTitle),
+                in: &props)
+        }
+    }
+
+    /// The keywords ImageIO reads from IPTC (a list, or one string).
+    static func iptcKeywords(_ props: [String: Any]) -> [String] {
+        let value = (props[iptcKey] as? [String: Any])?[kCGImagePropertyIPTCKeywords as String]
+        if let list = value as? [String] { return list }
+        return (value as? String).map { [$0] } ?? []
+    }
+
+    private static func xmpKeywords(_ metadata: CGImageMetadata?) -> [String] {
+        guard let metadata, let tag = CGImageMetadataCopyTagWithPath(metadata, nil, "dc:subject" as CFString),
+              let items = CGImageMetadataTagCopyValue(tag) as? [CGImageMetadataTag] else { return [] }
+        return items.compactMap { CGImageMetadataTagCopyValue($0) as? String }
+    }
+
+    private static func setKeywords(_ keywords: [String], mode: KeywordsMode, extra: [String],
+                                    in props: inout [String: Any]) {
+        let existing = mode == .add ? iptcKeywords(props) + extra : []
+        let merged = MetadataFields.normalizedKeywords(existing + keywords)
+        var iptc = props[iptcKey] as? [String: Any] ?? [:]
+        iptc[kCGImagePropertyIPTCKeywords as String] = merged.isEmpty ? nil : merged
+        store(iptc, at: iptcKey, in: &props)
+    }
+
+    private static func setCustom(_ field: MetadataField, in props: inout [String: Any]) {
+        let value = MetadataFields.sanitized(field.value)
+        switch field.namespace {
+        case .exif:
+            guard let target = MetadataFields.exifTargets[field.key] else { return }
+            setValue(value.isEmpty ? nil : value, key: target.key as String, in: target.dictionary as String, &props)
+        case .iptc:
+            guard let target = MetadataFields.iptcTargets[field.key] else { return }
+            let stored: Any? = value.isEmpty ? nil : (target.isList ? [value] as Any : value as Any)
+            setValue(stored, key: target.key as String, in: iptcKey, &props)
+        case .xmp:
+            break // written to the XMP packet (see MetadataOps+XMP)
+        }
+    }
+
+    private static func setValue(_ value: Any?, key: String, in dictKey: String, _ props: inout [String: Any]) {
+        var dict = props[dictKey] as? [String: Any] ?? [:]
+        dict[key] = value
+        store(dict, at: dictKey, in: &props)
     }
 
     private static func remove(_ keys: [String], from dictKey: String, in props: inout [String: Any]) {
@@ -82,29 +184,20 @@ public enum MetadataOps {
     }
 
     /// Writes `dict` back, or drops the sub-dictionary when it is empty.
-    private static func store(_ dict: [String: Any], at key: String, in props: inout [String: Any]) {
+    static func store(_ dict: [String: Any], at key: String, in props: inout [String: Any]) {
         if dict.isEmpty { props.removeValue(forKey: key) } else { props[key] = dict }
     }
 
     /// Sets (or, for an empty value, clears) a TIFF and an IPTC field, and the PNG mirror when the
     /// source already has a `{PNG}` dictionary.
     private static func set(_ value: String, field: Field, in props: inout [String: Any]) {
-        let (tiff, iptc, png) = (field.tiff, field.iptc, field.png)
+        let value = MetadataFields.sanitized(value)
         let clear = value.isEmpty
-        var tiffDict = props[tiffKey] as? [String: Any] ?? [:]
-        var iptcDict = props[iptcKey] as? [String: Any] ?? [:]
-        if clear {
-            tiffDict.removeValue(forKey: tiff as String)
-            iptcDict.removeValue(forKey: iptc as String)
-        } else {
-            tiffDict[tiff as String] = value
-            iptcDict[iptc as String] = field.iptcAsArray ? [value] : value
-        }
-        store(tiffDict, at: tiffKey, in: &props)
-        store(iptcDict, at: iptcKey, in: &props)
-        if var pngDict = props[pngKey] as? [String: Any] {
-            if clear { pngDict.removeValue(forKey: png as String) } else { pngDict[png as String] = value }
-            store(pngDict, at: pngKey, in: &props)
+        if let tiff = field.tiff { setValue(clear ? nil : value, key: tiff as String, in: tiffKey, &props) }
+        let iptcValue: Any = field.iptcAsArray ? [value] : value
+        setValue(clear ? nil : iptcValue, key: field.iptc as String, in: iptcKey, &props)
+        if props[pngKey] is [String: Any] {
+            setValue(clear ? nil : value, key: field.png as String, in: pngKey, &props)
         }
     }
 
