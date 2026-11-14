@@ -46,9 +46,15 @@ swiftlint           # if installed (brew install swiftlint)
     `PreviewPane.swift` (before/after, Original | Result table, run progress bar), `ComparisonViews.swift` (side by side, split, difference, single), `QualityPanel.swift` (quality ladder tiles), `CompareController.swift` (compare and browser modes, per-selection difference and ladder) and `CompareController+Keys.swift` (Space/B monitor, only while Single mode is shown), `AppModel+Compare.swift` (difference/ladder renders, list facts), `Checkerboard.swift`, `BatchBrowser.swift` (filmstrip, grid, resizable area) and `BatchTable.swift` (list),
     `ZoomableComparison.swift` (`ZoomController` on the model: synced zoom shared by both preview sides and the View menu; pinch/scroll/drag NSView overlay),
     `AppModel+Preview.swift` (selection, 300 ms debounced render task with a generation counter, thumbnail cache).
-    `WindowSizer.swift` (applies `WindowLayout`: fixed 360 pt sidebar; preview hidden → window = sidebar content height,
-    preview open → resizable, min 780 × 560, sidebar panel stretches; animated toggles via `NSAnimationContext`; the
-    root view applies its ranges with `.windowResizability(.contentSize)`; full screen is off), `EdgeHandle.swift` (grab handles on the panel edges).
+    `WindowSizer.swift` + `WindowSizer+Height.swift` (apply `WindowLayout`: fixed 360 pt sidebar; height from the sidebar's
+    measured parts: pipeline collapsed → exactly the content; expanded → user-resizable, the chosen height remembered in
+    `expandedWindowHeight`, extra height as a gap above Output, steps scroll when shorter; preview open → width resizable,
+    min 780; the preview width toggle animates via `NSAnimationContext`; the root view applies its ranges with
+    `.windowResizability(.contentSize)`; full screen is off), `SidebarMotion.swift` (every height change: the sidebar
+    animates one value, `SidebarHeightReporter` reports it per frame and the window is set to it in the same pass, so
+    the edge and content move together; wrap height-changing edits in `SidebarMotion.perform` / `.sidebarAnimated`),
+    `EdgeHandle.swift` (grab handles on the panel edges). DEBUG: `-debugTogglePipelineEvery <s>`, `-debugStepCycle <s>`,
+    `-debugWindowHeight <pt>`.
     `RunMonitor.swift` (live stages via an ordered event stream, `RunMetrics`, 1 s `ResourceSampler` while running),
     `RunStatusViews.swift` (progress area, Performance panel, thumbnail `StageRing`, interrupted-run sheet),
     `AppModel+Performance.swift` (pause, Process Next, low-memory mode, run journal path and resume).

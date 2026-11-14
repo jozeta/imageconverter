@@ -40,10 +40,16 @@ struct PreviewPane: View {
                 }
                 // Progress, Pause/Cancel and the Performance disclosure, directly above the table.
                 RunProgressArea(model: model)
-                // The bottom handle (pipeline collapse) is a compact mode: the details and thumbnails go too.
-                if !model.pipelineCollapsed {
-                    infoTable
-                    BatchBrowser(model: model)
+                // The bottom handle (pipeline collapse) is a compact mode: the details and thumbnails go too,
+                // shrinking and growing with the window edge (`pipelineReveal`) instead of jumping.
+                let reveal = model.windowSizer.pipelineReveal
+                if !model.pipelineCollapsed || reveal > 0 {
+                    VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
+                        infoTable
+                        BatchBrowser(model: model)
+                    }
+                    .padding(.top, -LadaGlass.Spacing.m * (1 - reveal))
+                    .modifier(RevealModifier(progress: reveal))
                 }
             }
         }

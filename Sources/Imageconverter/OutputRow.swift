@@ -36,12 +36,12 @@ struct OutputFormatControls: View {
     private static let defaultBytes = 500_000
 
     var body: some View {
-        Picker("Format", selection: $output.format) {
+        Picker("Format", selection: $output.format.sidebarAnimated) {
             ForEach(OutputFormat.available(), id: \.self) { Text($0.displayName).tag($0) }
         }
         .accessibilityLabel("Output format")
         if output.format.supportsQuality {
-            Picker("Compression", selection: kindBinding) {
+            Picker("Compression", selection: kindBinding.sidebarAnimated) {
                 ForEach(CompressionKind.allCases, id: \.self) { Text($0.title).tag($0) }
             }
             .accessibilityLabel("Compression mode")

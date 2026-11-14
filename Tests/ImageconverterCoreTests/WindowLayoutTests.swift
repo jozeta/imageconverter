@@ -99,4 +99,79 @@ final class WindowLayoutTests: XCTestCase {
         XCTAssertEqual(frame.minY, 50)
         XCTAssertEqual(frame.size, CGSize(width: 900, height: 828))
     }
+
+    // MARK: Expanded pipeline (user-resizable height)
+
+    /// top 300 + gap 4 + steps 200 + 12 + output 220 + 12 + bottom 40 + chrome 48.
+    private let parts = WindowLayout.SidebarParts(top: 300, steps: 200, output: 220, bottom: 40, chrome: 48,
+                                                  stepsGap: 4, spacing: 12)
+
+    func testSidebarPartHeights() {
+        XCTAssertEqual(parts.collapsed, 48 + 300 + 12 + 40)
+        XCTAssertEqual(parts.expanded, 400 + 4 + 200 + 12 + 220)
+        // The steps keep a strip of at least 60 pt; the fixed gap above Output stays.
+        XCTAssertEqual(parts.expandedMinimum, 400 + 4 + 60 + 12 + 220)
+        var short = parts
+        short.steps = 30
+        XCTAssertEqual(short.expandedMinimum, short.expanded)
+    }
+
+    func testExpandedWithoutAChosenHeightFitsTheContent() {
+        let result = WindowLayout.expandedHeight(parts: parts, remembered: nil, previousContent: nil, maxContent: screen)
+        XCTAssertEqual(result.height, parts.expanded)
+        XCTAssertNil(result.remembered)
+    }
+
+    func testAChosenTallerHeightIsKeptWhenTheContentShrinks() {
+        var smaller = parts
+        smaller.steps = 100
+        let result = WindowLayout.expandedHeight(parts: smaller, remembered: 1100, previousContent: parts.expanded,
+                                                 maxContent: screen)
+        XCTAssertEqual(result.height, 1100)
+        XCTAssertEqual(result.remembered, 1100)
+    }
+
+    func testContentGrowingPastATallWindowGrowsItUpToTheScreen() {
+        var bigger = parts
+        bigger.steps = 400
+        let result = WindowLayout.expandedHeight(parts: bigger, remembered: parts.expanded + 50,
+                                                 previousContent: parts.expanded, maxContent: screen)
+        XCTAssertEqual(result.height, bigger.expanded)
+        XCTAssertEqual(result.remembered, bigger.expanded)
+        bigger.steps = 2000
+        XCTAssertEqual(WindowLayout.expandedHeight(parts: bigger, remembered: parts.expanded,
+                                                   previousContent: parts.expanded, maxContent: screen).height, 1200)
+    }
+
+    func testAChosenShorterHeightStaysShorterWhenStepsAreAdded() {
+        // The user made it shorter than the content (the steps scroll): adding a step keeps their height.
+        var bigger = parts
+        bigger.steps = 260
+        let chosen = parts.expanded - 100
+        let result = WindowLayout.expandedHeight(parts: bigger, remembered: chosen, previousContent: parts.expanded,
+                                                 maxContent: screen)
+        XCTAssertEqual(result.height, chosen)
+        XCTAssertEqual(result.remembered, chosen)
+    }
+
+    func testAChosenHeightIsClampedToTheMinimumAndTheScreen() {
+        XCTAssertEqual(WindowLayout.expandedHeight(parts: parts, remembered: 200, previousContent: nil,
+                                                   maxContent: screen).height, parts.expandedMinimum)
+        XCTAssertEqual(WindowLayout.expandedHeight(parts: parts, remembered: 5000, previousContent: nil,
+                                                   maxContent: screen).height, 1200)
+    }
+
+    func testRestHeightsAreFixedWhenCollapsedAndResizableWhenExpanded() {
+        XCTAssertEqual(WindowLayout.restHeights(collapsed: true, parts: parts, height: 400, maxContent: screen),
+                       400...400)
+        XCTAssertEqual(WindowLayout.restHeights(collapsed: false, parts: parts, height: 900, maxContent: screen),
+                       parts.expandedMinimum...1200)
+        let limits = WindowLayout.limits(previewShown: false, heights: 700...1200, maxContent: screen)
+        XCTAssertEqual(limits.width, 360...360)
+        XCTAssertEqual(limits.height, 700...1200)
+    }
+
+    func testFollowingHeightsAllowAnythingOnTheScreen() {
+        XCTAssertEqual(WindowLayout.followingHeights(maxContent: screen), WindowLayout.minContentHeight...1200)
+    }
 }

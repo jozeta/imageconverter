@@ -16,7 +16,7 @@ struct SaveToControl: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Picker("Save to", selection: modeBinding) {
+            Picker("Save to", selection: modeBinding.sidebarAnimated) {
                 Text("Overwrite original files").tag(OutputModeKind.overwrite)
                 Text("Same folder as original").tag(OutputModeKind.sameFolder)
                 Text("New folder").tag(OutputModeKind.newFolder)
@@ -49,7 +49,7 @@ struct SaveToControl: View {
             if !pending, kind != .overwrite { pickerID += 1 }
         }
         .confirmationDialog("Overwrite originals?", isPresented: $pendingOverwrite) {
-            Button("Use overwrite") { kind = .overwrite }
+            Button("Use overwrite") { SidebarMotion.perform { kind = .overwrite } }
             Button("Cancel", role: .cancel) { pickerID += 1 }
         } message: {
             Text("Converted images will replace the originals. When the format or name changes, "

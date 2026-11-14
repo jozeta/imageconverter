@@ -25,10 +25,9 @@ extension AppModel {
         windowSizer.setPreviewShown(!previewCollapsed)
     }
 
-    /// Collapses or expands the pipeline; the window follows the new sidebar height right away.
+    /// Collapses or expands the pipeline with the sidebar motion; the window edge follows the panel.
     func togglePipeline() {
-        windowSizer.pipelineWillToggle()
-        pipelineCollapsed.toggle()
+        SidebarMotion.perform { pipelineCollapsed.toggle() }
     }
 
     /// After a run, forgets items whose file is gone (overwrite mode trashes originals when the format changes).

@@ -115,7 +115,7 @@ final class AppModel {
         previewCollapsed = defaults.bool(forKey: Self.previewCollapsedKey)
         pipelineCollapsed = defaults.bool(forKey: Self.pipelineCollapsedKey)
         lowMemoryMode = defaults.bool(forKey: Self.lowMemoryModeKey)
-        windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey))
+        windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey), defaults: defaults)
         let saved = Self.loadPipeline(from: defaults)
         session = PresetSession(selected: nil, pipeline: saved)
         let result = presetStore.loadAll()

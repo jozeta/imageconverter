@@ -2,49 +2,45 @@ import AppKit
 import SwiftUI
 import ImageconverterCore
 
-/// The pipeline: image steps (accordion rows) followed by the fixed Output row.
+/// The pipeline's steps: "+ Add step", the image steps (accordion rows) and the always-last file steps.
+/// The sidebar puts it in a scroll view above the Output panel (`OutputPanel`).
 struct PipelineSection: View {
     @Bindable var model: AppModel
     var settings: AppSettings
-    private var isCollapsed: Bool { model.pipelineCollapsed }
     @State private var expanded: Set<PipelineStep.ID> = []
     /// Set when a drag starts, so rows can show the slot a drop will land in.
     @State private var draggedID: PipelineStep.ID?
     @State fileprivate var metadataExpanded = false
     @State fileprivate var renameExpanded = false
 
-    fileprivate static let overwriteHelp = "Not available when overwriting originals"
-
-    private var enabledCount: Int { model.pipeline.steps.filter(\.isEnabled).count }
+    static let overwriteHelp = "Not available when overwriting originals"
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-            header
-            if !isCollapsed {
-                addMenu.disabled(model.isRunning)
-                ForEach(model.pipeline.steps) { step in
-                    StepRow(
-                        step: stepBinding(step),
-                        isExpanded: expandedBinding(step.id),
-                        canMoveUp: step.id != model.pipeline.steps.first?.id,
-                        canMoveDown: step.id != model.pipeline.steps.last?.id,
-                        move: { model.moveStep(step.id, by: $0) },
-                        remove: {
+            addMenu.disabled(model.isRunning)
+            ForEach(model.pipeline.steps) { step in
+                StepRow(
+                    step: stepBinding(step),
+                    isExpanded: expandedBinding(step.id),
+                    canMoveUp: step.id != model.pipeline.steps.first?.id,
+                    canMoveDown: step.id != model.pipeline.steps.last?.id,
+                    move: { model.moveStep(step.id, by: $0) },
+                    remove: {
+                        SidebarMotion.perform {
                             expanded.remove(step.id)
                             model.removeStep(step.id)
-                        },
-                        dropEdge: { dropEdge(for: step.id) },
-                        dragStarted: { draggedID = step.id },
-                        dropped: { model.moveStep($0, to: step.id) },
-                        branchDefaults: branchDefaults)
-                    .disabled(model.isRunning)
-                }
-                if model.pipeline.metadata.isIncluded || model.pipeline.rename.isIncluded {
-                    Text("Always last").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-                }
-                fileSteps
-                outputRow
+                        }
+                    },
+                    dropEdge: { dropEdge(for: step.id) },
+                    dragStarted: { draggedID = step.id },
+                    dropped: { model.moveStep($0, to: step.id) },
+                    branchDefaults: branchDefaults)
+                .disabled(model.isRunning)
             }
+            if model.pipeline.metadata.isIncluded || model.pipeline.rename.isIncluded {
+                Text("Always last").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            }
+            fileSteps
         }
         #if DEBUG
         // Screenshot aid: `-debugExpandSteps` opens every step's editor at launch.
@@ -55,8 +51,29 @@ struct PipelineSection: View {
                 renameExpanded = true
             }
         }
+        .task { await debugStepCycle() }
         #endif
     }
+
+    #if DEBUG
+    /// `-debugStepCycle <seconds>`: adds a Resize step, opens its editor, closes it and removes it again,
+    /// one action every `seconds`, over and over (animation checks).
+    private func debugStepCycle() async {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "-debugStepCycle"), index + 1 < arguments.count,
+              let seconds = Double(arguments[index + 1]), seconds > 0 else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .seconds(seconds))
+            let step = SidebarMotion.perform { model.addStep(.resize) }
+            try? await Task.sleep(for: .seconds(seconds))
+            SidebarMotion.perform { _ = expanded.insert(step.id) }
+            try? await Task.sleep(for: .seconds(seconds))
+            SidebarMotion.perform { _ = expanded.remove(step.id) }
+            try? await Task.sleep(for: .seconds(seconds))
+            SidebarMotion.perform { model.removeStep(step.id) }
+        }
+    }
+    #endif
 
     /// moveStep(_:to:) puts the dragged step at the target's index: above it when coming from below,
     /// below it when coming from above. Nil on the dragged row itself.
@@ -85,35 +102,33 @@ struct PipelineSection: View {
                        renameLockedHelp: settings.modeKind == .overwrite ? Self.overwriteHelp : nil)
     }
 
-    private var header: some View {
-        Text("Pipeline · \(enabledCount) \(enabledCount == 1 ? "step" : "steps")")
-            .font(LadaGlass.Typography.label)
-            .foregroundStyle(LadaGlass.Colors.muted)
-    }
-
     private var addMenu: some View {
         Menu("+ Add step") {
             ForEach(StepKind.allCases.filter { $0 != .condition }, id: \.self) { kind in
                 // New steps start collapsed.
-                Button(kind.displayName) { _ = model.addStep(kind) }
+                Button(kind.displayName) { _ = SidebarMotion.perform { model.addStep(kind) } }
             }
             Divider()
-            Button("If … then … else") { _ = model.addStep(.condition) }
+            Button("If … then … else") { _ = SidebarMotion.perform { model.addStep(.condition) } }
             if !model.pipeline.metadata.isIncluded || !model.pipeline.rename.isIncluded {
                 Divider()
                 Section("Always last") {
                     if !model.pipeline.metadata.isIncluded {
                         Button("Metadata") {
-                            model.pipeline.metadata.isIncluded = true
-                            model.pipeline.metadata.isEnabled = true
-                            metadataExpanded = false
+                            SidebarMotion.perform {
+                                model.pipeline.metadata.isIncluded = true
+                                model.pipeline.metadata.isEnabled = true
+                                metadataExpanded = false
+                            }
                         }
                     }
                     if !model.pipeline.rename.isIncluded {
                         Button("Rename") {
-                            model.pipeline.rename.isIncluded = true
-                            model.pipeline.rename.isEnabled = true
-                            renameExpanded = false
+                            SidebarMotion.perform {
+                                model.pipeline.rename.isIncluded = true
+                                model.pipeline.rename.isEnabled = true
+                                renameExpanded = false
+                            }
                         }
                         .disabled(settings.modeKind == .overwrite)
                         .help(settings.modeKind == .overwrite ? Self.overwriteHelp : "")
@@ -130,52 +145,6 @@ struct PipelineSection: View {
             set: { if $0 { expanded.insert(id) } else { expanded.remove(id) } })
     }
 
-    private var outputRow: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Text("Output").font(LadaGlass.Typography.subtitle)
-            OutputFormatControls(output: $model.pipeline.output)
-                .disabled(model.isRunning)
-            estimateLine
-            saveToControls
-        }
-        .padding(.horizontal, LadaGlass.Spacing.m)
-        .padding(.vertical, LadaGlass.Spacing.s)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .lgSurface()
-    }
-
-    // MARK: Size estimate
-
-    private var estimateLine: some View {
-        Text(estimateText)
-            .font(LadaGlass.Typography.label)
-            .foregroundStyle(LadaGlass.Colors.muted)
-            .accessibilityLabel(estimateText)
-    }
-
-    private var estimateText: String {
-        if model.items.isEmpty { return "Add images to see the file size" }
-        if let reason = model.estimateFailure { return reason }
-        if model.estimateFailed { return "—" }
-        guard !model.isEstimating, let estimate = model.sizeEstimate, let output = estimate.output else { return "Estimating…" }
-        let original = estimate.original.map(Self.bytes) ?? "—"
-        let change = estimate.original.flatMap { SizeFormat.percentChange(from: $0, to: output) }.map { " (\($0))" } ?? ""
-        let quality = qualitySuffix(estimate.quality, mode: model.pipeline.output.compression)
-        let note = estimate.note.map { ". \($0)" } ?? ""
-        return "Original \(original) → about \(Self.bytes(output))\(quality)\(change)\(note)"
-    }
-
-    private static func bytes(_ count: Int) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
-    }
-
-    // MARK: Save to
-
-    private var saveToControls: some View {
-        @Bindable var settings = settings
-        return SaveToControl(kind: $settings.modeKind, folder: $settings.outputFolder, suffix: $settings.sameFolderSuffix)
-            .disabled(model.isRunning)
-    }
 }
 
 extension PipelineSection {
@@ -204,15 +173,19 @@ extension PipelineSection {
     }
 
     private func removeMetadata() {
-        metadataExpanded = false
-        model.pipeline.metadata.isIncluded = false
-        model.pipeline.metadata.isEnabled = false
+        SidebarMotion.perform {
+            metadataExpanded = false
+            model.pipeline.metadata.isIncluded = false
+            model.pipeline.metadata.isEnabled = false
+        }
     }
 
     private func removeRename() {
-        renameExpanded = false
-        model.pipeline.rename.isIncluded = false
-        model.pipeline.rename.isEnabled = false
+        SidebarMotion.perform {
+            renameExpanded = false
+            model.pipeline.rename.isIncluded = false
+            model.pipeline.rename.isEnabled = false
+        }
     }
 }
 
@@ -307,5 +280,71 @@ private struct StepRow: View {
         Button("Move Down") { move(1) }.disabled(!canMoveDown)
         Divider()
         Button("Remove", role: .destructive, action: remove)
+    }
+}
+
+/// "Pipeline · n steps", above the steps (and alone while the pipeline is collapsed).
+struct PipelineHeader: View {
+    var model: AppModel
+
+    private var enabledCount: Int { model.pipeline.steps.filter(\.isEnabled).count }
+
+    var body: some View {
+        Text("Pipeline · \(enabledCount) \(enabledCount == 1 ? "step" : "steps")")
+            .font(LadaGlass.Typography.label)
+            .foregroundStyle(LadaGlass.Colors.muted)
+    }
+}
+
+/// The fixed Output panel under the steps: format and compression, the size estimate and where to save.
+struct OutputPanel: View {
+    @Bindable var model: AppModel
+    var settings: AppSettings
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
+            Text("Output").font(LadaGlass.Typography.subtitle)
+            OutputFormatControls(output: $model.pipeline.output)
+                .disabled(model.isRunning)
+            estimateLine
+            saveToControls
+        }
+        .padding(.horizontal, LadaGlass.Spacing.m)
+        .padding(.vertical, LadaGlass.Spacing.s)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .lgSurface()
+    }
+
+    // MARK: Size estimate
+
+    private var estimateLine: some View {
+        Text(estimateText)
+            .font(LadaGlass.Typography.label)
+            .foregroundStyle(LadaGlass.Colors.muted)
+            .accessibilityLabel(estimateText)
+    }
+
+    private var estimateText: String {
+        if model.items.isEmpty { return "Add images to see the file size" }
+        if let reason = model.estimateFailure { return reason }
+        if model.estimateFailed { return "—" }
+        guard !model.isEstimating, let estimate = model.sizeEstimate, let output = estimate.output else { return "Estimating…" }
+        let original = estimate.original.map(Self.bytes) ?? "—"
+        let change = estimate.original.flatMap { SizeFormat.percentChange(from: $0, to: output) }.map { " (\($0))" } ?? ""
+        let quality = qualitySuffix(estimate.quality, mode: model.pipeline.output.compression)
+        let note = estimate.note.map { ". \($0)" } ?? ""
+        return "Original \(original) → about \(Self.bytes(output))\(quality)\(change)\(note)"
+    }
+
+    private static func bytes(_ count: Int) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
+    }
+
+    // MARK: Save to
+
+    private var saveToControls: some View {
+        @Bindable var settings = settings
+        return SaveToControl(kind: $settings.modeKind, folder: $settings.outputFolder, suffix: $settings.sameFolderSuffix)
+            .disabled(model.isRunning)
     }
 }

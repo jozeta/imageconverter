@@ -141,7 +141,7 @@ struct RenameEditor: View {
                 .font(LadaGlass.Typography.mono)
                 .accessibilityLabel("Replace with\(number)")
             if index == 0 {
-                Button { addRule(after: index) } label: { Image(systemName: "plus") }
+                Button { SidebarMotion.perform { addRule(after: index) } } label: { Image(systemName: "plus") }
                     .buttonStyle(.plain)
                     .padding(LadaGlass.Spacing.xs)
                     .contentShape(Rectangle())
@@ -150,7 +150,9 @@ struct RenameEditor: View {
                     .help("Add another find and replace")
                     .accessibilityLabel("Add another find and replace")
             } else {
-                RemoveStepButton(label: "find and replace") { options.replacements.remove(at: index) }
+                RemoveStepButton(label: "find and replace") {
+                    SidebarMotion.perform { _ = options.replacements.remove(at: index) }
+                }
             }
         }
         Toggle("Regular expression", isOn: binding.useRegex)

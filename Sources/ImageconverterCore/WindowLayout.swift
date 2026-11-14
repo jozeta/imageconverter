@@ -2,15 +2,94 @@ import CoreGraphics
 
 /// The main window's size rules (pure maths; the app's `WindowSizer` applies them to the window).
 ///
-/// The window is always exactly as tall as the sidebar's content (Johan), preview open or not; only an
-/// open preview makes it user-resizable, and only in width (at least sidebar + preview minimum).
-/// All sizes are content sizes (the title bar excluded) and are clamped to the screen's visible area.
+/// Height (Johan): with the pipeline collapsed the window is exactly as tall as the sidebar's content.
+/// With the pipeline expanded the user may resize it vertically, from `SidebarParts.expandedMinimum` to
+/// the screen: extra height goes between the last pipeline step and the Output panel, and when it is
+/// shorter than the content the steps scroll. Their chosen expanded height is remembered; without one
+/// the window fits the content. Width: only an open preview makes it resizable (at least sidebar +
+/// preview minimum). All sizes are content sizes (the title bar excluded), clamped to the screen.
 public enum WindowLayout {
     public static let sidebarWidth: CGFloat = 360
     public static let previewMinWidth: CGFloat = 420
     /// A floor for tiny content only; normally the content is taller.
     public static let minContentHeight: CGFloat = 300
     public static let defaultPreviewWidth: CGFloat = 640
+
+    /// The natural heights of the sidebar's parts, measured by the app; the window heights follow from them.
+    public struct SidebarParts: Equatable, Sendable {
+        /// Preset bar down to the pipeline header.
+        public var top: CGFloat
+        /// The pipeline steps list ("+ Add step", the steps, Metadata/Rename), unscrolled.
+        public var steps: CGFloat
+        /// The Output panel.
+        public var output: CGFloat
+        /// Run (and the report under it).
+        public var bottom: CGFloat
+        /// Panel and window paddings, top and bottom together.
+        public var chrome: CGFloat
+        /// Between the header and the steps list.
+        public var stepsGap: CGFloat
+        /// Between the steps and Output (at least; extra height widens it) and above the bottom part.
+        public var spacing: CGFloat
+
+        /// The steps list keeps at least this much room in a window the user made shorter (it scrolls).
+        public static let minimumStepsHeight: CGFloat = 60
+
+        public init(top: CGFloat, steps: CGFloat, output: CGFloat, bottom: CGFloat, chrome: CGFloat,
+                    stepsGap: CGFloat, spacing: CGFloat) {
+            self.top = top
+            self.steps = steps
+            self.output = output
+            self.bottom = bottom
+            self.chrome = chrome
+            self.stepsGap = stepsGap
+            self.spacing = spacing
+        }
+
+        /// The content height with the pipeline collapsed (no steps, no Output).
+        public var collapsed: CGFloat { chrome + top + spacing + bottom }
+        /// The content height with the pipeline expanded and every step visible.
+        public var expanded: CGFloat { collapsed + stepsGap + steps + spacing + output }
+        /// The smallest expanded height: the steps list scrolls in a minimal strip, the rest stays visible.
+        public var expandedMinimum: CGFloat {
+            collapsed + stepsGap + min(steps, Self.minimumStepsHeight) + spacing + output
+        }
+    }
+
+    /// The expanded window height after a content change, and the remembered (user-chosen) height.
+    ///
+    /// No remembered height: the window fits the content. With one, the window keeps it (the gap above
+    /// Output absorbs shrinking content), except that content growing past a window that showed all of it
+    /// grows the window (and the remembered height) with it, up to the screen. `previousContent` is the
+    /// expanded content height before this change (nil if unknown).
+    public static func expandedHeight(parts: SidebarParts, remembered: CGFloat?, previousContent: CGFloat?,
+                                      maxContent: CGSize) -> (height: CGFloat, remembered: CGFloat?) {
+        let content = parts.expanded
+        var remembered = remembered
+        if let chosen = remembered, let previous = previousContent,
+           chosen >= previous - 0.5, content > chosen + 0.5 {
+            remembered = content
+        }
+        let range = expandedHeights(parts: parts, maxContent: maxContent)
+        let height = min(max(remembered ?? content, range.lowerBound), range.upperBound)
+        return (height, remembered)
+    }
+
+    /// The heights an expanded window may be resized to: the minimum that keeps everything but most of
+    /// the steps visible, up to the screen.
+    public static func expandedHeights(parts: SidebarParts, maxContent: CGSize) -> ClosedRange<CGFloat> {
+        let top = max(maxContent.height, minContentHeight)
+        let bottom = min(max(parts.expandedMinimum, minContentHeight), top)
+        return bottom...top
+    }
+
+    /// The window's height range at rest: fixed to the fitted height when collapsed, resizable when expanded.
+    public static func restHeights(collapsed: Bool, parts: SidebarParts, height: CGFloat,
+                                   maxContent: CGSize) -> ClosedRange<CGFloat> {
+        if collapsed { return height...height }
+        let range = expandedHeights(parts: parts, maxContent: maxContent)
+        return min(range.lowerBound, height)...max(range.upperBound, height)
+    }
 
     public struct Limits: Equatable, Sendable {
         public var width: ClosedRange<CGFloat>
@@ -22,6 +101,13 @@ public enum WindowLayout {
         }
     }
 
+    /// The window's min/max content size for a height range (see `restHeights`).
+    public static func limits(previewShown: Bool, heights: ClosedRange<CGFloat>, maxContent: CGSize) -> Limits {
+        var limits = limits(previewShown: previewShown, fittedHeight: heights.lowerBound, maxContent: maxContent)
+        limits.height = heights
+        return limits
+    }
+
     /// The window's min/max content size when no animation runs. `fittedHeight` is the content-fitted
     /// height (see `fittingHeight`); the height is fixed to it whether or not the preview is open.
     public static func limits(previewShown: Bool, fittedHeight: CGFloat, maxContent: CGSize) -> Limits {
@@ -31,6 +117,13 @@ public enum WindowLayout {
             return Limits(width: minWidth...CGFloat.infinity, height: height)
         }
         return Limits(width: sidebarWidth...sidebarWidth, height: height)
+    }
+
+    /// The height range while the window follows an animating sidebar frame by frame: anything from the
+    /// minimum to the screen, so SwiftUI never pulls the window back to a stale fixed height mid-animation.
+    public static func followingHeights(maxContent: CGSize) -> ClosedRange<CGFloat> {
+        let top = max(maxContent.height, minContentHeight)
+        return minContentHeight...top
     }
 
     /// Limits that allow both the current and the target size, used while an animation runs.
