@@ -59,13 +59,6 @@ final class OutputPlannerTests: XCTestCase {
         XCTAssertEqual(plans.map(\.destination.path), ["/src/IMG_2.jpg"])
     }
 
-    func testOverwriteIgnoresBaseNames() {
-        let plans = OutputPlanner.plan([item("a.jpg"), item("b.heic")], format: .jpeg, mode: .overwrite,
-                                       baseNames: ["x", "y"], fileExists: { _ in false })
-        XCTAssertEqual(plans.map(\.destination.path), ["/src/a.jpg", "/src/b.jpg"])
-        XCTAssertEqual(plans.map(\.replacesSource), [true, false])
-    }
-
     func testSameFolderEmptySuffixNeverTargetsOriginal() {
         let plans = OutputPlanner.plan([item("IMG.jpg")], format: .jpeg,
                                        mode: .sameFolder(suffix: ""), fileExists: { _ in false })

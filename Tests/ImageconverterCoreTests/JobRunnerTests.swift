@@ -298,3 +298,28 @@ extension JobRunnerTests {
         XCTAssertEqual(second.unchanged, 2, "the source and its output in the subfolder")
     }
 }
+
+extension JobRunnerTests {
+    /// Task 7: an overwrite job with a rename writes the renamed file into the watched folder and trashes the
+    /// original; the renamed file is on the ledger as an output, so the next run doesn't take it as a new input.
+    func testOverwriteRenameOutputsAreNeverReprocessed() async throws {
+        let original = try drop("a.jpg")
+        var pipeline = Pipeline(output: OutputSettings(format: .jpeg))
+        pipeline.rename = RenameOptions(isEnabled: true, pattern: "{name}_web")
+        let job = job(pipeline, mode: .overwrite)
+        let trashed = LockedLog<URL>()
+        let trash: Trasher = { url in
+            trashed.append(url)
+            try FileManager.default.removeItem(at: url)
+        }
+        let later: @Sendable () -> Date = { Date().addingTimeInterval(10) }
+        let first = await JobRunner.run(job, store: store, trash: trash, now: later)
+        XCTAssertEqual(first.batch.written.map(\.lastPathComponent), ["a_web.jpg"])
+        XCTAssertEqual(trashed.values.map(\.lastPathComponent), [original.lastPathComponent])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: original.path))
+        let second = await JobRunner.run(job, store: store, trash: trash, now: later)
+        XCTAssertEqual(second.batch.order, [], "a_web.jpg is the job's own output")
+        XCTAssertEqual(second.batch.written, [])
+        XCTAssertEqual(second.unchanged, 1)
+    }
+}

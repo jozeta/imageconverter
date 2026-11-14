@@ -188,17 +188,6 @@ final class FileStepsBatchTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
     }
 
-    func testOverwriteIgnoresRenameAndReplacesInPlace() async throws {
-        let url = try source("a.jpg")
-        let trashed = LockedLog<URL>()
-        let trash: Trasher = { trashed.append($0) }
-        let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: renamePipeline("renamed"),
-                                           mode: .overwrite, trash: trash)
-        XCTAssertEqual(report.failures, [])
-        XCTAssertEqual(report.written, [url])
-        XCTAssertEqual(trashed.values, [])
-    }
-
     func testPlannerIgnoresMismatchedBaseNames() {
         let items = [InputItem(source: root.appendingPathComponent("a.png"), relativeDirectory: "")]
         let plans = OutputPlanner.plan(items, format: .jpeg, mode: .newFolder(out), baseNames: ["x", "y"],
@@ -269,13 +258,5 @@ final class FileStepsBatchTests: XCTestCase {
                                        fileExists: { _ in true })
         XCTAssertTrue(plans[0].replacesSource)
         XCTAssertFalse(plans[0].trashesSource)
-    }
-
-    func testPlannerOverwriteSwapIgnoresBaseNames() {
-        let items = ["2.jpg", "1.jpg"].map { InputItem(source: root.appendingPathComponent($0), relativeDirectory: "") }
-        let plans = OutputPlanner.plan(items, format: .jpeg, mode: .overwrite, baseNames: ["1", "2"],
-                                       fileExists: { _ in true })
-        XCTAssertEqual(plans.map { $0.destination.lastPathComponent }, ["2.jpg", "1.jpg"])
-        XCTAssertTrue(plans.allSatisfy { $0.replacesSource && !$0.trashesSource })
     }
 }

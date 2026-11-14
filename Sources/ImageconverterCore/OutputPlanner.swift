@@ -92,7 +92,9 @@ public enum OutputPlanner {
     ///   mirrored), or into the target's own subfolder of it; clashes (per final folder) get `_2`, `_3`, ...
     /// - Same folder: the suffix is appended only when the output would otherwise be the source
     ///   file itself; other clashes get `_2`, `_3`, ...
-    /// - Overwrite: `baseNames` is ignored (renaming is disabled), so the name stays the source's.
+    /// - Overwrite: the output goes into the source's own folder under its (new) name. When that is the source
+    ///   itself (same name and format) it is replaced in place; otherwise the original goes to the Trash after
+    ///   the new file is saved. Other items' originals count as taken, so a rename never lands on one (`_2`).
     public static func plan(
         _ items: [InputItem],
         format: OutputFormat,
@@ -118,15 +120,10 @@ public enum OutputPlanner {
         var claimed = Set<String>()
 
         func sourceName(_ item: InputItem) -> String { item.source.deletingPathExtension().lastPathComponent }
-        // In place means overwrite mode and the source already has the output's extension
-        // (names are ignored when overwriting).
-        func inPlace(_ target: OutputTarget) -> Bool {
-            isOverwrite && target.acceptedExtensions.contains(target.item.source.pathExtension.lowercased())
-        }
-        // Pre-claim in-place targets so no other item can take them, whatever `fileExists` says. Outside
-        // overwrite mode no plan may ever target a source file, even with an empty suffix. A skipped file is
-        // never replaced, in any mode.
-        claimed.formUnion(targets.filter { !isOverwrite || inPlace($0) }.map { key($0.item.source) })
+        // No plan may target another item's source file, whatever `fileExists` says: outside overwrite mode not
+        // even its own (with an empty suffix); in overwrite mode only its own, in place. So a rename never lands
+        // on an original that is still to be processed. A skipped file is never replaced, in any mode.
+        claimed.formUnion(targets.map { key($0.item.source) })
         claimed.formUnion(reservedSources.map(key))
 
         var plans: [PlannedOutput] = []
@@ -141,15 +138,14 @@ public enum OutputPlanner {
                                            trashesSource: true))
                 continue
             }
-            if inPlace(target) {
+            if isOverwrite, isInPlace(target) {
                 plans.append(PlannedOutput(item: item, destination: item.source,
                                            replacesSource: true, trashesSource: false))
                 continue
             }
 
             let sourceDir = item.source.deletingLastPathComponent()
-            // Renaming is disabled when overwriting, so a leftover template can't change the plan.
-            let name = (isOverwrite ? nil : target.baseName) ?? sourceName(item)
+            let name = target.baseName ?? sourceName(item)
             let dotExt = target.fileExtension.isEmpty ? "" : ".\(target.fileExtension)"
             let directory: URL
             var suffix = ""
@@ -178,6 +174,16 @@ public enum OutputPlanner {
                                        replacesSource: false, trashesSource: isOverwrite))
         }
         return plans
+    }
+
+    /// Overwriting `target` replaces its source in place: the source already has the output's extension and the
+    /// name is unchanged (as the volume compares names: on a case-insensitive volume `IMG` keeps `img.jpg`).
+    private static func isInPlace(_ target: OutputTarget) -> Bool {
+        let source = target.item.source
+        guard target.acceptedExtensions.contains(source.pathExtension.lowercased()) else { return false }
+        guard let name = target.baseName else { return true }
+        return sameFile(source.deletingLastPathComponent().appendingPathComponent(name)
+            .appendingPathExtension(source.pathExtension), source)
     }
 
     /// `base` with the folder names added; `base` itself if the result would somehow lie outside it.

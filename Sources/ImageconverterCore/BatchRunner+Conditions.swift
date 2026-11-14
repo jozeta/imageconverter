@@ -8,6 +8,10 @@ public struct PlannedFile: Equatable, Sendable {
     /// Nil when a condition skips the file.
     public let destination: URL?
     public let disposition: Disposition
+    /// Overwrite mode: the original is replaced in place.
+    public var replacesSource = false
+    /// Overwrite mode: the result has a new name or format, and the original goes to the Trash once it is saved.
+    public var trashesSource = false
 }
 
 extension BatchRunner {
@@ -109,7 +113,8 @@ extension BatchRunner {
         for (plan, job) in zip(run.plans, run.jobs) { byPlan[plan.item.source] = (plan, job.disposition) }
         return items.map { item in
             if let (plan, disposition) = byPlan[item.source] {
-                return PlannedFile(source: item.source, destination: plan.destination, disposition: disposition)
+                return PlannedFile(source: item.source, destination: plan.destination, disposition: disposition,
+                                   replacesSource: plan.replacesSource, trashesSource: plan.trashesSource)
             }
             return PlannedFile(source: item.source, destination: nil, disposition: .skip)
         }
