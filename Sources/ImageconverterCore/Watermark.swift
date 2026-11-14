@@ -353,11 +353,14 @@ extension Geometry {
         func count(_ side: CGFloat, _ step: Double, _ mark: CGFloat) -> Double {
             ((Double(side) / 2 + Double(mark) / 2) / step).rounded(.up) + 1
         }
-        let estimate = (2 * count(imageSize.width, stepX, extent.width) + 1)
-            * (2 * count(imageSize.height, stepY, extent.height) + 1)
-        guard estimate.isFinite, stepX > 0, stepY > 0 else { return [] }
-        if estimate > Double(maxTiles) {
-            let widen = (estimate / Double(maxTiles)).squareRoot()
+        func estimate() -> Double {
+            (2 * count(imageSize.width, stepX, extent.width) + 1) * (2 * count(imageSize.height, stepY, extent.height) + 1)
+        }
+        guard estimate().isFinite, stepX > 0, stepY > 0 else { return [] }
+        // Widen both steps until the whole grid fits the cap, so coverage stays even instead of losing rows.
+        // Each axis needs at least 5 positions, so this ends well within the bound.
+        for _ in 0..<64 where estimate() > Double(maxTiles) {
+            let widen = max(1.05, (estimate() / Double(maxTiles)).squareRoot())
             stepX *= widen
             stepY *= widen
         }

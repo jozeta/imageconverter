@@ -28,15 +28,17 @@ public struct WatermarkTextContext: Equatable, Sendable {
     public static func make(source: URL, properties: [String: Any], metadata: MetadataOptions,
                             fileCreationDate: Date?) -> WatermarkTextContext {
         let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
-        let iptc = properties[kCGImagePropertyIPTCDictionary as String] as? [String: Any]
         let png = properties[kCGImagePropertyPNGDictionary as String] as? [String: Any]
+        let step = metadata.isActive
+        // Removing IPTC drops the whole IPTC dictionary (when not removing everything, which has its own keep list).
+        let iptc = step && metadata.removeIPTC && !metadata.removeAll
+            ? nil : properties[kCGImagePropertyIPTCDictionary as String] as? [String: Any]
         let sourceCopyright = text(tiff?[kCGImagePropertyTIFFCopyright as String])
             ?? text(iptc?[kCGImagePropertyIPTCCopyrightNotice as String])
             ?? text(png?[kCGImagePropertyPNGCopyright as String])
         let sourceArtist = text(tiff?[kCGImagePropertyTIFFArtist as String])
             ?? text(iptc?[kCGImagePropertyIPTCByline as String])
             ?? text(png?[kCGImagePropertyPNGAuthor as String])
-        let step = metadata.isActive
         // Removal happens before setting: a value the step sets wins; a field it removes renders empty, so the
         // stripped author or copyright doesn't reappear in the pixels.
         let removesAll = step && metadata.removeAll

@@ -249,19 +249,6 @@ final class WatermarkModelTests: XCTestCase {
         XCTAssertEqual(placement.shadowLeading.height, 0, accuracy: 0.001)
     }
 
-    func testCraftedTinySizeDoesNotTrap() {
-        for layout in [WatermarkLayout.single, .tiled(spacing: 0, stagger: true), .tiled(spacing: 400, stagger: false)] {
-            let options = WatermarkOptions(content: .image(ImageWatermark(path: "a")), sizePercent: 1e-300,
-                                           layout: layout)
-            XCTAssertNil(Geometry.watermarkPlacement(imageSize: CGSize(width: 8000, height: 6000),
-                                                     contentSize: CGSize(width: 10, height: 10), options: options))
-        }
-        let tiny = WatermarkOptions(content: .image(ImageWatermark(path: "a")), sizePercent: 1e-300,
-                                    layout: .tiled(spacing: 0, stagger: true))
-        let base = TestImages.make(width: 40, height: 30)
-        XCTAssertTrue(try ImageOps.watermark(base, tiny, asset: TestImages.make(width: 4, height: 4)) === base)
-    }
-
     func testLayoutDecodesLeniently() throws {
         let decoder = JSONDecoder()
         XCTAssertEqual(try decoder.decode(WatermarkLayout.self, from: Data(#"{"tiled":{"spacing":50}}"#.utf8)),

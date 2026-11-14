@@ -77,6 +77,17 @@ final class WatermarkTextTests: XCTestCase {
         XCTAssertEqual(WatermarkText.render("{copyright} {artist}", context: context(properties: png)), "© PNG Author")
     }
 
+    func testRemovingIPTCDropsIPTCOnlyValues() {
+        let iptc: [String: Any] = [kCGImagePropertyIPTCDictionary as String: [
+            kCGImagePropertyIPTCCopyrightNotice as String: "© IPTC", kCGImagePropertyIPTCByline as String: ["By"]]]
+        var step = MetadataOptions(isEnabled: true, removeLocation: false)
+        step.removeIPTC = true
+        XCTAssertEqual(WatermarkText.render("{copyright}|{artist}", context: context(metadata: step, properties: iptc)),
+                       "|")
+        // EXIF/TIFF values aren't IPTC: they stay.
+        XCTAssertEqual(WatermarkText.render("{copyright}", context: context(metadata: step)), "© Source")
+    }
+
     func testDateFallsBackToFileCreationDate() {
         let created = Date(timeIntervalSince1970: 1_700_000_000)
         let fallback = WatermarkTextContext.make(source: URL(fileURLWithPath: "/a.png"), properties: [:],
