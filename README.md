@@ -526,7 +526,8 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
    compression for these images), **Set metadata…**, **Set rename…**, **Copy original unchanged** (the file is copied as
    it is, nothing is decoded) or **Skip file** (nothing is written; the file counts as *skipped by a condition*, not
    failed, and takes no counter number). **Set metadata…** can add removals and set fields but never brings back
-   what the pipeline's Metadata step removes (or `--strip-gps`/`--strip-all` on the command line). When that step
+   what the pipeline's Metadata step removes (or `--strip-gps`/`--strip-all` on the command line): a branch that sets
+   a new location then also drops the original's place names, and a fixed date wins over a branch's shift. When that step
    removes or replaces anything, **Copy original unchanged** converts the image instead, in its own format at the best
    quality (lossless for PNG and TIFF), and the report says "Converted instead of copied to remove metadata". Open an action to edit it with the usual editor; reorder actions by
    dragging the handle or with **Move Up** / **Move Down** in the right-click menu.
@@ -661,7 +662,8 @@ are averaged over the last few seconds and weighted by image size, and appear on
   change; files that are gone are listed). A batch that overwrote its originals shows the overwrite warning and
   resumes only after you tick **Replace the original files**. **Discard** forgets it; **Not Now** keeps it and asks
   again at the next launch, and pressing Run (or a Finder Quick Action) first asks "Discard the interrupted batch?"
-  (Cancel keeps it); an AppleScript `convert` or `run batch` is refused with "An interrupted batch is waiting; resume
+  (Cancel keeps it; a Quick Action asks this after "Replace originals?", and the batch is only discarded once every
+  question was answered yes); an AppleScript `convert` or `run batch` is refused with "An interrupted batch is waiting; resume
   or discard it first." Stopping a run yourself (Stop, or Stop and Quit) ends it for good: nothing is offered
   afterwards. When an overwrite batch resumes, an original that changed since the batch started (it was most likely
   replaced just before the crash) is left alone and listed, so no image is processed twice. A resumed batch numbers
@@ -756,7 +758,7 @@ Convert options (options override the preset or pipeline file):
 | `--quality 0-100` | Quality for lossy formats |
 | `--max-size 500KB` | Largest file size (KB and MB are decimal) |
 | `--resize-long PX` | Scale so the longest edge is PX pixels |
-| `--strip-gps`, `--strip-all` | Remove the location, or all metadata |
+| `--strip-gps`, `--strip-all` | Remove the location (GPS and place names), or all metadata (the preset's "keep when removing all" list is ignored) |
 | `--report csv\|json\|text` | Print a full report on stdout |
 | `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked); writes nothing; honours `--report`/`--json` |
 | `--quiet`, `--json` | No progress; `--json` prints the JSON report |
