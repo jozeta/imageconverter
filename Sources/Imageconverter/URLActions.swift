@@ -12,8 +12,9 @@ extension ExternalActions {
             return
         }
         guard let action = URLAction.parse(url) else {
+            let hint = Sandbox.isEnforced ? " " + ExternalRequestError.sandboxHint : ""
             reportProblem(title: "Ignored a link", message: "An imageconverter link was malformed, too long, used an "
-                          + "unknown action or named a file that can't be read.")
+                          + "unknown action or named a file that can't be read." + hint)
             return
         }
         guard action.needsConfirmation else { return showWindow() }

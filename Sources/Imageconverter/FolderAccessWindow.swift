@@ -1,7 +1,7 @@
 import SwiftUI
 import ImageconverterCore
 
-/// Help ▸ Folder Access…: the folders imageconverter remembers access to, with Remove and Remove All.
+/// Help ▸ Folder Access…: the folders imageconverter remembers access to, with Add Folder…, Remove and Remove All.
 struct FolderAccessWindow: View {
     static let windowID = "folder-access"
     @Bindable var store: AccessStore
@@ -10,8 +10,9 @@ struct FolderAccessWindow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
             Text("Folder Access").font(LadaGlass.Typography.title)
-            Text("Folders you allowed when a run needed them. imageconverter can save into these (and the folders "
-                 + "inside them) without asking again. Removing one means it asks the next time it is needed.")
+            Text("Folders you allowed when a run needed them, or added here. imageconverter can read and save in "
+                 + "these (and the folders inside them) without asking again, also for scripts, links and Quick "
+                 + "Actions. Removing one means it asks the next time it is needed.")
                 .font(LadaGlass.Typography.body)
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -32,6 +33,8 @@ struct FolderAccessWindow: View {
                 .accessibilityLabel("Remembered folders")
             }
             HStack {
+                Button("Add Folder\u{2026}") { addFolder() }
+                    .accessibilityLabel("Add a folder imageconverter may use")
                 Button("Remove") {
                     if let selection { store.remove(selection) }
                     selection = nil
@@ -52,6 +55,19 @@ struct FolderAccessWindow: View {
         .lgBackdrop()
         .lgCompact()
         .onAppear { store.activate() }
+    }
+
+    /// Allows a folder ahead of time, in an open panel (the sandbox's way of granting it).
+    private func addFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose a folder imageconverter may read and save in without asking."
+        panel.prompt = "Allow"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        store.remember(url)
     }
 
     private func row(_ grant: FolderGrantList.Grant) -> some View {

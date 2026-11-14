@@ -18,7 +18,25 @@ public enum ExternalRequestError: Error, Equatable, Sendable {
     /// Sandbox: the user didn't allow a folder the run needs.
     case noFolderAccess
 
-    public var message: String {
+    /// Why a script or link can't reach a file or folder in the sandboxed app, appended to `unreadable` and
+    /// `notAFolder` there.
+    public static let sandboxHint = "The sandboxed app can only use files and folders you gave it (added, dropped "
+        + "or opened with it) or that are in a folder you allowed (Help \u{25B8} Folder Access\u{2026} \u{25B8} "
+        + "Add Folder\u{2026})."
+
+    public var message: String { message(sandboxed: Sandbox.isEnforced) }
+
+    /// `sandboxed`: in the real sandbox an unreadable file or unwritable folder is usually one the app wasn't
+    /// given, so say so.
+    public func message(sandboxed: Bool) -> String {
+        guard sandboxed else { return plainMessage }
+        switch self {
+        case .unreadable, .notAFolder: return plainMessage + " " + Self.sandboxHint
+        default: return plainMessage
+        }
+    }
+
+    private var plainMessage: String {
         switch self {
         case .noFiles: return "No files were given."
         case .tooManyFiles(let max): return "At most \(max) files can be given at once."

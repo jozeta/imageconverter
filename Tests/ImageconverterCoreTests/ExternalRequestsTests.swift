@@ -108,6 +108,18 @@ final class ExternalRequestsTests: XCTestCase {
         }
     }
 
+    func testUnreadableOrUnwritableInTheSandboxSaysWhatTheAppCanUse() {
+        let error = ExternalRequestError.unreadable(path: "/in/a.jpg")
+        XCTAssertEqual(error.message(sandboxed: false), "/in/a.jpg doesn't exist or can't be read.")
+        XCTAssertEqual(error.message(sandboxed: true),
+                       "/in/a.jpg doesn't exist or can't be read. " + ExternalRequestError.sandboxHint)
+        XCTAssertTrue(ExternalRequestError.sandboxHint.contains("Folder Access"))
+        let folder = ExternalRequestError.notAFolder(path: "/out")
+        XCTAssertEqual(folder.message(sandboxed: true), folder.message(sandboxed: false) + " " + ExternalRequestError.sandboxHint)
+        // Only `unreadable` and `notAFolder` get the hint.
+        XCTAssertEqual(ExternalRequestError.busy.message(sandboxed: true), ExternalRequestError.busy.message(sandboxed: false))
+    }
+
     func testFileListShowsFiveThenACount() {
         let urls = (1...7).map { URL(fileURLWithPath: "/in/\($0).jpg") }
         XCTAssertEqual(ExternalRequests.fileList(Array(urls.prefix(2))), "/in/1.jpg\n/in/2.jpg")
