@@ -58,12 +58,6 @@ extension Pipeline {
         }
     }
 
-    var conditionsScanAlpha: Bool {
-        steps.contains { step in
-            guard step.isEnabled, case .condition(let conditional) = step.operation else { return false }
-            return conditional.conditions.contains(where: \.needsAlphaScan)
-        }
-    }
 }
 
 /// Source facts for the preview, read once per file version (URL, modification date and size) and off the
@@ -86,8 +80,9 @@ public actor ItemFactsCache {
 
     private struct Entry {
         let facts: ItemFacts?
-        /// Whether the transparency scan ran (an unscanned entry can't answer a transparency condition).
-        let scanned: Bool
+        /// What was read beyond the header (an entry without the transparency scan can't answer a transparency
+        /// condition, one without XMP can't answer an XMP field).
+        let needs: FactNeeds
         /// When it was last used, for evicting the least recently used entries.
         var lastUse: Int
     }
@@ -113,16 +108,23 @@ public actor ItemFactsCache {
 
     /// The facts of `url`; nil when it isn't a readable image.
     public func facts(for url: URL, scanAlpha: Bool) -> ItemFacts? {
+        facts(for: url, needs: scanAlpha ? .all : FactNeeds.all.subtracting(.alphaScan))
+    }
+
+    /// The facts of `url` with at least `needs` read; nil when it isn't a readable image. A cached entry that
+    /// read less is read again (with both entries' needs).
+    public func facts(for url: URL, needs: FactNeeds) -> ItemFacts? {
         let key = Key(url)
         clock += 1
-        if let entry = entries[key], entry.scanned || !scanAlpha {
+        if let entry = entries[key], entry.needs.isSuperset(of: needs) {
             entries[key]?.lastUse = clock
             return entry.facts
         }
         readCount += 1
-        let facts = ItemFacts.read(url, scanAlpha: scanAlpha, maxPixels: maxPixels)
+        let wanted = needs.union(entries[key]?.needs ?? [])
+        let facts = ItemFacts.read(url, needs: wanted, maxPixels: maxPixels)
         if entries[key] == nil, entries.count >= limit { evictLeastRecentlyUsed() }
-        entries[key] = Entry(facts: facts, scanned: scanAlpha, lastUse: clock)
+        entries[key] = Entry(facts: facts, needs: wanted, lastUse: clock)
         return facts
     }
 
@@ -142,17 +144,17 @@ public actor ItemFactsCache {
             return ConditionPreview(counterIndex: index, branches: [],
                                     resolved: pipeline.resolved(forSource: items[index].source, maxPixels: maxPixels))
         }
-        let scan = pipeline.conditionsScanAlpha
+        let needs = pipeline.conditionFactNeeds
         var counter = index
         if pipeline.canSkipByCondition {
             counter = 0
             for item in items[..<index] {
                 if Task.isCancelled { return nil }
                 // Unreadable files aren't skipped: the batch gives them a number and fails them later.
-                if pipeline.resolved(for: facts(for: item.source, scanAlpha: scan)).disposition != .skip { counter += 1 }
+                if pipeline.resolved(for: facts(for: item.source, needs: needs)).disposition != .skip { counter += 1 }
             }
         }
-        let facts = facts(for: items[index].source, scanAlpha: scan)
+        let facts = facts(for: items[index].source, needs: needs)
         return ConditionPreview(counterIndex: counter, branches: facts.map(pipeline.branches(for:)) ?? [],
                                 resolved: pipeline.resolved(for: facts))
     }

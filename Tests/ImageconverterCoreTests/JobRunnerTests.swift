@@ -281,3 +281,20 @@ final class JobRunnerTests: XCTestCase {
         XCTAssertFalse(ledger.isSettled(old))
     }
 }
+
+extension JobRunnerTests {
+    /// A condition's subfolder in the watched folder: the outputs there are on the ledger, so a recursive job never
+    /// reads them back as inputs.
+    func testSubfolderOutputsAreRecordedAndNeverInputs() async throws {
+        try drop("a.jpg")
+        let condition = ConditionalStep(conditions: [.width(.atLeast, 1)], then: [.subfolder("Sorted/{format}")])
+        var job = job(Pipeline(steps: [PipelineStep(operation: .condition(condition))], output: OutputSettings(format: .png)),
+                      mode: .sameFolder(suffix: "_new"))
+        job.recursive = true
+        let first = await run(job)
+        XCTAssertEqual(first.batch.written.map { $0.pathComponents.suffix(3).joined(separator: "/") }, ["Sorted/PNG/a.png"])
+        let second = await run(job)
+        XCTAssertEqual(second.batch.written, [])
+        XCTAssertEqual(second.unchanged, 2, "the source and its output in the subfolder")
+    }
+}

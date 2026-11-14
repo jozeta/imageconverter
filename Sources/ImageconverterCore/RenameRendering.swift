@@ -12,17 +12,36 @@ enum RenameRendering {
     static func baseName(for item: InputItem, index: Int, pipeline: Pipeline, isCopy: Bool = false) -> String? {
         guard pipeline.rename.isActive else { return nil }
         let template = RenameTemplate(pipeline.rename.pattern)
-        let header = template.needsHeader ? ImageLoader.header(of: item.source) : nil
+        let context = context(for: item, index: index, pipeline: pipeline, isCopy: isCopy, templates: [template])
+        return pipeline.rename.render(template, context)
+    }
+
+    /// The values `templates` can draw on for the item: the header and creation date are only read when one
+    /// of them uses them.
+    static func context(for item: InputItem, index: Int, pipeline: Pipeline, isCopy: Bool,
+                        templates: [RenameTemplate]) -> RenameContext {
+        let header = templates.contains(where: \.needsHeader) ? ImageLoader.header(of: item.source) : nil
         let upright = header?.uprightSize ?? (width: 1, height: 1)
         let size = pipeline.outputSize(sourceWidth: upright.width, sourceHeight: upright.height)
-        let created = template.needsDate
+        let created = templates.contains(where: \.needsDate)
             ? (try? item.source.resourceValues(forKeys: [.creationDateKey]))?.creationDate : nil
         let (counter, overflow) = pipeline.rename.counterStart.addingReportingOverflow(index)
         var context = RenameContext.make(
             source: item.source, header: header, outputSize: size, format: pipeline.output.format,
             counter: overflow ? Int.max : counter, fileCreationDate: created)
         if isCopy { describeCopy(of: item.source, in: &context) }
-        return pipeline.rename.render(template, context)
+        return context
+    }
+
+    /// The rendered subfolder (folder names, outermost first) and report notes of a resolved item; nothing is
+    /// read when it has neither.
+    static func extras(for item: InputItem, index: Int, job: ResolvedPipeline) -> (subfolder: [String], notes: [String]) {
+        let folder = job.subfolder.map(SubfolderTemplate.parts) ?? []
+        let notes = job.noteTemplates.map(RenameTemplate.init)
+        guard !folder.isEmpty || !notes.isEmpty else { return ([], []) }
+        let context = context(for: item, index: index, pipeline: job.pipeline, isCopy: job.disposition == .copyOriginal,
+                              templates: folder + notes)
+        return (SubfolderTemplate.render(folder, context), notes.map { $0.renderText(context) }.filter { !$0.isEmpty })
     }
 
     /// A copy keeps the source's own extension (lower-cased) and format name.

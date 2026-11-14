@@ -1,0 +1,206 @@
+import Foundation
+
+/// What the batch does with one image after its conditions are resolved.
+public enum Disposition: String, Equatable, Sendable {
+    case process, copyOriginal, skip
+}
+
+/// A pipeline with its condition steps replaced by the branches chosen for one image.
+public struct ResolvedPipeline: Equatable, Sendable {
+    /// Holds no condition steps.
+    public var pipeline: Pipeline
+    public var disposition: Disposition
+    /// Notes for the report about how this item was resolved (e.g. a copy converted to remove metadata).
+    public var notes: [String]
+    /// The "Save into subfolder" template (the last one chosen), rendered per file when it is planned.
+    public var subfolder: String?
+    /// Finder tags to add to the written file.
+    public var finderTags: [String]
+    /// "Add a note" templates, rendered per file into the report.
+    public var noteTemplates: [String]
+
+    public init(pipeline: Pipeline, disposition: Disposition = .process, notes: [String] = [],
+                subfolder: String? = nil, finderTags: [String] = [], noteTemplates: [String] = []) {
+        self.pipeline = pipeline
+        self.disposition = disposition
+        self.notes = notes
+        self.subfolder = subfolder
+        self.finderTags = finderTags
+        self.noteTemplates = noteTemplates
+    }
+
+    /// What the batch adds to this item's report line: the resolution notes, then a saved date setting that
+    /// was invalid and ignored.
+    public var runNotes: [String] {
+        notes + (pipeline.metadata.isActive && pipeline.metadata.dateTakenWasInvalid
+            ? [MetadataOptions.invalidDateNote] : [])
+    }
+
+    /// "Skipped by a condition" / "Copied unchanged" / the first resolution note; nil when simply processed.
+    public var statusNote: String? {
+        switch disposition {
+        case .process: return notes.first
+        case .copyOriginal: return ConditionalStep.copiedNote
+        case .skip: return ConditionalStep.skippedReason
+        }
+    }
+}
+
+extension Pipeline {
+    /// True when any enabled step is a condition (only then are a file's facts read).
+    public var hasConditions: Bool {
+        steps.contains { step in
+            if step.isEnabled, case .condition = step.operation { return true }
+            return false
+        }
+    }
+
+    /// What reading a file's facts must include for the enabled conditions.
+    var conditionFactNeeds: FactNeeds {
+        steps.reduce(into: FactNeeds()) { needs, step in
+            guard step.isEnabled, case .condition(let conditional) = step.operation else { return }
+            for condition in conditional.conditions { needs.formUnion(condition.needs) }
+        }
+    }
+
+    /// The pipeline for one image: each enabled condition step, in order, is replaced in place by the image
+    /// steps of the branch its facts choose; output, metadata and rename overrides apply (later ones win);
+    /// skip wins over copying the original, and both win over processing. After a "Stop" action no later
+    /// condition step is checked. Disabled condition steps are dropped. With no facts (an unreadable file),
+    /// conditions are dropped and the file fails as usual later.
+    /// The Metadata step's removals are a floor: a metadata override keeps them (`withRemovals(from:)`), and a
+    /// copy whose metadata would have to change is converted instead, in the source's own format at the best
+    /// quality, with a note. "Apply preset" reads presets from `presets`.
+    public func resolved(for facts: ItemFacts?, presets: PresetLibrary = .shared) -> ResolvedPipeline {
+        var state = Resolution(pipeline: self, floor: metadata, presets: presets)
+        state.pipeline.steps = []
+        for step in steps {
+            guard case .condition(let conditional) = step.operation else {
+                state.pipeline.steps.append(step)
+                continue
+            }
+            guard step.isEnabled, let facts, !state.stopped else { continue }
+            for action in conditional.matches(facts) ? conditional.then : conditional.otherwise {
+                state.apply(action)
+            }
+        }
+        var result = state.pipeline
+        var disposition = state.disposition
+        var notes = state.notes
+        if disposition == .copyOriginal, result.metadata.hidesSourceData {
+            // A byte copy would keep what the Metadata step removes: convert with nothing else applied.
+            disposition = .process
+            result.steps = []
+            result.output = .faithful(facts?.format ?? result.output.format)
+            notes.append(ConditionalStep.convertedForPrivacyNote)
+        }
+        if disposition == .copyOriginal {
+            // A copy is the unchanged source: no image steps (so `{width}`/`{height}` give its own size), and
+            // its own format where the app knows it (the rename context takes the extension from the file).
+            result.steps = []
+            if let format = facts?.format { result.output.format = format }
+        }
+        return ResolvedPipeline(pipeline: result, disposition: disposition, notes: notes, subfolder: state.subfolder,
+                                finderTags: FinderTags.normalized(state.tags), noteTemplates: state.noteTemplates)
+    }
+
+    /// Resolves for the file at `url`, reading its facts only when there are conditions (and only what they
+    /// need: the transparency scan, XMP, frame count), with the transparency scan only within `maxPixels`.
+    public func resolved(forSource url: URL, maxPixels: Int = ImageLoader.defaultMaxPixels) -> ResolvedPipeline {
+        guard hasConditions else { return ResolvedPipeline(pipeline: withoutConditions) }
+        return resolved(for: ItemFacts.read(url, needs: conditionFactNeeds, maxPixels: maxPixels))
+    }
+
+    /// This pipeline without its (disabled) condition steps, so a resolved pipeline never holds one.
+    var withoutConditions: Pipeline {
+        var copy = self
+        copy.steps.removeAll { step in
+            if case .condition = step.operation { return true }
+            return false
+        }
+        return copy
+    }
+}
+
+/// The pipeline being resolved for one image, with what its actions have chosen so far.
+private struct Resolution {
+    var pipeline: Pipeline
+    let floor: MetadataOptions
+    let presets: PresetLibrary
+    var disposition = Disposition.process
+    var notes: [String] = []
+    var subfolder: String?
+    var tags: [String] = []
+    var noteTemplates: [String] = []
+    var stopped = false
+
+    init(pipeline: Pipeline, floor: MetadataOptions, presets: PresetLibrary) {
+        self.pipeline = pipeline
+        self.floor = floor
+        self.presets = presets
+    }
+
+    // One case per action.
+    // swiftlint:disable:next cyclomatic_complexity
+    mutating func apply(_ action: ConditionalAction) {
+        switch action {
+        case .step(let inner):
+            // Nesting is rejected on load; one built in code is ignored too.
+            if case .condition = inner.operation { return }
+            pipeline.steps.append(inner)
+        case .output(let settings): pipeline.output = settings
+        case .metadata(let options): setMetadata(options)
+        case .rename(let options): setRename(options)
+        case .copyOriginal: if disposition == .process { disposition = .copyOriginal }
+        case .skip: disposition = .skip
+        case .subfolder(let template): subfolder = template
+        case .finderTags(let new): tags += new
+        case .preset(let link): applyPreset(link)
+        case .addKeywords(let keywords): addKeywords(keywords)
+        case .stop: stopped = true
+        case .note(let text): noteTemplates.append(text)
+        }
+    }
+
+    private mutating func setMetadata(_ options: MetadataOptions) {
+        var options = options
+        options.isIncluded = true
+        options.isEnabled = true
+        pipeline.metadata = options.withRemovals(from: floor)
+    }
+
+    private mutating func setRename(_ options: RenameOptions) {
+        var options = options
+        options.isIncluded = true
+        options.isEnabled = true
+        pipeline.rename = options
+    }
+
+    /// The preset's enabled image steps (never its conditions) go in here; its output always applies, and its
+    /// Metadata and Rename steps when they are on. A preset that is gone only leaves a note.
+    private mutating func applyPreset(_ link: PresetLink) {
+        guard let preset = presets.preset(id: link.id) else {
+            notes.append(link.missingNote)
+            return
+        }
+        let applied = preset.pipeline
+        pipeline.steps += applied.steps.filter { step in
+            if case .condition = step.operation { return false }
+            return step.isEnabled
+        }
+        pipeline.output = applied.output
+        if applied.metadata.isActive { setMetadata(applied.metadata) }
+        if applied.rename.isActive { setRename(applied.rename) }
+    }
+
+    /// Adds to the keywords the metadata settings already set (or to the file's own, in add mode); switches
+    /// the Metadata step on with nothing else changed when it was off. The removals stay as they are.
+    private mutating func addKeywords(_ keywords: [String]) {
+        if !pipeline.metadata.isActive {
+            var options = MetadataOptions(isEnabled: true, location: .keep)
+            options.keywordsMode = .add
+            pipeline.metadata = options.withRemovals(from: floor)
+        }
+        pipeline.metadata.keywords = MetadataFields.normalizedKeywords((pipeline.metadata.keywords ?? []) + keywords)
+    }
+}

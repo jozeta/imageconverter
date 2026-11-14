@@ -41,20 +41,62 @@ extension BatchRunner {
                                                notes: [ActiveSources.busyReason])
         }
         let active = items.indices.filter { resolved[$0].disposition != .skip }
-        let jobs = active.map { resolved[$0] }
-        guard let baseNames = renderedBaseNames(active.map { items[$0] }, jobs: jobs) else { return nil }
-        let targets = zip(active, baseNames).map { index, name -> OutputTarget in
-            resolved[index].disposition == .copyOriginal
-                ? .copyOfOriginal(items[index], baseName: name)
-                : OutputTarget(item: items[index], format: resolved[index].pipeline.output.format, baseName: name)
+        var jobs = active.map { resolved[$0] }
+        guard let baseNames = renderedBaseNames(active.map { items[$0] }, jobs: jobs),
+              let extras = renderedExtras(active.map { items[$0] }, jobs: jobs) else { return nil }
+        for index in jobs.indices {
+            jobs[index].notes += extras[index].notes
+            if mode == .overwrite, jobs[index].subfolder != nil { jobs[index].notes.append(Self.subfolderIgnoredNote) }
+        }
+        let targets = active.indices.map { position -> OutputTarget in
+            let (index, name, folder) = (active[position], baseNames[position], extras[position].subfolder)
+            return resolved[index].disposition == .copyOriginal
+                ? .copyOfOriginal(items[index], baseName: name, subfolder: folder)
+                : OutputTarget(item: items[index], format: resolved[index].pipeline.output.format, baseName: name,
+                               subfolder: folder)
         }
         let skippedIndices = items.indices.filter { resolved[$0].disposition == .skip }
         let skipped = skippedIndices.map { items[$0].source }
-        let reasons = skippedIndices.map { resolved[$0].notes.first ?? ConditionalStep.skippedReason }
+        guard let reasons = skipReasons(skippedIndices, items: items, resolved: resolved, busy: busyIndices) else {
+            return nil
+        }
         return RunPlan(plans: OutputPlanner.plan(targets, mode: mode, reservedSources: skipped), jobs: jobs,
                        skipped: skipped, skipReasons: reasons, busyIndices: busyIndices, planIndices: active,
                        skippedIndices: skippedIndices,
                        assetPipeline: assetPipeline(pipeline, resolved: jobs))
+    }
+
+    /// The report note when a "Save into subfolder" action meets overwrite mode.
+    public static let subfolderIgnoredNote = "Subfolder ignored when overwriting originals"
+
+    /// "Skipped by a condition", then the item's notes (a missing preset, "Add a note" lines); another run's
+    /// hold is its own reason. Nil when cancelled part-way.
+    private static func skipReasons(_ indices: [Int], items: [InputItem], resolved: [ResolvedPipeline],
+                                    busy: Set<Int>) -> [String]? {
+        var reasons: [String] = []
+        for index in indices {
+            if Task.isCancelled { return nil }
+            if busy.contains(index) {
+                reasons.append(ActiveSources.busyReason)
+                continue
+            }
+            let notes = RenameRendering.extras(for: items[index], index: 0, job: resolved[index]).notes
+            reasons.append(([ConditionalStep.skippedReason] + resolved[index].notes + notes).joined(separator: "; "))
+        }
+        return reasons
+    }
+
+    /// Each item's rendered subfolder and notes, in input order (the counter as for its name). Nil when
+    /// cancelled part-way.
+    private static func renderedExtras(_ items: [InputItem], jobs: [ResolvedPipeline])
+        -> [(subfolder: [String], notes: [String])]? {
+        var extras: [(subfolder: [String], notes: [String])] = []
+        extras.reserveCapacity(items.count)
+        for (index, (item, job)) in zip(items, jobs).enumerated() {
+            if job.subfolder != nil || !job.noteTemplates.isEmpty, Task.isCancelled { return nil }
+            extras.append(RenameRendering.extras(for: item, index: index, job: job))
+        }
+        return extras
     }
 
     /// What `run` would do with each item, without writing anything: conditions resolved, names rendered and
@@ -81,7 +123,7 @@ extension BatchRunner {
         if plan.isRefused { return (.failure(.writeFailed("Invalid output plan")), fileSize(plan.item.source)) }
         if job.disposition == .copyOriginal {
             options.stage(.writing)
-            return copyOriginal(plan, trash: trash)
+            return tagged(copyOriginal(plan, trash: trash, notes: job.notes), tags: job.finderTags)
         }
         // A watermark image that can't be read fails every file using it, before its source is decoded.
         if let missing = assets.missingError(for: job.pipeline) {
@@ -90,10 +132,22 @@ extension BatchRunner {
         let (result, inputBytes) = convert(plan, pipeline: job.pipeline, assets: assets, maxPixels: maxPixels,
                                            trash: trash, options: options)
         let resolutionNotes = job.runNotes
-        guard !resolutionNotes.isEmpty, case .success(var written?) = result else { return (result, inputBytes) }
+        guard !resolutionNotes.isEmpty, case .success(var written?) = result else {
+            return tagged((result, inputBytes), tags: job.finderTags)
+        }
         // How the item was resolved comes first, then the step and encoder notes.
         written.note = (resolutionNotes + [written.note].compactMap { $0 }).joined(separator: "; ")
-        return (.success(written), inputBytes)
+        return tagged((.success(written), inputBytes), tags: job.finderTags)
+    }
+
+    /// Adds the Finder tags to a written file; a failure is a note, not a failed file.
+    private static func tagged(_ outcome: (Result<WrittenItem?, ConversionError>, Int?), tags: [String])
+        -> (Result<WrittenItem?, ConversionError>, Int?) {
+        guard !tags.isEmpty, case .success(var written?) = outcome.0 else { return outcome }
+        if !FinderTags.add(tags, to: written.url) {
+            written.note = ([written.note].compactMap { $0 } + [FinderTags.failedNote]).joined(separator: "; ")
+        }
+        return (.success(written), outcome.1)
     }
 
     /// How many files' facts are read at once (header reads and small scans are mostly I/O).
@@ -162,9 +216,10 @@ extension BatchRunner {
 
     /// Writes the source's bytes unchanged (no decode) through the same atomic commit. Overwrite mode plans
     /// the copy in place, where the file already is its own copy: nothing is written.
-    private static func copyOriginal(_ plan: PlannedOutput, trash: Trasher) -> (Result<WrittenItem?, ConversionError>, Int?) {
+    private static func copyOriginal(_ plan: PlannedOutput, trash: Trasher, notes: [String] = [])
+        -> (Result<WrittenItem?, ConversionError>, Int?) {
         let inputBytes = fileSize(plan.item.source)
-        let note = ConditionalStep.copiedNote
+        let note = ([ConditionalStep.copiedNote] + notes).joined(separator: "; ")
         if plan.replacesSource {
             return (.success(WrittenItem(url: plan.destination, note: note, inputBytes: inputBytes,
                                          outputBytes: inputBytes ?? 0)), inputBytes)

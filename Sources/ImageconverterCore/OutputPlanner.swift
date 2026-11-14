@@ -50,24 +50,33 @@ public struct OutputTarget: Equatable, Sendable {
     let acceptedExtensions: [String]
     /// Nil keeps the source's name.
     public let baseName: String?
+    /// Folder names (outermost first) under the output folder or the source's folder; ignored when
+    /// overwriting. Unsafe names (empty, `.`, `..`, with `/`) are dropped, and at most `SubfolderTemplate.maxDepth`.
+    public let subfolder: [String]
 
-    public init(item: InputItem, format: OutputFormat, baseName: String? = nil) {
+    public init(item: InputItem, format: OutputFormat, baseName: String? = nil, subfolder: [String] = []) {
         self.item = item
         fileExtension = format.fileExtensions[0]
         acceptedExtensions = format.fileExtensions
         self.baseName = baseName
+        self.subfolder = Self.safe(subfolder)
     }
 
     /// The source's bytes under its own extension: overwrite mode then leaves the file where it is.
-    public static func copyOfOriginal(_ item: InputItem, baseName: String? = nil) -> OutputTarget {
-        OutputTarget(item: item, fileExtension: item.source.pathExtension, baseName: baseName)
+    public static func copyOfOriginal(_ item: InputItem, baseName: String? = nil, subfolder: [String] = []) -> OutputTarget {
+        OutputTarget(item: item, fileExtension: item.source.pathExtension, baseName: baseName, subfolder: subfolder)
     }
 
-    private init(item: InputItem, fileExtension: String, baseName: String?) {
+    private init(item: InputItem, fileExtension: String, baseName: String?, subfolder: [String]) {
         self.item = item
         self.fileExtension = fileExtension
         acceptedExtensions = [fileExtension.lowercased()]
         self.baseName = baseName
+        self.subfolder = Self.safe(subfolder)
+    }
+
+    private static func safe(_ names: [String]) -> [String] {
+        Array(names.filter(SubfolderTemplate.isSafeName).prefix(SubfolderTemplate.maxDepth))
     }
 }
 
@@ -80,7 +89,7 @@ public enum OutputPlanner {
     /// (compared case-insensitively, as macOS volumes usually are).
     ///
     /// - New folder: every output goes flat into the chosen folder (source subfolders are not
-    ///   mirrored); clashes get `_2`, `_3`, ...
+    ///   mirrored), or into the target's own subfolder of it; clashes (per final folder) get `_2`, `_3`, ...
     /// - Same folder: the suffix is appended only when the output would otherwise be the source
     ///   file itself; other clashes get `_2`, `_3`, ...
     /// - Overwrite: `baseNames` is ignored (renaming is disabled), so the name stays the source's.
@@ -146,9 +155,9 @@ public enum OutputPlanner {
             var suffix = ""
             switch mode {
             case .newFolder(let root):
-                directory = root
+                directory = within(root, target.subfolder)
             case .sameFolder(let value):
-                directory = sourceDir
+                directory = within(sourceDir, target.subfolder)
                 // Only a would-be source overwrite needs telling apart from the original.
                 let plain = directory.appendingPathComponent("\(name)\(dotExt)")
                 if sameFile(plain, item.source) { suffix = sanitized(value) }
@@ -169,6 +178,14 @@ public enum OutputPlanner {
                                        replacesSource: false, trashesSource: isOverwrite))
         }
         return plans
+    }
+
+    /// `base` with the folder names added; `base` itself if the result would somehow lie outside it.
+    private static func within(_ base: URL, _ folders: [String]) -> URL {
+        let nested = folders.reduce(base) { $0.appendingPathComponent($1, isDirectory: true) }
+        let root = base.standardizedFileURL.path
+        let path = nested.standardizedFileURL.path
+        return path.hasPrefix(root.hasSuffix("/") ? root : root + "/") ? nested : base
     }
 
     private static func sameFile(_ lhs: URL, _ rhs: URL) -> Bool {

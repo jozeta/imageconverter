@@ -80,6 +80,8 @@ enum ConvertCommand {
     // MARK: pipeline
 
     static func resolvePipeline(_ options: ConvertOptions, environment: CLIEnvironment) throws -> (Pipeline, String?) {
+        // "Apply preset" actions in conditions read this folder's presets.
+        PresetLibrary.shared.use(directory: environment.presetDirectory)
         var pipeline = Pipeline()
         var presetName: String?
         if let name = options.preset {

@@ -27,6 +27,8 @@ struct ImageconverterApp: App {
         #endif
         // Remembered folder grants are opened once, at launch, and stay open.
         AccessStore.shared.activate()
+        // "Apply preset" actions in conditions read the app's own presets folder.
+        PresetLibrary.shared.use(directory: AppDefaults.presetsDirectory)
     }
 
     var body: some Scene {

@@ -56,6 +56,8 @@ public enum JobRunner {
         defer { lock.release() }
 
         let presets = presetStore?.loadAll().presets ?? PresetStore.builtIns
+        // "Apply preset" actions in the job's conditions read the same presets.
+        if let presetStore { PresetLibrary.shared.use(directory: presetStore.folder) }
         guard let pipeline = job.resolvedPipeline(presets: presets) else {
             return finish(BatchReport(), total: 0, selection: Selection(), problem: "The job's preset no longer exists.")
         }

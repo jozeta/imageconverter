@@ -20,6 +20,37 @@ public struct ItemFacts: Equatable, Sendable {
     public var make: String?
     public var model: String?
 
+    // Name and location (from the URL).
+    /// The file name without its extension.
+    public var fileName = ""
+    /// Lower-cased, without the dot.
+    public var fileExtension = ""
+    /// The folder the file is in (full path).
+    public var folderPath = ""
+    // Dates.
+    /// EXIF DateTimeOriginal, else the XMP date created (read as wall clock in the Mac's time zone); nil when
+    /// neither is there. The XMP fallback is only read when a condition needs it.
+    public var dateTaken: Date?
+    public var created: Date?
+    public var modified: Date?
+    /// Metadata values by field (several for lists such as keywords); text cleaned and limited.
+    public var metadata: [MetadataSubject: [String]] = [:]
+    // Image.
+    /// Bits per color channel, as the header says.
+    public var bitsPerComponent: Int?
+    public var isFloat = false
+    /// `RGB`, `Gray`, `CMYK`, `Lab`.
+    public var colorModel: String?
+    /// The embedded color profile's name; nil when the file has none.
+    public var profileName: String?
+    public var dpi: Double?
+    /// The EXIF orientation (1 is upright).
+    public var exifOrientation = 1
+    /// Frames or pages; only counted when a condition asks (1 otherwise).
+    public var frameCount = 1
+    /// "Now" for "within the last N days"; nil is the current time (tests set it).
+    public var now: Date?
+
     public init(width: Int, height: Int, fileSize: Int = 0, format: OutputFormat? = nil, sourceType: String = "",
                 hasAlpha: Bool = false, hasGPS: Bool = false, make: String? = nil, model: String? = nil) {
         self.width = width
@@ -37,10 +68,16 @@ public struct ItemFacts: Equatable, Sendable {
     static let alphaScanSize = 256
 
     /// Reads the facts of `url`; nil when it isn't a readable image. `scanAlpha: false` trusts the header's
-    /// alpha flag (no thumbnail decode), for callers whose conditions don't test transparency. An image that
-    /// breaks the decode limits (`DecodeLimits`, pixel limit `maxPixels`) is never scanned (ImageIO would decode
-    /// all of it for the thumbnail): the header decides, and the batch's own guard fails the file later.
-    public static func read(_ url: URL, scanAlpha: Bool = true,
+    /// alpha flag (no thumbnail decode), for callers whose conditions don't test transparency.
+    public static func read(_ url: URL, scanAlpha: Bool, maxPixels: Int = ImageLoader.defaultMaxPixels) -> ItemFacts? {
+        read(url, needs: scanAlpha ? .all : FactNeeds.all.subtracting(.alphaScan), maxPixels: maxPixels)
+    }
+
+    /// Reads the facts of `url` that `needs` asks for beyond the header (the transparency scan, the XMP packet,
+    /// the frame count); nil when it isn't a readable image. An image that breaks the decode limits
+    /// (`DecodeLimits`, pixel limit `maxPixels`) is never scanned (ImageIO would decode all of it for the
+    /// thumbnail): the header decides, and the batch's own guard fails the file later.
+    public static func read(_ url: URL, needs: FactNeeds = .all,
                             maxPixels: Int = ImageLoader.defaultMaxPixels) -> ItemFacts? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
@@ -48,23 +85,33 @@ public struct ItemFacts: Equatable, Sendable {
         let properties = header.properties
         let upright = header.uprightSize
         let type = CGImageSourceGetType(source) as String? ?? ""
-        let fileBytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        let values = try? url.resourceValues(forKeys: [.fileSizeKey, .creationDateKey, .contentModificationDateKey])
+        let fileBytes = values?.fileSize
         let size = fileBytes ?? 0
         let headerAlpha = properties[kCGImagePropertyHasAlpha as String] as? Bool ?? false
         var hasAlpha = headerAlpha
         // PNG, TIFF and HEIC often carry an alpha channel that is fully opaque: look before believing it.
         let limits = DecodeLimits.standard.capped(maxPixels: maxPixels)
-        if headerAlpha, scanAlpha, scannedTypes.contains(type), size <= limits.maxFileBytes,
+        if headerAlpha, needs.contains(.alphaScan), scannedTypes.contains(type), size <= limits.maxFileBytes,
            (try? limits.check(source, fileBytes: fileBytes)) != nil {
             hasAlpha = hasTransparentPixel(source) ?? true
         }
         let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
         let gps = properties[kCGImagePropertyGPSDictionary as String] as? [String: Any]
-        return ItemFacts(
+        var facts = ItemFacts(
             width: upright.width, height: upright.height, fileSize: size, format: writableFormat(for: type),
             sourceType: type, hasAlpha: hasAlpha, hasGPS: !(gps?.isEmpty ?? true),
             make: cleaned(tiff?[kCGImagePropertyTIFFMake as String]),
             model: cleaned(tiff?[kCGImagePropertyTIFFModel as String]))
+        facts.fileName = url.deletingPathExtension().lastPathComponent
+        facts.fileExtension = url.pathExtension.lowercased()
+        facts.folderPath = url.deletingLastPathComponent().path
+        facts.created = values?.creationDate
+        facts.modified = values?.contentModificationDate
+        let xmp = needs.contains(.xmp) ? CGImageSourceCopyMetadataAtIndex(source, 0, nil) : nil
+        facts.readMetadata(properties, xmp: xmp)
+        if needs.contains(.frames) { facts.frameCount = max(1, CGImageSourceGetCount(source)) }
+        return facts
     }
 
     private static let scannedTypes: Set<String> = [UTType.png.identifier, UTType.tiff.identifier,
@@ -80,7 +127,7 @@ public struct ItemFacts: Equatable, Sendable {
     }
 
     /// Text from untrusted metadata, trimmed and limited; nil when empty.
-    private static func cleaned(_ value: Any?) -> String? {
+    static func cleaned(_ value: Any?) -> String? {
         guard let text = value as? String else { return nil }
         let trimmed = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(200))
         return trimmed.isEmpty ? nil : trimmed

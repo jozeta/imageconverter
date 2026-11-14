@@ -171,6 +171,35 @@ public struct RenameTemplate: Equatable, Sendable {
     /// The base name (no extension), sanitised; the context's own name if the result is empty.
     /// `transform` runs on the raw joined name before sanitising, so it cannot add unsafe characters.
     public func render(_ context: RenameContext, transform: (String) -> String = { $0 }) -> String {
+        let cleaned = Self.sanitize(transform(joined(context)))
+        if !cleaned.isEmpty { return cleaned }
+        let fallback = Self.sanitize(context.name)
+        return fallback.isEmpty ? "image" : fallback
+    }
+
+    /// One folder name: rendered and sanitised like a file name, but empty when nothing visible is left (no
+    /// fall-back to the file's name).
+    public func renderFolderName(_ context: RenameContext) -> String {
+        Self.sanitize(joined(context))
+    }
+
+    /// Text for a report line: token values as they are (no file-name rules), control characters removed,
+    /// at most `ConditionalAction.maxNoteLength` characters.
+    public func renderText(_ context: RenameContext) -> String {
+        var out = ""
+        for part in parts {
+            switch part {
+            case .literal(let text): out += text
+            case let .token(name, arg, raw):
+                out += Self.knownTokens.contains(name) ? Self.value(of: name, arg: arg, context: context) : raw
+            }
+        }
+        return String(MetadataFields.sanitized(out).trimmingCharacters(in: .whitespacesAndNewlines)
+            .prefix(ConditionalAction.maxNoteLength))
+    }
+
+    /// The parts joined, each token value sanitised and separators next to empty values dropped.
+    private func joined(_ context: RenameContext) -> String {
         var out = ""
         var lastIsLiteral = false
         var dropNextSeparator = false
@@ -199,10 +228,7 @@ public struct RenameTemplate: Equatable, Sendable {
                 }
             }
         }
-        let cleaned = Self.sanitize(transform(out))
-        if !cleaned.isEmpty { return cleaned }
-        let fallback = Self.sanitize(context.name)
-        return fallback.isEmpty ? "image" : fallback
+        return out
     }
 
     private static func value(of name: String, arg: String?, context: RenameContext) -> String {

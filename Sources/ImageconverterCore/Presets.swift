@@ -107,6 +107,9 @@ public final class PresetStore: @unchecked Sendable {
         self.directory = directory
     }
 
+    /// The folder the presets are read from and saved to.
+    public var folder: URL { directory }
+
     public static var defaultDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support")
