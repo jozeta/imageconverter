@@ -15,9 +15,12 @@ struct RotateFlipEditor: View {
         return .crop
     }
 
+    /// Last opaque corner colour, so switching Fill/Crop or Transparent off and on keeps it.
+    @State private var lastColor = RGBAColor.white
+
     private var background: RGBAColor {
         if case .expand(let color) = options.angleFill { return color }
-        return .white
+        return lastColor
     }
 
     var body: some View {
@@ -31,23 +34,28 @@ struct RotateFlipEditor: View {
             if options.angle != 0 {
                 Picker("Corners", selection: Binding(
                     get: { fill },
-                    set: { options.angleFill = $0 == .expand ? .expand(background: background) : .cropToFit })) {
+                    set: { options.angleFill = $0 == .expand ? .expand(background: lastColor) : .cropToFit })) {
                     ForEach(Fill.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
                 .accessibilityLabel("Angle corners")
                 if fill == .expand {
                     Toggle("Transparent corners", isOn: Binding(
                         get: { background.alpha == 0 },
-                        set: { options.angleFill = .expand(background: $0 ? .clear : .white) }))
+                        set: { options.angleFill = .expand(background: $0 ? .clear : lastColor) }))
                     if background.alpha != 0 {
                         ColorField(title: "Corner colour", color: Binding(
-                            get: { background }, set: { options.angleFill = .expand(background: $0) }))
+                            get: { background }, set: { lastColor = $0; options.angleFill = .expand(background: $0) }))
                     }
                 }
             }
             Toggle("Mirror (flip horizontally)", isOn: $options.flipHorizontal)
             Toggle("Flip vertically", isOn: $options.flipVertical)
         }
+    }
+
+    private static func angleText(_ angle: Double) -> String {
+        let text = angle.formatted(.number.precision(.fractionLength(0...1)))
+        return text.replacingOccurrences(of: "-", with: "−")
     }
 
     /// The slider covers the useful −45...45 range; the field accepts the full −180...180.
@@ -58,7 +66,7 @@ struct RotateFlipEditor: View {
                 get: { min(45, max(-45, options.angle)) },
                 set: { options.angle = ($0 * 10).rounded() / 10 }), in: -45...45)
                 .accessibilityLabel("Angle")
-                .accessibilityValue("\(options.angle) degrees")
+                .accessibilityValue("\(Self.angleText(options.angle)) degrees")
                 .accessibilityAction(named: "Reset to 0") { options.angle = 0 }
             TextField("Angle in degrees", value: Binding(
                 get: { options.angle },
@@ -140,9 +148,12 @@ struct TrimEditor: View {
         }
     }
 
+    /// Last chosen border colour, kept while another mode is selected.
+    @State private var lastColor = RGBAColor.white
+
     private var color: RGBAColor {
         if case .color(let value) = options.mode { return value }
-        return .white
+        return lastColor
     }
 
     var body: some View {
@@ -161,7 +172,7 @@ struct TrimEditor: View {
             .accessibilityLabel("Trim mode")
             if kind == .color {
                 ColorField(title: "Border colour", color: Binding(
-                    get: { color }, set: { options.mode = .color($0) }))
+                    get: { color }, set: { lastColor = $0; options.mode = .color($0) }))
             }
             HStack(spacing: LadaGlass.Spacing.s) {
                 Text("Tolerance").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)

@@ -61,7 +61,7 @@ Started 2026-11-13. The full design is in
     document edges found" if there is none); **Vertical** and **Horizontal** keystone sliders (−100…100) are
     applied after it, with the result cropped so no empty corners show
   - (available) **Trim**: removes a border of transparent pixels, one **Colour**, or the **Edge colour**
-    (sampled from the corners); **Tolerance** 0–100 % and **Padding** in pixels keep a margin
+    (the colour of the top-left pixel); **Tolerance** 0–100 % and **Padding** in pixels keep a margin
   - (available) **Canvas / padding**: padding in pixels or percent, a fixed canvas size, or a **Ratio** (1:1 … 3:4 or
     custom) that grows the shorter side without cropping, with an anchor and a background colour
   - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original

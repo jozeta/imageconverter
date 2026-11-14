@@ -169,7 +169,9 @@ private struct CanvasEditor: View {
                     case .aspect: options.mode = .aspect(width: aspectRatio.wide, height: aspectRatio.high)
                     }
                 })) {
-                ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                ForEach(Kind.allCases, id: \.self) {
+                    Text($0.rawValue).tag($0).accessibilityLabel($0 == .aspect ? "Aspect ratio" : $0.rawValue)
+                }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
