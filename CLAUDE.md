@@ -64,15 +64,16 @@ swiftlint           # if installed (brew install swiftlint)
     `PrivacyPanel.swift` (shield chip, panel, Help ▸ Privacy… window) and `AppModel+Privacy.swift` (scan task, `PrivacyState`); `QuitCoordinator.swift` (⌘Q while running).
     `AccessStore.swift` (sandbox folder grants: `folderGrants` bookmarks, session roots, `ensureAccess` before every
     `startRun` with pre-filled open panels; only when `Sandbox.isActive`, DEBUG `-debugSimulateSandbox`) and
-    `FolderAccessWindow.swift` (Help ▸ Folder Access…). `AppSettings` keeps `outputFolderBookmark`.
+    `FolderAccessWindow.swift` (Help ▸ Folder Access…, with Add Folder…). `AppSettings` keeps `outputFolderBookmark`.
     `previewCollapsed` and `pipelineCollapsed` are persisted in UserDefaults
   - Jobs: `JobsController.swift` (+ `JobsController+Runs.swift`: watchers, schedules, the per-job run queue,
     background runs at half the cores, history/error log, bookmarks via `JobFolders`), `JobsView.swift` (Jobs
     window, ⌘J), `JobEditor.swift` (edit sheet), `SaveToControl.swift` (shared Save to), `JobNotifier.swift`
     (UserNotifications, only with an app bundle), `MenuBarContent.swift` (menu bar mode), `AppModel+Jobs.swift`,
     `QuitCoordinator.swift` (`applicationShouldTerminate`: asks, stops batch and job runs, waits, cleans up).
-    `ExternalActions.swift` (`AppDelegate`: services provider and the `kAEGetURL` link handler; the bridge to the model,
-    confirmation sheets, background converts), `ServicesProvider.swift` (Finder services), `Scripting.swift`
+    `ExternalActions.swift` (`AppDelegate`: services provider, the `kAEGetURL` link handler and the `kAEOpenDocuments`
+    handler for files opened with the app (not `application(_:open:)`, which lets SwiftUI open a window per file);
+    the bridge to the model, which waits at launch for the main window; confirmation sheets, background converts), `ServicesProvider.swift` (Finder services), `Scripting.swift`
     (`NSScriptCommand` subclasses named in the sdef), `URLActions.swift` (confirmed link actions);
     `AppModel+RenameExample.swift` (the Rename editor's live example, using the selected image's resolved branch)
 - `Sources/ImageconverterCore/`: all logic: the pipeline model, each operation as a pure function
@@ -94,7 +95,7 @@ swiftlint           # if installed (brew install swiftlint)
     `JobRunner` (candidates → ledger and 2 s stability check → `BatchRunner` → ledger update → report file), `ProcessingReport` (run summary + entries),
     `ReportExporter` (CSV with formula-injection guard, JSON with sorted keys, text, escaped self-contained HTML in `ReportExporter+HTML`), `ErrorLog` (rotating failure log), `RunHistory` (stored runs, 100 kept), `ZoomMath` (`ZoomState`, zoom around an anchor, pan, clamping), `WindowLayout` (main window size rules and frame maths), `NameReplacement` (find/replace in names, plain or regex), `SizeEstimator` (encodes a full-size render for the size estimate)
 - `Sources/ImageconverterCLIKit/`: the command line (hand-written `CLIParser`, `CLIRunner`, `ConvertCommand`, `ListCommands`, `CLIDataDirectory`: the app's container when it exists, else Application Support, `--data-dir`); `Sources/ImageconverterCLI/main.swift` is a thin wrapper (product `imageconverter-cli`, installed as `imageconverter`; tests in `Tests/ImageconverterCLITests/`). Core: `AppInfo.version` (kept equal to `VERSION` by a test), `PipelineFile`
-- `Resources/`: `imageconverter.sdef` (AppleScript dictionary) and `Info-fragments.plist` (NSServices,
+- `Resources/`: `imageconverter.sdef` (AppleScript dictionary) and `Info-fragments.plist` (NSServices, document types,
   AppleScript and URL-scheme keys); not used by SwiftPM, merged into the bundle by milestone 6's release script.
   Their logic is in Core: `URLAction` (link parsing), `ExternalRequests` (script/service checks), `ServicePins`
 - `Tests/ImageconverterCoreTests/`: tests (operations on small generated images, rename tokens,

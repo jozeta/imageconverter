@@ -31,6 +31,8 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- **Open images with the app**: drop images or folders on imageconverter's Dock icon, choose it in Finder's **Open With**, or run `open -a imageconverter photo.jpg`; they are added to the batch in the open window (no extra windows). In the sandboxed app a folder opened this way can be written into for the session, like a dropped one.
+- **Folder Access ▸ Add Folder…** allows a folder ahead of time, so scripts, links and Quick Actions can use the files in it.
 - **Overwrite with rename**: *Overwrite original files* now works with the Rename step. The renamed result is saved next to the original, which then goes to the Trash; an unchanged name and format still replaces the file in place.
 - **Hover help**: rest the pointer on a step's title (or Output) for 1.5 s to see what it does and how to use it.
 - **Many more conditions**: If … then … else can now check the file name, extension and folder, the date taken, created or modified, any metadata field (lens, ISO, copyright, keywords, …), megapixels, aspect ratio, bit depth, color space and profile, DPI, EXIF rotation and animation, each with **Not**; and its branches can save into a subfolder, add Finder tags or keywords, apply a saved preset, stop checking later conditions or add a note to the report. See [Process images differently](#process-images-differently-by-size-format-or-orientation).
@@ -438,7 +440,8 @@ Your pipeline is kept between launches.
 
 ### Convert a batch
 
-1. Drop images or folders onto the window, or press **Add…** (⌘O). Folders are searched
+1. Drop images or folders onto the window (or onto the app's Dock icon, or use Finder's **Open With ▸
+   imageconverter**), or press **Add…** (⌘O). Folders are searched
    recursively. File types macOS can't read (for example SVG or PDF) are ignored when you add
    them; broken files of a readable type are skipped during the run and listed at the end.
 2. Under **Output** (the last row of the pipeline), pick a format (JPEG, PNG, HEIC, TIFF, plus GIF, BMP, JPEG 2000 and AVIF where your
@@ -826,7 +829,12 @@ end tell
 | `run batch` | Runs the current batch with the current pipeline (`run` alone is AppleScript's own launch command). Returns the written files. |
 | `presets` | The preset names. |
 
-Files must exist and be readable, the folder must be writable, and only one run happens at a time. In overwrite
+Files must exist and be readable, the folder must be writable, and only one run happens at a time. The first
+script that talks to imageconverter makes macOS ask whether the app running it (Script Editor, Terminal, …) may
+control imageconverter (System Settings ▸ Privacy & Security ▸ Automation). In the sandboxed app a script can only
+use files and folders the app was given: ones you added, dropped or opened with it, or ones inside a folder you
+allowed (**Help ▸ Folder Access… ▸ Add Folder…**). Anything else is refused with "… doesn't exist or can't be
+read." or "… isn't a folder you can write to.", followed by that explanation. In overwrite
 mode `convert` and `run batch` ask in the app first, naming the preset, where the files go and the files
 themselves. Long runs may need `with timeout of 3600 seconds`.
 
@@ -834,7 +842,7 @@ themselves. Long runs may need `with timeout of 3600 seconds`.
 actions, unknown or repeated parameters, overlong links (16 KB, names over 80 characters, more than 50 paths) and
 paths that don't exist or can't be read are rejected, and everything except `open` asks in the app first, saying
 exactly what will happen (the files, the preset and where the results go). Only one link question is shown at a
-time: links that arrive meanwhile are ignored and counted in one message. Escape or Cancel declines. Links never convert, write or delete anything without that confirmation.
+time: links that arrive meanwhile are ignored and counted in one message. Escape or Cancel declines. Links never convert, write or delete anything without that confirmation. In the sandboxed app `add` only accepts files inside folders you allowed (as for scripts, above); other paths make the link "ignored" with that explanation.
 
 | Link | What it does (after you confirm) |
 | --- | --- |
@@ -845,11 +853,11 @@ time: links that arrive meanwhile are ignored and counted in one message. Escape
 
 ## Folder access
 
-The packaged app runs in the App Sandbox: it can only open and write files and folders you gave it. Images you drop or add can always be read, and a dropped folder can be written into for the rest of the session. Anything else is asked for once, when it is needed:
+The packaged app runs in the App Sandbox: it can only open and write files and folders you gave it. Images you drop, add, open with the app (Dock icon, Open With, `open -a`) or send with a Finder Quick Action can always be read, and a dropped or opened folder can be written into for the rest of the session. Anything else is asked for once, when it is needed:
 
 - **Same folder as original** and **Overwrite original files** write into the folder each image is in. When the app doesn't have that folder yet, Run (and Finder Quick Actions, AppleScript, links and Resume) first shows an open panel already showing the folder, with the message *"imageconverter needs access to “Photos” to save next to the originals. Choose this folder (or one that contains it) to allow it."* Click **Allow**. Choosing a folder that contains several of the needed folders (your Pictures folder, say) answers all of them at once; choosing an unrelated folder asks again. **Cancel** stops the run before anything is written ("Not run: no access to …").
-- **New folder** needs only the output folder (chosen in the Output row; also asked for after a relaunch if its bookmark no longer opens it), plus the images' own folders when an image can't be read (files given by a script or link rather than dropped).
-- Allowed folders are remembered (up to 200, least recently used dropped first) and opened again at every launch. **Help ▸ Folder Access…** lists them, marks the ones that can't be found ("Not found") or that no longer open and must be allowed again ("Allow again"), and has **Remove** and **Remove All**; a removed folder is asked for again next time. A folder you choose that doesn't contain the one asked for isn't remembered; the question comes back saying so.
+- **New folder** needs only the output folder (chosen in the Output row; also asked for after a relaunch if its bookmark no longer opens it), plus the images' own folders when an image can't be read (for example a resumed batch whose folders no longer open).
+- Allowed folders are remembered (up to 200, least recently used dropped first) and opened again at every launch. **Help ▸ Folder Access…** lists them, marks the ones that can't be found ("Not found") or that no longer open and must be allowed again ("Allow again"), and has **Add Folder…** (allow a folder ahead of time, for example the folders your scripts, links or jobs use), **Remove** and **Remove All**; a removed folder is asked for again next time. A folder you choose that doesn't contain the one asked for isn't remembered; the question comes back saying so.
 - The output folder and watermark images are stored with a bookmark next to the path, so presets, watermark templates and the saved pipeline keep working after a relaunch and follow a file or folder that was moved. When a watermark image can't be opened any more, the editor and the report say *"Couldn't open the watermark image — choose it again"*.
 - An interrupted batch's journal keeps bookmarks of the images' folders and the output folder, so **Resume** opens them again; folders that can't be opened are listed, and anything still missing is asked for when the resumed run starts.
 - Jobs keep their own folder bookmarks (see [Process a folder automatically](#process-a-folder-automatically)).
