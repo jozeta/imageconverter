@@ -20,19 +20,14 @@ public enum QualityLadder {
         guard pipeline.output.format.supportsQuality else { return [] }
         return try autoreleasepool {
             let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)
-            if assets.hasMissing(for: pipeline) { throw ConversionError.watermarkImageUnreadable }
-            let loaded = try ImageLoader.load(item.source, maxPixels: maxPixels,
-                                              includeMetadata: pipeline.metadata.isActive)
-            var notes: [String] = []
-            let image = try pipeline.apply(to: loaded.image, assets: assets, notes: &notes)
-            let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
-                                                       sourceWidth: loaded.image.width,
-                                                       sourceHeight: loaded.image.height)
+            let prepared = try BatchRunner.prepare(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
             return try qualities.map { quality in
+                try Task.checkCancellation()
                 var settings = pipeline.output
                 settings.compression = .quality
                 settings.quality = quality
-                let data = try CompressionSearch.encode(image, properties: properties, settings: settings).data
+                let data = try CompressionSearch.encode(prepared.image, properties: prepared.properties,
+                                                    settings: settings).data
                 guard let source = CGImageSourceCreateWithData(data as CFData, nil),
                       let decoded = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                     throw ConversionError.encodeFailed

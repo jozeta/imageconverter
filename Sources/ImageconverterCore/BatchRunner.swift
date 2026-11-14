@@ -288,11 +288,22 @@ public enum BatchRunner {
         (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
     }
 
-    /// Load, apply, metadata and encode for one file: everything the batch does before it commits.
-    /// The size estimate shares it so the estimate can't drift from what is written.
-    static func encodeItem(
+    /// Everything the batch does to a file before encoding: load, watermark check, pipeline, metadata.
+    struct PreparedItem {
+        /// The upright full-size image as loaded.
+        let source: CGImage
+        /// The pipeline's output image.
+        let image: CGImage
+        /// Output metadata properties.
+        let properties: [String: Any]
+        /// Step notes (e.g. "No document edges found").
+        let notes: [String]
+    }
+
+    /// Shared by the batch, the size estimate and the quality ladder so none of them can drift.
+    static func prepare(
         _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int
-    ) throws -> EncodedItem {
+    ) throws -> PreparedItem {
         // A watermark image that can't be read fails the file before its source is decoded.
         if assets.hasMissing(for: pipeline) { throw ConversionError.watermarkImageUnreadable }
         let loaded = try ImageLoader.load(url, maxPixels: maxPixels, includeMetadata: pipeline.metadata.isActive)
@@ -300,12 +311,23 @@ public enum BatchRunner {
         let image = try pipeline.apply(to: loaded.image, assets: assets, notes: &stepNotes)
         let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
                                                    sourceWidth: loaded.image.width, sourceHeight: loaded.image.height)
-        let result = try CompressionSearch.encode(image, properties: properties, settings: pipeline.output)
+        return PreparedItem(source: loaded.image, image: image, properties: properties, notes: stepNotes)
+    }
+
+    /// Load, apply, metadata and encode for one file: everything the batch does before it commits.
+    /// The size estimate shares it so the estimate can't drift from what is written.
+    static func encodeItem(
+        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int
+    ) throws -> EncodedItem {
+        let prepared = try prepare(url, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
+        let properties = prepared.properties
+        let stepNotes = prepared.notes
+        let result = try CompressionSearch.encode(prepared.image, properties: properties, settings: pipeline.output)
         let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
             ? MetadataDates.dateTaken(in: properties) : nil
         // Step notes (e.g. "No document edges found") come first, then the encoder's.
         let notes = stepNotes + [result.note].compactMap { $0 }
-        return EncodedItem(data: result.data, source: loaded.image, quality: result.quality,
+        return EncodedItem(data: result.data, source: prepared.source, quality: result.quality,
                            note: notes.isEmpty ? nil : notes.joined(separator: "; "), dateTaken: taken)
     }
 }

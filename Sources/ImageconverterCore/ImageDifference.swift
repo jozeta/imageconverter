@@ -13,63 +13,76 @@ public enum ImageDifference {
     }
 
     /// Per-channel absolute difference times `amplify`, clamped, on black. Nil when the sizes differ.
+    /// Works in row strips so memory stays at two 8-bit copies plus a small float scratch.
     public static func render(before: CGImage, after: CGImage, amplify: Double = 4) -> CGImage? {
-        guard var diff = differences(before, after) else { return nil }
-        let length = vDSP_Length(diff.values.count)
+        guard var (left, right) = buffers(before, after) else { return nil }
         var factor = Float(max(0, amplify))
         var low: Float = 0
         var high: Float = 255
-        vDSP_vsmul(diff.values, 1, &factor, &diff.values, 1, length)
-        vDSP_vclip(diff.values, 1, &low, &high, &diff.values, 1, length)
-        var out = [UInt8](repeating: 0, count: diff.values.count)
-        vDSP_vfixru8(diff.values, 1, &out, 1, length)
+        forEachStrip(left: &left, right: right) { delta, range, buffer in
+            let length = vDSP_Length(delta.count)
+            vDSP_vsmul(delta, 1, &factor, &delta, 1, length)
+            vDSP_vclip(delta, 1, &low, &high, &delta, 1, length)
+            buffer.withUnsafeMutableBufferPointer { vDSP_vfixru8(delta, 1, $0.baseAddress! + range.lowerBound, 1, length) }
+        }
         // The alpha lane is not a difference; the result is always opaque.
-        for index in 0..<(diff.width * diff.height) { out[index * 4 + 3] = 255 }
-        return makeImage(&out, width: diff.width, height: diff.height)
+        for index in stride(from: 3, to: left.count, by: 4) { left[index] = 255 }
+        return makeImage(&left, width: before.width, height: before.height)
     }
 
-    /// Error figures over the RGB channels. Mismatched sizes give a maximal error and a 0 dB PSNR.
-    public static func stats(before: CGImage, after: CGImage) -> Stats {
-        guard let diff = differences(before, after) else {
-            return Stats(meanAbsError: 255, maxError: 255, psnr: 0)
-        }
+    /// Error figures over the RGB channels. Nil when the sizes differ, like `render`.
+    public static func stats(before: CGImage, after: CGImage) -> Stats? {
+        guard var (left, right) = buffers(before, after) else { return nil }
         var sum = 0.0
         var squares = 0.0
         var maxError: Float = 0
-        for index in 0..<(diff.width * diff.height) {
-            for channel in 0..<3 {
-                let value = diff.values[index * 4 + channel]
-                sum += Double(value)
-                squares += Double(value * value)
-                maxError = max(maxError, value)
-            }
+        // Both images are opaque after `rgba`, so the alpha lane's difference is 0 and changes nothing.
+        forEachStrip(left: &left, right: right) { delta, _, _ in
+            let length = vDSP_Length(delta.count)
+            var stripSum: Float = 0
+            var stripSquares: Float = 0
+            var stripMax: Float = 0
+            vDSP_sve(delta, 1, &stripSum, length)
+            vDSP_svesq(delta, 1, &stripSquares, length)
+            vDSP_maxv(delta, 1, &stripMax, length)
+            sum += Double(stripSum)
+            squares += Double(stripSquares)
+            maxError = max(maxError, stripMax)
         }
-        let samples = Double(diff.width * diff.height * 3)
-        guard samples > 0, squares > 0 else { return Stats(meanAbsError: 0, maxError: 0, psnr: .infinity) }
-        let mse = squares / samples
-        return Stats(meanAbsError: sum / samples, maxError: Int(maxError), psnr: 10 * log10(255 * 255 / mse))
+        let samples = Double(before.width * before.height * 3)
+        guard squares > 0 else { return Stats(meanAbsError: 0, maxError: 0, psnr: .infinity) }
+        return Stats(meanAbsError: sum / samples, maxError: Int(maxError), psnr: 10 * log10(255 * 255 * samples / squares))
     }
 
     // MARK: Internals
 
-    private struct Delta {
-        var values: [Float]
-        let width: Int
-        let height: Int
-    }
+    private static let stripBytes = 1 << 20
 
-    private static func differences(_ before: CGImage, _ after: CGImage) -> Delta? {
+    private static func buffers(_ before: CGImage, _ after: CGImage) -> ([UInt8], [UInt8])? {
         guard before.width == after.width, before.height == after.height, before.width > 0, before.height > 0,
               let left = rgba(before), let right = rgba(after) else { return nil }
-        let count = left.count
-        var lhs = [Float](repeating: 0, count: count)
-        var rhs = [Float](repeating: 0, count: count)
-        vDSP_vfltu8(left, 1, &lhs, 1, vDSP_Length(count))
-        vDSP_vfltu8(right, 1, &rhs, 1, vDSP_Length(count))
-        var delta = [Float](repeating: 0, count: count)
-        vDSP_vsub(rhs, 1, lhs, 1, &delta, 1, vDSP_Length(count))
-        vDSP_vabs(delta, 1, &delta, 1, vDSP_Length(count))
-        return Delta(values: delta, width: before.width, height: before.height)
+        return (left, right)
+    }
+
+    /// Hands `body` the absolute difference of each strip as floats, the strip's byte range in `left`
+    /// and `left` itself, so a caller can write its result back in place.
+    private static func forEachStrip(
+        left: inout [UInt8], right: [UInt8],
+        _ body: (inout [Float], Range<Int>, inout [UInt8]) -> Void
+    ) {
+        var start = 0
+        while start < left.count {
+            let end = min(left.count, start + stripBytes)
+            let length = vDSP_Length(end - start)
+            var lhs = [Float](repeating: 0, count: end - start)
+            var rhs = lhs
+            left.withUnsafeBufferPointer { vDSP_vfltu8($0.baseAddress! + start, 1, &lhs, 1, length) }
+            right.withUnsafeBufferPointer { vDSP_vfltu8($0.baseAddress! + start, 1, &rhs, 1, length) }
+            vDSP_vsub(rhs, 1, lhs, 1, &lhs, 1, length)
+            vDSP_vabs(lhs, 1, &lhs, 1, length)
+            body(&lhs, start..<end, &left)
+            start = end
+        }
     }
 
     /// 8-bit sRGB, opaque RGBA (transparent pixels are composited on black, so alpha edits show as colour).

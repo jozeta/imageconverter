@@ -28,4 +28,19 @@ final class QualityLadderTests: XCTestCase {
         let rungs = try QualityLadder.render(item: item("b.jpg"), pipeline: pipeline)
         XCTAssertTrue(rungs.isEmpty)
     }
+
+    func testLadderBytesMatchBatchWithMetadataActive() async throws {
+        var pipeline = Pipeline(output: .init(format: .jpeg, quality: 0.8))
+        pipeline.metadata.isIncluded = true
+        pipeline.metadata.isEnabled = true
+        pipeline.metadata.title = "Ladder title"
+        XCTAssertTrue(pipeline.metadata.isActive)
+        let item = try item("c.jpg")
+        let rungs = try QualityLadder.render(item: item, pipeline: pipeline, qualities: [0.8])
+        let out = dir.appendingPathComponent("out", isDirectory: true)
+        let report = await BatchRunner.run([item], pipeline: pipeline, mode: .newFolder(out))
+        let written = try XCTUnwrap(report.written.first)
+        let size = try XCTUnwrap(try written.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+        XCTAssertEqual(rungs.first?.bytes, size)
+    }
 }
