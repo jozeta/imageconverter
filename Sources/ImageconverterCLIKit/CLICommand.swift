@@ -47,4 +47,6 @@ public enum CLIExit {
     public static let someFailed: Int32 = 1
     public static let usage: Int32 = 2
     public static let nothingToDo: Int32 = 3
+    /// 128 + SIGINT, after a Ctrl-C.
+    public static let interrupted: Int32 = 130
 }

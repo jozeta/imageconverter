@@ -39,11 +39,11 @@ final class CLIRunnerTests: XCTestCase {
         return url
     }
 
-    private func environment(_ out: Lines, _ err: Lines) -> CLIEnvironment {
+    private func environment(_ out: Lines, _ err: Lines, cancel: CancelToken = CancelToken()) -> CLIEnvironment {
         CLIEnvironment(out: { out.add($0) }, err: { err.add($0) },
                        presetDirectory: root.appendingPathComponent("presets"),
                        jobDirectory: root.appendingPathComponent("jobs"),
-                       trash: { try FileManager.default.removeItem(at: $0) })
+                       trash: { try FileManager.default.removeItem(at: $0) }, cancel: cancel)
     }
 
     private struct Outcome {
@@ -52,9 +52,9 @@ final class CLIRunnerTests: XCTestCase {
         let err: String
     }
 
-    private func run(_ arguments: [String]) async -> Outcome {
+    private func run(_ arguments: [String], cancel: CancelToken = CancelToken()) async -> Outcome {
         let out = Lines(), err = Lines()
-        let code = await CLIRunner.main(arguments, environment: environment(out, err))
+        let code = await CLIRunner.main(arguments, environment: environment(out, err, cancel: cancel))
         return Outcome(code: code, out: out.text, err: err.text)
     }
 
@@ -154,5 +154,66 @@ final class CLIRunnerTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("jobout/a.png").path))
         let unknown = await run(["jobs", "run", "ghost"])
         XCTAssertEqual(unknown.code, 2)
+    }
+
+    func testDryRunEvaluatesConditionsAndRenameLikeTheBatch() async throws {
+        let big = try writePNG("big.png", width: 400, height: 200)
+        let small = try writePNG("small.png")
+        let condition = ConditionalStep(conditions: [.longestEdge(.greaterThan, 100)], then: [.skip])
+        let pipeline = Pipeline(
+            steps: [PipelineStep(operation: .condition(condition))], output: OutputSettings(format: .png),
+            rename: RenameOptions(isEnabled: true, pattern: "img_{seq}"))
+        let file = root.appendingPathComponent("p.json")
+        try JSONEncoder().encode(pipeline).write(to: file)
+        let outDir = root.appendingPathComponent("planned")
+        let result = await run(["convert", big.path, small.path, "--pipeline", file.path, "--out", outDir.path,
+                                "--dry-run", "--report", "csv"])
+        XCTAssertEqual(result.code, 0, result.err)
+        XCTAssertTrue(result.out.contains("img_1.png"), result.out)
+        XCTAssertTrue(result.out.contains("\"skipped\""), "the big file is reported as skipped")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outDir.path))
+    }
+
+    func testWarnsWhenFlagsDoNotApplyToFormat() async throws {
+        let source = try writePNG("w.png")
+        let result = await run(["convert", source.path, "--out", root.appendingPathComponent("o").path,
+                                "--format", "png", "--quality", "50", "--max-size", "10KB", "--quiet"])
+        XCTAssertEqual(result.code, 0)
+        XCTAssertTrue(result.err.contains("--quality has no effect on PNG"))
+        XCTAssertTrue(result.err.contains("--max-size has no effect on PNG"))
+    }
+
+    func testMissingInputIsReportedAndCounted() async throws {
+        let source = try writePNG("ok.png")
+        let ghost = root.appendingPathComponent("ghost.png").path
+        let result = await run(["convert", source.path, ghost, "--out", root.appendingPathComponent("o").path,
+                                "--quiet"])
+        XCTAssertEqual(result.code, 1)
+        XCTAssertTrue(result.err.contains("No such file: \(ghost)"))
+        XCTAssertTrue(result.out.contains("2 files") || result.out.contains("1 of 2"), result.out)
+        let onlyGhost = await run(["convert", ghost, "--out", root.appendingPathComponent("o").path])
+        XCTAssertEqual(onlyGhost.code, 1)
+    }
+
+    func testCancellationStopsCleanlyAndExits130() async throws {
+        for index in 0..<300 { _ = try writePNG("c\(index).png", width: 600, height: 400) }
+        let outDir = root.appendingPathComponent("cancelled")
+        let token = CancelToken()
+        let out = Lines(), err = Lines()
+        let environment = CLIEnvironment(
+            out: { out.add($0) }, err: { line in err.add(line); if line.hasPrefix("[1/") { token.cancel() } },
+            presetDirectory: root.appendingPathComponent("presets"), jobDirectory: root.appendingPathComponent("jobs"),
+            trash: { try FileManager.default.removeItem(at: $0) }, cancel: token)
+        let inputs = (0..<300).map { root.appendingPathComponent("c\($0).png").path }
+        let code = await CLIRunner.main(["convert"] + inputs + ["--out", outDir.path, "--format", "png"],
+                                        environment: environment)
+        XCTAssertEqual(code, 130, err.text)
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: outDir.path)) ?? []
+        XCTAssertTrue(leftovers.allSatisfy { $0.hasSuffix(".png") }, "no temp files left: \(leftovers)")
+        XCTAssertTrue(err.text.contains("Interrupted"))
+        let already = CancelToken()
+        already.cancel()
+        let early = await run(["convert", inputs[0], "--out", outDir.path, "--quiet"], cancel: already)
+        XCTAssertEqual(early.code, 130)
     }
 }

@@ -19,24 +19,53 @@ enum ConvertCommand {
             return CLIExit.usage
         }
 
-        let items = InputCollector.collect(options.inputs.map { URL(fileURLWithPath: $0) })
+        warnAboutIgnoredFlags(options, format: pipeline.output.format, environment: environment)
+        let missing = options.inputs.filter { !FileManager.default.fileExists(atPath: $0) }
+        for path in missing { environment.err("imageconverter: No such file: \(path)") }
+        let items = InputCollector.collect(options.inputs.filter { !missing.contains($0) }
+            .map { URL(fileURLWithPath: $0) })
         let mode = outputMode(options)
-        if case .newFolder(let folder) = mode, !options.dryRun {
+        if options.dryRun {
+            return await dryRun(Setup(items: items, missing: missing, pipeline: pipeline, mode: mode),
+                                options: options, environment: environment)
+        }
+        if case .newFolder(let folder) = mode {
             do { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) } catch {
                 environment.err("imageconverter: can't create \(folder.path): \(error.localizedDescription)")
                 return CLIExit.someFailed
             }
         }
         let started = Date()
-        if options.dryRun { return dryRun(items, pipeline: pipeline, mode: mode, options: options, environment: environment) }
-
-        let quiet = options.quiet || options.json
-        let batch = await BatchRunner.run(
-            items, pipeline: pipeline, mode: mode, trash: environment.trash,
-            progress: CLIRunner.progressReporter(quiet: quiet, environment: environment))
-        let report = ProcessingReport(batch: batch, total: items.count, outputMode: mode.kind.rawValue,
+        let progress = CLIRunner.progressReporter(quiet: options.quiet || options.json, environment: environment)
+        let batch = await environment.cancel.run {
+            await BatchRunner.run(items, pipeline: pipeline, mode: mode, trash: environment.trash, progress: progress)
+        }
+        var report = ProcessingReport(batch: batch, total: items.count, outputMode: mode.kind.rawValue,
                                       presetName: presetName, startedAt: started, finishedAt: Date())
-        return CLIRunner.finish(report, format: options.json ? .json : options.report, environment: environment)
+        add(missing: missing, to: &report)
+        return CLIRunner.finish(report, format: options.json ? .json : options.report,
+                                interrupted: batch.cancelled, environment: environment)
+    }
+
+    /// A path that doesn't exist counts as a failed file, so a typo can't end in a quiet "success".
+    static func add(missing: [String], to report: inout ProcessingReport) {
+        for path in missing {
+            report.entries.append(ReportEntry(source: path, status: .failed, inputBytes: nil, note: "No such file"))
+        }
+        report.summary.total += missing.count
+        report.summary.failed += missing.count
+    }
+
+    /// Flags the chosen format ignores are said out loud instead of silently doing nothing.
+    static func warnAboutIgnoredFlags(_ options: ConvertOptions, format: OutputFormat, environment: CLIEnvironment) {
+        guard !format.supportsQuality else { return }
+        if options.quality != nil {
+            environment.err("imageconverter: warning: --quality has no effect on \(format.displayName).")
+        }
+        if options.maxSizeBytes != nil {
+            environment.err("imageconverter: warning: --max-size has no effect on \(format.displayName); "
+                            + "choose a format with a quality setting (jpeg, heic, avif, jpeg2000).")
+        }
     }
 
     static func outputMode(_ options: ConvertOptions) -> OutputMode {
@@ -98,25 +127,53 @@ enum ConvertCommand {
 
     // MARK: dry run
 
-    /// Lists the destinations the plain naming rules give (renaming and conditions are not evaluated); writes nothing.
-    private static func dryRun(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode, options: ConvertOptions,
-                               environment: CLIEnvironment) -> Int32 {
-        let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode)
-        let entries = zip(items, plans).map { item, plan in
-            ReportEntry(source: item.source.path, destination: plan.destination.path, status: .succeeded,
-                        inputBytes: nil, note: "dry run")
+    /// Plans with the batch's own path (conditions, rename templates, collision names); writes nothing.
+    private struct Setup {
+        let items: [InputItem]
+        let missing: [String]
+        let pipeline: Pipeline
+        let mode: OutputMode
+    }
+
+    private static func dryRun(_ setup: Setup, options: ConvertOptions, environment: CLIEnvironment) async -> Int32 {
+        let (items, missing, pipeline, mode) = (setup.items, setup.missing, setup.pipeline, setup.mode)
+        let started = Date()
+        let planned = await environment.cancel.run {
+            await BatchRunner.plan(items, pipeline: pipeline, mode: mode)
         }
-        if options.json {
-            environment.out(JSONOutput.string(["dryRun": true, "files": entries.map {
-                ["source": $0.source, "destination": $0.destination ?? ""]
-            }]))
+        guard let planned else { return CLIExit.interrupted }
+        let entries = planned.map { file -> ReportEntry in
+            switch file.disposition {
+            case .skip:
+                return ReportEntry(source: file.source.path, status: .skipped, inputBytes: nil,
+                                   note: ConditionalStep.skippedReason)
+            case .copyOriginal:
+                return ReportEntry(source: file.source.path, destination: file.destination?.path, status: .succeeded,
+                                   inputBytes: nil, note: ConditionalStep.copiedNote)
+            case .process:
+                return ReportEntry(source: file.source.path, destination: file.destination?.path, status: .succeeded,
+                                   inputBytes: nil)
+            }
+        }
+        let summary = RunSummary(
+            startedAt: started, finishedAt: Date(), outputMode: mode.kind.rawValue, total: entries.count,
+            succeeded: entries.filter { $0.status == .succeeded }.count, failed: 0,
+            skipped: entries.filter { $0.status == .skipped }.count, inputBytes: 0, outputBytes: 0)
+        var report = ProcessingReport(summary: summary, entries: entries)
+        add(missing: missing, to: &report)
+        environment.err("Dry run: nothing is written.")
+        if let format = options.json ? .json : options.report {
+            let text = String(bytes: ReportExporter.data(report, format: format), encoding: .utf8) ?? ""
+            environment.out(text.hasSuffix("\n") ? String(text.dropLast()) : text)
         } else {
             for entry in entries {
-                environment.out("\(ReportExporter.printable(entry.source)) -> "
-                                + ReportExporter.printable(entry.destination ?? ""))
+                let target = entry.destination.map { " -> " + ReportExporter.printable($0) } ?? ""
+                let note = entry.note.map { " (\(ReportExporter.printable($0)))" } ?? ""
+                environment.out(ReportExporter.printable(entry.source) + target + note)
             }
-            environment.out("Dry run: \(items.count) files would be converted. Nothing was written.")
+            environment.out("\(report.summary.succeeded) of \(report.summary.total) files would be written.")
         }
-        return items.isEmpty ? CLIExit.nothingToDo : CLIExit.success
+        if report.summary.failed > 0 { return CLIExit.someFailed }
+        return report.summary.total == 0 ? CLIExit.nothingToDo : CLIExit.success
     }
 }

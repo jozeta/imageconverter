@@ -14,6 +14,8 @@ public enum CLIParser {
     private static func parseThrowing(_ arguments: [String]) throws -> CLICommand {
         guard let first = arguments.first else { throw CLIUsageError("No command given.") }
         let rest = Array(arguments.dropFirst())
+        // `--help` anywhere before a `--` terminator asks for usage, whatever the command.
+        if rest.prefix(while: { $0 != "--" }).contains("--help") { return .help }
         switch first {
         case "--help", "-h", "help": return .help
         case "--version", "-V", "version": return .version
@@ -43,7 +45,7 @@ public enum CLIParser {
                 case "--quiet": quiet = true
                 case "--json": json = true
                 default:
-                    if argument.hasPrefix("--") { throw CLIUsageError("Unknown option '\(argument)'.") }
+                    if argument.hasPrefix("-") { throw CLIUsageError("Unknown option '\(argument)'.") }
                     guard name == nil else { throw CLIUsageError("Give one job name (quote names with spaces).") }
                     name = argument
                 }
@@ -77,26 +79,31 @@ public enum CLIParser {
         var options = ConvertOptions()
         var index = 0
         var onlyInputs = false
+        var seen: Set<String> = []
         while index < arguments.count {
             let argument = arguments[index]
             index += 1
-            guard !onlyInputs, argument.hasPrefix("--") else {
+            guard !onlyInputs, argument.hasPrefix("-") else {
                 options.inputs.append(argument)
                 continue
             }
             if argument == "--" { onlyInputs = true; continue }
-            var name = argument
-            var value: String?
-            if let equals = argument.firstIndex(of: "=") {
-                name = String(argument[..<equals])
-                value = String(argument[argument.index(after: equals)...])
+            // Only long options exist; a short one is a typo, and a file starting with "-" needs "--" first.
+            guard argument.hasPrefix("--") else {
+                throw CLIUsageError("Unknown option '\(argument)'. Put '--' before file names that start with '-'.")
+            }
+            var (name, value) = splitAssignment(argument)
+            if valueFlags.contains(name), !seen.insert(name).inserted {
+                throw CLIUsageError("'\(name)' was given more than once.")
             }
             if switchFlags.contains(name) {
                 guard value == nil else { throw CLIUsageError("'\(name)' takes no value.") }
                 apply(switch: name, to: &options)
             } else if valueFlags.contains(name) {
                 if value == nil {
-                    guard index < arguments.count else { throw CLIUsageError("'\(name)' needs a value.") }
+                    guard index < arguments.count, !arguments[index].hasPrefix("--") else {
+                        throw CLIUsageError("'\(name)' needs a value.")
+                    }
                     value = arguments[index]
                     index += 1
                 }
@@ -107,6 +114,12 @@ public enum CLIParser {
         }
         try validate(options)
         return options
+    }
+
+    /// "--out=/tmp" becomes ("--out", "/tmp"); "--out" becomes ("--out", nil).
+    private static func splitAssignment(_ argument: String) -> (String, String?) {
+        guard let equals = argument.firstIndex(of: "=") else { return (argument, nil) }
+        return (String(argument[..<equals]), String(argument[argument.index(after: equals)...]))
     }
 
     private static func apply(switch name: String, to options: inout ConvertOptions) {

@@ -1,6 +1,41 @@
 import Foundation
 import ImageconverterCore
 
+/// Lets the signal handler (or a test) stop the running batch: the batch task is cancelled, its in-flight files
+/// finish their atomic commit or are dropped, and the command then prints the partial report.
+public final class CancelToken: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var cancelWork: (@Sendable () -> Void)?
+
+    public init() {}
+
+    public var isCancelled: Bool { lock.lock(); defer { lock.unlock() }; return cancelled }
+
+    public func cancel() {
+        lock.lock()
+        cancelled = true
+        let action = cancelWork
+        lock.unlock()
+        action?()
+    }
+
+    /// Runs `body` in a task that `cancel()` cancels (at once if it was cancelled already).
+    func run<T: Sendable>(_ body: @escaping @Sendable () async -> T) async -> T {
+        let work = Task { await body() }
+        if attach({ work.cancel() }) { work.cancel() }
+        return await work.value
+    }
+
+    /// Stores the cancel action; true when cancellation already happened.
+    private func attach(_ action: @escaping @Sendable () -> Void) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        cancelWork = action
+        return cancelled
+    }
+}
+
 /// Where the tool prints, and which folders it reads presets and jobs from (replaceable in tests).
 public struct CLIEnvironment: Sendable {
     public var out: @Sendable (String) -> Void
@@ -8,23 +43,25 @@ public struct CLIEnvironment: Sendable {
     public var presetDirectory: URL
     public var jobDirectory: URL
     public var trash: Trasher
+    public var cancel: CancelToken
 
     public init(out: @escaping @Sendable (String) -> Void, err: @escaping @Sendable (String) -> Void,
                 presetDirectory: URL = PresetStore.defaultDirectory,
                 jobDirectory: URL = TemplateStore<JobSettings>.defaultDirectory(folder: "jobs"),
-                trash: @escaping Trasher = systemTrash) {
+                trash: @escaping Trasher = systemTrash, cancel: CancelToken = CancelToken()) {
         self.out = out
         self.err = err
         self.presetDirectory = presetDirectory
         self.jobDirectory = jobDirectory
         self.trash = trash
+        self.cancel = cancel
     }
 
     /// Results to stdout, progress and problems to stderr.
-    public static var standard: CLIEnvironment {
+    public static func standard(cancel: CancelToken = CancelToken()) -> CLIEnvironment {
         CLIEnvironment(
             out: { FileHandle.standardOutput.write(Data(($0 + "\n").utf8)) },
-            err: { FileHandle.standardError.write(Data(($0 + "\n").utf8)) })
+            err: { FileHandle.standardError.write(Data(($0 + "\n").utf8)) }, cancel: cancel)
     }
 }
 
@@ -50,10 +87,11 @@ enum CLIText {
       --strip-gps | --strip-all               Remove GPS data, or all metadata
       --report csv|json|text                  Print a full report to stdout
       --dry-run                               Show what would be written; change nothing
-      --quiet                                 No progress on stderr
+      --quiet                                 No progress on stderr (Ctrl-C stops cleanly, exit 130)
       --json                                  Machine-readable JSON report on stdout (implies --quiet)
 
     Options override the preset or pipeline. Results go to stdout, progress to stderr.
-    Exit codes: 0 all done, 1 some files failed, 2 usage error, 3 nothing to do.
+    Files starting with '-' need '--' before them. Exit codes: 0 all done, 1 some files failed or missing,
+    2 usage error, 3 nothing to do, 130 interrupted.
     """
 }

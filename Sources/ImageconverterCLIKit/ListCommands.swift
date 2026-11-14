@@ -38,11 +38,14 @@ enum JobsCommand {
             environment.err("imageconverter: No job named '\(name)'. Run 'imageconverter jobs list'.")
             return CLIExit.usage
         }
-        let result = await JobRunner.run(
-            job, store: jobStore, presetStore: PresetStore(directory: environment.presetDirectory),
-            trash: environment.trash, progress: CLIRunner.progressReporter(quiet: quiet, environment: environment))
+        let presets = PresetStore(directory: environment.presetDirectory)
+        let progress = CLIRunner.progressReporter(quiet: quiet, environment: environment)
+        let result = await environment.cancel.run {
+            await JobRunner.run(job, store: jobStore, presetStore: presets, trash: environment.trash,
+                                progress: progress)
+        }
         return CLIRunner.finish(result.report, format: json ? .json : nil, problem: result.problem,
-                                environment: environment)
+                                interrupted: result.batch.cancelled, environment: environment)
     }
 }
 

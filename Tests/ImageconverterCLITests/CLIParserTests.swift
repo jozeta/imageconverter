@@ -86,4 +86,22 @@ final class CLIParserTests: XCTestCase {
         XCTAssertEqual(result.metadata.location, .remove)
         XCTAssertEqual(ConvertCommand.applyOverrides(options, to: Pipeline()).steps.count, 1)
     }
+
+    func testShortOptionsHelpAndDashFiles() throws {
+        XCTAssertNotNil(error(["convert", "-q", "a.jpg", "--out", "/o"]), "short options don't exist")
+        XCTAssertNotNil(error(["convert", "-", "--out", "/o"]))
+        XCTAssertEqual(CLIParser.parse(["convert", "--help"]), .success(.help))
+        XCTAssertEqual(CLIParser.parse(["jobs", "run", "--help"]), .success(.help))
+        let options = try convert(["--out", "/o", "--", "-odd.jpg", "--also.jpg"])
+        XCTAssertEqual(options.inputs, ["-odd.jpg", "--also.jpg"])
+    }
+
+    func testValueFlagsRefuseFlagsAndRepeats() {
+        XCTAssertNotNil(error(["convert", "a.jpg", "--out", "/o", "--preset", "--quiet"]))
+        XCTAssertNotNil(error(["convert", "a.jpg", "--out", "/o", "--format", "png", "--format=jpeg"]))
+        XCTAssertNotNil(error(["convert", "a.jpg", "--out", "/o", "--quiet=yes"]))
+        XCTAssertNotNil(error(["convert", "a.jpg", "--out", "/o", "--quality=abc"]))
+        XCTAssertNotNil(error(["convert", "a.jpg", "--out", "/o", "--report=xml"]))
+        XCTAssertNotNil(error(["convert", "a.jpg", "--out=/a", "--out=/b"]))
+    }
 }

@@ -2,6 +2,14 @@ import Foundation
 
 /// Conditions in the batch: each item is resolved once, from its header, before anything is planned; copies
 /// and skips then never decode.
+/// One item of a dry run.
+public struct PlannedFile: Equatable, Sendable {
+    public let source: URL
+    /// Nil when a condition skips the file.
+    public let destination: URL?
+    public let disposition: Disposition
+}
+
 extension BatchRunner {
     /// What a run does, item by item, once its conditions are resolved.
     struct RunPlan {
@@ -30,6 +38,21 @@ extension BatchRunner {
         let skipped = items.indices.filter { resolved[$0].disposition == .skip }.map { items[$0].source }
         return RunPlan(plans: OutputPlanner.plan(targets, mode: mode, reservedSources: skipped), jobs: jobs,
                        skipped: skipped, assetPipeline: assetPipeline(pipeline, resolved: jobs))
+    }
+
+    /// What `run` would do with each item, without writing anything: conditions resolved, names rendered and
+    /// destinations planned by the same path the batch uses. In input order; nil when the task is cancelled.
+    public static func plan(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode,
+                            maxPixels: Int = 250_000_000) async -> [PlannedFile]? {
+        guard let run = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels) else { return nil }
+        var byPlan: [URL: (PlannedOutput, Disposition)] = [:]
+        for (plan, job) in zip(run.plans, run.jobs) { byPlan[plan.item.source] = (plan, job.disposition) }
+        return items.map { item in
+            if let (plan, disposition) = byPlan[item.source] {
+                return PlannedFile(source: item.source, destination: plan.destination, disposition: disposition)
+            }
+            return PlannedFile(source: item.source, destination: nil, disposition: .skip)
+        }
     }
 
     /// Runs one planned item: a copy of the original, or the full load, apply, encode and commit.

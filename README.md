@@ -506,10 +506,10 @@ Convert options (options override the preset or pipeline file):
 | `--resize-long PX` | Scale so the longest edge is PX pixels |
 | `--strip-gps`, `--strip-all` | Remove the location, or all metadata |
 | `--report csv\|json\|text` | Print a full report on stdout |
-| `--dry-run` | List the files that would be written; writes nothing (renaming rules and conditions are not evaluated) |
+| `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked); writes nothing; honours `--report`/`--json` |
 | `--quiet`, `--json` | No progress; `--json` prints the JSON report |
 
-Progress goes to stderr and results to stdout. Exit codes: 0 all done, 1 some files failed, 2 usage error, 3 nothing to do. The tool reads presets and jobs from `~/Library/Application Support/imageconverter/`.
+Progress goes to stderr and results to stdout. Missing input paths are reported on stderr and count as failed files; options that the chosen format ignores (`--quality`, `--max-size` with PNG, TIFF, ...) print a warning. Only long options exist; file names starting with `-` go after `--`. Ctrl-C stops cleanly (no temp files left), prints the partial report and exits 130. Exit codes: 0 all done, 1 some files failed or missing, 2 usage error, 3 nothing to do, 130 interrupted. The tool reads presets and jobs from `~/Library/Application Support/imageconverter/`.
 
 Example in Shortcuts: add **Run Shell Script** (Shell: zsh, Input: as arguments) with
 

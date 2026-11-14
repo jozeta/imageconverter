@@ -4,7 +4,7 @@ import ImageconverterCore
 /// Runs a parsed command. The executable is a thin wrapper around `CLIRunner.main`.
 public enum CLIRunner {
     /// Parses and runs `arguments` (without the program name); returns the exit code.
-    public static func main(_ arguments: [String], environment: CLIEnvironment = .standard) async -> Int32 {
+    public static func main(_ arguments: [String], environment: CLIEnvironment = .standard()) async -> Int32 {
         switch CLIParser.parse(arguments) {
         case .failure(let error):
             environment.err("imageconverter: \(error.message)")
@@ -36,7 +36,7 @@ public enum CLIRunner {
 
     /// Prints a finished run: the JSON or chosen report, else a short summary. Returns the exit code.
     static func finish(_ report: ProcessingReport, format: ReportFormat?, problem: String? = nil,
-                       environment: CLIEnvironment) -> Int32 {
+                       interrupted: Bool = false, environment: CLIEnvironment) -> Int32 {
         if let problem { environment.err("imageconverter: \(problem)") }
         if let format {
             let text = String(bytes: ReportExporter.data(report, format: format), encoding: .utf8) ?? ""
@@ -54,6 +54,10 @@ public enum CLIRunner {
                 environment.out("failed: \(ReportExporter.printable(entry.source)): "
                                 + ReportExporter.printable(entry.note ?? "unknown error"))
             }
+        }
+        if interrupted {
+            environment.err("Interrupted: \(report.summary.cancelled) files were not started.")
+            return CLIExit.interrupted
         }
         if problem != nil || report.summary.failed > 0 { return CLIExit.someFailed }
         return report.summary.total == 0 ? CLIExit.nothingToDo : CLIExit.success
