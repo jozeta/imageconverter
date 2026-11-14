@@ -44,6 +44,22 @@ struct WrittenFile {
         return items.compactMap { CGImageMetadataTagCopyValue($0) as? String }
     }
 
+    /// Whether an embedded thumbnail is present: HEIC lists it in the container, JPEG holds a second
+    /// JPEG (another start-of-image marker). ImageIO writes none for TIFF.
+    var hasEmbeddedThumbnail: Bool {
+        if let source = CGImageSourceCreateWithData(data as CFData, nil),
+           let contents = (CGImageSourceCopyProperties(source, nil) as? [String: Any])?["{FileContents}"] as? [String: Any],
+           let images = contents["Images"] as? [[String: Any]],
+           images.contains(where: { !(($0["ThumbnailImages"] as? [Any]) ?? []).isEmpty }) {
+            return true
+        }
+        let bytes = [UInt8](data)
+        let starts = (0..<max(0, bytes.count - 2)).filter {
+            bytes[$0] == 0xFF && bytes[$0 + 1] == 0xD8 && bytes[$0 + 2] == 0xFF
+        }
+        return starts.count > 1
+    }
+
     func contains(_ text: String) -> Bool { data.range(of: Data(text.utf8)) != nil }
 
     /// Whether the file holds an XMP packet at all.
@@ -71,7 +87,15 @@ enum MetadataTestSupport {
         return url
     }
 
+    /// Vendor namespaces the fixtures use (registered so ImageIO accepts their paths).
+    private static let vendorNamespaces: [(String, String)] = [
+        ("drone-dji", "http://www.dji.com/drone-dji/1.0/"), ("crs", "http://ns.adobe.com/camera-raw-settings/1.0/")
+    ]
+
     private static func set(_ path: String, _ value: Any, in meta: CGMutableImageMetadata) {
+        for (prefix, namespace) in vendorNamespaces {
+            CGImageMetadataRegisterNamespaceForPrefix(meta, namespace as CFString, prefix as CFString, nil)
+        }
         guard let strings = value as? [String] else {
             CGImageMetadataSetValueWithPath(meta, nil, path as CFString, value as CFTypeRef)
             return
@@ -101,6 +125,16 @@ enum MetadataTestSupport {
     }
 
     /// Formats that hold EXIF, IPTC and XMP and are available here.
+    /// The file type and extension for writing a source in `format`.
+    static func type(of format: OutputFormat) -> (UTType, String) {
+        switch format {
+        case .heic: return (.heic, "heic")
+        case .png: return (.png, "png")
+        case .tiff: return (.tiff, "tiff")
+        default: return (.jpeg, "jpg")
+        }
+    }
+
     static var richFormats: [OutputFormat] {
         let available = OutputFormat.available()
         return [.jpeg, .heic, .png, .tiff].filter { available.contains($0) }
@@ -108,5 +142,18 @@ enum MetadataTestSupport {
 
     static func active() -> MetadataOptions {
         MetadataOptions(isEnabled: true, removeLocation: false)
+    }
+
+    enum Removal { case location, camera, author }
+
+    /// An active step that removes only `removal`.
+    static func removing(_ removal: Removal) -> MetadataOptions {
+        var options = active()
+        switch removal {
+        case .location: options.location = .remove
+        case .camera: options.removeCamera = true
+        case .author: options.removeAuthor = true
+        }
+        return options
     }
 }

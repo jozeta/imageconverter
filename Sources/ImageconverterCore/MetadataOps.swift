@@ -34,7 +34,8 @@ public enum MetadataOps {
     ]).map { $0 as String }
 
     static let iptcAuthorKeys: [String] = [
-        kCGImagePropertyIPTCByline, kCGImagePropertyIPTCBylineTitle, kCGImagePropertyIPTCWriterEditor
+        kCGImagePropertyIPTCByline, kCGImagePropertyIPTCBylineTitle, kCGImagePropertyIPTCWriterEditor,
+        kCGImagePropertyIPTCContact, kCGImagePropertyIPTCCreatorContactInfo
     ].map { $0 as String }
 
     private struct Field {
@@ -63,7 +64,10 @@ public enum MetadataOps {
         MetadataDates.apply(options.dateTaken, to: &props)
         setTextFields(options, in: &props)
         if let keywords = options.keywords {
-            setKeywords(keywords, mode: options.keywordsMode, extra: xmpKeywords(metadata), in: &props)
+            // The source's XMP keywords only count when the removals left the keywords in place.
+            let sourceKept = !options.removeAll && !options.removeIPTC
+            setKeywords(keywords, mode: options.keywordsMode, extra: sourceKept ? xmpKeywords(metadata) : [],
+                        in: &props)
         }
         for field in options.custom { setCustom(field, in: &props) }
         if options.removeXMP {
@@ -94,6 +98,7 @@ public enum MetadataOps {
         }
         if options.removeAuthor {
             remove([kCGImagePropertyTIFFArtist as String], from: tiffKey, in: &props)
+            remove([kCGImagePropertyExifCameraOwnerName as String], from: exifKey, in: &props)
             remove(iptcAuthorKeys, from: iptcKey, in: &props)
             remove([kCGImagePropertyPNGAuthor as String], from: pngKey, in: &props)
         }

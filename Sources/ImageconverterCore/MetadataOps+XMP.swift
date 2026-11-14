@@ -22,7 +22,12 @@ extension MetadataOps {
         "photoshop:City", "photoshop:State", "photoshop:Country", "Iptc4xmpCore:Location", "Iptc4xmpCore:CountryCode",
         "Iptc4xmpExt:LocationShown", "Iptc4xmpExt:LocationCreated",
     ]
-    private static let authorPaths: Set<String> = ["dc:creator", "photoshop:AuthorsPosition", "photoshop:CaptionWriter"]
+    private static let authorPaths: Set<String> = ["dc:creator", "photoshop:AuthorsPosition", "photoshop:CaptionWriter",
+                                                   "Iptc4xmpCore:CreatorContactInfo"]
+    /// Language alternatives in XMP (written as rdf:Alt with an x-default entry).
+    private static let altTextPaths = ["dc:title", "dc:description", "dc:rights", "xmpRights:UsageTerms"]
+    /// Lightroom/Camera Raw settings name the lens and camera profile.
+    private static let cameraRawNamespace = "http://ns.adobe.com/camera-raw-settings/1.0/"
     /// The IPTC Core fields that live in Dublin Core.
     private static let iptcDublinCorePaths: Set<String> = ["dc:title", "dc:creator", "dc:description", "dc:subject",
                                                            "dc:rights"]
@@ -72,8 +77,20 @@ extension MetadataOps {
         }
         removeMirrors(ofRemovedIPTCIn: original, final: props, from: meta)
         syncIPTC(original: original, final: props, into: meta)
+        // Before the edits, which write alternatives themselves.
+        normalizeAltText(in: meta)
         setFields(options, final: props, in: meta)
         return meta
+    }
+
+    /// Camera and lens identifiers: well-known names in any namespace, Camera Raw's lens/camera settings and
+    /// Photoshop's camera profile list.
+    private static func isCameraTag(namespace: String, path: String, name: String) -> Bool {
+        let lower = name.lowercased()
+        if cameraNames.contains(lower) || lower.contains("serialnumber") || path == "photoshop:CameraProfiles" {
+            return true
+        }
+        return namespace == cameraRawNamespace && (lower.contains("lens") || lower.contains("camera"))
     }
 
     private static func isKept(path: String, namespace: String, name: String, _ keep: Set<KeepField>) -> Bool {
@@ -81,7 +98,7 @@ extension MetadataOps {
             || (keep.contains(.author) && authorPaths.contains(path))
             || (keep.contains(.dateTaken) && MetadataDates.xmpPaths.contains(path))
             || (keep.contains(.location) && (locationPaths.contains(path) || isGPSName(name)))
-            || (keep.contains(.cameraInfo) && cameraNames.contains(name.lowercased()))
+            || (keep.contains(.cameraInfo) && isCameraTag(namespace: namespace, path: path, name: name))
     }
 
     private static func isGPSName(_ name: String) -> Bool {
@@ -96,7 +113,7 @@ extension MetadataOps {
         case .set: removeTags(in: meta) { _, _, name in isGPSName(name) }
         }
         if options.removeCamera {
-            removeTags(in: meta) { _, _, name in cameraNames.contains(name.lowercased()) }
+            removeTags(in: meta) { namespace, path, name in isCameraTag(namespace: namespace, path: path, name: name) }
         }
         if options.removeAuthor { removeTags(in: meta) { _, path, _ in authorPaths.contains(path) } }
         if options.removeIPTC {
@@ -154,6 +171,29 @@ extension MetadataOps {
         }
     }
 
+    /// ImageIO's IPTC twins (and simple values in source files) are plain text; XMP wants a language
+    /// alternative for these fields. Real alternatives are left as they are (other languages kept).
+    private static func normalizeAltText(in meta: CGMutableImageMetadata) {
+        // Found through the top-level list: copying a tag by path crashes ImageIO when a plain value was
+        // stored as an alternative (type says alternative, value is a string, which it then reports as nil).
+        let tags = CGImageMetadataCopyTags(meta) as? [CGImageMetadataTag] ?? []
+        for tag in tags {
+            guard let prefix = CGImageMetadataTagCopyPrefix(tag) as String?,
+                  let name = CGImageMetadataTagCopyName(tag) as String?,
+                  case let path = "\(prefix):\(name)", altTextPaths.contains(path),
+                  isPlainText(CGImageMetadataTagCopyValue(tag)), // a real alternative is left alone
+                  let value = CGImageMetadataCopyStringValueWithPath(meta, nil, path as CFString) as String?
+            else { continue }
+            CGImageMetadataRemoveTagWithPath(meta, nil, path as CFString)
+            CGImageMetadataSetValueWithPath(meta, nil, "\(path)[x-default]" as CFString, value as CFString)
+        }
+    }
+
+    private static func isPlainText(_ value: CFTypeRef?) -> Bool {
+        guard let value else { return true }
+        return CFGetTypeID(value) == CFStringGetTypeID()
+    }
+
     private static func setFields(_ options: MetadataOptions, final props: [String: Any],
                                   in meta: CGMutableImageMetadata) {
         if let artist = options.artist { set(artist, at: "dc:creator", in: meta) }
@@ -181,7 +221,8 @@ extension MetadataOps {
         }
         CGImageMetadataRemoveTagWithPath(meta, nil, path as CFString)
         guard !value.isEmpty else { return }
-        CGImageMetadataSetValueWithPath(meta, nil, path as CFString, value as CFString)
+        let target = altTextPaths.contains(path) ? "\(path)[x-default]" : path
+        CGImageMetadataSetValueWithPath(meta, nil, target as CFString, value as CFString)
     }
 
     private static func setList(_ values: [String], at path: String, ordered: Bool, in meta: CGMutableImageMetadata) {

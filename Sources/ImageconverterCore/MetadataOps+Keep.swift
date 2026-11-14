@@ -53,6 +53,7 @@ extension MetadataOps {
                 copy([kCGImagePropertyPNGCopyright as String], from: pngKey)
             case .author:
                 copy([kCGImagePropertyTIFFArtist as String], from: tiffKey)
+                copy([kCGImagePropertyExifCameraOwnerName as String], from: exifKey)
                 copy(iptcAuthorKeys, from: iptcKey)
                 copy([kCGImagePropertyPNGAuthor as String], from: pngKey)
             case .dateTaken:

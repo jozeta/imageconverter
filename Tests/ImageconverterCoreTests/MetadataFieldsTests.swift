@@ -62,12 +62,16 @@ final class MetadataFieldsTests: XCTestCase {
         for bad in [#"{"mode":"set","latitude":91,"longitude":0}"#, #"{"mode":"set","latitude":0,"longitude":-180.5}"#,
                     #"{"mode":"set","latitude":10,"longitude":10,"altitude":1e12}"#] {
             XCTAssertThrowsError(try JSONDecoder().decode(LocationEdit.self, from: Data(bad.utf8)), bad)
-            XCTAssertThrowsError(try decode(#"{"isEnabled":true,"location":\#(bad)}"#), bad)
+            // Lenient like the other fields, but the original position must not survive: it becomes `.remove`.
+            XCTAssertEqual(try decode(#"{"isEnabled":true,"location":\#(bad)}"#).location, .remove, bad)
         }
         let good = try JSONDecoder().decode(LocationEdit.self,
                                             from: Data(#"{"mode":"set","latitude":-90,"longitude":180}"#.utf8))
         XCTAssertEqual(good, .set(latitude: -90, longitude: 180, altitude: nil))
         XCTAssertFalse(LocationEdit.isValid(latitude: .nan, longitude: 0, altitude: nil))
+        let badDate = try decode(#"{"dateTaken":{"mode":"shift","seconds":99999999999},"keywordsMode":"x"}"#)
+        XCTAssertEqual(badDate.dateTaken, .keep)
+        XCTAssertEqual(badDate.keywordsMode, .add)
     }
 
     func testUnknownCustomKeyDroppedOnDecode() throws {
@@ -174,26 +178,41 @@ final class MetadataFieldsTests: XCTestCase {
     }
 
     func testDateSetAndShift() async throws {
-        let url = try source(properties: datedProps, xmp: [("xmp:CreateDate", "2020-01-02T03:04:05"),
-                                                           ("photoshop:DateCreated", "2020-01-02T03:04:05")])
-        var options = MetadataTestSupport.active()
-        options.dateTaken = .shift(seconds: 3600)
-        var written = try await MetadataTestSupport.convert(url, options: options, root: root)
-        XCTAssertEqual(dates(written), Array(repeating: "2020:01:02 04:04:05", count: 3))
-        let iptc = written.sub(kCGImagePropertyIPTCDictionary)
-        XCTAssertEqual(iptc?[kCGImagePropertyIPTCDateCreated as String] as? String, "20200102")
-        XCTAssertEqual(iptc?[kCGImagePropertyIPTCTimeCreated as String] as? String, "040405")
-        XCTAssertEqual(written.xmp("xmp:CreateDate")?.prefix(19), "2020-01-02T04:04:05")
-        XCTAssertEqual(written.xmp("photoshop:DateCreated")?.prefix(19), "2020-01-02T04:04:05")
-
         var components = DateComponents(year: 2024, month: 6, day: 30, hour: 23, minute: 59, second: 58)
         components.timeZone = .current
-        options.dateTaken = .set(try XCTUnwrap(Calendar(identifier: .gregorian).date(from: components)))
-        written = try await MetadataTestSupport.convert(url, options: options, root: root)
-        XCTAssertEqual(dates(written), Array(repeating: "2024:06:30 23:59:58", count: 3))
-        XCTAssertEqual(written.xmp("xmp:CreateDate")?.prefix(19), "2024-06-30T23:59:58")
-        XCTAssertEqual(written.sub(kCGImagePropertyIPTCDictionary)?[kCGImagePropertyIPTCDateCreated as String] as? String,
-                       "20240630")
+        let setDate = try XCTUnwrap(Calendar(identifier: .gregorian).date(from: components))
+        for format in MetadataTestSupport.richFormats {
+            let (type, ext) = MetadataTestSupport.type(of: format)
+            let url = try MetadataTestSupport.source(
+                root.appendingPathComponent("dated-\(format).\(ext)"), type: type, properties: datedProps,
+                xmp: [("xmp:CreateDate", "2020-01-02T03:04:05"), ("photoshop:DateCreated", "2020-01-02T03:04:05")])
+            var options = MetadataTestSupport.active()
+            options.dateTaken = .shift(seconds: 3600)
+            var written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            XCTAssertEqual(dates(written), Array(repeating: "2020:01:02 04:04:05", count: 3), "\(format)")
+            assertIPTCDate(written, "20200102", "040405", "\(format)")
+            XCTAssertEqual(written.xmp("xmp:CreateDate")?.prefix(19), "2020-01-02T04:04:05", "\(format)")
+            XCTAssertEqual(written.xmp("photoshop:DateCreated")?.prefix(19), "2020-01-02T04:04:05", "\(format)")
+
+            options.dateTaken = .set(setDate)
+            written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
+            XCTAssertEqual(dates(written), Array(repeating: "2024:06:30 23:59:58", count: 3), "\(format)")
+            XCTAssertEqual(written.xmp("xmp:CreateDate")?.prefix(19), "2024-06-30T23:59:58", "\(format)")
+            XCTAssertEqual(written.xmp("photoshop:DateCreated")?.prefix(19), "2024-06-30T23:59:58", "\(format)")
+            assertIPTCDate(written, "20240630", "235958", "\(format)")
+        }
+    }
+
+    /// HEIC keeps no IPTC date of its own (photoshop:DateCreated holds it); where there is one it must match.
+    private func assertIPTCDate(_ written: WrittenFile, _ date: String, _ time: String, _ label: String,
+                                file: StaticString = #filePath, line: UInt = #line) {
+        let iptc = written.sub(kCGImagePropertyIPTCDictionary)
+        if let written = iptc?[kCGImagePropertyIPTCDateCreated as String] as? String {
+            XCTAssertEqual(written, date, label, file: file, line: line)
+        }
+        if let written = iptc?[kCGImagePropertyIPTCTimeCreated as String] as? String {
+            XCTAssertEqual(written, time, label, file: file, line: line)
+        }
     }
 
     func testShiftWithoutDateLeavesNone() async throws {

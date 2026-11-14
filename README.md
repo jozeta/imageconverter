@@ -127,6 +127,10 @@ Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 | Find / Replace | Replaces text in the name after the pattern; plain text or a regular expression | empty |
 | Counter starts at | First `{counter}` value, 0 to 999 999 999 | 1 |
 
+While the Metadata step is on, the file's XMP (Lightroom/Photoshop fields such as usage terms) is carried over
+too, cleaned with the same rules: removing everything, the location, camera details, the author or IPTC also
+removes those fields from the XMP. With the step off, only EXIF, IPTC and GPS are copied, as before.
+
 Adjust (pipeline step, saved with the pipeline). Every slider defaults to 0 (no change); the step is applied in
 this fixed order whatever order the sliders are moved in:
 

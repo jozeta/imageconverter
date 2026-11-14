@@ -191,16 +191,18 @@ final class MetadataWriteTests: XCTestCase {
         [tiff: [kCGImagePropertyTIFFArtist as String: "SECRETAUTHOR", kCGImagePropertyTIFFCopyright as String: "COPYX",
                 kCGImagePropertyTIFFMake as String: "MAKEX"],
          exif: [kCGImagePropertyExifDateTimeOriginal as String: "2020:01:02 03:04:05",
-                kCGImagePropertyExifLensModel as String: "LENSX"],
+                kCGImagePropertyExifLensModel as String: "LENSX", kCGImagePropertyExifCameraOwnerName as String: "SECRETOWNER"],
          iptc: [kCGImagePropertyIPTCByline as String: ["SECRETAUTHOR"], kCGImagePropertyIPTCBylineTitle as String: ["SECRETTITLE"],
                 kCGImagePropertyIPTCWriterEditor as String: "SECRETWRITER", kCGImagePropertyIPTCCity as String: "CITYX",
-                kCGImagePropertyIPTCCredit as String: "CREDITX", kCGImagePropertyIPTCKeywords as String: ["KEYX"]],
+                kCGImagePropertyIPTCCredit as String: "CREDITX", kCGImagePropertyIPTCKeywords as String: ["KEYX"],
+                kCGImagePropertyIPTCContact as String: ["SECRETCONTACT"]],
          gps: [kCGImagePropertyGPSLatitude as String: 59.3, kCGImagePropertyGPSLatitudeRef as String: "N"]]
     }
 
     private let richXMP: [(String, Any)] = [("dc:creator", ["SECRETAUTHOR"]), ("photoshop:CaptionWriter", "SECRETWRITER"),
                                             ("xmpRights:UsageTerms", "TERMSX"), ("dc:rights", "COPYX"),
-                                            ("photoshop:City", "CITYX"), ("dc:subject", ["KEYX"])]
+                                            ("photoshop:City", "CITYX"), ("dc:subject", ["KEYX"]),
+                                            ("Iptc4xmpCore:CreatorContactInfo.Iptc4xmpCore:CiEmailWork", "SECRETMAIL")]
 
     func testSetTitleAndKeywordsAddAndReplace() async throws {
         for format in MetadataTestSupport.richFormats {
@@ -250,7 +252,8 @@ final class MetadataWriteTests: XCTestCase {
             var options = MetadataTestSupport.active()
             options.removeAuthor = true
             let written = try await MetadataTestSupport.convert(url, options: options, format: format, root: root)
-            for secret in ["SECRETAUTHOR", "SECRETWRITER", "SECRETTITLE"] {
+            for secret in ["SECRETAUTHOR", "SECRETWRITER", "SECRETTITLE", "SECRETOWNER", "SECRETCONTACT", "SECRETMAIL"] {
+                XCTAssertTrue(try WrittenFile(url: url).contains(secret), "source must hold \(secret)")
                 XCTAssertFalse(written.contains(secret), "\(format) \(secret)")
             }
             XCTAssertNil(written.sub(kCGImagePropertyPNGDictionary)?[kCGImagePropertyPNGAuthor as String])
@@ -258,24 +261,6 @@ final class MetadataWriteTests: XCTestCase {
                            "COPYX", "\(format)")
             XCTAssertEqual(written.xmp("xmpRights:UsageTerms"), "TERMSX", "\(format)")
         }
-    }
-
-    func testRemoveThumbnail() async throws {
-        let url = try source("thumb.jpg", properties: richProps, thumbnail: true)
-        XCTAssertTrue(Self.hasEmbeddedThumbnail(try Data(contentsOf: url)), "source must hold a thumbnail")
-        var options = MetadataTestSupport.active()
-        options.removeThumbnail = true
-        let written = try await MetadataTestSupport.convert(url, options: options, root: root)
-        XCTAssertFalse(Self.hasEmbeddedThumbnail(written.data))
-        XCTAssertEqual(written.sub(kCGImagePropertyTIFFDictionary)?[kCGImagePropertyTIFFArtist as String] as? String,
-                       "SECRETAUTHOR")
-    }
-
-    /// A JPEG with an EXIF thumbnail holds a second embedded JPEG (another start-of-image marker).
-    private static func hasEmbeddedThumbnail(_ data: Data) -> Bool {
-        let bytes = [UInt8](data)
-        let starts = (0..<max(0, bytes.count - 2)).filter { bytes[$0] == 0xFF && bytes[$0 + 1] == 0xD8 && bytes[$0 + 2] == 0xFF }
-        return starts.count > 1
     }
 
     func testRemoveIPTCOnly() async throws {

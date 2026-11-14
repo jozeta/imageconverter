@@ -7,7 +7,8 @@ public struct LoadedImage: @unchecked Sendable {
     public let image: CGImage
     /// The source's property dictionary, with orientation reset to 1 (already applied to `image`).
     public let properties: [String: Any]
-    /// The source's metadata view (XMP plus ImageIO's EXIF/IPTC mirrors); nil when it has none.
+    /// The source's metadata view (XMP plus ImageIO's EXIF/IPTC mirrors); nil when it has none or it
+    /// wasn't asked for.
     public let metadata: CGImageMetadata?
 }
 
@@ -56,9 +57,10 @@ public enum ImageLoader {
 
     /// Loads the first frame of `url`, rotated upright according to its EXIF orientation.
     /// Throws `.tooLarge` before decoding when the image exceeds `maxPixels`. With `maxLongSide`, a
-    /// larger image is downsampled so its longer side fits.
+    /// larger image is downsampled so its longer side fits. `includeMetadata` also reads the XMP view
+    /// (only the Metadata step needs it).
     public static func load(_ url: URL, maxPixels: Int = defaultMaxPixels,
-                            maxLongSide: Int? = nil) throws -> LoadedImage {
+                            maxLongSide: Int? = nil, includeMetadata: Bool = false) throws -> LoadedImage {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
               CGImageSourceGetCount(source) > 0,
@@ -90,6 +92,6 @@ public enum ImageLoader {
             properties[tiffKey] = tiff
         }
         return LoadedImage(image: image, properties: properties,
-                           metadata: CGImageSourceCopyMetadataAtIndex(source, 0, nil))
+                           metadata: includeMetadata ? CGImageSourceCopyMetadataAtIndex(source, 0, nil) : nil)
     }
 }

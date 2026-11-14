@@ -24,13 +24,12 @@ enum MetadataDates {
     /// xmp:ModifyDate is where ImageIO keeps the TIFF DateTime when a file has XMP.
     static let xmpPaths = ["xmp:CreateDate", "photoshop:DateCreated", "xmp:ModifyDate"]
 
+    /// Formatters are costly to make and a batch asks for the same few over and over; DateFormatter is
+    /// thread-safe (macOS 10.9+), so one per format and zone is shared by every worker.
+    private static let formatters = FormatterCache()
+
     private static func formatter(_ format: String, zone: TimeZone = TimeZone(identifier: "UTC")!) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.timeZone = zone
-        formatter.dateFormat = format
-        return formatter
+        formatters.formatter(format, zone: zone)
     }
 
     private static let exifFormat = "yyyy:MM:dd HH:mm:ss"
@@ -153,5 +152,25 @@ enum MetadataDates {
             if let date = parser.date(from: String(text.prefix(exifFormat.count))) { return date }
         }
         return nil
+    }
+}
+
+/// Shared date formatters by format and time zone.
+private final class FormatterCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cache: [String: DateFormatter] = [:]
+
+    func formatter(_ format: String, zone: TimeZone) -> DateFormatter {
+        let key = "\(format)|\(zone.identifier)|\(zone.secondsFromGMT())"
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached = cache[key] { return cached }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = zone
+        formatter.dateFormat = format
+        cache[key] = formatter
+        return formatter
     }
 }

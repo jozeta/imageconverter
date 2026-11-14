@@ -295,7 +295,7 @@ public enum BatchRunner {
     ) throws -> EncodedItem {
         // A watermark image that can't be read fails the file before its source is decoded.
         if assets.hasMissing(for: pipeline) { throw ConversionError.watermarkImageUnreadable }
-        let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
+        let loaded = try ImageLoader.load(url, maxPixels: maxPixels, includeMetadata: pipeline.metadata.isActive)
         var stepNotes: [String] = []
         let image = try pipeline.apply(to: loaded.image, assets: assets, notes: &stepNotes)
         let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
