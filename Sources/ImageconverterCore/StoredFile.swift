@@ -5,8 +5,9 @@ import Foundation
 enum StoredFile {
     static let maxFileSize = 1_048_576
 
-    /// Opens without following links or blocking, checks the open descriptor, and reads at most 1 MB + 1 byte.
-    static func readData(_ url: URL) throws -> Data {
+    /// Opens without following links or blocking, checks the open descriptor, and reads at most `maxSize` + 1 byte
+    /// (1 MB by default; job ledgers allow more).
+    static func readData(_ url: URL, maxSize: Int = maxFileSize) throws -> Data {
         let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         guard descriptor >= 0 else { throw PresetError.unreadable }
         let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
@@ -14,9 +15,9 @@ enum StoredFile {
         guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
             throw PresetError.notRegularFile
         }
-        guard info.st_size <= maxFileSize else { throw PresetError.tooLarge }
-        guard let data = try? handle.read(upToCount: maxFileSize + 1) else { throw PresetError.unreadable }
-        guard data.count <= maxFileSize else { throw PresetError.tooLarge }
+        guard info.st_size <= maxSize else { throw PresetError.tooLarge }
+        guard let data = try? handle.read(upToCount: maxSize + 1) else { throw PresetError.unreadable }
+        guard data.count <= maxSize else { throw PresetError.tooLarge }
         return data
     }
 
