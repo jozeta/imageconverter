@@ -24,7 +24,9 @@ public struct WatermarkTextContext: Equatable, Sendable {
 
     /// The context for `source`. Copyright and artist come from the Metadata step when it is active and sets
     /// them (an empty value counts: it clears the field); else they are empty when the step removes them, and
-    /// otherwise come from the source's EXIF/TIFF, IPTC or PNG fields.
+    /// otherwise come from the source's EXIF/TIFF, IPTC or PNG fields. The date follows the step the same way:
+    /// a Set or Shift edit is what the output says, and "Remove all" without keeping the date leaves it empty
+    /// (the file's creation date isn't used then either), so the removed capture date isn't drawn into the pixels.
     public static func make(source: URL, properties: [String: Any], metadata: MetadataOptions,
                             fileCreationDate: Date?) -> WatermarkTextContext {
         let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
@@ -45,10 +47,14 @@ public struct WatermarkTextContext: Equatable, Sendable {
         let removesArtist = step && (metadata.removeAuthor && !metadata.removeAll
             || removesAll && !metadata.keepWhenRemovingAll.contains(.author))
         let removesCopyright = removesAll && !metadata.keepWhenRemovingAll.contains(.copyright)
+        let removesDate = removesAll && !metadata.keepWhenRemovingAll.contains(.dateTaken)
+        var dated = properties
+        if removesDate { dated[kCGImagePropertyExifDictionary as String] = nil }
+        if step { MetadataDates.apply(metadata.dateTaken, to: &dated) }
         return WatermarkTextContext(
             fileName: source.deletingPathExtension().lastPathComponent,
             fileNameWithExtension: source.lastPathComponent,
-            date: RenameContext.captureDate(properties: properties, fileCreationDate: fileCreationDate),
+            date: RenameContext.captureDate(properties: dated, fileCreationDate: removesDate ? nil : fileCreationDate),
             copyright: (step ? metadata.copyright : nil) ?? (removesCopyright ? nil : sourceCopyright),
             artist: (step ? metadata.artist : nil) ?? (removesArtist ? nil : sourceArtist))
     }

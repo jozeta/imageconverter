@@ -201,8 +201,10 @@ public enum JobRunner {
         return "imageconverter-report-\(formatter.string(from: date))\(suffix).\(format.fileExtension)"
     }
 
-    /// Written to a temp file and moved into place without replacing anything.
+    /// Written to a temp file and moved into place without replacing anything. The file sits in a folder that may
+    /// be shared, so its paths are relative to that folder (no home folder or user name in it).
     static func writeReport(_ report: ProcessingReport, format: ReportFormat, in folder: URL, date: Date) throws -> URL {
+        let report = report.relativized(to: folder)
         let files = FileManager.default
         try files.createDirectory(at: folder, withIntermediateDirectories: true)
         let temp = FileCommitter.beginTemp(in: folder)

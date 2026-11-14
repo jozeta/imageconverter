@@ -96,6 +96,8 @@ final class AppModel {
     @ObservationIgnored var thumbnailsLoading: Set<URL> = []
     @ObservationIgnored var thumbnailsFailed: Set<URL> = []
     @ObservationIgnored private let defaults: UserDefaults
+    /// History saves still being written (`recordRun`); the quit waits for them.
+    @ObservationIgnored var pendingHistoryWrites = 0
     @ObservationIgnored var exampleSource: (url: URL, info: RenameSource)?
     @ObservationIgnored var exampleCache: (key: RenameExampleKey, text: String)?
     @ObservationIgnored let presetStore: PresetStore

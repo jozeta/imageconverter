@@ -226,16 +226,27 @@ final class CLIRunnerTests: XCTestCase {
         XCTAssertEqual(onlyGhost.code, 1)
     }
 
+    /// Deterministic (parked T30): the first finished file pauses the batch, so no further file can start and the
+    /// run can't reach the end before the cancel arrives.
     func testCancellationStopsCleanlyAndExits130() async throws {
-        for index in 0..<300 { _ = try writePNG("c\(index).png", width: 600, height: 400) }
+        let count = 40
+        for index in 0..<count { _ = try writePNG("c\(index).png", width: 600, height: 400) }
         let outDir = root.appendingPathComponent("cancelled")
         let token = CancelToken()
+        let gate = BatchControl()
         let out = Lines(), err = Lines()
-        let environment = CLIEnvironment(
-            out: { out.add($0) }, err: { line in err.add(line); if line.hasPrefix("[1/") { token.cancel() } },
+        var environment = CLIEnvironment(
+            out: { out.add($0) }, err: { line in
+                err.add(line)
+                if line.hasPrefix("[1/") {
+                    gate.pause()
+                    token.cancel()
+                }
+            },
             presetDirectory: root.appendingPathComponent("presets"), jobDirectory: root.appendingPathComponent("jobs"),
             trash: { try FileManager.default.removeItem(at: $0) }, cancel: token)
-        let inputs = (0..<300).map { root.appendingPathComponent("c\($0).png").path }
+        environment.control = gate
+        let inputs = (0..<count).map { root.appendingPathComponent("c\($0).png").path }
         let code = await CLIRunner.main(["convert"] + inputs + ["--out", outDir.path, "--format", "png"],
                                         environment: environment)
         XCTAssertEqual(code, 130, err.text)

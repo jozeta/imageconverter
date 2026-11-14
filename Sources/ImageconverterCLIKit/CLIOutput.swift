@@ -44,6 +44,8 @@ public struct CLIEnvironment: Sendable {
     public var jobDirectory: URL
     public var trash: Trasher
     public var cancel: CancelToken
+    /// Pauses and resumes a `convert` run (nil in the tool itself; tests use it as a deterministic gate).
+    public var control: BatchControl?
 
     public init(out: @escaping @Sendable (String) -> Void, err: @escaping @Sendable (String) -> Void,
                 presetDirectory: URL = PresetStore.defaultDirectory,

@@ -186,3 +186,28 @@ public enum SizeFormat {
         return "saved \(bytes(input - output)) (\(percent) %)"
     }
 }
+
+extension ProcessingReport {
+    /// This report with every source and destination path written relative to `folder` (`a.jpg`, `sub/a.jpg`,
+    /// `../Drop/a.jpg`), for a report file saved in that folder.
+    public func relativized(to folder: URL) -> ProcessingReport {
+        var copy = self
+        let base = folder.standardizedFileURL.pathComponents
+        copy.entries = entries.map { entry in
+            var entry = entry
+            entry.source = Self.relative(entry.source, from: base)
+            entry.destination = entry.destination.map { Self.relative($0, from: base) }
+            return entry
+        }
+        return copy
+    }
+
+    static func relative(_ path: String, from base: [String]) -> String {
+        guard path.hasPrefix("/") else { return path }
+        let parts = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+        var common = 0
+        while common < min(base.count, parts.count), base[common] == parts[common] { common += 1 }
+        let parents = Array(repeating: "..", count: base.count - common)
+        return (parents + parts[common...]).joined(separator: "/")
+    }
+}

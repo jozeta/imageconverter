@@ -83,4 +83,17 @@ final class ProcessingReportTimingTests: XCTestCase {
         XCTAssertEqual(report.summary.totalDuration, 7, accuracy: 1e-9)
         XCTAssertEqual(try XCTUnwrap(report.summary.averageRatio), 0.75, accuracy: 1e-9)
     }
+
+    /// Final review minor 11: a job's report file names files relative to its folder, not by absolute path.
+    func testReportPathsRelativeToItsFolder() {
+        let summary = RunSummary(startedAt: Date(), finishedAt: Date(), outputMode: "newFolder", total: 2, succeeded: 2,
+                                 failed: 0, inputBytes: 0, outputBytes: 0)
+        let report = ProcessingReport(summary: summary, entries: [
+            ReportEntry(source: "/Users/me/Drop/a.jpg", destination: "/Users/me/Drop/out/a.png", status: .succeeded,
+                        inputBytes: 1),
+            ReportEntry(source: "/Users/me/Drop/out/sub/b.jpg", status: .failed, inputBytes: nil)
+        ]).relativized(to: URL(fileURLWithPath: "/Users/me/Drop/out", isDirectory: true))
+        XCTAssertEqual(report.entries.map(\.source), ["../a.jpg", "sub/b.jpg"])
+        XCTAssertEqual(report.entries.first?.destination, "a.png")
+    }
 }

@@ -61,12 +61,14 @@ final class QuitCoordinator {
     private func finishQuitting(clearJournal: Bool) async {
         let deadline = Date().addingTimeInterval(Self.maxWait)
         // Runs end after committing their files and saving their ledgers; then their history is written.
-        while anythingRunning || jobs.hasPendingWrites, Date() < deadline {
+        while anythingRunning || jobs.hasPendingWrites || (model?.pendingHistoryWrites ?? 0) > 0, Date() < deadline {
             try? await Task.sleep(for: .milliseconds(100))
         }
         let directories = FileCommitter.writtenDirectories
+        // A minute's grace like the cancel path: a temp file the command-line tool is writing into the same folder
+        // right now isn't this app's to remove.
         await Task.detached(priority: .userInitiated) {
-            FileCommitter.cleanUp(in: directories)
+            FileCommitter.cleanUp(in: directories, olderThan: FileCommitter.cancelCleanupAge)
         }.value
         if clearJournal { RunJournal.discard(at: AppDefaults.journalURL) }
         NSApp.reply(toApplicationShouldTerminate: true)

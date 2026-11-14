@@ -88,6 +88,30 @@ final class WatermarkTextTests: XCTestCase {
         XCTAssertEqual(WatermarkText.render("{copyright}", context: context(metadata: step)), "© Source")
     }
 
+    /// Final review minor 1: `{date}` follows the Metadata step like author and copyright do.
+    func testDateFollowsTheMetadataStep() {
+        var step = MetadataOptions(isEnabled: true, removeAll: true, removeLocation: false)
+        let created = Date(timeIntervalSince1970: 1_700_000_000)
+        let removed = WatermarkTextContext.make(source: URL(fileURLWithPath: "/a.jpg"), properties: exif,
+                                                metadata: step, fileCreationDate: created)
+        XCTAssertEqual(WatermarkText.render("[{date}]", context: removed), "[]", "nor the file's creation date")
+        step.keepWhenRemovingAll = [.dateTaken]
+        XCTAssertEqual(WatermarkText.render("{date}", context: context(metadata: step)), "2024-07-15")
+        var shifted = MetadataOptions(isEnabled: true, removeLocation: false)
+        shifted.dateTaken = .shift(seconds: 86_400)
+        XCTAssertEqual(WatermarkText.render("{date}", context: context(metadata: shifted)), "2024-07-16")
+        var set = MetadataOptions(isEnabled: true, removeAll: true, removeLocation: false)
+        let moment = Date(timeIntervalSince1970: 1_000_000_000)
+        set.dateTaken = .set(moment)
+        let local = DateFormatter()
+        local.locale = Locale(identifier: "en_US_POSIX")
+        local.dateFormat = "yyyy-MM-dd HH:mm"
+        XCTAssertEqual(WatermarkText.render("{date:yyyy-MM-dd HH:mm}", context: context(metadata: set)),
+                       local.string(from: moment), "a set date is drawn as written, after removal")
+        shifted.isEnabled = false
+        XCTAssertEqual(WatermarkText.render("{date}", context: context(metadata: shifted)), "2024-07-15")
+    }
+
     func testDateFallsBackToFileCreationDate() {
         let created = Date(timeIntervalSince1970: 1_700_000_000)
         let fallback = WatermarkTextContext.make(source: URL(fileURLWithPath: "/a.png"), properties: [:],

@@ -38,7 +38,8 @@ enum ConvertCommand {
         let started = Date()
         let progress = CLIRunner.progressReporter(quiet: options.quiet || options.json, environment: environment)
         let batch = await environment.cancel.run {
-            await BatchRunner.run(items, pipeline: pipeline, mode: mode, trash: environment.trash, progress: progress)
+            await BatchRunner.run(items, pipeline: pipeline, mode: mode, trash: environment.trash,
+                                  control: environment.control, progress: progress)
         }
         var report = ProcessingReport(batch: batch, total: items.count, outputMode: mode.kind.rawValue,
                                       presetName: presetName, startedAt: started, finishedAt: Date())
