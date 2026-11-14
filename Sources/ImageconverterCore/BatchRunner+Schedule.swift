@@ -34,8 +34,9 @@ extension BatchRunner {
             trash: trash, control: control, hooks: hooks, progress: progress, events: events)
         let scheduler = BatchScheduler(plan: plan, settings: settings, writer: writer)
         await scheduler.execute()
-        // Every worker has finished, so nothing of this run is mid-write: whatever matches the pattern is a leftover.
-        if scheduler.cancelled { FileCommitter.cleanUp(in: folders) }
+        // Every worker has finished, so nothing of this run is mid-write. A minute's grace spares a temp that another
+        // process (a second app instance, the command-line tool) is writing into the same folder right now.
+        if scheduler.cancelled { FileCommitter.cleanUp(in: folders, olderThan: FileCommitter.cancelCleanupAge) }
         return makeReport(plans: plan.plans, outcomes: scheduler.outcomes, inputSizes: scheduler.inputSizes,
                           cancelled: scheduler.cancelled,
                           durations: scheduler.durations)

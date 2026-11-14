@@ -188,8 +188,10 @@ final class FileCommitterTests: XCTestCase {
         }
         let out = dir.appendingPathComponent("out", isDirectory: true)
         try files.createDirectory(at: out, withIntermediateDirectories: true)
-        // Fresh, so the run-start sweep (over an hour old) keeps it; a cancel removes it.
-        let leftover = try makeFile(".imageconverter-\(UUID().uuidString).tmp", in: out)
+        // Two minutes old: the run-start sweep (over an hour) keeps it, a cancel removes it. A fresh one may be
+        // another process's write in progress, so it stays.
+        let leftover = try makeFile(".imageconverter-\(UUID().uuidString).tmp", in: out, age: 120)
+        let fresh = try makeFile(".imageconverter-\(UUID().uuidString).tmp", in: out, age: 5)
         let holder = CancelHolder()
         let task = Task {
             await BatchRunner.run(InputCollector.collect(sources), pipeline: Pipeline(output: .init(format: .jpeg)),
@@ -201,7 +203,7 @@ final class FileCommitterTests: XCTestCase {
         let report = await task.value
         XCTAssertTrue(report.cancelled)
         XCTAssertFalse(files.fileExists(atPath: leftover.path))
-        XCTAssertEqual(tempFiles(in: out), [])
+        XCTAssertEqual(tempFiles(in: out), [fresh.lastPathComponent])
         XCTAssertFalse(report.written.isEmpty)
     }
 }

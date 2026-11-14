@@ -140,6 +140,36 @@ final class PrivacyScannerTests: XCTestCase {
         XCTAssertFalse(low.suggestedMetadataOptions.isEnabled)
     }
 
+    func testXMPOnlyVendorSerialIsFoundAndCleared() async throws {
+        let url = dir.appendingPathComponent("drone.jpg")
+        _ = try MetadataTestSupport.source(url, xmp: [("drone-dji:InternalSerialNumber", "DJI-0042")])
+        let before = PrivacyScanner.scan(url)
+        XCTAssertEqual(before.findings.first { $0.kind == .serialNumbers }?.fields, ["Serial number (XMP)"])
+        let options = before.suggestedMetadataOptions
+        XCTAssertTrue(options.removeCamera)
+        XCTAssertFalse(options.removeXMP)
+        let written = try await MetadataTestSupport.convert(url, options: options, root: dir)
+        XCTAssertNil(PrivacyScanner.scan(written.url).findings.first { $0.kind == .serialNumbers })
+    }
+
+    func testExifThumbnailOffsetsAsShortOrLongBigEndian() {
+        let thumbnail: [UInt8] = [0xFF, 0xD8, 0xAA, 0xBB, 0xFF, 0xD9]
+        func tiff(type: UInt8) -> Data {
+            // Header, IFD0 at 8 with no entries, IFD1 at 14 with two entries, then the thumbnail at 44.
+            var bytes: [UInt8] = [0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0E]
+            bytes += [0x00, 0x02]
+            let value: (Int) -> [UInt8] = { type == 3 ? [0, UInt8($0), 0, 0] : [0, 0, 0, UInt8($0)] }
+            bytes += [0x02, 0x01, 0x00, type, 0x00, 0x00, 0x00, 0x01] + value(44)
+            bytes += [0x02, 0x02, 0x00, type, 0x00, 0x00, 0x00, 0x01] + value(thumbnail.count)
+            bytes += [0x00, 0x00, 0x00, 0x00]
+            XCTAssertEqual(bytes.count, 44)
+            return Data(bytes + thumbnail)
+        }
+        XCTAssertEqual(PrivacyScanner.exifThumbnail(inTIFF: tiff(type: 3)), Data(thumbnail))
+        XCTAssertEqual(PrivacyScanner.exifThumbnail(inTIFF: tiff(type: 4)), Data(thumbnail))
+        XCTAssertNil(PrivacyScanner.exifThumbnail(inTIFF: tiff(type: 2)), "ASCII is not an offset")
+    }
+
     func testMalformedExifIsIgnored() {
         // Truncated or lying offsets must never crash or read out of bounds.
         let tiffHeader: [UInt8] = [0x4D, 0x4D, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x08]

@@ -22,9 +22,10 @@ public struct DecodeLimits: Equatable, Sendable {
     static let bombMinimumPixels = 50_000_000
     /// A file under 1/`bombRatio` of its decoded size is suspicious.
     static let bombRatio = 1000
-    /// Formats in which flat colour legitimately compresses by far more than `bombRatio`: refused by the
-    /// heuristic only when they also break a hard limit.
-    static let extremeCompressionTypes: Set<String> = ["public.png", "com.compuserve.gif"]
+    /// Formats whose ImageIO decoders scale while decoding (JPEG's DCT scaling, HEIC/HEIF's tiles and
+    /// thumbnails), so a downsampled decode only needs memory for the reduced size. AVIF and the rest (PNG,
+    /// TIFF, GIF, BMP, RAW, ...) may hold the full image while decoding.
+    public static let reducedSizeDecodeTypes: Set<String> = ["public.jpeg", "public.heic", "public.heif"]
 
     public static let standard = DecodeLimits()
 
@@ -60,27 +61,36 @@ public struct DecodeLimits: Equatable, Sendable {
     public func allows(_ url: URL) -> Bool { (try? check(url)) != nil }
 
     /// Opens `url` without caching and checks it; the source is only returned when it may be decoded.
-    func open(_ url: URL) throws -> (source: CGImageSource, header: ImageHeader) {
+    /// `decodeLongSide`: the longest side the caller decodes at (a downsampled load or a thumbnail), if smaller.
+    func open(_ url: URL, decodeLongSide: Int? = nil) throws -> (source: CGImageSource, header: ImageHeader) {
         let fileBytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
         if let fileBytes, fileBytes > maxFileBytes { throw ConversionError.fileTooLarge(limit: maxFileBytes) }
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options) else { throw ConversionError.unreadable }
-        return (source, try check(source, fileBytes: fileBytes))
+        return (source, try check(source, fileBytes: fileBytes, decodeLongSide: decodeLongSide))
     }
 
     /// Checks the first frame of `source`. `fileBytes` nil (data the app encoded itself) skips the
-    /// decompression-bomb heuristic; the hard limits always apply.
+    /// decompression-bomb heuristic; the hard limits always apply. See the pure `check` for `decodeLongSide`.
     @discardableResult
-    public func check(_ source: CGImageSource, fileBytes: Int?) throws -> ImageHeader {
+    public func check(_ source: CGImageSource, fileBytes: Int?, decodeLongSide: Int? = nil) throws -> ImageHeader {
         guard let header = ImageHeader.read(source) else { throw ConversionError.unreadable }
         try check(width: header.width, height: header.height, bytesPerPixel: Self.bytesPerPixel(header.properties),
-                  fileBytes: fileBytes, type: CGImageSourceGetType(source) as String? ?? "")
+                  fileBytes: fileBytes, type: CGImageSourceGetType(source) as String? ?? "",
+                  decodeLongSide: decodeLongSide)
         return header
     }
 
     /// The rules, in order: a readable size, the side limit, the decompression-bomb heuristic, the pixel limit,
-    /// then memory.
-    public func check(width: Int, height: Int, bytesPerPixel: Int, fileBytes: Int?, type: String) throws {
+    /// then memory. Side, pixels and the bomb heuristic always use the declared size. The memory limit uses the
+    /// reduced size when the decode is downsampled (`decodeLongSide` below the long side) and the format decodes
+    /// at reduced size (`reducedSizeDecodeTypes`); otherwise the full size.
+    ///
+    /// The bomb heuristic (over 50 MP, file under 1/1000 of the decoded size) only refuses an image that also
+    /// breaks a hard limit (pixels or memory at full size): flat colour legitimately compresses that well in
+    /// many formats, so within the limits it is allowed, and beyond them the tiny file gets the clearer reason.
+    public func check(width: Int, height: Int, bytesPerPixel: Int, fileBytes: Int?, type: String,
+                      decodeLongSide: Int? = nil) throws {
         guard width > 0, height > 0 else { throw ConversionError.unreadable }
         let side = max(width, height)
         if side > maxSide { throw ConversionError.sideTooLong(side: side, limit: maxSide) }
@@ -88,13 +98,19 @@ public struct DecodeLimits: Equatable, Sendable {
         let decoded = Double(width) * Double(height) * Double(max(1, bytesPerPixel))
         let needed = decoded * Self.workingCopyFactor
         let breaksHardLimit = overflow || pixels > maxPixels || needed > Double(maxDecodedBytes)
-        if let fileBytes, overflow || pixels > Self.bombMinimumPixels,
-           Double(max(0, fileBytes)) * Double(Self.bombRatio) < decoded,
-           !Self.extremeCompressionTypes.contains(type) || breaksHardLimit {
+        if let fileBytes, breaksHardLimit, overflow || pixels > Self.bombMinimumPixels,
+           Double(max(0, fileBytes)) * Double(Self.bombRatio) < decoded {
             throw ConversionError.suspectedDecompressionBomb
         }
         if overflow || pixels > maxPixels { throw ConversionError.tooLarge(pixels: overflow ? Int.max : pixels) }
-        if needed > Double(maxDecodedBytes) { throw ConversionError.needsTooMuchMemory(limit: maxDecodedBytes) }
+        var decodedNeeded = needed
+        if let decodeLongSide, decodeLongSide > 0, decodeLongSide < side, Self.reducedSizeDecodeTypes.contains(type) {
+            let scale = Double(decodeLongSide) / Double(side)
+            let reducedWidth = max(1, (Double(width) * scale).rounded(.up))
+            let reducedHeight = max(1, (Double(height) * scale).rounded(.up))
+            decodedNeeded = reducedWidth * reducedHeight * Double(max(1, bytesPerPixel)) * Self.workingCopyFactor
+        }
+        if decodedNeeded > Double(maxDecodedBytes) { throw ConversionError.needsTooMuchMemory(limit: maxDecodedBytes) }
     }
 
     /// Bytes per pixel of the decoded image, from the header's depth (bits per sample) and channels. Working

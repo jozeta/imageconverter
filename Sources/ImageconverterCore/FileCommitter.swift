@@ -67,6 +67,9 @@ public enum FileCommitter {
 
     static let tempSuffix = ".tmp"
 
+    /// Temp files younger than this survive the clean-up after a cancel (they may belong to another process).
+    public static let cancelCleanupAge: TimeInterval = 60
+
     /// True only for the exact pattern `.imageconverter-<UUID>.tmp`, with an uppercase UUID as
     /// `UUID().uuidString` writes it.
     public static func isTempFileName(_ name: String) -> Bool {

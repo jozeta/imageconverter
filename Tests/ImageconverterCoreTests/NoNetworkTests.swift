@@ -6,8 +6,11 @@ import XCTest
 /// and are never fetched (`SVGSanitizer` refuses anything external). Links in docs (README etc.) are not
 /// under `Sources/` and are fine.
 final class NoNetworkTests: XCTestCase {
-    static let forbiddenAPIs = ["URLSession", "NWConnection", "NWListener", "NWBrowser", "CFSocket",
-                                "NSURLConnection", "WKWebView", "CFStream", "NSStream", "SCNetworkReachability"]
+    static let forbiddenAPIs = ["URLSession", "URLRequest", "NWConnection", "NWListener", "NWBrowser", "CFSocket",
+                                "NSURLConnection", "WKWebView", "CFStream", "NSStream", "SCNetworkReachability",
+                                "getaddrinfo"]
+    /// What isn't a single identifier: network modules, POSIX sockets and the CFHTTPMessage function family.
+    static let forbiddenPatterns = [#"\bimport\s+(Network|WebKit)\b"#, #"\bsocket\s*\("#, #"\bCFHTTPMessage"#]
     static let allowedURLPrefixes = ["http://www.w3.org/", "http://ns.adobe.com/", "http://ns.apple.com/",
                                      "http://purl.org/dc/", "http://iptc.org/std/"]
 
@@ -41,12 +44,25 @@ final class NoNetworkTests: XCTestCase {
         """
         let violations = Self.violations(in: Self.strippingComments(code))
         XCTAssertEqual(violations, ["URL https://example.com", "URL http://evil.test", "API URLSession"])
+        let more = """
+        import Network
+        import WebKit
+        let s = socket (AF_INET, SOCK_STREAM, 0)
+        var r = URLRequest(url: u); getaddrinfo(nil, nil, nil, nil); CFHTTPMessageCreateEmpty(nil, true)
+        let w = ["ws://a", "wss://b", "ftp://c"]
+        // import Network in a comment, socket( too
+        let fine = CFSocketless + mysocket(1)
+        """
+        XCTAssertEqual(Self.violations(in: Self.strippingComments(more)), [
+            "URL ws://a", "URL wss://b", "URL ftp://c", "API URLRequest", "API getaddrinfo",
+            "API import Network", "API import WebKit", "API socket (", "API CFHTTPMessage",
+        ])
     }
 
     /// Forbidden identifiers (whole words) and web URLs outside the allowlist.
     static func violations(in code: String) -> [String] {
         var found: [String] = []
-        let urlPattern = try? NSRegularExpression(pattern: #"https?://[^\s"\\)]+"#)
+        let urlPattern = try? NSRegularExpression(pattern: #"(?:https?|wss?|ftp)://[^\s"\\)]+"#)
         let range = NSRange(code.startIndex..., in: code)
         for match in urlPattern?.matches(in: code, range: range) ?? [] {
             guard let swiftRange = Range(match.range, in: code) else { continue }
@@ -56,6 +72,12 @@ final class NoNetworkTests: XCTestCase {
         for api in forbiddenAPIs {
             let pattern = try? NSRegularExpression(pattern: "\\b\(api)\\b")
             if pattern?.firstMatch(in: code, range: range) != nil { found.append("API \(api)") }
+        }
+        for source in forbiddenPatterns {
+            let pattern = try? NSRegularExpression(pattern: source)
+            for match in pattern?.matches(in: code, range: range) ?? [] {
+                if let swiftRange = Range(match.range, in: code) { found.append("API \(code[swiftRange])") }
+            }
         }
         return found
     }

@@ -58,7 +58,7 @@ public enum ImageLoader {
     public static func load(_ url: URL, maxPixels: Int = defaultMaxPixels, limits: DecodeLimits = .standard,
                             maxLongSide: Int? = nil, includeMetadata: Bool = false,
                             lowMemory: Bool = false) throws -> LoadedImage {
-        let (source, header) = try limits.capped(maxPixels: maxPixels).open(url)
+        let (source, header) = try limits.capped(maxPixels: maxPixels).open(url, decodeLongSide: maxLongSide)
         var properties = header.properties
         let (width, height) = (header.width, header.height)
 
@@ -88,7 +88,7 @@ extension ImageLoader {
     /// A thumbnail of `url` with its longer side at most `maxPixelSize`, upright; nil when the file is unreadable
     /// or breaks `limits` (ImageIO may decode the whole image to make it).
     public static func thumbnail(of url: URL, maxPixelSize: Int, limits: DecodeLimits = .standard) -> CGImage? {
-        guard let source = try? limits.open(url).source else { return nil }
+        guard let source = try? limits.open(url, decodeLongSide: max(1, maxPixelSize)).source else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,

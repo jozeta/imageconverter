@@ -69,6 +69,31 @@ final class DecodeLimitsTests: XCTestCase {
         XCTAssertEqual(DecodeLimits.bytesPerPixel([:]), 4)
     }
 
+    func testMemoryLimitUsesReducedDecodeSize() throws {
+        let jpeg = dir.appendingPathComponent("photo.jpg")
+        let png = dir.appendingPathComponent("photo.png")
+        let image = TestImages.noise(width: 400, height: 300)
+        try TestImages.write(image, to: jpeg, type: .jpeg)
+        try TestImages.write(image, to: png, type: .png)
+        // Full size: 400 × 300 × 4 × 1.5 = 720 000 bytes; at a 100 px long side: 100 × 75 × 4 × 1.5 = 45 000.
+        let limits = DecodeLimits(maxDecodedBytes: 100_000)
+        XCTAssertThrowsError(try ImageLoader.load(jpeg, limits: limits)) { error in
+            XCTAssertEqual(error as? ConversionError, .needsTooMuchMemory(limit: 100_000))
+        }
+        let loaded = try ImageLoader.load(jpeg, limits: limits, maxLongSide: 100)
+        XCTAssertEqual(loaded.image.width, 100)
+        XCTAssertNotNil(ImageLoader.thumbnail(of: jpeg, maxPixelSize: 100, limits: limits))
+        XCTAssertNil(ImageLoader.thumbnail(of: jpeg, maxPixelSize: 300, limits: limits))
+        // PNG may hold the full image while decoding: still counted at full size.
+        XCTAssertThrowsError(try ImageLoader.load(png, limits: limits, maxLongSide: 100))
+        XCTAssertNil(ImageLoader.thumbnail(of: png, maxPixelSize: 100, limits: limits))
+        // Side and pixel limits stay on the declared size.
+        XCTAssertThrowsError(try ImageLoader.load(jpeg, limits: DecodeLimits(maxPixels: 100_000), maxLongSide: 100)) {
+            XCTAssertEqual($0 as? ConversionError, .tooLarge(pixels: 120_000))
+        }
+        XCTAssertThrowsError(try ImageLoader.load(jpeg, limits: DecodeLimits(maxSide: 399), maxLongSide: 100))
+    }
+
     func testFileSizeLimit() throws {
         let url = dir.appendingPathComponent("small.png")
         try TestImages.write(TestImages.make(width: 10, height: 10), to: url, type: .png)
@@ -92,26 +117,36 @@ final class DecodeLimitsTests: XCTestCase {
             XCTAssertEqual(error as? ConversionError, .suspectedDecompressionBomb)
         }
         XCTAssertNil(ImageLoader.thumbnail(of: url, maxPixelSize: 64))
-        // 60 MP in 150 bytes: within every hard limit, but no TIFF compresses that well.
-        let small = try writeTIFF(width: 10_000, height: 6_000)
-        XCTAssertThrowsError(try ImageLoader.load(small)) { error in
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1, "must not decode")
+        // 60 MP in 150 bytes, within every hard limit: flat colour may compress that well, so it passes the gate.
+        let flat = try writeTIFF(width: 10_000, height: 6_000)
+        XCTAssertNoThrow(try DecodeLimits.standard.check(flat))
+        // The same file over a (small, injected) memory limit gets the bomb reason.
+        XCTAssertThrowsError(try DecodeLimits(maxDecodedBytes: 100_000_000).check(flat)) { error in
             XCTAssertEqual(error as? ConversionError, .suspectedDecompressionBomb)
         }
-        XCTAssertLessThan(Date().timeIntervalSince(started), 1, "must not decode")
 
         let limits = DecodeLimits(maxPixels: 1_000_000_000, maxDecodedBytes: 1 << 40)
         let pixels60MP = (width: 10_000, height: 6_000)
-        // Formats that don't compress that well: over 50 MP and under 1/1000 of the decoded size is refused.
-        XCTAssertThrowsError(try limits.check(width: pixels60MP.width, height: pixels60MP.height, bytesPerPixel: 4,
-                                              fileBytes: 200_000, type: "public.jpeg")) { error in
+        // Within the hard limits a tiny file passes, in every format (a flat 60 MP JPEG at 200 KB).
+        XCTAssertNoThrow(try limits.check(width: pixels60MP.width, height: pixels60MP.height, bytesPerPixel: 4,
+                                          fileBytes: 200_000, type: "public.jpeg"))
+        XCTAssertNoThrow(try limits.check(width: pixels60MP.width, height: pixels60MP.height, bytesPerPixel: 4,
+                                          fileBytes: 200_000, type: "public.tiff"))
+        // Over a hard limit, tiny gives the bomb reason, large the limit's own reason.
+        let tight = DecodeLimits(maxPixels: 1_000_000_000, maxDecodedBytes: 100_000_000)
+        XCTAssertThrowsError(try tight.check(width: pixels60MP.width, height: pixels60MP.height, bytesPerPixel: 4,
+                                             fileBytes: 200_000, type: "public.jpeg")) { error in
             XCTAssertEqual(error as? ConversionError, .suspectedDecompressionBomb)
         }
-        XCTAssertNoThrow(try limits.check(width: pixels60MP.width, height: pixels60MP.height, bytesPerPixel: 4,
-                                          fileBytes: 300_000, type: "public.jpeg"))
+        XCTAssertThrowsError(try tight.check(width: pixels60MP.width, height: pixels60MP.height, bytesPerPixel: 4,
+                                             fileBytes: 300_000, type: "public.jpeg")) { error in
+            XCTAssertEqual(error as? ConversionError, .needsTooMuchMemory(limit: 100_000_000))
+        }
         // Under 50 MP the ratio doesn't matter.
         XCTAssertNoThrow(try limits.check(width: 7_000, height: 7_000, bytesPerPixel: 4, fileBytes: 100,
                                           type: "public.jpeg"))
-        // Flat-colour PNG/GIF is legitimate: only refused when it also breaks a hard limit.
+        // Flat-colour PNG/GIF too; only refused when it also breaks a hard limit.
         XCTAssertNoThrow(try limits.check(width: pixels60MP.width, height: pixels60MP.height, bytesPerPixel: 4,
                                           fileBytes: 1_000, type: "public.png"))
         XCTAssertThrowsError(try DecodeLimits.standard.check(width: 20_000, height: 20_000, bytesPerPixel: 4,

@@ -165,7 +165,10 @@ public enum PrivacyScanner {
             }
         }
         // ImageIO's XMP view mirrors the EXIF serials; count XMP only when it's the sole place they are.
-        if fields.isEmpty, xmp.contains(where: { $0.lowercased().contains("serialnumber") }) {
+        // The rule camera removal uses for XMP (`MetadataOps.isCameraTag`: any tag name containing "SerialNumber"),
+        // so the suggestion clears what is found.
+        let xmpSerial = xmp.contains { $0.split(separator: ":").last?.lowercased().contains("serialnumber") == true }
+        if fields.isEmpty, xmpSerial {
             fields.append("Serial number (XMP)")
         }
         return unique(fields)
@@ -289,30 +292,52 @@ public enum PrivacyScanner {
 
     /// The JPEG thumbnail IFD1 points at (JPEGInterchangeFormat/Length), bounds-checked against the block.
     static func exifThumbnail(inTIFF tiff: Data) -> Data? {
-        let bytes = [UInt8](tiff)
+        guard let reader = TIFFReader(tiff), let ifd0 = reader.read(4, 4), let count0 = reader.read(ifd0, 2),
+              let ifd1 = reader.read(ifd0 + 2 + count0 * 12, 4), ifd1 > 0, let count1 = reader.read(ifd1, 2) else {
+            return nil
+        }
+        var offset: Int?
+        var length: Int?
+        for entry in 0..<min(count1, 1000) {
+            let base = ifd1 + 2 + entry * 12
+            guard let tag = reader.read(base, 2) else { return nil }
+            if tag == 0x0201 { offset = reader.entryValue(at: base) }
+            if tag == 0x0202 { length = reader.entryValue(at: base) }
+        }
+        guard let offset, let length, length > 0, offset > 0, offset + length <= reader.bytes.count else { return nil }
+        return Data(reader.bytes[offset..<(offset + length)])
+    }
+}
+
+/// Bounds-checked reads from a TIFF block in its byte order.
+private struct TIFFReader {
+    let bytes: [UInt8]
+    let little: Bool
+
+    /// Nil unless the block starts with a TIFF header ("II" or "MM", then 42).
+    init?(_ data: Data) {
+        bytes = [UInt8](data)
         guard bytes.count >= 8 else { return nil }
-        let little: Bool
         switch (bytes[0], bytes[1]) {
         case (0x49, 0x49): little = true
         case (0x4D, 0x4D): little = false
         default: return nil
         }
-        func read(_ offset: Int, _ size: Int) -> Int? {
-            guard offset >= 0, size <= 4, offset + size <= bytes.count else { return nil }
-            let slice = bytes[offset..<(offset + size)]
-            return (little ? slice.reversed() : Array(slice)).reduce(0) { $0 << 8 | Int($1) }
+        guard read(2, 2) == 42 else { return nil }
+    }
+
+    func read(_ offset: Int, _ size: Int) -> Int? {
+        guard offset >= 0, size <= 4, offset + size <= bytes.count else { return nil }
+        let slice = bytes[offset..<(offset + size)]
+        return (little ? slice.reversed() : Array(slice)).reduce(0) { $0 << 8 | Int($1) }
+    }
+
+    /// An IFD entry's single value by its declared type: SHORT (3) or LONG (4), left-justified in the 4-byte field.
+    func entryValue(at entry: Int) -> Int? {
+        switch read(entry + 2, 2) {
+        case 3: return read(entry + 8, 2)
+        case 4: return read(entry + 8, 4)
+        default: return nil
         }
-        guard read(2, 2) == 42, let ifd0 = read(4, 4), let count0 = read(ifd0, 2),
-              let ifd1 = read(ifd0 + 2 + count0 * 12, 4), ifd1 > 0, let count1 = read(ifd1, 2) else { return nil }
-        var offset: Int?
-        var length: Int?
-        for entry in 0..<min(count1, 1000) {
-            let base = ifd1 + 2 + entry * 12
-            guard let tag = read(base, 2) else { return nil }
-            if tag == 0x0201 { offset = read(base + 8, 4) }
-            if tag == 0x0202 { length = read(base + 8, 4) }
-        }
-        guard let offset, let length, length > 0, offset > 0, offset + length <= bytes.count else { return nil }
-        return Data(bytes[offset..<(offset + length)])
     }
 }

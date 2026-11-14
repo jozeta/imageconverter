@@ -155,7 +155,7 @@ public enum BatchRunner {
     /// resumes, reorders and switches low-memory mode (2 workers, a quarter of the budget). With `journal`, a
     /// `RunJournal` is kept there for the length of the run. Before planning, temp files a crash left in the
     /// destination folders (over an hour old, exact `FileCommitter` pattern) are removed; after a cancel, every
-    /// temp file of that pattern in them that this process isn't writing (`FileCommitter.cleanUp`).
+    /// temp file of that pattern in them over a minute old that this process isn't writing (`FileCommitter.cleanUp`).
     public static func run(
         _ items: [InputItem],
         pipeline: Pipeline,
@@ -188,9 +188,8 @@ public enum BatchRunner {
         return max(1, pipeline.peakPixels(sourceWidth: size.width, sourceHeight: size.height))
     }
 
-    /// Formats whose ImageIO decoders scale while decoding (JPEG's DCT scaling, HEIC/HEIF's tiles and
-    /// thumbnails). AVIF and the rest (PNG, TIFF, GIF, BMP, RAW, ...) are not assumed to: they count at full size.
-    static let reducedSizeDecodeTypes: Set<String> = ["public.jpeg", "public.heic", "public.heif"]
+    /// Formats ImageIO decodes at reduced size (shared with the decode limits' memory check).
+    static var reducedSizeDecodeTypes: Set<String> { DecodeLimits.reducedSizeDecodeTypes }
 
     /// The file's actual format from its content (not its extension).
     static func decodesAtReducedSize(_ url: URL) -> Bool {
