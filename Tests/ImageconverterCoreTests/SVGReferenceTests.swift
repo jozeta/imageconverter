@@ -75,7 +75,13 @@ final class SVGReferenceTests: XCTestCase {
         assertAccepted(svg(##"<defs><linearGradient id="g"/></defs><rect style="fill: url(#g)"/>"##))
         assertRefused(svg(##"<rect style="fill: image-set('file:///etc/x' 1x)"/>"##))
         assertRefused(svg(##"<rect style="fill:src(http://x)"/>"##))
-        assertRefused(svg(##"<rect style="fill: rgb(1, 2, 3)"/>"##))
+        // Colour functions with plain numbers are fine; anything else inside them isn't.
+        assertAccepted(svg(##"<rect style="fill: rgb(1, 2, 3); stroke: RGBA(10%, 20%, 30%, .5); color: hsl(1,2%,3%)"/>"##))
+        assertRefused(svg(##"<rect style="fill: rgb(1, url(#a), 3)"/>"##))
+        assertRefused(svg(##"<rect style="fill: rgb(var(--x))"/>"##))
+        assertRefused(svg(##"<rect style="fill: rgb(-1, 2, 3)"/>"##))
+        assertRefused(svg(##"<rect style="fill: rgb(1, 2, 3"/>"##))
+        assertRefused(svg(##"<rect style="fill: xrgb(1, 2, 3)"/>"##))
         assertRefused(svg(##"<rect style="behavior: x"/>"##))
         assertRefused(svg(##"<rect style="fill"/>"##))
         assertRefused(svg(##"<rect style="fill: (#g)"/>"##))
@@ -84,7 +90,7 @@ final class SVGReferenceTests: XCTestCase {
     func testXMLDeclarationParsedProperly() {
         assertRefused(##"<?xml version="encodingutf-8" encoding="UTF-7"?>"## + svg(""))
         assertRefused(##"<?xml version='1.0' encoding='latin1'?>"## + svg(""))
-        assertRefused(##"<?xml version=1.0?>"## + svg(""), .watermarkImageUnreadable)
+        assertRefused(##"<?xml version=1.0?>"## + svg(""), .watermarkSVGInvalid)
         assertAccepted(##"<?xml version="1.0" standalone="yes"?>"## + svg(""))
         assertAccepted(##"<?xml version="1.0" encoding="UTF-8" standalone="no"?>"## + svg(""))
     }

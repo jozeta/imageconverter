@@ -10,8 +10,13 @@ public enum ConversionError: Error, Equatable, Sendable {
     case processingFailed(String)
     /// The watermark image is missing or can't be read.
     case watermarkImageUnreadable
-    /// The SVG watermark loads external content, runs scripts or defines entities.
+    /// The SVG watermark uses something outside the allowlist: scripts, animation, entities, advanced CSS, ...
     case watermarkSVGUnsafe
+    /// The SVG watermark embeds images or links to other files (`<image>`, `data:`, non-local `href`/`url()`,
+    /// `@import`, `xml:base`, style sheet instructions).
+    case watermarkSVGExternal
+    /// The file isn't well-formed UTF-8 SVG.
+    case watermarkSVGInvalid
     /// The SVG watermark file is over the size limit.
     case watermarkSVGTooLarge
     /// This macOS can't render SVG.
@@ -39,9 +44,15 @@ public enum ConversionError: Error, Equatable, Sendable {
         case .watermarkImageUnreadable:
             return "Couldn't read the watermark image"
         case .watermarkSVGUnsafe:
-            return "This SVG can't be used (it loads external content or runs scripts)"
+            return "This SVG uses features that aren't supported (scripts, animation or advanced styling). "
+                + "Export it as plain SVG or PNG."
+        case .watermarkSVGExternal:
+            return "This SVG uses embedded images or links to other files, which aren't allowed. "
+                + "Export the logo as plain SVG or PNG."
+        case .watermarkSVGInvalid:
+            return "This file isn't a valid SVG."
         case .watermarkSVGTooLarge:
-            return "This SVG is too large (limit \(ByteSize.format(SVGRasterizer.maxFileSize)))"
+            return "This SVG is too large (over \(ByteSize.format(SVGRasterizer.maxFileSize)))."
         case .watermarkSVGUnsupported:
             return "SVG watermarks aren't supported on this version of macOS"
         case .sizeUnreachable(let limit, let smallest):

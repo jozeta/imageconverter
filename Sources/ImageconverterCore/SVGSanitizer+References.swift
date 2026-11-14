@@ -6,8 +6,8 @@ extension SVGSanitizer {
     /// Allowed property names in `style`, lowercased (CSS names are case-insensitive).
     private static let styleProperties = Set(attributes.map { $0.lowercased() })
 
-    /// Each `prop: value` declaration must name an allowed property, and the only function allowed in a value is
-    /// `url(#id)` (checked by the caller). `lower` is the lowercased style value.
+    /// Each `prop: value` declaration must name an allowed property, and the only functions allowed in a value
+    /// are `url(#id)` (checked by the caller) and the colour functions. `lower` is the lowercased style value.
     static func checkStyle(_ lower: String) throws {
         for declaration in lower.split(separator: ";") {
             let trimmed = declaration.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -21,14 +21,24 @@ extension SVGSanitizer {
         }
     }
 
-    /// Every `(` must follow the function name `url`.
-    private static func checkFunctions(_ value: Substring) throws {
+    /// Colour functions allowed in style values, with plain numeric arguments only.
+    static let colourFunctions: Set<String> = ["rgb", "rgba", "hsl", "hsla"]
+
+    /// Every `(` must follow the function name `url`, or a colour function whose arguments are only digits,
+    /// `%`, commas, spaces and dots. `value` is lowercased.
+    static func checkFunctions(_ value: Substring) throws {
         var index = value.startIndex
         while let open = value[index...].firstIndex(of: "(") {
             let before = value[..<open]
-            let name = before.reversed().drop { $0.isWhitespace }.prefix { $0.isLetter || $0.isNumber || $0 == "-" }
-            guard String(name.reversed()) == "url" else { throw ConversionError.watermarkSVGUnsafe }
+            let name = String(before.reversed().drop { $0.isWhitespace }
+                .prefix { $0.isLetter || $0.isNumber || $0 == "-" }.reversed())
             index = value.index(after: open)
+            if name == "url" { continue }
+            guard colourFunctions.contains(name), let close = value[index...].firstIndex(of: ")"),
+                  value[index..<close].allSatisfy({ $0.isASCII && ($0.isNumber || "%,. ".contains($0)) }) else {
+                throw ConversionError.watermarkSVGUnsafe
+            }
+            index = value.index(after: close)
         }
     }
 

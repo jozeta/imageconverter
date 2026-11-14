@@ -34,10 +34,11 @@ final class SVGRasterizerTests: XCTestCase {
         }
     }
 
-    private func assertUnsafe(_ body: String, file: StaticString = #filePath, line: UInt = #line) throws {
+    private func assertUnsafe(_ body: String, _ expected: ConversionError = .watermarkSVGUnsafe,
+                              file: StaticString = #filePath, line: UInt = #line) throws {
         let url = try write(svg(body))
         XCTAssertThrowsError(try SVGRasterizer.rasterize(url: url), body, file: file, line: line) {
-            XCTAssertEqual($0 as? ConversionError, .watermarkSVGUnsafe, body, file: file, line: line)
+            XCTAssertEqual($0 as? ConversionError, expected, body, file: file, line: line)
         }
     }
 
@@ -61,26 +62,24 @@ final class SVGRasterizerTests: XCTestCase {
     }
 
     func testSVGWithExternalHrefRejected() throws {
-        try assertUnsafe(#"<image xlink:href="http://example.com/a.png" width="10" height="10"/>"#)
-        try assertUnsafe(#"<image href = 'HTTPS://example.com/a.png'/>"#)
-        try assertUnsafe(#"<use href="other.svg#x"/>"#)
-        try assertUnsafe(#"<use href="//example.com/x.svg#x"/>"#)
-        try assertUnsafe(#"<image href="file:///etc/passwd"/>"#)
-        try assertUnsafe(#"<image href="&#104;ttp://example.com/a.png"/>"#)
-        try assertUnsafe(#"<rect fill="url(http://example.com/p.svg#g)" width="5" height="5"/>"#)
-        try assertUnsafe(#"<style>@import "http://example.com/a.css";</style>"#)
+        try assertUnsafe(#"<image xlink:href="http://example.com/a.png" width="10" height="10"/>"#, .watermarkSVGExternal)
+        try assertUnsafe(#"<image href = 'HTTPS://example.com/a.png'/>"#, .watermarkSVGExternal)
+        try assertUnsafe(#"<use href="other.svg#x"/>"#, .watermarkSVGExternal)
+        try assertUnsafe(#"<use href="//example.com/x.svg#x"/>"#, .watermarkSVGExternal)
+        try assertUnsafe(#"<image href="file:///etc/passwd"/>"#, .watermarkSVGExternal)
+        try assertUnsafe(#"<image href="&#104;ttp://example.com/a.png"/>"#, .watermarkSVGExternal)
+        try assertUnsafe(#"<rect fill="url(http://example.com/p.svg#g)" width="5" height="5"/>"#, .watermarkSVGExternal)
+        try assertUnsafe(#"<style>@import "http://example.com/a.css";</style>"#, .watermarkSVGExternal)
         try assertUnsafe(#"<script>alert(1)</script>"#)
         try assertUnsafe(#"<SCRIPT >alert(1)</SCRIPT>"#)
         try assertUnsafe(#"<foreignObject width="10" height="10"><p>x</p></foreignObject>"#)
-        try assertUnsafe(#"<a href="javascript:alert(1)"><rect width="5" height="5"/></a>"#)
+        try assertUnsafe(#"<a href="javascript:alert(1)"><rect width="5" height="5"/></a>"#, .watermarkSVGExternal)
         // Entities could spell a link that the scan wouldn't see (or expand without end).
         let entity = #"<!DOCTYPE svg [<!ENTITY h "http">]>"# + svg(#"<image href="&h;://example.com/a.png"/>"#)
         let url = try write(entity)
         XCTAssertThrowsError(try SVGRasterizer.rasterize(url: url)) {
             XCTAssertEqual($0 as? ConversionError, .watermarkSVGUnsafe)
         }
-        XCTAssertEqual(ConversionError.watermarkSVGUnsafe.reason,
-                       "This SVG can't be used (it loads external content or runs scripts)")
     }
 
     func testLocalReferencesAllowed() throws {
@@ -102,7 +101,7 @@ final class SVGRasterizerTests: XCTestCase {
             let url = dir.appendingPathComponent("bad.svg")
             try data.write(to: url)
             XCTAssertThrowsError(try SVGRasterizer.rasterize(url: url)) {
-                XCTAssertEqual($0 as? ConversionError, .watermarkImageUnreadable)
+                XCTAssertEqual($0 as? ConversionError, .watermarkSVGInvalid)
             }
         }
     }
@@ -152,18 +151,18 @@ final class SVGRasterizerTests: XCTestCase {
 
     func testEncodedAndAnimatedLinksRejected() throws {
         // Character references and CSS escapes are decoded before the scan.
-        try assertUnsafe(##"<rect style="fill:u&#114;l(http://example.com/p.svg#p)" width="5" height="5"/>"##)
-        try assertUnsafe(##"<style>@&#x69;mport "x.css";</style>"##)
+        try assertUnsafe(##"<rect style="fill:u&#114;l(http://example.com/p.svg#p)" width="5" height="5"/>"##, .watermarkSVGExternal)
+        try assertUnsafe(##"<style>@&#x69;mport "x.css";</style>"##, .watermarkSVGExternal)
         try assertUnsafe(##"<style>rect { fill: u\72 l(http://example.com/p.svg#p) }</style>"##)
         try assertUnsafe(##"<style>@\69mport "x.css";</style>"##)
-        try assertUnsafe(##"<a><set attributeName="href" to="http://example.com"/></a>"##)
+        try assertUnsafe(##"<a><set attributeName="href" to="http://example.com"/></a>"##, .watermarkSVGExternal)
         try assertUnsafe(##"<use href="#a"><animate attributeName="xlink:href" values="http://x/a.svg#a"/></use>"##)
     }
 
     func testDataURIsRejected() throws {
         // An embedded raster would be decoded by AppKit outside the pixel guard.
-        try assertUnsafe(##"<image href="data:image/png;base64,iVBORw0KGgo=" width="5" height="5"/>"##)
-        try assertUnsafe(##"<image xlink:href="DATA:image/svg+xml,%3Csvg/%3E"/>"##)
+        try assertUnsafe(##"<image href="data:image/png;base64,iVBORw0KGgo=" width="5" height="5"/>"##, .watermarkSVGExternal)
+        try assertUnsafe(##"<image xlink:href="DATA:image/svg+xml,%3Csvg/%3E"/>"##, .watermarkSVGExternal)
     }
 
     func testSVGDetectedByContent() throws {
@@ -173,7 +172,7 @@ final class SVGRasterizerTests: XCTestCase {
         for text in ["<html><body>" + svg(rect) + "</body></html>", "<svgx/>" + svg(rect), "hello " + svg(rect)] {
             let url = try write(text, name: "x.svg")
             XCTAssertThrowsError(try SVGRasterizer.rasterize(url: url), text) {
-                XCTAssertEqual($0 as? ConversionError, .watermarkImageUnreadable, text)
+                XCTAssertEqual($0 as? ConversionError, .watermarkSVGInvalid, text)
             }
         }
     }
@@ -201,7 +200,7 @@ final class SVGRasterizerTests: XCTestCase {
             let url = dir.appendingPathComponent("u16.svg")
             try data.write(to: url)
             XCTAssertThrowsError(try SVGRasterizer.rasterize(url: url)) {
-                XCTAssertEqual($0 as? ConversionError, .watermarkImageUnreadable)
+                XCTAssertEqual($0 as? ConversionError, .watermarkSVGInvalid)
             }
         }
     }
@@ -209,13 +208,14 @@ final class SVGRasterizerTests: XCTestCase {
     func testDoctypeEntityAndBaseRefused() throws {
         try assertRefused(##"<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "svg11.dtd">"## + svg(""))
         try assertRefused(svg(##"<!ENTITY x "y">"##))
-        try assertRefused(svg(##"<g xml:base="http://example.com/"><use href="#a"/></g>"##))
-        try assertRefused(svg(##"<?xml-stylesheet href="http://example.com/a.css"?>"##))
+        try assertRefused(svg(##"<g xml:base="http://example.com/"><use href="#a"/></g>"##), .watermarkSVGExternal)
+        try assertRefused(svg(##"<?xml-stylesheet href="http://example.com/a.css"?>"##), .watermarkSVGExternal)
     }
 
     func testPaddedReferencesAreDecodedByTheParser() throws {
-        try assertRefused(svg(##"<rect fill="url(&#x00000000000068;ttp://example.com/p.svg#p)"/>"##))
-        try assertRefused(svg(##"<rect style="fill:u&#x00000000000072;l(http://example.com/p.svg#p)"/>"##))
+        try assertRefused(svg(##"<rect fill="url(&#x00000000000068;ttp://example.com/p.svg#p)"/>"##), .watermarkSVGExternal)
+        try assertRefused(svg(##"<rect style="fill:u&#x00000000000072;l(http://example.com/p.svg#p)"/>"##),
+                          .watermarkSVGExternal)
         // A padded reference that decodes to something harmless still draws.
         let image = try rasterizeOrSkip(try write(svg(##"<rect width="40" height="20" fill="&#x00000000000023;ff0000"/>"##)))
         XCTAssertGreaterThan(TestImages.pixel(of: image, x: 10, y: 10).red, 250)
@@ -224,10 +224,13 @@ final class SVGRasterizerTests: XCTestCase {
     func testNamespaceTricksRefused() throws {
         let svgNS = "http://www.w3.org/2000/svg"
         try assertRefused(svg(##"<x:script xmlns:x="\##(svgNS)">alert(1)</x:script>"##))
-        try assertRefused(svg(##"<x:style xmlns:x="\##(svgNS)">rect{fill:green}</x:style>"##))
+        // A prefixed <style> is an ordinary style element, so its CSS goes through the same rules.
+        try assertRefused(svg(##"<x:style xmlns:x="\##(svgNS)">rect{fill:u\72 l(http://x/a.svg#a)}</x:style>"##))
+        try assertRefused(svg(##"<x:style xmlns:x="\##(svgNS)">rect:hover{fill:green}</x:style>"##))
         try assertRefused(svg(##"<h:iframe xmlns:h="http://www.w3.org/1999/xhtml"/>"##))
         try assertRefused(svg(##"<set xmlns:foo="http://www.w3.org/1999/xlink" attributeName="foo:href" to="http://x"/>"##))
-        try assertRefused(svg(##"<use xmlns:foo="http://www.w3.org/1999/xlink" foo:href="http://x/a.svg#a"/>"##))
+        try assertRefused(svg(##"<use xmlns:foo="http://www.w3.org/1999/xlink" foo:href="http://x/a.svg#a"/>"##),
+                          .watermarkSVGExternal)
         try assertRefused(svg(##"<use xmlns:foo="urn:other" foo:href="#a"/>"##))
         try assertRefused(svg(##"<rect onclick="alert(1)" width="5" height="5"/>"##))
         try assertRefused(svg(##"<path href="#a" d="M0 0"/>"##))

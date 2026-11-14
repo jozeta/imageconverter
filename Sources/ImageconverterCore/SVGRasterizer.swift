@@ -4,8 +4,8 @@ import Foundation
 import UniformTypeIdentifiers
 
 /// Turns an SVG watermark into a bitmap. SVG files are untrusted: the file is size-checked, parsed and checked
-/// against an allowlist of shapes, gradients and text (`SVGSanitizer`), and only the re-serialised result is
-/// drawn by AppKit. Nothing is ever fetched.
+/// against an allowlist of shapes, gradients, text and simple style rules (`SVGSanitizer`), and only the
+/// re-serialised result is drawn by AppKit. Nothing is ever fetched.
 public enum SVGRasterizer {
     /// Largest SVG file accepted.
     public static let maxFileSize = 1_048_576
@@ -44,11 +44,11 @@ public enum SVGRasterizer {
         // The content is known to be SVG (`SVGSanitizer`); whether AppKit can draw it is a property of this macOS.
         guard NSImage.imageTypes.contains(UTType.svg.identifier) else { throw ConversionError.watermarkSVGUnsupported }
         guard let image = NSImage(data: data), !image.representations.isEmpty else {
-            throw ConversionError.watermarkImageUnreadable
+            throw ConversionError.watermarkSVGInvalid
         }
         let natural = image.size
         guard natural.width.isFinite, natural.height.isFinite, natural.width > 0, natural.height > 0 else {
-            throw ConversionError.watermarkImageUnreadable
+            throw ConversionError.watermarkSVGInvalid
         }
         var scale = CGFloat(maxLongSide) / max(natural.width, natural.height)
         let pixels = Double(natural.width * scale) * Double(natural.height * scale)

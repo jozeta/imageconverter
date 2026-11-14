@@ -74,7 +74,9 @@ public struct WatermarkAssets: @unchecked Sendable {
         } catch let error as ConversionError {
             // The pixel guard and decode errors describe the source; for a watermark say which image it is.
             switch error {
-            case .watermarkSVGUnsafe, .watermarkSVGTooLarge, .watermarkSVGUnsupported: return .failure(error)
+            case .watermarkSVGUnsafe, .watermarkSVGExternal, .watermarkSVGInvalid, .watermarkSVGTooLarge,
+                 .watermarkSVGUnsupported:
+                return .failure(error)
             default: return .failure(.watermarkImageUnreadable)
             }
         } catch {
