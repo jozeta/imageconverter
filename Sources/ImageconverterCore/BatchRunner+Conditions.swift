@@ -19,6 +19,9 @@ extension BatchRunner {
         let jobs: [ResolvedPipeline]
         /// Sources a condition skipped, in input order.
         let skipped: [URL]
+        /// The input index of each plan, and of each skipped source.
+        let planIndices: [Int]
+        let skippedIndices: [Int]
         /// Every image step the jobs use, so each watermark image is loaded once per batch.
         let assetPipeline: Pipeline
     }
@@ -35,9 +38,11 @@ extension BatchRunner {
                 ? .copyOfOriginal(items[index], baseName: name)
                 : OutputTarget(item: items[index], format: resolved[index].pipeline.output.format, baseName: name)
         }
-        let skipped = items.indices.filter { resolved[$0].disposition == .skip }.map { items[$0].source }
+        let skippedIndices = items.indices.filter { resolved[$0].disposition == .skip }
+        let skipped = skippedIndices.map { items[$0].source }
         return RunPlan(plans: OutputPlanner.plan(targets, mode: mode, reservedSources: skipped), jobs: jobs,
-                       skipped: skipped, assetPipeline: assetPipeline(pipeline, resolved: jobs))
+                       skipped: skipped, planIndices: active, skippedIndices: skippedIndices,
+                       assetPipeline: assetPipeline(pipeline, resolved: jobs))
     }
 
     /// What `run` would do with each item, without writing anything: conditions resolved, names rendered and
@@ -57,13 +62,18 @@ extension BatchRunner {
 
     /// Runs one planned item: a copy of the original, or the full load, apply, encode and commit.
     static func process(_ plan: PlannedOutput, job: ResolvedPipeline, assets: WatermarkAssets, maxPixels: Int,
-                        trash: Trasher) -> (Result<WrittenItem?, ConversionError>, Int?) {
-        if job.disposition == .copyOriginal { return copyOriginal(plan, trash: trash) }
+                        trash: Trasher, options: ItemRunOptions = ItemRunOptions())
+        -> (Result<WrittenItem?, ConversionError>, Int?) {
+        if job.disposition == .copyOriginal {
+            options.stage(.writing)
+            return copyOriginal(plan, trash: trash)
+        }
         // A watermark image that can't be read fails every file using it, before its source is decoded.
         if let missing = assets.missingError(for: job.pipeline) {
             return (.failure(missing), fileSize(plan.item.source))
         }
-        return convert(plan, pipeline: job.pipeline, assets: assets, maxPixels: maxPixels, trash: trash)
+        return convert(plan, pipeline: job.pipeline, assets: assets, maxPixels: maxPixels, trash: trash,
+                       options: options)
     }
 
     /// How many files' facts are read at once (header reads and small scans are mostly I/O).

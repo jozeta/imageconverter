@@ -3,6 +3,8 @@ import Foundation
 /// Why a single file couldn't be converted.
 public enum ConversionError: Error, Equatable, Sendable {
     case unreadable
+    /// The header was read but the pixels couldn't be decoded (a damaged file, or memory ran out).
+    case decodeFailed
     case tooLarge(pixels: Int)
     case encodeFailed
     case writeFailed(String)
@@ -31,6 +33,8 @@ public enum ConversionError: Error, Equatable, Sendable {
         switch self {
         case .unreadable:
             return "Couldn't read this file as an image"
+        case .decodeFailed:
+            return "Couldn't decode the image (it may be damaged, or memory ran low)"
         case .tooLarge(let pixels):
             let megapixels = Int((Double(pixels) / 1_000_000).rounded())
             let limit = ImageLoader.defaultMaxPixels / 1_000_000
@@ -59,6 +63,17 @@ public enum ConversionError: Error, Equatable, Sendable {
             return "Can't get under \(ByteSize.format(limit)) (smallest is \(ByteSize.format(smallest)))"
         case .skippedByCondition:
             return ConditionalStep.skippedReason
+        }
+    }
+}
+
+extension ConversionError {
+    /// Failures that can be transient (memory ran out while decoding, processing or encoding), so the batch
+    /// tries the file once more at the end. Unreadable files, size limits and watermark problems never change.
+    public var isRetryable: Bool {
+        switch self {
+        case .decodeFailed, .encodeFailed, .processingFailed: return true
+        default: return false
         }
     }
 }

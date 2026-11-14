@@ -119,15 +119,6 @@ public struct AdjustOptions: Codable, Equatable, Sendable {
 
 /// Renders `AdjustOptions` with Core Image.
 public enum Adjustments {
-    /// Created once; `CIContext` is thread-safe. Linear extended sRGB keeps out-of-gamut and HDR values.
-    /// No intermediate cache: each image is rendered once, and a parallel batch would only pile up memory.
-    static let context: CIContext = {
-        var options: [CIContextOption: Any] = [.useSoftwareRenderer: false, .workingFormat: CIFormat.RGBAh,
-                                               .cacheIntermediates: false]
-        if let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) { options[.workingColorSpace] = linear }
-        return CIContext(options: options)
-    }()
-
     public static func apply(_ raw: AdjustOptions, to image: CGImage) throws -> CGImage {
         // Callers may build options directly: clamp (NaN → 0) before anything reaches Core Image.
         var options = raw
@@ -151,9 +142,8 @@ public enum Adjustments {
         let height = Int(rect.height)
         guard let ctx = ImageOps.makeContext(width: width, height: height, like: image, space: space, alpha: alpha),
               let target = ctx.colorSpace,
-              let rendered = context.createCGImage(output, from: rect,
-                                                   format: ctx.bitsPerComponent > 8 ? .RGBA16 : .RGBA8,
-                                                   colorSpace: target) else {
+              let rendered = SharedCIContext.context.createCGImage(
+                output, from: rect, format: ctx.bitsPerComponent > 8 ? .RGBA16 : .RGBA8, colorSpace: target) else {
             throw ConversionError.processingFailed(step)
         }
         ctx.draw(rendered, in: CGRect(x: 0, y: 0, width: width, height: height))

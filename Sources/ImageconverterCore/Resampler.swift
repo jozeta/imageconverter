@@ -38,8 +38,6 @@ public enum Resampler {
 
     // MARK: Core Image (bicubic)
 
-    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
-
     private static func bicubic(_ image: CGImage, width: Int, height: Int) -> CGImage? {
         let scaleY = Double(height) / Double(image.height)
         let scaleX = Double(width) / Double(image.width)
@@ -55,8 +53,8 @@ public enum Resampler {
               let ctx = ImageOps.makeContext(width: width, height: height, like: image,
                                              alpha: ImageOps.hasAlpha(image), keepFloat: true),
               let space = ctx.colorSpace,
-              let rendered = ciContext.createCGImage(output, from: rect, format: ciFormat(bits: ctx.bitsPerComponent),
-                                                     colorSpace: space) else { return nil }
+              let rendered = SharedCIContext.context.createCGImage(
+                output, from: rect, format: ciFormat(bits: ctx.bitsPerComponent), colorSpace: space) else { return nil }
         // Same size: this only puts the pixels into the agreed format (depth, opacity).
         ctx.interpolationQuality = .none
         ctx.draw(rendered, in: rect)

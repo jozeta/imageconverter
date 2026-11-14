@@ -102,7 +102,7 @@ public struct BatchReport: Equatable, Sendable {
 /// What one item encodes to, before it is committed.
 struct EncodedItem {
     let data: Data
-    /// The upright full-size image as loaded.
+    /// The upright image as decoded (full size unless the batch's decode hint applied).
     let source: CGImage
     /// The quality the compression mode chose; nil for formats without one.
     let quality: Double?
@@ -125,13 +125,23 @@ public enum BatchRunner {
 
     /// Converts `items` in parallel (at most `concurrency` at a time, and while their combined pixel
     /// count stays within `memoryBudgetPixels`; a single oversized image still runs, alone). A file that fails is
-    /// recorded and skipped; the rest carry on. `progress` is called once per finished item, in
+    /// recorded and skipped; the rest carry on. A failure that can be transient (decode, processing or encode:
+    /// `ConversionError.isRetryable`) is tried once more at the end of the batch, alone and in low-memory mode;
+    /// if that works the file's note says "Succeeded on retry". `progress` is called once per finished item, in
     /// completion order (not input order), from the collecting side of the batch; `completed` (successes,
     /// failures, and files a condition skips, which count at once) increases monotonically, and `total` is
-    /// `items.count`. Conditions are resolved per item before planning. `BatchReport.cancelled` is false if
-    /// cancellation arrives after the last item was scheduled. Cancelling the calling task stops new files
-    /// from starting; files already in flight stop between compression search encodes (nothing written,
+    /// `items.count`. `events` reports each item's stages (see `ItemEvent`): `queued`/`skipped`, `done`,
+    /// `failed` and `cancelled` from the collecting side, the working stages from the item's worker; one item's
+    /// events arrive in order. Conditions are resolved per item before planning. `BatchReport.cancelled` is
+    /// false if cancellation arrives after the last item was scheduled. Cancelling the calling task stops new
+    /// files from starting; files already in flight stop between compression search encodes (nothing written,
     /// and the report is then `cancelled`) or finish their atomic commit, so no temp files remain.
+    ///
+    /// The worker count adapts between items: halved when the Mac is hot (`thermalState` serious), one when
+    /// critical; a memory warning halves the budget and critical pressure leaves one worker. `control` pauses,
+    /// resumes, reorders and switches low-memory mode (2 workers, a quarter of the budget). With `journal`, a
+    /// `RunJournal` is kept there for the length of the run. Before planning, temp files a crash left in the
+    /// destination folders (over an hour old, exact `FileCommitter` pattern) are removed.
     public static func run(
         _ items: [InputItem],
         pipeline: Pipeline,
@@ -140,72 +150,24 @@ public enum BatchRunner {
         concurrency: Int = ProcessInfo.processInfo.activeProcessorCount,
         memoryBudgetPixels: Int = BatchRunner.defaultMemoryBudgetPixels,
         trash: @escaping Trasher = systemTrash,
-        progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
+        control: BatchControl? = nil,
+        journal: URL? = nil,
+        progress: @escaping @Sendable (BatchProgress) -> Void = { _ in },
+        events: @escaping @Sendable (ItemEvent) -> Void = { _ in }
     ) async -> BatchReport {
-        guard let run = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels), !Task.isCancelled
-        else { return BatchReport(cancelled: true) }
-        let (plans, jobs, total) = (run.plans, run.jobs, run.plans.count)
-        let assets = WatermarkAssets.load(for: run.assetPipeline, maxPixels: maxPixels)
-        let skippedCount = run.skipped.count
-        if skippedCount > 0 { progress(BatchProgress(completed: skippedCount, failed: 0, total: items.count)) }
-        var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
-        var weights = [Int](repeating: 1, count: total)
-        var outcomes = [Result<WrittenItem?, ConversionError>?](repeating: nil, count: total)
-        var inputSizes = [Int?](repeating: nil, count: total)
-        var cancelled = false
-
-        await withTaskGroup(of: (Int, Result<WrittenItem?, ConversionError>, Int?).self) { group in
-            var next = 0
-            var completed = skippedCount
-            var failed = 0
-
-            while true {
-                while next < total {
-                    if Task.isCancelled {
-                        cancelled = true
-                        break
-                    }
-                    let index = next
-                    let plan = plans[index]
-                    let job = jobs[index]
-                    let weight = job.disposition == .process ? weight(of: plan, pipeline: job.pipeline) : 1
-                    guard window.canStart(weight: weight) else { break }
-                    weights[index] = weight
-                    window.start(weight: weight)
-                    next += 1
-                    group.addTask {
-                        let outcome = process(plan, job: job, assets: assets, maxPixels: maxPixels, trash: trash)
-                        return (index, outcome.0, outcome.1)
-                    }
-                }
-                if cancelled { next = total }
-                guard let (index, result, size) = await group.next() else { break }
-                window.finish(weight: weights[index])
-                outcomes[index] = result
-                inputSizes[index] = size
-                // Nil: cancelled during its compression search, before anything was written.
-                if case .success(nil) = result {
-                    cancelled = true
-                    continue
-                }
-                completed += 1
-                failed += result.isFailure ? 1 : 0
-                progress(BatchProgress(completed: completed, failed: failed, total: items.count))
-            }
-        }
-
-        return makeReport(plans: plans, outcomes: outcomes, inputSizes: inputSizes, cancelled: cancelled)
-            .insertingSkipped(run.skipped, inputOrder: items.map(\.source))
+        await run(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, concurrency: concurrency,
+                  memoryBudgetPixels: memoryBudgetPixels, trash: trash, control: control, journal: journal,
+                  hooks: BatchHooks(), progress: progress, events: events)
     }
 
     /// Peak pixels of one item, from a header-only read; unreadable files weigh 1 and fail later in `convert`.
-    private static func weight(of plan: PlannedOutput, pipeline: Pipeline) -> Int {
+    static func weight(of plan: PlannedOutput, pipeline: Pipeline) -> Int {
         max(1, ImageLoader.pixelSize(of: plan.item.source).map {
             pipeline.peakPixels(sourceWidth: $0.width, sourceHeight: $0.height)
         } ?? 1)
     }
 
-    private static func makeReport(
+    static func makeReport(
         plans: [PlannedOutput], outcomes: [Result<WrittenItem?, ConversionError>?], inputSizes: [Int?],
         cancelled: Bool
     ) -> BatchReport {
@@ -230,16 +192,19 @@ public enum BatchRunner {
     }
 
     static func convert(
-        _ plan: PlannedOutput, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int, trash: Trasher
+        _ plan: PlannedOutput, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int, trash: Trasher,
+        options: ItemRunOptions = ItemRunOptions()
     ) -> (Result<WrittenItem?, ConversionError>, Int?) {
         // Read on the worker, before overwrite mode replaces the source.
         let inputBytes = fileSize(plan.item.source)
         return (autoreleasepool { () -> Result<WrittenItem?, ConversionError> in
             do {
-                let encoded = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
+                let encoded = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
+                                             options: options)
                 let setsDates = pipeline.metadata.isActive && pipeline.metadata.setFileDates
                 // Read before the commit: overwrite mode replaces or trashes the source.
                 let sourceDates = setsDates ? fileDates(plan.item.source) : nil
+                options.stage(.writing)
                 try FileCommitter.commit(encoded.data, for: plan, trash: trash)
                 var notes = [encoded.note].compactMap { $0 }
                 if setsDates, let failure = setFileDates(of: plan.destination, taken: encoded.dateTaken,
@@ -291,7 +256,7 @@ public enum BatchRunner {
 
     /// Everything the batch does to a file before encoding: load, watermark check, pipeline, metadata.
     struct PreparedItem {
-        /// The upright full-size image as loaded.
+        /// The upright image as decoded: full size, or smaller when a decode hint applied.
         let source: CGImage
         /// The pipeline's output image.
         let image: CGImage
@@ -301,29 +266,45 @@ public enum BatchRunner {
         let notes: [String]
     }
 
-    /// Shared by the batch, the size estimate and the quality ladder so none of them can drift.
+    /// Shared by the batch, the size estimate and the quality ladder so none of them can drift. With
+    /// `downsample` (the batch), a pipeline that starts by shrinking is decoded at twice the target size
+    /// (`Pipeline.decodeHint`); metadata, DPI and the pixel guard still use the full-size source.
     static func prepare(
-        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int
+        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int, downsample: Bool = false,
+        lowMemory: Bool = false, stage: (ItemEvent.Stage) -> Void = { _ in }
     ) throws -> PreparedItem {
         // A watermark image that can't be read fails the file before its source is decoded.
         if let missing = assets.missingError(for: pipeline) { throw missing }
-        let loaded = try ImageLoader.load(url, maxPixels: maxPixels, includeMetadata: pipeline.metadata.isActive)
+        stage(.decoding)
+        let header = downsample ? ImageLoader.header(of: url) : nil
+        let fullSize = header?.uprightSize
+        let hint = fullSize.flatMap { pipeline.decodeHint(sourceWidth: $0.width, sourceHeight: $0.height) }
+        let loaded = try ImageLoader.load(url, maxPixels: maxPixels, maxLongSide: hint?.maxLongSide,
+                                          includeMetadata: pipeline.metadata.isActive, lowMemory: lowMemory)
+        stage(.processing)
         var stepNotes: [String] = []
         let textContext = pipeline.watermarkTextContext(source: url, properties: loaded.properties)
-        let image = try pipeline.apply(to: loaded.image, assets: assets, textContext: textContext, notes: &stepNotes)
+        let image = try (hint?.pipeline ?? pipeline).apply(to: loaded.image, assets: assets, textContext: textContext,
+                                                           notes: &stepNotes)
+        let width = hint != nil ? fullSize?.width ?? loaded.image.width : loaded.image.width
+        let height = hint != nil ? fullSize?.height ?? loaded.image.height : loaded.image.height
         let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
-                                                   sourceWidth: loaded.image.width, sourceHeight: loaded.image.height)
+                                                   sourceWidth: width, sourceHeight: height)
         return PreparedItem(source: loaded.image, image: image, properties: properties, notes: stepNotes)
     }
 
     /// Load, apply, metadata and encode for one file: everything the batch does before it commits.
     /// The size estimate shares it so the estimate can't drift from what is written.
     static func encodeItem(
-        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int
+        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int,
+        options: ItemRunOptions = ItemRunOptions(downsample: false)
     ) throws -> EncodedItem {
-        let prepared = try prepare(url, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
+        let prepared = try prepare(url, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
+                                   downsample: options.downsample, lowMemory: options.lowMemory, stage: options.stage)
         let properties = prepared.properties
         let stepNotes = prepared.notes
+        options.stage(.encoding)
+        try options.beforeEncode?(url, options.attempt)
         let result = try CompressionSearch.encode(prepared.image, properties: properties, settings: pipeline.output)
         let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
             ? MetadataDates.dateTaken(in: properties) : nil
@@ -334,9 +315,13 @@ public enum BatchRunner {
     }
 }
 
-private extension Result {
-    var isFailure: Bool {
-        if case .failure = self { return true }
-        return false
-    }
+/// How the batch runs one item: decode options, the attempt, and where its stages go.
+struct ItemRunOptions {
+    /// Use the pipeline's decode hint (the batch); the estimate and the preview decode at full size.
+    var downsample = true
+    var lowMemory = false
+    /// 1, or 2 on the end-of-batch retry.
+    var attempt = 1
+    var beforeEncode: (@Sendable (URL, Int) throws -> Void)?
+    var stage: (ItemEvent.Stage) -> Void = { _ in }
 }

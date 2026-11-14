@@ -58,9 +58,10 @@ public enum ImageLoader {
     /// Loads the first frame of `url`, rotated upright according to its EXIF orientation.
     /// Throws `.tooLarge` before decoding when the image exceeds `maxPixels`. With `maxLongSide`, a
     /// larger image is downsampled so its longer side fits. `includeMetadata` also reads the XMP view
-    /// (only the Metadata step needs it).
-    public static func load(_ url: URL, maxPixels: Int = defaultMaxPixels,
-                            maxLongSide: Int? = nil, includeMetadata: Bool = false) throws -> LoadedImage {
+    /// (only the Metadata step needs it). `lowMemory` leaves the decode to ImageIO's first draw instead of
+    /// decoding into a cached buffer up front (the batch's retry and low-memory mode).
+    public static func load(_ url: URL, maxPixels: Int = defaultMaxPixels, maxLongSide: Int? = nil,
+                            includeMetadata: Bool = false, lowMemory: Bool = false) throws -> LoadedImage {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
               CGImageSourceGetCount(source) > 0,
@@ -79,10 +80,11 @@ public enum ImageLoader {
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: min(max(width, height), maxLongSide.map { max(1, $0) } ?? Int.max),
-            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceShouldCacheImmediately: !lowMemory,
         ] as CFDictionary
+        // The header was fine, so a failure here is the pixels (damaged data, or no memory): worth a retry.
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions) else {
-            throw ConversionError.unreadable
+            throw ConversionError.decodeFailed
         }
 
         properties[kCGImagePropertyOrientation as String] = 1
