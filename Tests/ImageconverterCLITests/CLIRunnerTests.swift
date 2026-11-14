@@ -311,3 +311,33 @@ extension CLIRunnerTests {
         PresetLibrary.shared.use(directory: PresetStore.defaultDirectory)
     }
 }
+
+extension CLIRunnerTests {
+    /// Task 7: `--overwrite --yes` with a pipeline's rename plans the renamed destinations; the dry run marks them
+    /// "replace (original to Trash)" (an unchanged name and format: "replace"), and the real run does just that.
+    func testOverwriteWithRenameDryRunAndRun() async throws {
+        let first = try writePNG("a.png")
+        let second = try writePNG("b.png")
+        var rename = RenameOptions(isEnabled: true, pattern: "{name}")
+        rename.replacements = [ReplacementRule(find: "a", replace: "renamed")]
+        let pipeline = Pipeline(output: OutputSettings(format: .png), rename: rename)
+        let file = root.appendingPathComponent("p.json")
+        try JSONEncoder().encode(pipeline).write(to: file)
+        let dry = await run(["convert", first.path, second.path, "--pipeline", file.path, "--overwrite", "--yes",
+                             "--dry-run"])
+        XCTAssertEqual(dry.code, 0, dry.err)
+        let renamed = root.appendingPathComponent("renamed.png")
+        let lines = dry.out.split(separator: "\n").map(String.init)
+        XCTAssertTrue(lines.contains { $0.contains("a.png -> ") && $0.hasSuffix("/renamed.png (replace (original to Trash))") },
+                      dry.out)
+        XCTAssertTrue(lines.contains { $0.contains("b.png -> ") && $0.hasSuffix("/b.png (replace)") }, dry.out)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.path), "a dry run writes nothing")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: renamed.path))
+
+        let real = await run(["convert", first.path, second.path, "--pipeline", file.path, "--overwrite", "--yes"])
+        XCTAssertEqual(real.code, 0, real.err)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: renamed.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: first.path), "the original went to the (test) Trash")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: second.path))
+    }
+}

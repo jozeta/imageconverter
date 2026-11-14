@@ -155,11 +155,14 @@ enum ConvertCommand {
                 return ReportEntry(source: file.source.path, status: .skipped, inputBytes: nil,
                                    note: ConditionalStep.skippedReason)
             case .copyOriginal:
+                // A copy in place is left as it is (nothing replaced); a renamed copy moves the original.
+                let moved = file.trashesSource ? overwriteNote(file) : nil
+                let note = ([ConditionalStep.copiedNote] + [moved].compactMap { $0 }).joined(separator: "; ")
                 return ReportEntry(source: file.source.path, destination: file.destination?.path, status: .succeeded,
-                                   inputBytes: nil, note: ConditionalStep.copiedNote)
+                                   inputBytes: nil, note: note)
             case .process:
                 return ReportEntry(source: file.source.path, destination: file.destination?.path, status: .succeeded,
-                                   inputBytes: nil)
+                                   inputBytes: nil, note: overwriteNote(file))
             }
         }
         let summary = RunSummary(
@@ -182,5 +185,12 @@ enum ConvertCommand {
         }
         if report.summary.failed > 0 { return CLIExit.someFailed }
         return report.summary.total == 0 ? CLIExit.nothingToDo : CLIExit.success
+    }
+
+    /// What overwrite mode does to the original: "replace" in place, or "replace (original to Trash)" when the
+    /// name or format changes. Nil outside overwrite mode.
+    static func overwriteNote(_ file: PlannedFile) -> String? {
+        if file.trashesSource { return "replace (original to Trash)" }
+        return file.replacesSource ? "replace" : nil
     }
 }
