@@ -133,42 +133,50 @@ final class ExternalActions {
     }
 
     /// Before an external request starts a run: a kept interrupted batch would be replaced (its journal can't be
-    /// resumed afterwards). `interactive` (a Finder service) asks like Run; a script is refused with a message.
-    func checkInterruptedRun(model: AppModel, interactive: Bool) async throws {
+    /// resumed afterwards). A script is refused with a message; a Finder service gets the question, returned here
+    /// so the caller asks it after its other confirmations and discards only once everything was confirmed.
+    func interruptedRunQuestion(model: AppModel, interactive: Bool) throws -> (@MainActor () async -> Bool)? {
         switch ExternalRequests.interruptedRunDecision(hasInterruptedRun: model.interruptedRun != nil,
                                                        interactive: interactive) {
-        case .proceed: return
+        case .proceed: return nil
         case .refuse: throw ExternalRequestError.interruptedBatchWaiting
         case .ask: break
         }
         let left = model.interruptedRun?.remainingItems.count ?? 0
-        let confirmed = await confirm(
-            title: "Discard the interrupted batch?",
-            message: "\(left) \(left == 1 ? "image" : "images") of the interrupted batch "
-                + "\(left == 1 ? "wasn't" : "weren't") converted. This conversion replaces it, so it can't be resumed "
-                + "afterwards.",
-            confirm: "Discard and Convert", destructive: true)
-        guard confirmed else { throw ExternalRequestError.cancelled }
-        model.discardInterruptedRun()
+        return { [weak self] in
+            await self?.confirm(
+                title: "Discard the interrupted batch?",
+                message: "\(left) \(left == 1 ? "image" : "images") of the interrupted batch "
+                    + "\(left == 1 ? "wasn't" : "weren't") converted. This conversion replaces it, so it can't be "
+                    + "resumed afterwards.",
+                confirm: "Discard and Convert", destructive: true) ?? false
+        }
     }
 
     /// Converts a checked plan in the background, asking first in overwrite mode. Returns the written files.
-    /// A kept interrupted batch is asked about first (`interactive`) or refuses the run (scripts).
+    /// A kept interrupted batch is asked about after that (`interactive`) or refuses the run (scripts), and is
+    /// discarded only when every question was confirmed and the run can start.
     func convert(_ plan: ConvertPlan, model: AppModel, interactive: Bool) async throws -> [URL] {
-        try await checkInterruptedRun(model: model, interactive: interactive)
+        var questions: [@MainActor () async -> Bool] = []
         if plan.needsOverwriteConfirmation {
             let count = plan.files.count
-            let confirmed = await confirm(
-                title: "Replace \(count) original \(count == 1 ? "image" : "images")?",
-                message: ExternalRequests.runSummary(files: plan.files, pipelineName: "the preset \(plan.preset.name)",
-                                                     mode: plan.mode),
-                confirm: "Replace Originals", destructive: true)
-            guard confirmed else { throw ExternalRequestError.cancelled }
+            questions.append { [weak self] in
+                await self?.confirm(
+                    title: "Replace \(count) original \(count == 1 ? "image" : "images")?",
+                    message: ExternalRequests.runSummary(files: plan.files,
+                                                         pipelineName: "the preset \(plan.preset.name)", mode: plan.mode),
+                    confirm: "Replace Originals", destructive: true) ?? false
+            }
         }
+        let interrupted = try interruptedRunQuestion(model: model, interactive: interactive)
+        if let interrupted { questions.append(interrupted) }
+        try await ExternalRequests.confirmAll(questions) {}
         guard !model.isRunning else { throw ExternalRequestError.busy }
         let files = plan.files
         let items = await Task.detached(priority: .userInitiated) { InputCollector.collect(files) }.value
         guard !items.isEmpty else { throw ExternalRequestError.noFiles }
+        // Everything was confirmed and the run starts now: only here is the interrupted batch given up.
+        if interrupted != nil { model.discardInterruptedRun() }
         return try await withCheckedThrowingContinuation { continuation in
             let started = model.startRun(items, pipeline: plan.preset.pipeline, mode: plan.mode,
                                          presetName: plan.preset.name) { report in

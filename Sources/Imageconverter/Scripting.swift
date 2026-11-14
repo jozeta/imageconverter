@@ -102,7 +102,8 @@ final class RunBatchScriptCommand: ImageconverterScriptCommand {
                 guard !model.items.isEmpty else { throw ExternalRequestError.nothingToRun }
                 guard let mode = settings.outputMode else { throw ExternalRequestError.noOutputFolder }
                 let actions = ExternalActions.shared
-                try await actions.checkInterruptedRun(model: model, interactive: false)
+                // Scripts are refused while an interrupted batch waits (they can't answer the question).
+                _ = try actions.interruptedRunQuestion(model: model, interactive: false)
                 // Captured once: the confirmation lists exactly the images that then run.
                 let batch = model.items
                 let pipeline = model.pipeline

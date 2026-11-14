@@ -170,4 +170,23 @@ final class ExternalRequestsTests: XCTestCase {
         // A pinned preset can always be pinned again (and unpinned).
         XCTAssertTrue(ServicePins.canPin(full[0].id, in: full))
     }
+
+    /// Re-review m1: nothing is given up (the interrupted batch) until every question was answered yes.
+    @MainActor
+    func testConfirmAllCommitsOnlyAfterEveryYes() async throws {
+        var log: [String] = []
+        let ask = { (name: String, answer: Bool) -> @MainActor () async -> Bool in
+            { log.append(name); return answer }
+        }
+        do {
+            try await ExternalRequests.confirmAll([ask("replace", false), ask("discard", true)]) { log.append("commit") }
+            XCTFail("a no cancels")
+        } catch let error as ExternalRequestError {
+            XCTAssertEqual(error, .cancelled)
+        }
+        XCTAssertEqual(log, ["replace"], "the batch is not discarded, and nothing after the no is asked")
+        log = []
+        try await ExternalRequests.confirmAll([ask("replace", true), ask("discard", true)]) { log.append("commit") }
+        XCTAssertEqual(log, ["replace", "discard", "commit"])
+    }
 }

@@ -63,6 +63,16 @@ public enum ExternalRequests {
         return interactive ? .ask : .refuse
     }
 
+    /// Asks `questions` in order and stops at the first "no" (`ExternalRequestError.cancelled`); only when every
+    /// one was confirmed does `commit` run (e.g. discarding the interrupted batch), so a later Cancel never loses
+    /// anything an earlier answer agreed to give up.
+    @MainActor
+    public static func confirmAll(_ questions: [@MainActor () async -> Bool], commit: @MainActor () -> Void)
+        async throws {
+        for question in questions where !(await question()) { throw ExternalRequestError.cancelled }
+        commit()
+    }
+
     public static let maxFiles = 10_000
 
     /// The files in an AppleScript parameter: one or a list of aliases, `POSIX file` values (both arrive as
