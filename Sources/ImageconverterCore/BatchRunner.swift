@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import ImageIO
 
 /// How far a batch has got. `completed` counts successes, failures and files skipped by a condition.
 public struct BatchProgress: Equatable, Sendable {
@@ -173,15 +174,28 @@ public enum BatchRunner {
     }
 
     /// Peak pixels of one item, from a header-only read; unreadable files weigh 1 and fail later in `convert`.
-    /// When the decode hint applies, the peak of the hinted pipeline on the smaller decoded image (ImageIO
-    /// decodes JPEG and HEIC at the reduced size directly; other formats may briefly need more while decoding).
+    /// The smaller downsampled weight is used only when the decode hint applies and the file is a format ImageIO
+    /// decodes at the reduced size directly (`decodesAtReducedSize`); anything else may hold the full image
+    /// while decoding, so it keeps the full-size weight and the budget never under-counts.
     static func weight(of plan: PlannedOutput, pipeline: Pipeline) -> Int {
         guard let size = ImageLoader.pixelSize(of: plan.item.source) else { return 1 }
-        if let hint = pipeline.decodeHint(sourceWidth: size.width, sourceHeight: size.height) {
+        if let hint = pipeline.decodeHint(sourceWidth: size.width, sourceHeight: size.height),
+           decodesAtReducedSize(plan.item.source) {
             let decoded = hint.decodedSize(sourceWidth: size.width, sourceHeight: size.height)
             return max(1, hint.pipeline.peakPixels(sourceWidth: decoded.width, sourceHeight: decoded.height))
         }
         return max(1, pipeline.peakPixels(sourceWidth: size.width, sourceHeight: size.height))
+    }
+
+    /// Formats whose ImageIO decoders scale while decoding (JPEG's DCT scaling, HEIC/HEIF's tiles and
+    /// thumbnails). AVIF and the rest (PNG, TIFF, GIF, BMP, RAW, ...) are not assumed to: they count at full size.
+    static let reducedSizeDecodeTypes: Set<String> = ["public.jpeg", "public.heic", "public.heif"]
+
+    /// The file's actual format from its content (not its extension).
+    static func decodesAtReducedSize(_ url: URL) -> Bool {
+        guard let source = CGImageSourceCreateWithURL(url as CFURL, [kCGImageSourceShouldCache: false] as CFDictionary),
+              let type = CGImageSourceGetType(source) as String? else { return false }
+        return reducedSizeDecodeTypes.contains(type)
     }
 
     static func makeReport(

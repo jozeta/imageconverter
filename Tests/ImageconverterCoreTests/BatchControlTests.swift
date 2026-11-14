@@ -229,19 +229,34 @@ final class BatchControlTests: XCTestCase {
         XCTAssertNotNil(MemoryPressureMonitor.currentSystemLevel())
     }
 
-    func testWeightUsesTheDecodeHint() throws {
-        let url = root.appendingPathComponent("big.png")
-        try TestImages.write(TestImages.make(width: 2000, height: 1000), to: url, type: .png)
-        let plan = PlannedOutput(item: InputItem(source: url, relativeDirectory: ""),
-                                 destination: root.appendingPathComponent("big.jpg"), replacesSource: false,
-                                 trashesSource: false)
+    private func plan(_ url: URL) -> PlannedOutput {
+        PlannedOutput(item: InputItem(source: url, relativeDirectory: ""),
+                      destination: root.appendingPathComponent("w-\(url.lastPathComponent).out"), replacesSource: false,
+                      trashesSource: false)
+    }
+
+    func testWeightUsesTheDecodeHintOnlyForReducedSizeDecoders() throws {
+        let jpeg = root.appendingPathComponent("big.jpg")
+        let png = root.appendingPathComponent("big.png")
+        // A PNG named .jpg is judged by its content.
+        let disguised = root.appendingPathComponent("png-named.jpg")
+        try TestImages.write(TestImages.make(width: 2000, height: 1000), to: jpeg, type: .jpeg)
+        try TestImages.write(TestImages.make(width: 2000, height: 1000), to: png, type: .png)
+        try TestImages.write(TestImages.make(width: 2000, height: 1000), to: disguised, type: .png)
         let shrink = Pipeline(steps: [PipelineStep(operation: .resize(ResizeOptions(mode: .longestEdge(200))))])
         let hint = try XCTUnwrap(shrink.decodeHint(sourceWidth: 2000, sourceHeight: 1000))
         XCTAssertTrue(hint.decodedSize(sourceWidth: 2000, sourceHeight: 1000) == (400, 200))
-        XCTAssertEqual(BatchRunner.weight(of: plan, pipeline: shrink),
+        let full = shrink.peakPixels(sourceWidth: 2000, sourceHeight: 1000)
+
+        XCTAssertEqual(BatchRunner.weight(of: plan(jpeg), pipeline: shrink),
                        hint.pipeline.peakPixels(sourceWidth: 400, sourceHeight: 200))
-        XCTAssertLessThan(BatchRunner.weight(of: plan, pipeline: shrink), 2000 * 1000)
+        XCTAssertLessThan(BatchRunner.weight(of: plan(jpeg), pipeline: shrink), full)
+        // Eligible for downsampling, but PNG decodes the full image: never under-counted.
+        XCTAssertEqual(BatchRunner.weight(of: plan(png), pipeline: shrink), full)
+        XCTAssertEqual(BatchRunner.weight(of: plan(disguised), pipeline: shrink), full)
         let crop = Pipeline(steps: [PipelineStep(operation: .crop(CropOptions()))] + shrink.steps)
-        XCTAssertEqual(BatchRunner.weight(of: plan, pipeline: crop), crop.peakPixels(sourceWidth: 2000, sourceHeight: 1000))
+        XCTAssertEqual(BatchRunner.weight(of: plan(jpeg), pipeline: crop),
+                       crop.peakPixels(sourceWidth: 2000, sourceHeight: 1000))
+        XCTAssertFalse(BatchRunner.reducedSizeDecodeTypes.contains("public.avif"))
     }
 }
