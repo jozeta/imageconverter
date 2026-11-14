@@ -8,6 +8,11 @@ public enum Sandbox {
         ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil || simulated
     }
 
+    /// Only the real sandbox: whether a plain URL or bookmark is useless (a simulated sandbox still has plain access).
+    public static var isEnforced: Bool {
+        ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
+    }
+
     /// Set once at launch, before any run (DEBUG only; always false in release builds).
     nonisolated(unsafe) public static var simulated = false
 }

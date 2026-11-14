@@ -104,3 +104,56 @@ final class AccessBookmarkTests: XCTestCase {
         XCTAssertTrue(read.regainAccess().unavailable.isEmpty)
     }
 }
+
+/// Fix round 1: access only counts when it really started; untrusted bookmarks never mount anything.
+final class AccessScopeTests: XCTestCase {
+    func testJournalCountsOnlyScopedBookmarksInTheRealSandbox() {
+        let out = URL(fileURLWithPath: "/Out", isDirectory: true)
+        var journal = RunJournal(items: [InputItem(source: URL(fileURLWithPath: "/P/a.png"), relativeDirectory: "")],
+                                 pipeline: Pipeline(), mode: .newFolder(out), bookmarker: { _ in Data("b".utf8) })
+        journal.completed = []
+        let plain: (Data) -> FolderAccess.Resolved? = { _ in
+            FolderAccess.Resolved(url: URL(fileURLWithPath: "/P", isDirectory: true), isSecurityScoped: false)
+        }
+        let sandboxed = journal.regainAccess(resolver: plain, enforced: true)
+        XCTAssertTrue(sandboxed.access.isEmpty)
+        XCTAssertEqual(sandboxed.unavailable.map(\.path), ["/P", "/Out"])
+        let unsandboxed = journal.regainAccess(resolver: plain, enforced: false)
+        XCTAssertEqual(unsandboxed.access.count, 2)
+    }
+
+    func testUntrustedBookmarksResolveWithoutMountingOrUI() {
+        XCTAssertTrue(FolderAccess.resolveOptions.contains(.withoutMounting))
+        XCTAssertTrue(FolderAccess.resolveOptions.contains(.withoutUI))
+        XCTAssertNil(FolderAccess.resolve(Data(count: FolderAccess.maxBookmarkSize + 1)))
+        XCTAssertNil(FolderAccess.resolveFile(Data("garbage".utf8)))
+        XCTAssertNil(FolderAccess.resolveFile(Data()))
+    }
+
+    func testPlainURLsGiveAccessOutsideTheSandbox() {
+        // (Outside the sandbox `startAccessingSecurityScopedResource` may even return true for a plain URL.)
+        let grant = FolderAccess.Grant([URL(fileURLWithPath: "/tmp", isDirectory: true)])
+        XCTAssertTrue(grant.givesAccess)
+        grant.release()
+    }
+
+    func testStaleWatermarkBookmarksAreRenewedEverywhereInThePipeline() {
+        let old = ImageWatermark(path: "/a/logo.png", bookmark: Data("old".utf8))
+        let moved: (Data) -> FolderAccess.Resolved? = { _ in
+            FolderAccess.Resolved(url: URL(fileURLWithPath: "/b/logo.png"), refreshed: Data("new".utf8))
+        }
+        let renewed = old.refreshed(resolver: moved)
+        XCTAssertEqual(renewed?.bookmark, Data("new".utf8))
+        XCTAssertEqual(renewed?.path, "/b/logo.png")
+        XCTAssertNil(old.refreshed(resolver: { _ in FolderAccess.Resolved(url: URL(fileURLWithPath: "/a/logo.png")) }))
+
+        let step = PipelineStep(operation: .watermark(WatermarkOptions(content: .image(old))))
+        let condition = ConditionalStep(then: [.step(step)], otherwise: [.step(step)])
+        let pipeline = Pipeline(steps: [step, PipelineStep(operation: .condition(condition))])
+        let updated = pipeline.updatingImageWatermarks { $0.refreshed(resolver: moved) }
+        var bookmarks: [Data?] = []
+        _ = updated?.updatingImageWatermarks { bookmarks.append($0.bookmark); return nil }
+        XCTAssertEqual(bookmarks, Array(repeating: Data("new".utf8), count: 3))
+        XCTAssertNil(pipeline.updatingImageWatermarks { _ in nil })
+    }
+}

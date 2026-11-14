@@ -178,14 +178,17 @@ final class ExternalActions {
         // Everything was confirmed and the run starts now: only here is the interrupted batch given up.
         if interrupted != nil { model.discardInterruptedRun() }
         return try await withCheckedThrowingContinuation { continuation in
-            let started = model.startRun(items, pipeline: plan.preset.pipeline, mode: plan.mode,
-                                         presetName: plan.preset.name) { report in
-                continuation.resume(returning: report.written)
-            }
-            switch started {
-            case .started: break
-            case .busy: continuation.resume(throwing: ExternalRequestError.busy)
-            case .noAccess: continuation.resume(throwing: ExternalRequestError.noFolderAccess)
+            Task { @MainActor in
+                // Quiet: a refusal is reported once, by the caller, from the thrown error.
+                let started = await model.startRun(items, pipeline: plan.preset.pipeline, mode: plan.mode,
+                                                   presetName: plan.preset.name, quietAccess: true) { report in
+                    continuation.resume(returning: report.written)
+                }
+                switch started {
+                case .started: break
+                case .busy: continuation.resume(throwing: ExternalRequestError.busy)
+                case .noAccess: continuation.resume(throwing: ExternalRequestError.noFolderAccess)
+                }
             }
         }
     }

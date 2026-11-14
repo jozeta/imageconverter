@@ -27,7 +27,7 @@ final class AppSettings {
             defaults.set(outputFolder?.path, forKey: Key.folder)
             guard outputFolder != oldValue else { return }
             // Made now, while the app has access (the folder was just chosen in a panel).
-            let bookmark = outputFolder.flatMap(FolderAccess.bookmark)
+            let bookmark = outputFolder.flatMap(FolderAccess.usableBookmark)
             defaults.set(bookmark, forKey: Key.folderBookmark)
             outputAccess = nil
             if let outputFolder, bookmark != nil { AccessStore.shared.addSessionRoot(outputFolder) }
@@ -53,7 +53,10 @@ final class AppSettings {
     private func restoreOutputAccess() {
         guard outputFolder != nil, let data = defaults.data(forKey: Key.folderBookmark),
               let found = FolderAccess.resolve(data) else { return }
-        outputAccess = FolderAccess.Grant([found.url])
+        let grant = FolderAccess.Grant([found.url])
+        outputAccess = grant
+        // In the real sandbox only a security-scoped bookmark whose access started counts; otherwise the run asks.
+        guard (found.isSecurityScoped || !Sandbox.isEnforced) && grant.givesAccess else { return }
         AccessStore.shared.addSessionRoot(found.url)
         if let refreshed = found.refreshed { defaults.set(refreshed, forKey: Key.folderBookmark) }
         let path = found.url.standardizedFileURL.path

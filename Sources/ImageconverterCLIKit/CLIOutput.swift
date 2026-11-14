@@ -82,7 +82,9 @@ enum CLIText {
 
     Global options:
       --data-dir DIR                          Read presets and jobs from DIR (default: the app's container,
-                                              else ~/Library/Application Support/imageconverter)
+                                              else ~/Library/Application Support/imageconverter). Reading the
+                                              container may make macOS ask whether Terminal may access another
+                                              app's data; --data-dir with a folder of your own avoids that.
 
     Convert options:
       --preset NAME | --pipeline FILE.json   Start from a saved preset, or a pipeline/preset JSON file

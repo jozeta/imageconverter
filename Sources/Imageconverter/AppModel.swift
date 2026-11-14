@@ -125,6 +125,7 @@ final class AppModel {
            let preset = allPresets.first(where: { $0.id == id }) {
             session = PresetSession(selected: preset, pipeline: saved)
         }
+        refreshWatermarkBookmarks()
         if !result.skipped.isEmpty {
             let count = result.skipped.count
             toasts.show("Skipped \(count) preset \(count == 1 ? "file" : "files")", type: .info,
@@ -240,19 +241,23 @@ final class AppModel {
             settings.outputFolder = url
         }
         guard let mode = settings.outputMode else { return }
-        startRun(items, pipeline: pipeline, mode: mode, presetName: session.selected?.name)
+        let batch = items, pipeline = pipeline, presetName = session.selected?.name
+        Task { await startRun(batch, pipeline: pipeline, mode: mode, presetName: presetName) }
     }
 
     /// Runs `batch` with `pipeline` (Run, or a service, script, link or resume with its own files and preset),
     /// showing progress and the report like Run. In the sandbox it first asks for any folder the run needs that
-    /// the app can't use yet (`AccessStore.ensureAccess`). `completion` gets the report.
+    /// the app can't use yet (`AccessStore.ensureAccess`; `quietAccess`: the caller reports a refusal itself).
+    /// `completion` gets the report.
     @discardableResult
     func startRun(_ batch: [InputItem], pipeline: Pipeline, mode: OutputMode, presetName: String?,
-                  completion: (@MainActor (BatchReport) -> Void)? = nil) -> AppRunStart {
+                  quietAccess: Bool = false,
+                  completion: (@MainActor (BatchReport) -> Void)? = nil) async -> AppRunStart {
         // One item per file, so the run's event indices match this list (the runner deduplicates the same way).
         let batch = InputItem.unique(batch)
         guard !isRunning, !batch.isEmpty else { return .busy }
-        guard AccessStore.shared.ensureAccess(sources: batch.map(\.source), mode: mode, toasts: toasts) else {
+        guard await AccessStore.shared.ensureAccess(sources: batch.map(\.source), mode: mode, toasts: toasts,
+                                                    quiet: quietAccess) else {
             return .noAccess
         }
         // The panels run a modal loop: another request may have started a run meanwhile.

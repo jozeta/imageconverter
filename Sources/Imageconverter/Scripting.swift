@@ -122,13 +122,16 @@ final class RunBatchScriptCommand: ImageconverterScriptCommand {
                         confirm: "Replace Originals", destructive: true) else { throw ExternalRequestError.cancelled }
                 }
                 return try await withCheckedThrowingContinuation { continuation in
-                    let started = model.startRun(batch, pipeline: pipeline, mode: mode, presetName: presetName) {
-                        continuation.resume(returning: $0.written)
-                    }
-                    switch started {
-                    case .started: break
-                    case .busy: continuation.resume(throwing: ExternalRequestError.busy)
-                    case .noAccess: continuation.resume(throwing: ExternalRequestError.noFolderAccess)
+                    Task { @MainActor in
+                        let started = await model.startRun(batch, pipeline: pipeline, mode: mode,
+                                                           presetName: presetName) {
+                            continuation.resume(returning: $0.written)
+                        }
+                        switch started {
+                        case .started: break
+                        case .busy: continuation.resume(throwing: ExternalRequestError.busy)
+                        case .noAccess: continuation.resume(throwing: ExternalRequestError.noFolderAccess)
+                        }
                     }
                 }
             }

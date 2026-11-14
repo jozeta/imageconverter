@@ -21,7 +21,9 @@ extension AppModel {
             return .done
         }
         guard let preset = allPresets.first(where: { $0.id == id }) else { return .done }
-        return session.select(preset, force: force)
+        let result = session.select(preset, force: force)
+        if result == .done { refreshWatermarkBookmarks() }
+        return result
     }
 
     func resetToPreset() { session.resetToPreset() }

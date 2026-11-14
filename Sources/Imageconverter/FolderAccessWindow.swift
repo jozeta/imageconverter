@@ -5,7 +5,7 @@ import ImageconverterCore
 struct FolderAccessWindow: View {
     static let windowID = "folder-access"
     @Bindable var store: AccessStore
-    @State private var selection: AccessStore.Grant.ID?
+    @State private var selection: FolderGrantList.Grant.ID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
@@ -54,20 +54,22 @@ struct FolderAccessWindow: View {
         .onAppear { store.activate() }
     }
 
-    private func row(_ grant: AccessStore.Grant) -> some View {
+    private func row(_ grant: FolderGrantList.Grant) -> some View {
         let missing = store.unavailable.contains(grant.path)
+        let again = store.needsAllowing.contains(grant.path)
         return VStack(alignment: .leading, spacing: 2) {
             HStack(spacing: LadaGlass.Spacing.s) {
                 Image(systemName: "folder").accessibilityHidden(true)
                 Text(grant.name).font(LadaGlass.Typography.body)
                 if missing { LGChip("Not found", status: .warn) }
+                if again { LGChip("Allow again", status: .warn) }
             }
             Text(grant.path).font(LadaGlass.Typography.mono)
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .lineLimit(1).truncationMode(.middle)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(grant.name), \(grant.path)\(missing ? ", not found" : "")")
+        .accessibilityLabel("\(grant.name), \(grant.path)\(missing ? ", not found" : "")\(again ? ", must be allowed again" : "")")
     }
 }
 
