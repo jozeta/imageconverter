@@ -32,6 +32,7 @@ Started 2026-11-13. The full design is in
 ### Unreleased
 
 - **Hover help**: rest the pointer on a step's title (or Output) for 1.5 s to see what it does and how to use it.
+- **Many more conditions**: If … then … else can now check the file name, extension and folder, the date taken, created or modified, any metadata field (lens, ISO, copyright, keywords, …), megapixels, aspect ratio, bit depth, color space and profile, DPI, EXIF rotation and animation, each with **Not**; and its branches can save into a subfolder, add Finder tags or keywords, apply a saved preset, stop checking later conditions or add a note to the report. See [Process images differently](#process-images-differently-by-size-format-or-orientation).
 - **App bundle and release script:** `scripts/release.sh` builds a universal, sandboxed `imageconverter.app` with the command-line tool inside (`Contents/Helpers/imageconverter`), and `scripts/install-cli.sh` puts that tool on your PATH. See [Build the app bundle](#build-the-app-bundle).
 - **Folder access** for the sandboxed app: a run that needs a folder asks for it once with a pre-filled panel, and the answer is remembered (Help ▸ Folder Access… lists and removes them); the output folder, watermark images and an interrupted batch keep bookmarks so they still open after a relaunch. See [Folder access](#folder-access).
 - **Privacy**: an automatic privacy scan with a shield chip and panel ("Remove these from the output"), a Privacy row in the preview table, and Help ▸ Privacy… with the offline statement and the limits in force. See [Privacy](#privacy).
@@ -102,16 +103,24 @@ Started 2026-11-13. The full design is in
     saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction
   - (available) **Watermark**: text (with tokens, shadow and outline) or image (raster or SVG), single or tiled,
     with position, size, opacity, margin and rotation controls, and watermark templates
-  - (available) **Condition** (if / then / else): up to 10 tests,
-    all or any of which must hold: longest edge, width, height or file size (greater than, less than, at
-    least, at most), format (a writable format or any file type, e.g. camera RAW), transparency (a
-    transparent pixel, checked on a small thumbnail), portrait / landscape / square, has a GPS location,
-    and camera make or model contains a text. Each branch can add image steps (not another condition),
-    change the output format and settings, metadata or rename for that image, **copy the original**
-    unchanged (same bytes and extension, nothing decoded; in overwrite mode the file is left as it is) or
-    **skip** it (nothing written; reported as "Skipped by a condition", not as a failure, and not given a
-    counter number). Conditions are tested against the **source file** (its header), not against the image
-    part-way through the pipeline, so a resize before a condition doesn't change what it sees. With
+  - (available) **Condition** (if / then / else): up to 10 checks, all or any of which must hold, each of
+    which can be turned around with **Not** ("is not", "does not contain", "has no"). Name & location: file
+    name contains / starts with / ends with / is / matches a pattern (optionally matching case), extension,
+    folder path. Dates: date taken (EXIF, else XMP), file created, file modified: before, after, between,
+    within the last N days, in a year or month, or present at all. Metadata: camera make and model, lens, ISO,
+    focal length, aperture, shutter speed, artist, copyright, title, description, keywords, software and any
+    allowlisted EXIF/IPTC/XMP field (is, contains, is present, is missing; numbers also more than / less than /
+    at least / at most). Image: longest edge, width, height, megapixels, aspect ratio, orientation, file size,
+    format (a writable format or any file type, e.g. camera RAW), transparency (checked on a small
+    thumbnail), bit depth, color space, embedded color profile, DPI, rotated by EXIF orientation, animated or
+    multi-page, location, camera. Each branch (up to 20 actions) can add image steps (not another condition)
+    or **apply a saved preset**'s steps and settings, change the output format and settings, metadata or rename
+    for that image, **save into a subfolder** (rename tokens, e.g. `{date:yyyy}/{date:MM}`), add **Finder
+    tags**, add **keywords**, **copy the original** unchanged (same bytes and extension, nothing decoded; in
+    overwrite mode the file is left as it is), **skip** it (nothing written; reported as "Skipped by a
+    condition", not as a failure, and not given a counter number), **stop** checking later conditions, or add
+    a **note** to the report. Conditions are tested against the **source file** (its header), not against the
+    image part-way through the pipeline, so a resize before a condition doesn't change what it sees. With
     several conditions, later overrides win and skip wins over copy. The preview and size estimate follow
     each image's own branch.
   - (available) **Metadata** (always last, above Output): strip everything (with a keep list) or single
@@ -567,20 +576,58 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
 1. Press **+ Add step** and pick **If … then … else** (at the bottom of the menu). The step tests each image's *source
    file* (not the image part-way through the pipeline) and runs the **Then** actions when it matches, the **Else**
    actions when it doesn't. Its actions take the step's place in the pipeline.
-2. Under **Match all of these / Match any of these**, set up to 10 conditions: **Longest edge**, **Width**, **Height** (is more than, is less than, is at least or is at most a number
-   of pixels), **File size** (in KB or MB, 1 KB = 1000 bytes), **Format** (the writable formats, plus RAW from any camera,
-   WebP and any HEIF), **Transparency** (has transparency / is opaque), **Orientation** (is portrait, is landscape, is square),
-   **Location** (has location / has no location) and **Camera** (make or model contains a text). **+ Add condition** adds one;
-   the trash button removes one (a step always keeps at least one).
-3. Fill **Then** and **Else** with **+ Add**: any image step (Resize, Crop, Watermark, …), **Set output…** (format and
-   compression for these images), **Set metadata…**, **Set rename…**, **Copy original unchanged** (the file is copied as
-   it is, nothing is decoded) or **Skip file** (nothing is written; the file counts as *skipped by a condition*, not
-   failed, and takes no counter number). **Set metadata…** can add removals and set fields but never brings back
+2. Under **Match all of these / Match any of these**, set up to 10 conditions. The kind menu is grouped:
+   - **Name & location**: **File name** (contains, starts with, ends with, is, or matches a regular expression;
+     case is ignored unless **Match case** is on; an invalid expression is shown in orange and never matches; the
+     name is without its extension), **Extension** (a list such as `jpg, png`; `jpg`/`jpeg` and `tif`/`tiff` count as
+     the same) and **Folder path** (the image's folder contains a text).
+   - **Dates**: **Date taken** (EXIF DateTimeOriginal, else the XMP date created; files without one never match a
+     date, use **is present** with **Not** for "has no date taken"), **File created** and **File modified**: is before,
+     is after, is between two days (both included), is within the last N days, is in the year, is in the month, or is
+     known. Days are compared in the Mac's time zone.
+   - **Metadata**: **Metadata field** (camera make, camera model, lens, ISO, focal length, aperture, shutter speed,
+     artist, copyright, title, description, keywords, software, or any allowlisted EXIF, IPTC or XMP field) is, contains,
+     is present or is missing; the numeric fields (ISO, focal length in mm, aperture as an f-number, shutter speed in
+     seconds, `1/250` works) also is more than, is less than, is at least, is at most. Also **Camera** (make or model
+     contains a text) and **Location** (has location / has no location).
+   - **Image**: **Longest edge**, **Width**, **Height** (is more than, is less than, is at least or is at most a number of
+     pixels), **Megapixels**, **Aspect ratio** (is wider than or taller than a ratio such as 1.5 to 1, or is about square,
+     within 1 %), **Orientation** (is portrait, is landscape, is square), **File size** (in KB or MB, 1 KB = 1000 bytes),
+     **Format** (the writable formats, plus RAW from any camera, WebP and any HEIF), **Transparency** (has
+     transparency / is opaque), **Bit depth** (8-bit, 16-bit, 32-bit float), **Color space** (sRGB, Display P3, Adobe RGB,
+     Gray, CMYK or another; RGB without a profile counts as sRGB), **Color profile** (has an embedded one), **DPI** (a file
+     without one counts as 72), **Rotated (EXIF)** (its EXIF orientation turns or mirrors it) and **Animated / pages**
+     (more than one frame or page).
+
+   Tick **Not** to turn a check around: "name does not start with “IMG”", "has no date taken", "is not 16-bit".
+   **+ Add condition** adds one; the trash button removes one (a step always keeps at least one). Everything is read
+   from the file's header (the XMP packet and the frame count only when a check needs them), so checks stay quick on
+   large batches.
+3. Fill **Then** and **Else** with **+ Add** (up to 20 actions each). The menu is grouped:
+   - **Steps**: any image step (Resize, Crop, Watermark, …), or **Apply a saved preset…**: pick a preset; its switched-on
+     image steps run at this point, its output settings (and its Metadata and Rename settings when they are on) apply
+     to this image, its own conditions are not used. If the preset is deleted later, nothing is applied and the report
+     says "Preset “…” wasn't found".
+   - **Output & files**: **Set output…** (format and compression for these images), **Set rename…**, **Save into
+     subfolder…** (a folder name such as `Portraits`, or nested folders with rename tokens such as `{date:yyyy}/{date:MM}`
+     or `{camera}`; inside the output folder, or inside the image's own folder when saving next to the originals; each
+     folder name is made safe like a file name, `..` and empty names are dropped, at most 5 levels; ignored with a note
+     when overwriting originals; name clashes are numbered per folder), **Add Finder tags…** (comma-separated; added to the
+     written file's own tags on this Mac) and **Copy original unchanged** (the file is copied as it is, nothing is decoded).
+   - **Metadata**: **Set metadata…** and **Add keywords…** (comma-separated; added to the file's keywords, or to the ones
+     the Metadata step sets; turns that step on with nothing removed when it was off).
+   - **Flow**: **Skip file** (nothing is written; the file counts as *skipped by a condition*, not failed, and takes no
+     counter number), **Stop checking later conditions** (later If … then … else steps are not checked for this image;
+     the other actions in the branch still apply) and **Add a note to the report…** (a line in the report for this file;
+     tokens such as `{name}` or `{camera}` are filled in).
+
+   **Set metadata…** can add removals and set fields but never brings back
    what the pipeline's Metadata step removes (or `--strip-gps`/`--strip-all` on the command line): a branch that sets
    a new location then also drops the original's place names, and a fixed date wins over a branch's shift. When that step
    removes or replaces anything, **Copy original unchanged** converts the image instead, in its own format at the best
    quality (lossless for PNG and TIFF), and the report says "Converted instead of copied to remove metadata". Open an action to edit it with the usual editor; reorder actions by
-   dragging the handle or with **Move Up** / **Move Down** in the right-click menu.
+   dragging the handle or with **Move Up** / **Move Down** in the right-click menu. The preview's file name, the command
+   line's `--dry-run` and the job reports show the subfolder (`Portraits/IMG_0042.jpg`).
 4. Select an image in the filmstrip: the preview header shows which branch it takes (**Then branch** / **Else branch**,
    or "1 then · 2 else" with several conditions) and whether it is **Copied unchanged** or **Skipped by a condition**.
    The Result name and the Rename example use the branch's rename and the number the batch would give it (the
@@ -592,13 +639,18 @@ Examples (one step each):
 
 | If | Then | Else |
 | --- | --- | --- |
-| Longest edge > 4000 px | Resize › Longest edge 2048 | (nothing) |
+| Longest edge is more than 4000 px | Resize › Longest edge 2048 | (nothing) |
 | Format is PNG **and** has transparency | Set output… › PNG | Set output… › JPEG |
 | Format is JPEG | Set output… › HEIC (WebP can't be written by macOS) | (nothing) |
 | Location: has location | Set metadata… › Remove location (GPS) | (nothing) |
-| File size < 500 KB | Copy original unchanged | (nothing) |
-| Orientation: portrait | Resize › Longest edge 1080 | Resize › Longest edge 2048 |
-| Orientation: landscape | Set output… › HEIC at 70 % | Set output… › JPEG at 85 % |
+| File size is less than 500 KB | Copy original unchanged | (nothing) |
+| Orientation: is portrait | Resize › Longest edge 1080 | Resize › Longest edge 2048 |
+| Orientation: is landscape | Set output… › HEIC at 70 % | Set output… › JPEG at 85 % |
+| Date taken is present | Save into subfolder › `{date:yyyy}/{date:MM}` | Save into subfolder › `Undated` |
+| File name starts with `Screenshot` | Apply a saved preset › Web export | (nothing) |
+| Metadata field: ISO is more than 3200 | Add keywords › `high ISO`, Add Finder tags › `Check` | (nothing) |
+| **Not** Metadata field: copyright is present | Set metadata… › Copyright, Add a note › `No copyright: {name}` | (nothing) |
+| Animated / pages | Copy original unchanged, Stop checking later conditions | (nothing) |
 
 (More how-tos once the features exist: build and save a preset.)
 

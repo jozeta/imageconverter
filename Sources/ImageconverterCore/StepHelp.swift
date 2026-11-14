@@ -142,11 +142,12 @@ public enum StepHelp {
             return StepHelpInfo(
                 title: "If ... then ... else",
                 summary: "Treats images differently depending on what they are, e.g. "
-                    + "size, format, orientation or whether they have a location.",
+                    + "name, date taken, camera, size, format, orientation or whether they have a location.",
                 howTo: [
-                    "Add up to 10 tests and choose whether all or any of them must match.",
+                    "Add up to 10 tests and choose whether all or any of them must match; tick Not to turn a test around.",
                     "Tests look at the original file, before any steps run, not at the image part-way through the pipeline.",
-                    "Then and Else hold actions, e.g. image steps, other output, metadata or rename settings, Copy original or Skip file.",
+                    "Then and Else hold actions: image steps or a saved preset, output, metadata or rename settings, "
+                        + "a subfolder, tags, keywords, Copy, Skip, Stop or a note.",
                     "Select an image to see in the preview which branch it takes."
                 ],
                 tips: [
