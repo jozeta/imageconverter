@@ -80,7 +80,7 @@ public struct PresetLoadResult {
 /// Reads and writes presets as one JSON file per preset, named after the preset's UUID.
 /// Meant to be a single shared instance per directory: its lock only serialises calls on that instance.
 public final class PresetStore: @unchecked Sendable {
-    public static let maxFileSize = 1_048_576
+    public static let maxFileSize = StoredFile.maxFileSize
     public static let maxNameLength = 80
 
     private let directory: URL
@@ -140,41 +140,11 @@ public final class PresetStore: @unchecked Sendable {
 
     /// Control characters are removed, the result is trimmed, 1...80 characters, unique ignoring case.
     public static func validatedName(_ raw: String, existing: [Preset], excluding: UUID?) throws -> String {
-        let stripped = String(String.UnicodeScalarView(raw.unicodeScalars.filter {
-            !CharacterSet.controlCharacters.contains($0) && !CharacterSet.newlines.contains($0)
-        }))
-        let cleaned = normalizeWhitespace(stripped)
-        guard !cleaned.isEmpty else { throw PresetError.invalidName("Enter a name for the preset.") }
-        guard cleaned.count <= maxNameLength else {
-            throw PresetError.invalidName("The name can be at most \(maxNameLength) characters.")
-        }
-        let key = fold(cleaned)
-        if existing.contains(where: { $0.id != excluding && fold($0.name) == key }) {
-            throw PresetError.duplicateName
-        }
-        return cleaned
+        try StoredFile.validatedName(raw, existing: existing.map { ($0.id, $0.name) }, excluding: excluding,
+                                     maxLength: maxNameLength, noun: "preset")
     }
 
-    /// Every Unicode whitespace character (non-breaking space included) becomes one space; runs
-    /// collapse and the ends are trimmed, so look-alike names can't coexist.
-    private static func normalizeWhitespace(_ text: String) -> String {
-        var result = String.UnicodeScalarView()
-        var pendingSpace = false
-        for scalar in text.unicodeScalars {
-            if CharacterSet.whitespaces.contains(scalar) || scalar.properties.isWhitespace {
-                pendingSpace = !result.isEmpty
-            } else {
-                if pendingSpace { result.append(" ") }
-                pendingSpace = false
-                result.append(scalar)
-            }
-        }
-        return String(result)
-    }
-
-    private static func fold(_ name: String) -> String {
-        normalizeWhitespace(name).folding(options: [.caseInsensitive], locale: nil)
-    }
+    private static func fold(_ name: String) -> String { StoredFile.fold(name) }
 
     // MARK: Loading
 
@@ -234,38 +204,15 @@ public final class PresetStore: @unchecked Sendable {
         return PresetLoadResult(presets: Self.builtIns + user, skipped: skipped)
     }
 
-    /// Opens without following links or blocking, checks the open descriptor, and reads at most 1 MB + 1 byte.
-    private static func readData(_ url: URL) throws -> Data {
-        let descriptor = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
-        guard descriptor >= 0 else { throw PresetError.unreadable }
-        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
-        var info = stat()
-        guard fstat(descriptor, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
-            throw PresetError.notRegularFile
-        }
-        guard info.st_size <= maxFileSize else { throw PresetError.tooLarge }
-        guard let data = try? handle.read(upToCount: maxFileSize + 1) else { throw PresetError.unreadable }
-        guard data.count <= maxFileSize else { throw PresetError.tooLarge }
-        return data
-    }
-
-    private static func decodeError(_ error: Error) -> PresetError {
-        if let decoding = error as? DecodingError, case .dataCorrupted(let context) = decoding,
-           context.underlyingError != nil || context.debugDescription.contains("JSON") {
-            return .invalidJSON
-        }
-        return .invalidStructure
-    }
-
     private static func read(_ url: URL, expectedID: UUID) throws -> Preset {
-        let data = try readData(url)
+        let data = try StoredFile.readData(url)
         let decoder = JSONDecoder()
         let header: Header
-        do { header = try decoder.decode(Header.self, from: data) } catch { throw decodeError(error) }
+        do { header = try decoder.decode(Header.self, from: data) } catch { throw StoredFile.decodeError(error) }
         let version = header.schemaVersion ?? 1
         guard version <= Preset.schemaVersion else { throw PresetError.unsupportedVersion(version) }
         var preset: Preset
-        do { preset = try decoder.decode(Preset.self, from: data) } catch { throw decodeError(error) }
+        do { preset = try decoder.decode(Preset.self, from: data) } catch { throw StoredFile.decodeError(error) }
         guard preset.id == expectedID else { throw PresetError.idMismatch }
         guard !isBuiltIn(preset.id) else { throw PresetError.builtInID }
         guard let name = try? validatedName(preset.name, existing: [], excluding: nil) else {
