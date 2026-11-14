@@ -48,6 +48,28 @@ final class AccessBookmarkTests: XCTestCase {
         XCTAssertNotNil(assets.image(for: original.path))
     }
 
+    /// Final review M4: two steps with the same path but different bookmarks; the one that opens wins, whichever
+    /// comes first.
+    func testWatermarkStepsSharingAPathUseTheBookmarkThatOpens() throws {
+        let original = try logo()
+        let withBookmark = ImageWatermark.chosen(original)
+        let moved = root.appendingPathComponent("moved.png")
+        try FileManager.default.moveItem(at: original, to: moved)
+        let step = { (watermark: ImageWatermark) in
+            PipelineStep(operation: .watermark(WatermarkOptions(content: .image(watermark))))
+        }
+        // An old step without a bookmark (its path is gone) comes first.
+        let both = Pipeline(steps: [step(ImageWatermark(path: original.path)), step(withBookmark)])
+        let assets = WatermarkAssets.load(for: both, maxPixels: 1_000_000)
+        XCTAssertNotNil(assets.image(for: original.path))
+        XCTAssertNil(assets.missingError(for: both))
+
+        // The batch's asset pipeline keeps both variants (deduplicated by path and bookmark, not path only).
+        let conditional = Pipeline(steps: [PipelineStep(operation: .condition(ConditionalStep()))])
+        let resolved = ResolvedPipeline(pipeline: Pipeline(steps: both.steps + [step(withBookmark)]))
+        XCTAssertEqual(BatchRunner.assetPipeline(conditional, resolved: [resolved]).steps.count, 2)
+    }
+
     func testUnresolvableBookmarkAsksToChooseTheImageAgain() throws {
         let original = try logo()
         let watermark = ImageWatermark.chosen(original)

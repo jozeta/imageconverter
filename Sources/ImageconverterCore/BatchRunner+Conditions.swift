@@ -203,17 +203,17 @@ extension BatchRunner {
         return resolved.compactMap { $0 }
     }
 
-    /// One pipeline holding every image-watermark step the items use, once per image path (not per step id: steps
-    /// a preset brings keep the preset's ids, which can repeat with another image), so each watermark image is
-    /// loaded once per batch.
+    /// One pipeline holding every image-watermark step the items use, once per image path and bookmark (not per
+    /// step id: steps a preset brings keep the preset's ids, which can repeat with another image), so each watermark
+    /// image is loaded once per batch, through whichever of its bookmarks opens it (`WatermarkAssets.load`).
     static func assetPipeline(_ pipeline: Pipeline, resolved: [ResolvedPipeline]) -> Pipeline {
         guard pipeline.hasConditions else { return pipeline }
         var union = pipeline
-        var seen = Set<String>()
+        var seen = Set<WatermarkAssets.Key>()
         union.steps = resolved.filter { $0.disposition == .process }.flatMap(\.pipeline.steps).filter { step in
             guard step.isEnabled, case .watermark(let options) = step.operation,
                   case .image(let watermark) = options.content else { return false }
-            return seen.insert(watermark.path).inserted
+            return seen.insert(WatermarkAssets.Key(watermark)).inserted
         }
         return union
     }
