@@ -16,7 +16,7 @@ extension BatchRunner {
         // One plan per file: two items for the same original would both replace it in overwrite mode.
         let items = InputItem.unique(items)
         // Files another run in this process is working on are skipped ("Busy in another run"), not run twice.
-        let (claimed, busy) = ActiveSources.shared.claim(items.map(\.pathKey))
+        let (claimed, busy) = ActiveSources.shared.claim(items.map(\.fileKey))
         defer { ActiveSources.shared.release(claimed) }
         let writer = journal.map {
             RunJournalWriter(url: $0, journal: RunJournal(items: items, pipeline: pipeline, mode: mode))

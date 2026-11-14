@@ -176,7 +176,7 @@ final class ConditionalBatchSafetyTests: XCTestCase {
     func testRunSkipsSourcesHeldByAnotherRun() async throws {
         let held = try source("held.jpg")
         let free = try source("free.jpg")
-        let (claimed, _) = ActiveSources.shared.claim([InputItem(source: held, relativeDirectory: "").pathKey])
+        let (claimed, _) = ActiveSources.shared.claim([InputItem(source: held, relativeDirectory: "").fileKey])
         let report = await BatchRunner.run(items([held, free]), pipeline: Pipeline(), mode: .overwrite, trash: noTrash)
         ActiveSources.shared.release(claimed)
         XCTAssertEqual(report.written, [free])

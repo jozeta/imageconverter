@@ -31,11 +31,11 @@ extension BatchRunner {
 
     /// Resolves, names and plans `items`; nil when the task is cancelled part-way (nothing is written then).
     /// Skipped items take no name and no counter number, but their files stay reserved in the plan. Items whose
-    /// `pathKey` is in `busy` (held by another run) are skipped with `ActiveSources.busyReason`.
+    /// `fileKey` is in `busy` (held by another run) are skipped with `ActiveSources.busyReason`.
     static func planRun(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode, maxPixels: Int,
                         busy: Set<String> = []) async -> RunPlan? {
         guard var resolved = await resolveAll(items, pipeline: pipeline, maxPixels: maxPixels) else { return nil }
-        let busyIndices = Set(items.indices.filter { busy.contains(items[$0].pathKey) })
+        let busyIndices = Set(items.indices.filter { busy.contains(items[$0].fileKey) })
         for index in busyIndices {
             resolved[index] = ResolvedPipeline(pipeline: pipeline.withoutConditions, disposition: .skip,
                                                notes: [ActiveSources.busyReason])

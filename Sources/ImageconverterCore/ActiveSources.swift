@@ -35,6 +35,6 @@ public final class ActiveSources: @unchecked Sendable {
     func isHeld(_ url: URL) -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        return held.contains(InputItem(source: url, relativeDirectory: "").pathKey)
+        return held.contains(InputItem(source: url, relativeDirectory: "").fileKey)
     }
 }

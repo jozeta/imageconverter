@@ -52,14 +52,14 @@ public struct ResumePlan: Equatable, Sendable {
             }
             toRun.append(item)
         }
-        let known = Set(existing.map(\.pathKey))
+        let known = Set(existing.map(\.fileKey))
         var problem: Problem?
         if toRun.isEmpty {
             problem = .nothingLeft
         } else if case .newFolder(let folder) = journal.outputMode, !directoryExists(folder.path) {
             problem = .outputFolderMissing(folder)
         }
-        return ResumePlan(toRun: toRun, toAdd: toRun.filter { !known.contains($0.pathKey) }, missing: missing,
+        return ResumePlan(toRun: toRun, toAdd: toRun.filter { !known.contains($0.fileKey) }, missing: missing,
                           alreadyReplaced: replaced, pipeline: journal.pipeline, mode: journal.outputMode,
                           problem: problem)
     }

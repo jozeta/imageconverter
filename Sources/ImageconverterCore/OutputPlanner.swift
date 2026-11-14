@@ -127,7 +127,7 @@ public enum OutputPlanner {
             // Overwrite mode refuses a second plan for a source already planned (the batch deduplicates first;
             // this is the guard): it gets a plan `FileCommitter` rejects ("Invalid output plan") before
             // touching anything, so one original is never replaced or trashed twice.
-            if isOverwrite, !plannedSources.insert(key(item.source)).inserted {
+            if isOverwrite, !plannedSources.insert(FileIdentity.key(item.source)).inserted {
                 plans.append(PlannedOutput(item: item, destination: item.source, replacesSource: true,
                                            trashesSource: true))
                 continue
@@ -172,13 +172,12 @@ public enum OutputPlanner {
     }
 
     private static func sameFile(_ lhs: URL, _ rhs: URL) -> Bool {
-        lhs.deletingLastPathComponent().standardizedFileURL.path
-            == rhs.deletingLastPathComponent().standardizedFileURL.path
-            && lhs.lastPathComponent.lowercased() == rhs.lastPathComponent.lowercased()
+        key(lhs) == key(rhs)
     }
 
+    /// Paths as the volume compares them (symlinks resolved, case ignored only where the volume ignores it).
     private static func key(_ url: URL) -> String {
-        url.standardizedFileURL.path.lowercased()
+        FileIdentity.pathKey(url)
     }
 
     /// Drops path separators and control characters so a suffix cannot leave the folder.

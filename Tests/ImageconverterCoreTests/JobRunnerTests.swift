@@ -73,7 +73,7 @@ final class JobRunnerTests: XCTestCase {
     func testFilesHeldByAnotherRunAreSkippedAndNotRecorded() async throws {
         let held = try drop("held.jpg")
         try drop("free.jpg")
-        let key = InputItem(source: held, relativeDirectory: "").pathKey
+        let key = InputItem(source: held, relativeDirectory: "").fileKey
         let (claimed, _) = ActiveSources.shared.claim([key])
         XCTAssertEqual(claimed, [key])
         let job = job()

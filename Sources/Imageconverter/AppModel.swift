@@ -197,8 +197,8 @@ final class AppModel {
             let found = await Task.detached(priority: .userInitiated) { InputCollector.collect(urls) }.value
             guard let self else { return }
             // By file, not by item: a file added loose and again through its folder is listed once.
-            var seen = Set(self.items.map(\.pathKey))
-            for item in found where seen.insert(item.pathKey).inserted {
+            var seen = Set(self.items.map(\.fileKey))
+            for item in found where seen.insert(item.fileKey).inserted {
                 self.items.append(item)
             }
             self.pendingAdds -= 1

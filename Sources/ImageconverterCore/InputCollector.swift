@@ -14,14 +14,14 @@ public struct InputItem: Hashable, Sendable {
         self.relativeDirectory = relativeDirectory
     }
 
-    /// The file this item stands for, compared like the planner does (standardized, case-insensitive): the same
-    /// file added loose and through its folder is one item.
-    public var pathKey: String { source.standardizedFileURL.path.lowercased() }
+    /// The file this item stands for (`FileIdentity.key`: volume and inode, else the path as the volume compares
+    /// it): the same file added loose, through its folder or through a symlinked folder is one item.
+    public var fileKey: String { FileIdentity.key(source) }
 
     /// `items` with every later item for an already listed file dropped (the first stays, order kept).
     public static func unique(_ items: [InputItem]) -> [InputItem] {
         var seen = Set<String>()
-        return items.filter { seen.insert($0.pathKey).inserted }
+        return items.filter { seen.insert($0.fileKey).inserted }
     }
 }
 
