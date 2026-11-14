@@ -127,7 +127,7 @@ Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 | Find / Replace | Replaces text in the name after the pattern; plain text or a regular expression | empty |
 | Prefix / Suffix | Text added before and after the finished name (after find and replace) | empty |
 | Remove spaces | Deletes all spaces from the name | off |
-| Special characters | Keep, Replace (with `-`, `_`, `.` or nothing) or Remove everything except letters (any language), digits, `-`, `_` and `.` | Keep |
+| Special characters | Keep, Replace (each run of other characters becomes one `-`, `_`, `.` or nothing; runs at the ends are trimmed) or Remove everything except letters (any language), digits, `-`, `_` and `.` | Keep |
 | Case | Keep, lowercase, UPPERCASE, camelCase, PascalCase, snake_case, kebab-case or Title Case | Keep |
 | Counter starts at | First `{counter}` value, 0 to 999 999 999 | 1 |
 
@@ -273,7 +273,7 @@ Your pipeline is kept between launches.
 
 1. Open **Rename** (under **Always last**) and switch it on.
 2. Type a pattern, for example `{date:yyyy-MM-dd}_{camera}_{counter:000}`, or build it with
-   **Insert token**, which appends at the end.
+   **Insert**, which appends at the end.
 3. The line under the pattern shows an example from the first image in the batch (or a sample
    photo when the batch is empty), such as `Example: 2026-11-13_iPhone 15 Pro_001.jpg`. An
    unknown token like `{foo}` is flagged with a warning and kept as written (`:` still becomes `-`).
@@ -283,11 +283,11 @@ Your pipeline is kept between launches.
 6. **Insert** also holds three quick patterns that replace the whole pattern: *Date + counter*
    (`{date:yyyy-MM-dd}_{counter:000}`), *Camera + date* (`{camera}_{datetime}`) and *Name + size*
    (`{name}_{width}x{height}`).
-7. Use **Prefix**, **Suffix**, **Remove spaces**, **Special characters** and **Case** to tidy the result.
+7. Optionally fill **Find** and **Replace** to change text in the resulting name; tick the regular
+   expression option for patterns. The Rename step is greyed out while *Overwrite original files* is selected.
+8. Use **Prefix**, **Suffix**, **Remove spaces**, **Special characters** and **Case** to tidy the result.
    Order: pattern, find and replace, prefix and suffix, spaces, special characters, case. The example line
    shows the effect of every option.
-8. Optionally fill **Find** and **Replace** to change text in the resulting name; tick the regular
-   expression option for patterns. The Rename step is greyed out while *Overwrite original files* is selected.
 
 Rename tokens:
 

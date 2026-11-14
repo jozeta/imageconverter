@@ -73,11 +73,12 @@ struct RenameEditor: View {
     @ViewBuilder
     private var cleanupFields: some View {
         FieldRow {
-            Text("Prefix").font(LadaGlass.Typography.label)
+            // The visible labels are hidden from VoiceOver; each field carries its own label.
+            Text("Prefix").font(LadaGlass.Typography.label).accessibilityHidden(true)
             TextField("Prefix", text: $options.prefix)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityLabel("Prefix")
-            Text("Suffix").font(LadaGlass.Typography.label)
+            Text("Suffix").font(LadaGlass.Typography.label).accessibilityHidden(true)
             TextField("Suffix", text: $options.suffix)
                 .textFieldStyle(.roundedBorder)
                 .accessibilityLabel("Suffix")
@@ -91,7 +92,7 @@ struct RenameEditor: View {
         }
         .accessibilityLabel("Special characters")
         if options.specialCharacters == .replace {
-            Picker("Replace with", selection: $options.replacement) {
+            Picker("Replace them with", selection: $options.replacement) {
                 Text("-").tag("-")
                 Text("_").tag("_")
                 Text(".").tag(".")
