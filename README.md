@@ -73,9 +73,15 @@ Started 2026-11-13. The full design is in
     *Scale*: percentage (1 to 1000). *Print*: physical size in cm or inches at a DPI (leave one side empty
     to follow the aspect ratio; with both set the image fits inside). Every mode keeps the aspect ratio
     except Stretch. "Don't enlarge" is on by default and is hidden for the modes where it makes no sense
-    (percentage, physical size, minimum size, stretch). A **Presets** menu fills the editor: Social media
-    sizes (exact size, fill and crop, enlarging) and Resolutions such as 1080p and 4K (fit inside, don't
-    enlarge). Pick the **resampling** (Lanczos, Bicubic, Bilinear, Nearest neighbour). **Set DPI** (default
+    (percentage, physical size, print sheet, minimum size, stretch). A **Presets** menu fills the editor, grouped:
+    *Print* (Photo in cm: 9 × 13 to 50 × 70; Photo in inches: 4 × 6 to 16 × 20; Paper: A6 to A2, Letter, Legal,
+    Tabloid; all at 300 dpi as a **Print sheet**, which fits the image inside the sheet turned the way round
+    its own orientation needs, so a landscape photo into 10 × 15 cm gets 15 × 10 cm), *Web* (Thumbnail 150 px
+    to Extra large 2560 px and Email 1024/1600, longest edge, don't enlarge), *Devices & wallpapers*
+    (iPhone, iPad, MacBook screens, Full HD, 4K, 5K, ultrawide), *App & web assets* (avatar, profile, favicons,
+    Open Graph, blog header), *Social media* sizes (exact size, fill and crop, enlarging) and *Resolutions*
+    such as 1080p and 4K (fit inside, don't enlarge). Applying a preset never changes the resampling or the DPI
+    setting. Pick the **resampling** (Lanczos, Bicubic, Bilinear, Nearest neighbour). **Set DPI** (default
     300) labels the output's print resolution without changing pixels.
   - (available) **Crop**: fixed size or aspect ratio (a menu of common ratios or a custom one), with an anchor point
   - (available) **Rotate / flip**: 90° turns, an **Angle** (slider −45…45°, or type −180…180°, clockwise) with

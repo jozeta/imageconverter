@@ -21,9 +21,7 @@ extension ImageOperation {
         var parts = [summary(of: options.mode)]
         if options.resampling != .lanczos { parts.append(options.resampling.displayName.lowercased()) }
         // A physical size already names its DPI.
-        var isPhysical = false
-        if case .physical = options.mode { isPhysical = true }
-        if !isPhysical, let dpi = options.effectiveDPI { parts.append("\(number(dpi)) dpi") }
+        if !options.mode.isPrintSize, let dpi = options.effectiveDPI { parts.append("\(number(dpi)) dpi") }
         return parts.joined(separator: " · ")
     }
 
@@ -45,6 +43,8 @@ extension ImageOperation {
             // Two sides fit inside the print size, keeping the aspect ratio.
             let side: (Double?) -> String = { $0.map { number($0) } ?? "auto" }
             return "\(side(width)) × \(side(height)) \(unit.displayName) at \(number(dpi)) dpi"
+        case .printSheet(let long, let short, let unit, let dpi):
+            return "print \(number(short)) × \(number(long)) \(unit.displayName) at \(number(dpi)) dpi"
         }
     }
 

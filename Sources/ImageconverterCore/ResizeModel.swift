@@ -42,6 +42,9 @@ public enum ResizeMode: Codable, Equatable, Sendable {
     case minimum(width: Int, height: Int)
     /// A print size at `dpi`; a nil side follows the aspect ratio, two sides fit inside.
     case physical(width: Double?, height: Double?, unit: PhysicalUnit, dpi: Double)
+    /// A print sheet of `short` × `long` at `dpi`; the image fits inside it turned the way round its own
+    /// orientation needs (landscape into long × short, portrait into short × long).
+    case printSheet(long: Double, short: Double, unit: PhysicalUnit, dpi: Double)
 }
 
 public struct ResizeOptions: Codable, Equatable, Sendable {
@@ -81,7 +84,10 @@ public struct ResizeOptions: Codable, Equatable, Sendable {
     /// Nil when unset or outside `dpiRange`.
     public var effectiveDPI: Double? {
         let value: Double?
-        if case .physical(_, _, _, let physicalDPI) = mode { value = physicalDPI } else { value = dpi }
+        switch mode {
+        case .physical(_, _, _, let physicalDPI), .printSheet(_, _, _, let physicalDPI): value = physicalDPI
+        default: value = dpi
+        }
         guard let value, value.isFinite, Self.dpiRange.contains(value) else { return nil }
         return value
     }
