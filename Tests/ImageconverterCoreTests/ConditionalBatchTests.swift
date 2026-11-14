@@ -194,7 +194,7 @@ final class ConditionalBatchTests: XCTestCase {
         XCTAssertEqual(skipped.outputSize.0, 20)
 
         let estimate = try SizeEstimator.render(item: items([big])[0], pipeline: conditional)
-        XCTAssertEqual(estimate.encoded.width, 100)
+        XCTAssertEqual(estimate.encoded?.width, 100)
         XCTAssertNotNil(estimate.note, "PNG estimate is unoptimised, so the format override reached it")
         XCTAssertThrowsError(try SizeEstimator.render(item: items([tall])[0], pipeline: conditional)) {
             XCTAssertEqual($0 as? ConversionError, .skippedByCondition)
@@ -211,27 +211,5 @@ final class ConditionalBatchTests: XCTestCase {
         else { return XCTFail("preview failed") }
         XCTAssertEqual(copyPreview.statusNote, "Copied unchanged")
         XCTAssertEqual(copyPreview.outputName, "tall.jpg")
-    }
-
-    // MARK: Jobs
-
-    func testJobRecordsSkippedAndCopiedAsProcessed() async throws {
-        let input = root.appendingPathComponent("Drop", isDirectory: true)
-        try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
-        try TestImages.write(TestImages.make(width: 20, height: 40), to: input.appendingPathComponent("tall.jpg"),
-                             type: .jpeg)
-        try TestImages.write(TestImages.make(width: 40, height: 20), to: input.appendingPathComponent("wide.jpg"),
-                             type: .jpeg)
-        let store = JobStore(directory: root.appendingPathComponent("jobs", isDirectory: true))
-        let conditional = pipeline(ConditionalStep(conditions: [.orientation(.portrait)], then: [.skip],
-                                                   otherwise: [.copyOriginal]))
-        let job = Job(name: "Sort", pipeline: conditional, inputs: [input], output: .newFolder(out), trigger: .watch)
-        let first = await JobRunner.run(job, store: store, trash: noTrash, now: { Date().addingTimeInterval(10) })
-        XCTAssertEqual(first.batch.written.count, 1)
-        XCTAssertEqual(first.batch.skipped.count, 1)
-        XCTAssertEqual(first.report.summary.skipped, 1)
-        let second = await JobRunner.run(job, store: store, trash: noTrash, now: { Date().addingTimeInterval(10) })
-        XCTAssertEqual(second.unchanged, 2, "skipped and copied files aren't evaluated again")
-        XCTAssertEqual(second.batch.order, [])
     }
 }

@@ -142,9 +142,9 @@ public enum BatchRunner {
         trash: @escaping Trasher = systemTrash,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
     ) async -> BatchReport {
-        guard let run = planRun(items, pipeline: pipeline, mode: mode), !Task.isCancelled else { return BatchReport(cancelled: true) }
-        let (plans, jobs) = (run.plans, run.jobs)
-        let total = plans.count
+        guard let run = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels), !Task.isCancelled
+        else { return BatchReport(cancelled: true) }
+        let (plans, jobs, total) = (run.plans, run.jobs, run.plans.count)
         let assets = WatermarkAssets.load(for: run.assetPipeline, maxPixels: maxPixels)
         let skippedCount = run.skipped.count
         if skippedCount > 0 { progress(BatchProgress(completed: skippedCount, failed: 0, total: items.count)) }

@@ -19,7 +19,7 @@ public enum QualityLadder {
         maxPixels: Int = ImageLoader.defaultMaxPixels
     ) throws -> [Rung] {
         // A copied or skipped item has no quality to choose.
-        let resolved = pipeline.resolved(forSource: item.source)
+        let resolved = pipeline.resolved(forSource: item.source, maxPixels: maxPixels)
         guard resolved.disposition == .process else { return [] }
         let pipeline = resolved.pipeline
         guard pipeline.output.format.supportsQuality else { return [] }

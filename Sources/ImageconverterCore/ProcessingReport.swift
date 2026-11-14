@@ -58,8 +58,10 @@ public struct RunSummary: Codable, Equatable, Sendable, Identifiable {
     public var total: Int
     public var succeeded: Int
     public var failed: Int
-    /// Left alone by a condition or because nothing changed.
+    /// Left alone by a condition.
     public var skipped: Int
+    /// Jobs only: left alone because they hadn't changed since they were processed.
+    public var unchanged: Int
     public var cancelled: Int
     public var inputBytes: Int
     public var outputBytes: Int
@@ -73,7 +75,7 @@ public struct RunSummary: Codable, Equatable, Sendable, Identifiable {
     public var averageRatio: Double?
 
     public init(id: UUID = UUID(), startedAt: Date, finishedAt: Date, jobName: String? = nil, presetName: String? = nil,
-                outputMode: String, total: Int, succeeded: Int, failed: Int, skipped: Int = 0, cancelled: Int = 0,
+                outputMode: String, total: Int, succeeded: Int, failed: Int, skipped: Int = 0, unchanged: Int = 0, cancelled: Int = 0,
                 inputBytes: Int, outputBytes: Int, averageDuration: Double = 0, averageRatio: Double? = nil) {
         self.id = id
         self.startedAt = startedAt
@@ -85,6 +87,7 @@ public struct RunSummary: Codable, Equatable, Sendable, Identifiable {
         self.succeeded = succeeded
         self.failed = failed
         self.skipped = skipped
+        self.unchanged = unchanged
         self.cancelled = cancelled
         self.inputBytes = inputBytes
         self.outputBytes = outputBytes

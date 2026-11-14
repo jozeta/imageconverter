@@ -259,8 +259,12 @@ extension Pipeline {
                 result.apply(action, disposition: &disposition)
             }
         }
-        // A copy keeps its own format, so the rename tokens name that format.
-        if disposition == .copyOriginal, let format = facts?.format { result.output.format = format }
+        if disposition == .copyOriginal {
+            // A copy is the unchanged source: no image steps (so `{width}`/`{height}` give its own size), and
+            // its own format where the app knows it (the rename context takes the extension from the file).
+            result.steps = []
+            if let format = facts?.format { result.output.format = format }
+        }
         return ResolvedPipeline(pipeline: result, disposition: disposition)
     }
 
@@ -285,9 +289,19 @@ extension Pipeline {
     }
 
     /// Resolves for the file at `url`, reading its facts only when there are conditions (and scanning for
-    /// transparency only when a condition asks about it).
-    public func resolved(forSource url: URL) -> ResolvedPipeline {
-        guard hasConditions else { return ResolvedPipeline(pipeline: self) }
-        return resolved(for: ItemFacts.read(url, scanAlpha: conditionsNeedAlphaScan))
+    /// transparency only when a condition asks about it, and the image is within `maxPixels`).
+    public func resolved(forSource url: URL, maxPixels: Int = ImageLoader.defaultMaxPixels) -> ResolvedPipeline {
+        guard hasConditions else { return ResolvedPipeline(pipeline: withoutConditions) }
+        return resolved(for: ItemFacts.read(url, scanAlpha: conditionsNeedAlphaScan, maxPixels: maxPixels))
+    }
+
+    /// This pipeline without its (disabled) condition steps, so a resolved pipeline never holds one.
+    var withoutConditions: Pipeline {
+        var copy = self
+        copy.steps.removeAll { step in
+            if case .condition = step.operation { return true }
+            return false
+        }
+        return copy
     }
 }

@@ -52,7 +52,8 @@ public enum ReportExporter {
 
     static func counts(_ summary: RunSummary) -> String {
         "\(summary.total) files: \(summary.succeeded) succeeded, \(summary.failed) failed, "
-            + "\(summary.skipped) skipped, \(summary.cancelled) cancelled"
+            + "\(summary.skipped) skipped, " + (summary.unchanged > 0 ? "\(summary.unchanged) unchanged, " : "")
+            + "\(summary.cancelled) cancelled"
     }
 
     // MARK: JSON

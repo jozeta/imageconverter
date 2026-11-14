@@ -39,8 +39,8 @@ public enum JobRunner {
         func finish(_ batch: BatchReport, total: Int, selection: Selection, problem: String?) -> JobRunResult {
             var report = ProcessingReport(batch: batch, total: total, outputMode: job.output.kind.rawValue,
                                           jobName: job.name, startedAt: startedAt, finishedAt: now())
-            // Unchanged files join those a condition skipped.
-            report.summary.skipped += selection.unchanged
+            // Counted apart from files a condition skipped.
+            report.summary.unchanged = selection.unchanged
             report.summary.total += selection.unchanged
             return JobRunResult(batch: batch, report: report, unchanged: selection.unchanged,
                                 waiting: selection.waiting, reportFile: nil, problem: problem)

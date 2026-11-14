@@ -7,7 +7,9 @@ enum RenameRendering {
     /// item's resolved pipeline (conditions can change its rename and format), and `index` skips skipped items.
     /// The counter is `counterStart + index`, saturating. The header and creation date are only
     /// read when the template uses them.
-    static func baseName(for item: InputItem, index: Int, pipeline: Pipeline) -> String? {
+    /// `isCopy`: the item is copied unchanged, so `{ext}` and `{format}` describe the source file itself
+    /// (its extension lower-cased; the pipeline of a copy has no image steps, so the size is the source's).
+    static func baseName(for item: InputItem, index: Int, pipeline: Pipeline, isCopy: Bool = false) -> String? {
         guard pipeline.rename.isActive else { return nil }
         let template = RenameTemplate(pipeline.rename.pattern)
         let header = template.needsHeader ? ImageLoader.header(of: item.source) : nil
@@ -16,9 +18,14 @@ enum RenameRendering {
         let created = template.needsDate
             ? (try? item.source.resourceValues(forKeys: [.creationDateKey]))?.creationDate : nil
         let (counter, overflow) = pipeline.rename.counterStart.addingReportingOverflow(index)
-        let context = RenameContext.make(
+        var context = RenameContext.make(
             source: item.source, header: header, outputSize: size, format: pipeline.output.format,
             counter: overflow ? Int.max : counter, fileCreationDate: created)
+        if isCopy {
+            let ext = item.source.pathExtension.lowercased()
+            context.ext = ext
+            context.format = OutputFormat.allCases.first { $0.fileExtensions.contains(ext) }?.displayName ?? ext.uppercased()
+        }
         return pipeline.rename.render(template, context)
     }
 }

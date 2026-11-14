@@ -94,10 +94,12 @@ public enum OutputPlanner {
     }
 
     /// Plans one destination per target, in order, with the same rules as `plan(_:format:...)` but a format,
-    /// extension and name per item (conditions can change them per image).
+    /// extension and name per item (conditions can change them per image). `reservedSources` are files that
+    /// are part of the batch but get no output (skipped by a condition): no plan may target them either.
     public static func plan(
         _ targets: [OutputTarget],
         mode: OutputMode,
+        reservedSources: [URL] = [],
         fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
     ) -> [PlannedOutput] {
         let isOverwrite = mode == .overwrite
@@ -109,10 +111,11 @@ public enum OutputPlanner {
         func inPlace(_ target: OutputTarget) -> Bool {
             isOverwrite && target.acceptedExtensions.contains(target.item.source.pathExtension.lowercased())
         }
-        // Pre-claim in-place targets so no other item can take them, whatever `fileExists` says.
-        for target in targets where inPlace(target) { claimed.insert(key(target.item.source)) }
-        // Outside overwrite mode no plan may ever target a source file, even with an empty suffix.
-        if !isOverwrite { for target in targets { claimed.insert(key(target.item.source)) } }
+        // Pre-claim in-place targets so no other item can take them, whatever `fileExists` says. Outside
+        // overwrite mode no plan may ever target a source file, even with an empty suffix. A skipped file is
+        // never replaced, in any mode.
+        claimed.formUnion(targets.filter { !isOverwrite || inPlace($0) }.map { key($0.item.source) })
+        claimed.formUnion(reservedSources.map(key))
 
         var plans: [PlannedOutput] = []
         for target in targets {

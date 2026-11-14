@@ -16,22 +16,20 @@ extension BatchRunner {
     }
 
     /// Resolves, names and plans `items`; nil when the task is cancelled part-way (nothing is written then).
-    /// Skipped items take no name and no counter number.
-    static func planRun(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode) -> RunPlan? {
-        guard let resolved = resolveAll(items, pipeline: pipeline) else { return nil }
+    /// Skipped items take no name and no counter number, but their files stay reserved in the plan.
+    static func planRun(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode, maxPixels: Int) async -> RunPlan? {
+        guard let resolved = await resolveAll(items, pipeline: pipeline, maxPixels: maxPixels) else { return nil }
         let active = items.indices.filter { resolved[$0].disposition != .skip }
         let jobs = active.map { resolved[$0] }
-        guard let baseNames = renderedBaseNames(active.map { items[$0] }, pipelines: jobs.map(\.pipeline)) else {
-            return nil
-        }
+        guard let baseNames = renderedBaseNames(active.map { items[$0] }, jobs: jobs) else { return nil }
         let targets = zip(active, baseNames).map { index, name -> OutputTarget in
             resolved[index].disposition == .copyOriginal
                 ? .copyOfOriginal(items[index], baseName: name)
                 : OutputTarget(item: items[index], format: resolved[index].pipeline.output.format, baseName: name)
         }
         let skipped = items.indices.filter { resolved[$0].disposition == .skip }.map { items[$0].source }
-        return RunPlan(plans: OutputPlanner.plan(targets, mode: mode), jobs: jobs, skipped: skipped,
-                       assetPipeline: assetPipeline(pipeline, resolved: jobs))
+        return RunPlan(plans: OutputPlanner.plan(targets, mode: mode, reservedSources: skipped), jobs: jobs,
+                       skipped: skipped, assetPipeline: assetPipeline(pipeline, resolved: jobs))
     }
 
     /// Runs one planned item: a copy of the original, or the full load, apply, encode and commit.
@@ -45,17 +43,39 @@ extension BatchRunner {
         return convert(plan, pipeline: job.pipeline, assets: assets, maxPixels: maxPixels, trash: trash)
     }
 
+    /// How many files' facts are read at once (header reads and small scans are mostly I/O).
+    static let factReaders = 4
+
     /// Each item's pipeline with its conditions resolved, from header-only facts (plus a small alpha scan when a
-    /// condition asks about transparency). Nil when the task is cancelled part-way.
-    static func resolveAll(_ items: [InputItem], pipeline: Pipeline) -> [ResolvedPipeline]? {
-        guard pipeline.hasConditions else { return items.map { _ in ResolvedPipeline(pipeline: pipeline) } }
-        var resolved: [ResolvedPipeline] = []
-        resolved.reserveCapacity(items.count)
-        for item in items {
-            if Task.isCancelled { return nil }
-            resolved.append(pipeline.resolved(forSource: item.source))
+    /// condition asks about transparency), read a few at a time and returned in input order. Nil when the task
+    /// is cancelled part-way.
+    static func resolveAll(_ items: [InputItem], pipeline: Pipeline, maxPixels: Int) async -> [ResolvedPipeline]? {
+        guard pipeline.hasConditions else {
+            let plain = ResolvedPipeline(pipeline: pipeline.withoutConditions)
+            return items.map { _ in plain }
         }
-        return resolved
+        var resolved = [ResolvedPipeline?](repeating: nil, count: items.count)
+        let finished = await withTaskGroup(of: (Int, ResolvedPipeline).self) { group -> Bool in
+            var next = 0
+            func startNext() {
+                let index = next
+                let url = items[index].source
+                next += 1
+                group.addTask { (index, pipeline.resolved(forSource: url, maxPixels: maxPixels)) }
+            }
+            while next < min(items.count, factReaders) { startNext() }
+            while let (index, result) = await group.next() {
+                if Task.isCancelled {
+                    group.cancelAll()
+                    return false
+                }
+                resolved[index] = result
+                if next < items.count { startNext() }
+            }
+            return !Task.isCancelled
+        }
+        guard finished else { return nil }
+        return resolved.compactMap { $0 }
     }
 
     /// One pipeline holding every image step the items use, so each watermark image is loaded once per batch.
@@ -71,16 +91,17 @@ extension BatchRunner {
     /// Renders each item's rename template, serially in input order (the counter depends on it); an item whose
     /// pipeline doesn't rename gets nil. Nil when the task is cancelled part-way (nothing is written then).
     /// The header and creation date are only read when the template uses them.
-    private static func renderedBaseNames(_ items: [InputItem], pipelines: [Pipeline]) -> [String?]? {
+    private static func renderedBaseNames(_ items: [InputItem], jobs: [ResolvedPipeline]) -> [String?]? {
         var names: [String?] = []
         names.reserveCapacity(items.count)
-        for (index, (item, pipeline)) in zip(items, pipelines).enumerated() {
-            guard pipeline.rename.isActive else {
+        for (index, (item, job)) in zip(items, jobs).enumerated() {
+            guard job.pipeline.rename.isActive else {
                 names.append(nil)
                 continue
             }
             if Task.isCancelled { return nil }
-            guard let name = RenameRendering.baseName(for: item, index: index, pipeline: pipeline) else { return nil }
+            guard let name = RenameRendering.baseName(for: item, index: index, pipeline: job.pipeline,
+                                                      isCopy: job.disposition == .copyOriginal) else { return nil }
             names.append(name)
         }
         return names

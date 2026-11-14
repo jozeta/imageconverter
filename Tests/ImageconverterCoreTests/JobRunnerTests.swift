@@ -59,7 +59,8 @@ final class JobRunnerTests: XCTestCase {
         let second = await run(job)
         XCTAssertEqual(second.batch.written.count, 0)
         XCTAssertEqual(second.unchanged, 2)
-        XCTAssertEqual(second.report.summary.skipped, 2)
+        XCTAssertEqual(second.report.summary.unchanged, 2)
+        XCTAssertEqual(second.report.summary.skipped, 0)
 
         try TestImages.write(TestImages.make(width: 50, height: 20), to: changed, type: .jpeg)
         let third = await run(job)

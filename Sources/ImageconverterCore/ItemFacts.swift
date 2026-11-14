@@ -37,8 +37,11 @@ public struct ItemFacts: Equatable, Sendable {
     static let alphaScanSize = 256
 
     /// Reads the facts of `url`; nil when it isn't a readable image. `scanAlpha: false` trusts the header's
-    /// alpha flag (no thumbnail decode), for callers whose conditions don't test transparency.
-    public static func read(_ url: URL, scanAlpha: Bool = true) -> ItemFacts? {
+    /// alpha flag (no thumbnail decode), for callers whose conditions don't test transparency. An image over
+    /// `maxPixels` is never scanned (ImageIO would decode all of it for the thumbnail): the header decides, and
+    /// the batch's own pixel guard fails the file later.
+    public static func read(_ url: URL, scanAlpha: Bool = true,
+                            maxPixels: Int = ImageLoader.defaultMaxPixels) -> ItemFacts? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
               CGImageSourceGetCount(source) > 0,
@@ -51,7 +54,8 @@ public struct ItemFacts: Equatable, Sendable {
         let headerAlpha = properties[kCGImagePropertyHasAlpha as String] as? Bool ?? false
         var hasAlpha = headerAlpha
         // PNG, TIFF and HEIC often carry an alpha channel that is fully opaque: look before believing it.
-        if headerAlpha, scanAlpha, scannedTypes.contains(type) {
+        let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
+        if headerAlpha, scanAlpha, scannedTypes.contains(type), !overflow, pixels <= maxPixels {
             hasAlpha = hasTransparentPixel(source) ?? true
         }
         let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any]

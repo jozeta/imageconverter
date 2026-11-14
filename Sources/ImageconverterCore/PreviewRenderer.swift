@@ -86,7 +86,7 @@ public actor PreviewRenderer {
         -> PreviewOutcome {
         let cancelled = PreviewOutcome.failed(reason: "Cancelled")
         if Task.isCancelled { return cancelled }
-        let resolved = unresolved.resolved(forSource: item.source)
+        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels)
         let pipeline = resolved.pipeline
         if resolved.disposition != .process { return unchanged(item: item, index: index, resolved: resolved, mode: mode) }
         let assets = watermarkAssets(for: pipeline)
@@ -148,7 +148,7 @@ public actor PreviewRenderer {
 
     private func outputDestination(for item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode?,
                                    copy: Bool = false) -> URL {
-        let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline)
+        let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline, isCopy: copy)
         let target = copy ? OutputTarget.copyOfOriginal(item, baseName: base)
             : OutputTarget(item: item, format: pipeline.output.format, baseName: base)
         let plan = OutputPlanner.plan(

@@ -22,8 +22,8 @@ final class SizeEstimatorTests: XCTestCase {
         let written = try XCTUnwrap(report.written.first)
         let size = try XCTUnwrap(try written.resourceValues(forKeys: [.fileSizeKey]).fileSize)
         XCTAssertEqual(estimate.bytes, size)
-        XCTAssertEqual(estimate.original.width, 200)
-        XCTAssertEqual(estimate.encoded.width, 200)
+        XCTAssertEqual(estimate.original?.width, 200)
+        XCTAssertEqual(estimate.encoded?.width, 200)
     }
 
     func testEstimateChangesWithQuality() throws {
