@@ -12,9 +12,6 @@ struct PipelineSection: View {
     @State private var draggedID: PipelineStep.ID?
     @State fileprivate var metadataExpanded = false
     @State fileprivate var renameExpanded = false
-    @State private var pendingOverwrite = false
-    /// Bumped when the overwrite dialog is cancelled, so the menu picker redraws the real mode.
-    @State private var pickerID = 0
 
     fileprivate static let overwriteHelp = "Not available when overwriting originals"
 
@@ -145,16 +142,6 @@ struct PipelineSection: View {
         .padding(.vertical, LadaGlass.Spacing.s)
         .frame(maxWidth: .infinity, alignment: .leading)
         .lgSurface()
-        .onChange(of: pendingOverwrite) { _, pending in
-            if !pending, settings.modeKind != .overwrite { pickerID += 1 }
-        }
-        .confirmationDialog("Overwrite originals?", isPresented: $pendingOverwrite) {
-            Button("Use overwrite") { settings.modeKind = .overwrite }
-            Button("Cancel", role: .cancel) { pickerID += 1 }
-        } message: {
-            Text("Converted images will replace the originals. When the format or name changes, "
-                + "the original is moved to the Trash. You won't be asked again when running.")
-        }
     }
 
     // MARK: Size estimate
@@ -185,66 +172,9 @@ struct PipelineSection: View {
     // MARK: Save to
 
     private var saveToControls: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Picker("Save to", selection: modeBinding) {
-                Text("Overwrite original files").tag(OutputModeKind.overwrite)
-                Text("Same folder as original").tag(OutputModeKind.sameFolder)
-                Text("New folder").tag(OutputModeKind.newFolder)
-            }
-            .id(pickerID)
-            .accessibilityLabel("Save to")
-            switch settings.modeKind {
-            case .overwrite:
-                note("Converted images replace the originals. The Rename step is off while overwriting.")
-            case .sameFolder:
-                @Bindable var settings = settings
-                note("Added when the name is unchanged")
-                TextField("Added when the name is unchanged", text: $settings.sameFolderSuffix)
-                    .textFieldStyle(.roundedBorder)
-                    .labelsHidden()
-                    .accessibilityLabel("Added when the name is unchanged")
-            case .newFolder:
-                HStack {
-                    Text(settings.outputFolder?.path ?? "No folder chosen")
-                        .font(LadaGlass.Typography.mono)
-                        .foregroundStyle(LadaGlass.Colors.muted)
-                        .lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: 0)
-                    Button("Choose folder…", action: chooseFolder)
-                        .buttonStyle(.lg(.secondary))
-                        .accessibilityLabel("Choose output folder")
-                }
-            }
-        }
-        .disabled(model.isRunning)
-    }
-
-    private func note(_ text: String) -> some View {
-        Text(text).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-    }
-
-    /// Reads the stored kind; writing asks first when the change needs the overwrite warning.
-    private var modeBinding: Binding<OutputModeKind> {
-        Binding(
-            get: { settings.modeKind },
-            set: { new in
-                if needsOverwriteWarning(from: settings.modeKind, to: new) {
-                    pendingOverwrite = true
-                } else {
-                    settings.modeKind = new
-                }
-            })
-    }
-
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.message = "Choose output folder"
-        panel.prompt = "Choose"
-        if panel.runModal() == .OK { settings.outputFolder = panel.url }
+        @Bindable var settings = settings
+        return SaveToControl(kind: $settings.modeKind, folder: $settings.outputFolder, suffix: $settings.sameFolderSuffix)
+            .disabled(model.isRunning)
     }
 }
 

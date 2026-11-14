@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- **Jobs** (Window ▸ Jobs, ⌘J): watch folders or run on a schedule with a saved pipeline or a linked preset, while the app is open; one run at a time per job, a catch-up run when watching starts, a report file per run, notifications, and an optional menu bar mode. See [Process a folder automatically](#process-a-folder-automatically).
 - Finder Quick Actions ("Convert with imageconverter" and up to 5 pinned presets), AppleScript commands (`convert`, `add files`, `run batch`, `presets`) and `imageconverter://` links, active once the app is packaged (milestone 6). See [Finder, AppleScript and links](#finder-applescript-and-links).
 - Watermark editor: rotation (with 0°/−45°/45°/90° buttons), a Tiled layout (spacing, staggered rows), shadow and outline for text, an **Insert** menu for tokens such as `{filename}` and `{year}` with the text shown for the selected image, SVG logos (including Illustrator exports), and a **Templates** menu (Apply, Save as template…, Delete).
 - If / then / else steps: test each image's size, file size, format, transparency, orientation, GPS or camera, and give it its own steps, output, metadata or rename, copy it unchanged or skip it; the preview shows which branch an image takes, and skipped files are counted apart from failures.
@@ -233,6 +234,20 @@ under **Choose image…** and for each file in the batch:
 - "This SVG is too large (over 1 MB)." and "This file isn't a valid SVG."
 
 When an SVG is refused, export the logo again as plain SVG (or as a PNG with a transparent background).
+
+Jobs (Window ▸ Jobs, ⌘J; see [Process a folder automatically](#process-a-folder-automatically)):
+
+| Setting | What it is | Default |
+|---------|------------|---------|
+| Jobs folder | `~/Library/Application Support/imageconverter/jobs/`, one `<UUID>.json` per job plus `<UUID>.ledger.json` (the files it processed) | created on first save |
+| Pipeline | The job's own copy, or a preset whose current pipeline is used at run time | copy of the main window's pipeline (a link when an unmodified preset is selected) |
+| Input folders | Up to 64 folders; **Include subfolders** watches inside them too | none, subfolders off |
+| Save to | Same choices as the Output row (new folder, same folder with a suffix, overwrite) | the main window's Save to |
+| Start | Manually · When files arrive (watch) · On a schedule every N minutes or hours (5 min … 30 days) | When files arrive |
+| Report | None · CSV · JSON · Text · HTML, written next to the outputs after each run that processed files | CSV |
+| Enabled | Off: never starts by itself (Run Now still works) | on |
+| Pause all jobs | Bottom of the Jobs window or the menu bar; UserDefaults key `jobsPaused` | off |
+| Keep running in the menu bar when the window is closed | Shows the menu bar item and hides the Dock icon once the last window closes; key `keepInMenuBar` | off |
 
 Presets and preview:
 
@@ -506,6 +521,47 @@ Examples (one step each):
 
 (More how-tos once the features exist: build and save a preset.)
 
+### Process a folder automatically
+
+Example: every photo dropped into **Incoming Images** is resized to 2048 px, saved as AVIF (or JPEG on a Mac
+without AVIF) at 85 % without its GPS location in **Processed Images**, with a CSV report of each run.
+
+1. In the main window, build the pipeline: **+ Add step › Resize** (Longest edge 2048 px), **+ Add step › Metadata**
+   (Remove location), and in the Output row choose **AVIF** (or JPEG) at **85 %**. Or select a preset that does this.
+2. Open **Window ▸ Jobs** (⌘J) and press **New Job from Current Pipeline**. The job gets a copy of the pipeline (or,
+   when an unmodified preset is selected, a link to the preset, so later changes to the preset reach the job).
+3. In the editor: name it, press **Add folder…** and pick *Incoming Images* (add more folders if you like; switch on
+   **Include subfolders** to watch inside them), set **Save to** to *New folder* and choose *Processed Images*,
+   set **Start** to *When files arrive (watch)*, **Report** to *CSV*, and press **Create Job**.
+4. The job first processes what is already in the folder (a catch-up run), then every new or changed image once it
+   has finished copying (unchanged for 2 s). Each file is processed once unless it changes; files the job wrote are
+   never taken as input, even when the output folder is inside the watched folder.
+5. The list shows each job's trigger, folders, last run ("2 min ago · 12 converted, 1 failed") and status
+   (*Watching*, *Scheduled*, *Running 3/12*, *Paused*, *Off*). Select a job for **Run Now**, **Open Last Report**
+   (the newest `imageconverter-report-<date>.csv` next to the outputs) or **Reveal Output**; double-click (or
+   **Edit…**) to change it; right-click for **Switch Off/On**, **Process All Files Again…** and **Delete…** (the
+   folders and images are never touched).
+
+Good to know:
+
+- Jobs run while the app is open (watching and schedules stop when it quits and catch up when it starts again).
+  Switch on **Keep running in the menu bar when the window is closed** at the bottom of the Jobs window to keep the
+  app in the menu bar (job status, Pause All Jobs, Open imageconverter, Jobs…, Quit) after its windows close.
+- One run per job at a time: files that arrive during a run are collected into one follow-up run. Job runs are
+  background runs at low priority with half the processor cores and half the memory budget, so they never block
+  (or wait for) a run in the main window.
+- **On a schedule** looks for new and changed images every N minutes or hours (at least every 5 minutes).
+  **Manually** runs only on **Run Now** (or an `imageconverter://jobs/run` link).
+- The first time a watch job is switched on, macOS asks whether imageconverter may show notifications; jobs then
+  report when a watched or scheduled run converted files or failed. Saying no changes nothing else.
+- Folders are remembered as security-scoped bookmarks, so a job keeps working after the folder is moved or renamed
+  (and, in the sandboxed 1.0 app, after a relaunch). A folder that can't be found any more (deleted, or its disk
+  unplugged) switches the job off with a message ("The input folder "Incoming Images" can't be found."); edit the job,
+  choose the folder again and switch it on.
+- **Pause all jobs** stops every watcher and schedule until you switch it off (a run in progress finishes).
+- Every run that processed files is kept in the run history; failures also go to the error log
+  (`~/Library/Application Support/imageconverter/logs/errors.log`).
+
 ## Finder, AppleScript and links
 
 These three entry points are built into the app but **become active only in the packaged app** (milestone 6):
@@ -561,7 +617,7 @@ time: links that arrive meanwhile are ignored and counted in one message. Escape
 | `imageconverter://open` | Shows the window (no confirmation). |
 | `imageconverter://preset?name=Web%20export` | Selects the preset. |
 | `imageconverter://add?path=/Users/me/a.jpg&path=/Users/me/Trip` | Adds the files and folders (absolute paths). |
-| `imageconverter://jobs/run?name=Nightly` | Runs the saved job once. |
+| `imageconverter://jobs/run?name=Nightly` | Runs the saved job once (or once more after the run in progress). |
 
 ## Command line and Shortcuts
 

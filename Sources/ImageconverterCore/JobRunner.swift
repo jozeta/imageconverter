@@ -25,12 +25,15 @@ public enum JobRunner {
     /// through `BatchRunner`. Then successes (copies and files a condition skipped included) are recorded as done,
     /// failures count an attempt (after `ProcessedLedger.maxAttempts` an unchanged file is given up on, which the
     /// report says once), written files are recorded as outputs (never inputs), and the report file is written.
+    /// Background runs pass a lower `concurrency` and `memoryBudgetPixels`, so they share the Mac with a manual run.
     public static func run(
         _ job: Job,
         files: [URL]? = nil,
         store: JobStore,
         presetStore: PresetStore? = nil,
         maxPixels: Int = 250_000_000,
+        concurrency: Int = ProcessInfo.processInfo.activeProcessorCount,
+        memoryBudgetPixels: Int = BatchRunner.defaultMemoryBudgetPixels,
         trash: @escaping Trasher = systemTrash,
         now: @Sendable () -> Date = { Date() },
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
@@ -63,6 +66,7 @@ public enum JobRunner {
         }
 
         let batch = await BatchRunner.run(selection.items, pipeline: pipeline, mode: job.output, maxPixels: maxPixels,
+                                          concurrency: concurrency, memoryBudgetPixels: memoryBudgetPixels,
                                           trash: trash, progress: progress)
         let gaveUp = update(&ledger, with: batch, fingerprints: selection.fingerprints)
         var problems: [String] = []

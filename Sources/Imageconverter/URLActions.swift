@@ -82,8 +82,9 @@ extension ExternalActions {
             title: "Run the job \(job.name)?",
             message: "A link asks to run this job now. " + folders,
             confirm: overwrite ? "Run and Replace Originals" : "Run Job", destructive: overwrite) else { return }
-        if !model.startJobRun(job, store: jobStore) {
-            reportProblem(ExternalRequestError.busy, title: "Couldn't run the job")
-        }
+        // Through the Jobs controller: one run per job at a time (a link during a run becomes its follow-up).
+        let jobs = JobsController.shared
+        jobs.start()
+        jobs.runNow(job.id)
     }
 }

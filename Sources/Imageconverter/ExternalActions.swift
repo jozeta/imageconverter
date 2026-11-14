@@ -13,6 +13,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Watching and schedules start with the app, not with the Jobs window.
+        MainActor.assumeIsolated {
+            JobsController.shared.start()
+            MenuBarMode.shared.install(controller: JobsController.shared)
+        }
         NSApp.servicesProvider = services
         NSUpdateDynamicServices()
         // Again after launch, in case SwiftUI installed its own (which would open a new window per link).
@@ -44,8 +49,8 @@ final class ExternalActions {
     private weak var window: NSWindow?
     private var openWindow: (() -> Void)?
     private var waiting: [(AppModel, AppSettings) -> Void] = []
-    /// Saved jobs, for `imageconverter://jobs/run`.
-    let jobStore = JobStore(directory: AppDefaults.templatesDirectory(folder: "jobs"))
+    /// Saved jobs, for `imageconverter://jobs/run`: the Jobs controller's store, so ledgers share one lock.
+    var jobStore: JobStore { JobsController.shared.store }
 
     func attach(model: AppModel, settings: AppSettings, openWindow: @escaping () -> Void) {
         self.model = model

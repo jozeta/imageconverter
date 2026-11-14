@@ -11,6 +11,8 @@ struct ImageconverterApp: App {
     @State private var metadataTemplates = MetadataTemplatesModel(store: .metadata(
         directory: AppDefaults.templatesDirectory(folder: MetadataTemplateStore.folderName)))
     @State private var settings = AppSettings(defaults: AppDefaults.store)
+    /// Saved jobs, their watchers and schedules (see `JobsController`).
+    @State private var jobs = JobsController.shared
 
     init() {
         // A SwiftPM executable starts as a background process; make it a regular app with a window.
@@ -30,6 +32,7 @@ struct ImageconverterApp: App {
         }
         .windowResizability(.contentSize)
         .commands {
+            JobsCommands()
             CommandGroup(after: .saveItem) {
                 Button("Save Preset") { model.saveCurrent() }
                     .keyboardShortcut("s", modifiers: .command)
@@ -56,6 +59,30 @@ struct ImageconverterApp: App {
                     .keyboardShortcut(".", modifiers: .command)
                     .disabled(!model.isRunning)
             }
+        }
+
+        Window("Jobs", id: JobsView.windowID) {
+            JobsView(controller: jobs, model: model, settings: settings)
+                .onAppear { MenuBarMode.shared.windowWillShow() }
+        }
+        .defaultSize(width: 860, height: 560)
+
+        MenuBarExtra("imageconverter", systemImage: jobs.runningCount > 0 ? "arrow.triangle.2.circlepath" : "photo.stack",
+                     isInserted: $jobs.keepInMenuBar) {
+            MenuBarContent(controller: jobs)
+        }
+    }
+}
+
+/// Window ▸ Jobs (⌘J). A `Window` scene lists itself in the Window menu, but without a shortcut.
+private struct JobsCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(before: .windowList) {
+            Button("Jobs") { openWindow(id: JobsView.windowID) }
+                .keyboardShortcut("j", modifiers: .command)
+            Divider()
         }
     }
 }
@@ -92,7 +119,7 @@ extension ImageconverterApp {
 /// The sidebar and the preview side by side, sized by `WindowSizer`: the sidebar has a fixed width,
 /// the preview fills the rest, and the window edge clips the preview while it slides in or out.
 private struct MainWindowContent: View {
-    static let windowID = "main"
+    static let windowID = MainWindow.id
     @Bindable var model: AppModel
     var settings: AppSettings
     @Environment(\.openWindow) private var openWindow
@@ -121,6 +148,7 @@ private struct MainWindowContent: View {
             ExternalActions.shared.attachWindow($0)
         })
         .onAppear {
+            MenuBarMode.shared.windowWillShow()
             model.zoom.installKeyMonitor()
             ExternalActions.shared.attach(model: model, settings: settings) { [openWindow] in
                 openWindow(id: Self.windowID)
@@ -133,6 +161,11 @@ private struct MainWindowContent: View {
 
     #if DEBUG
     private static var debugArgumentsApplied = false
+
+    /// `-debugShowJobs` opens the Jobs window; `-debugEditJob <name>` also opens that job's editor.
+    private func openJobsWindowIfAsked(_ arguments: [String]) {
+        if arguments.contains("-debugShowJobs") || arguments.contains("-debugEditJob") { openWindow(id: JobsView.windowID) }
+    }
 
     /// Debug-only launch options for screenshots: `-debugAddFiles <path>…` adds images at launch,
     /// `-debugZoom <scale>` starts the preview zoomed (scale relative to fit) and `-debugWindowWidth <points>`
@@ -156,6 +189,7 @@ private struct MainWindowContent: View {
             model.selectedIndex = selected
         }
         if arguments.contains("-debugShowQuality") { model.compare.showsQuality = true }
+        openJobsWindowIfAsked(arguments)
         if let index = arguments.firstIndex(of: "-debugWindowWidth"), index + 1 < arguments.count,
            let width = Double(arguments[index + 1]) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

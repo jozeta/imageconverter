@@ -85,6 +85,24 @@ public struct ProcessedLedger: Codable, Equatable, Sendable {
         Self.trim(&outputs)
     }
 
+    /// A watched folder moved (its bookmark followed it): entries under `old` now live under `new`, so the files
+    /// in it are not processed (and in overwrite mode re-compressed) again.
+    public mutating func rebase(from old: String, to new: String) {
+        guard old != new else { return }
+        let prefix = old.hasSuffix("/") ? old : old + "/"
+        let target = new.hasSuffix("/") ? new : new + "/"
+        func move(_ table: inout [String: Entry]) {
+            for (path, entry) in table where path.hasPrefix(prefix) {
+                var moved = entry
+                moved.fingerprint.path = target + path.dropFirst(prefix.count)
+                table[path] = nil
+                table[moved.fingerprint.path] = moved
+            }
+        }
+        move(&inputs)
+        move(&outputs)
+    }
+
     /// Sets the entry's place in the recording order and stores it under its path.
     private static func insert(_ entry: Entry, into table: inout [String: Entry], order: inout Int) {
         var entry = entry

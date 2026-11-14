@@ -40,12 +40,20 @@ public struct Job: Equatable, Sendable, Identifiable {
     public var trigger: JobTrigger
     public var report: ReportFormat?
     public var isEnabled: Bool
+    /// App-scoped security-scoped bookmarks of `inputs` (same order), so a sandboxed app can reopen the
+    /// folders after a relaunch. Nil, or a different count, means "use the plain URLs" (see `FolderAccess`).
+    public var inputBookmarks: [Data]?
+    /// The bookmark of the new-folder output, when there is one.
+    public var outputBookmark: Data?
+    /// Why the app switched the job off (e.g. a folder that can't be found); cleared when it is switched on.
+    public var disabledReason: String?
 
     public static let schemaVersion = 1
 
     public init(id: UUID = UUID(), name: String, pipeline: Pipeline = Pipeline(), presetID: UUID? = nil,
                 inputs: [URL] = [], recursive: Bool = false, output: OutputMode, trigger: JobTrigger = .manual,
-                report: ReportFormat? = nil, isEnabled: Bool = true) {
+                report: ReportFormat? = nil, isEnabled: Bool = true, inputBookmarks: [Data]? = nil,
+                outputBookmark: Data? = nil, disabledReason: String? = nil) {
         self.id = id
         self.name = name
         self.pipeline = pipeline
@@ -56,6 +64,9 @@ public struct Job: Equatable, Sendable, Identifiable {
         self.trigger = trigger
         self.report = report
         self.isEnabled = isEnabled
+        self.inputBookmarks = inputBookmarks
+        self.outputBookmark = outputBookmark
+        self.disabledReason = disabledReason
     }
 
     /// The pipeline to run: the linked preset's current one, or the job's own. Nil when the linked preset is gone.
@@ -74,6 +85,9 @@ public struct Job: Equatable, Sendable, Identifiable {
 /// Everything about a job except its id and name, as stored in the `payload` of its template file.
 public struct JobSettings: Codable, Equatable, Sendable {
     public static let maxInputs = 64
+    /// Real bookmarks are a few KB; anything larger is dropped on load.
+    public static let maxBookmarkSize = 65_536
+    public static let maxReasonLength = 500
 
     public var schemaVersion: Int
     public var pipeline: Pipeline
@@ -84,6 +98,9 @@ public struct JobSettings: Codable, Equatable, Sendable {
     public var trigger: JobTrigger
     public var report: ReportFormat?
     public var isEnabled: Bool
+    public var inputBookmarks: [Data]?
+    public var outputBookmark: Data?
+    public var disabledReason: String?
 
     public init(_ job: Job) {
         schemaVersion = Job.schemaVersion
@@ -95,10 +112,14 @@ public struct JobSettings: Codable, Equatable, Sendable {
         trigger = job.trigger
         report = job.report
         isEnabled = job.isEnabled
+        inputBookmarks = job.inputBookmarks
+        outputBookmark = job.outputBookmark
+        disabledReason = job.disabledReason
     }
 
     private enum CodingKeys: String, CodingKey {
         case schemaVersion, pipeline, presetID, inputs, recursive, output, trigger, report, isEnabled
+        case inputBookmarks, outputBookmark, disabledReason
     }
 
     /// Job files are untrusted: only absolute file URLs, a bounded number of inputs, and a sane schedule.
@@ -132,6 +153,19 @@ public struct JobSettings: Codable, Equatable, Sendable {
         }
         report = try container.decodeIfPresent(ReportFormat.self, forKey: .report)
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        // Lenient: a bad bookmark only costs the sandbox access (the user picks the folder again), never the job.
+        let bookmarks = (try? container.decodeIfPresent([Data].self, forKey: .inputBookmarks)) ?? nil
+        inputBookmarks = bookmarks.flatMap { list in
+            list.count == inputs.count && list.allSatisfy(Self.isSaneBookmark) ? list : nil
+        }
+        outputBookmark = ((try? container.decodeIfPresent(Data.self, forKey: .outputBookmark)) ?? nil)
+            .flatMap { Self.isSaneBookmark($0) ? $0 : nil }
+        disabledReason = ((try? container.decodeIfPresent(String.self, forKey: .disabledReason)) ?? nil)
+            .map { String($0.prefix(Self.maxReasonLength)) }
+    }
+
+    static func isSaneBookmark(_ data: Data) -> Bool {
+        !data.isEmpty && data.count <= maxBookmarkSize
     }
 
     static func isLocalFolderURL(_ url: URL) -> Bool {
@@ -144,7 +178,9 @@ extension Job {
         let settings = template.payload
         self.init(id: template.id, name: template.name, pipeline: settings.pipeline, presetID: settings.presetID,
                   inputs: settings.inputs, recursive: settings.recursive, output: settings.output,
-                  trigger: settings.trigger, report: settings.report, isEnabled: settings.isEnabled)
+                  trigger: settings.trigger, report: settings.report, isEnabled: settings.isEnabled,
+                  inputBookmarks: settings.inputBookmarks, outputBookmark: settings.outputBookmark,
+                  disabledReason: settings.disabledReason)
     }
 
     public var template: Template<JobSettings> {
@@ -244,6 +280,29 @@ public final class JobStore: @unchecked Sendable {
         defer { ledgerLock.unlock() }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try JSONEncoder().encode(ledger).write(to: ledgerURL(for: id), options: .atomic)
+    }
+
+    /// Moves ledger entries along with folders that moved (see `JobFolders.moves`). A missing ledger stays missing.
+    public func rebaseLedger(id: UUID, moves: [(from: URL, to: URL)]) throws {
+        guard !moves.isEmpty else { return }
+        var ledger = try loadLedger(id: id)
+        guard ledger.count + ledger.outputCount > 0 else { return }
+        for move in moves {
+            // Ledger paths are `InputCollector`'s (`resolvingSymlinksInPath`: `/tmp`, not `/private/tmp`). The old
+            // folder is gone, so its path can't be resolved: try each spelling it may have been recorded under.
+            let target = move.to.resolvingSymlinksInPath().path
+            for old in Self.spellings(of: move.from) { ledger.rebase(from: old, to: target) }
+        }
+        try saveLedger(ledger, id: id)
+    }
+
+    static func spellings(of url: URL) -> Set<String> {
+        let path = url.standardizedFileURL.path
+        var all: Set<String> = [path, url.resolvingSymlinksInPath().path, WatchFilter.canonicalPath(url)]
+        for root in ["/private/tmp/", "/private/var/", "/private/etc/"] where path.hasPrefix(root) {
+            all.insert(String(path.dropFirst("/private".count)))
+        }
+        return all
     }
 
     /// Forgets every processed file, so the next run processes everything again.
