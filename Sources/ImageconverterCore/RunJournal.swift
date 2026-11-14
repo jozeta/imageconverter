@@ -26,8 +26,66 @@ public struct RunJournal: Codable, Equatable, Sendable {
     public var pipeline: Pipeline
     public var outputMode: OutputMode
     /// Indices into `items` that were written or skipped by a condition, ascending. Failed items aren't
-    /// completed: a resumed run tries them again.
+    /// completed: a resumed run tries them again. Stored in the file as `[first, last]` runs, so a finished
+    /// stretch of 100 000 files is one pair.
     public var completed: [Int]
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, id, started, items, pipeline, outputMode, completed
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        id = try container.decode(UUID.self, forKey: .id)
+        started = try container.decode(Date.self, forKey: .started)
+        items = try container.decode([Item].self, forKey: .items)
+        pipeline = try container.decode(Pipeline.self, forKey: .pipeline)
+        outputMode = try container.decode(OutputMode.self, forKey: .outputMode)
+        let runs = try container.decode([[Int]].self, forKey: .completed)
+        guard let indices = Self.expand(runs, count: items.count) else {
+            throw DecodingError.dataCorruptedError(forKey: .completed, in: container,
+                                                   debugDescription: "Invalid completed ranges")
+        }
+        completed = indices
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(schemaVersion, forKey: .schemaVersion)
+        try container.encode(id, forKey: .id)
+        try container.encode(started, forKey: .started)
+        try container.encode(items, forKey: .items)
+        try container.encode(pipeline, forKey: .pipeline)
+        try container.encode(outputMode, forKey: .outputMode)
+        try container.encode(Self.runs(completed), forKey: .completed)
+    }
+
+    /// Consecutive indices as `[first, last]` pairs (duplicates collapse).
+    static func runs(_ indices: [Int]) -> [[Int]] {
+        var runs: [[Int]] = []
+        for index in Set(indices).sorted() {
+            if let last = runs.last?.last, index == last + 1 {
+                runs[runs.count - 1][1] = index
+            } else {
+                runs.append([index, index])
+            }
+        }
+        return runs
+    }
+
+    /// The indices of `runs`, or nil unless every run is a `[first, last]` pair inside `0..<count`, ascending
+    /// and not touching the one before (so a hostile file can't make the list larger than `count`).
+    static func expand(_ runs: [[Int]], count: Int) -> [Int]? {
+        var indices: [Int] = []
+        var previous = -2
+        for run in runs {
+            guard run.count == 2, run[0] <= run[1], run[0] > previous + 1, run[1] < count else { return nil }
+            indices.append(contentsOf: run[0]...run[1])
+            previous = run[1]
+        }
+        return indices
+    }
 
     public init(items: [InputItem], pipeline: Pipeline, mode: OutputMode, started: Date = Date()) {
         schemaVersion = Self.currentVersion
@@ -79,7 +137,7 @@ public struct RunJournal: Codable, Equatable, Sendable {
     private var isValid: Bool {
         guard schemaVersion == Self.currentVersion, items.count <= Self.maxItems,
               items.allSatisfy({ Self.isValidPath($0.path) && Self.isValidText($0.relativeDirectory) }),
-              Set(completed).count == completed.count, completed.allSatisfy(items.indices.contains) else {
+              completed.allSatisfy(items.indices.contains) else {
             return false
         }
         if case .newFolder(let folder) = outputMode { return folder.isFileURL && Self.isValidPath(folder.path) }
@@ -95,42 +153,92 @@ public struct RunJournal: Codable, Equatable, Sendable {
     }
 }
 
-/// Keeps the journal of one run up to date: completions are written in groups (every 20 items, or when a
-/// second has passed since the last write), on the batch's collecting side.
-final class RunJournalWriter {
+/// Keeps the journal of one run up to date. Completions are recorded in a bitmap (cheap on the batch's
+/// collecting side) and written on a background serial queue: after 20 new ones, or at most a second after
+/// the first unsaved one, whichever comes first, coalescing everything in between.
+final class RunJournalWriter: @unchecked Sendable {
     static let batchSize = 20
-    static let interval: TimeInterval = 1
 
     private let url: URL
+    private let interval: TimeInterval
+    private let queue = DispatchQueue(label: "imageconverter.run-journal", qos: .utility)
+    private let lock = NSLock()
+    // Guarded by `lock`.
     private var journal: RunJournal
+    private var done: [Bool]
     private var unsaved = 0
-    private var lastWrite: Date
-    private let now: () -> Date
+    private var timerScheduled = false
+    private var urgentQueued = false
+    private var removed = false
 
-    init(url: URL, journal: RunJournal, now: @escaping () -> Date = Date.init) {
+    init(url: URL, journal: RunJournal, interval: TimeInterval = 1) {
         self.url = url
         self.journal = journal
-        self.now = now
-        lastWrite = now()
+        self.interval = interval
+        done = Array(repeating: false, count: journal.items.count)
+        for index in journal.completed where done.indices.contains(index) { done[index] = true }
     }
 
-    /// A journal that can't be written doesn't stop the run; it only can't be recovered.
+    /// Writes the current state before returning (the run's start). A journal that can't be written doesn't
+    /// stop the run; it only can't be recovered.
     func writeNow() {
-        try? journal.write(to: url)
-        unsaved = 0
-        lastWrite = now()
+        queue.sync { flush(force: true) }
     }
 
     func markCompleted(_ index: Int) {
-        let position = journal.completed.firstIndex { $0 > index } ?? journal.completed.endIndex
-        guard position == journal.completed.startIndex || journal.completed[position - 1] != index else { return }
-        journal.completed.insert(index, at: position)
+        lock.lock()
+        guard done.indices.contains(index), !done[index], !removed else {
+            lock.unlock()
+            return
+        }
+        done[index] = true
         unsaved += 1
-        if unsaved >= Self.batchSize || now().timeIntervalSince(lastWrite) >= Self.interval { writeNow() }
+        let urgent = unsaved >= Self.batchSize && !urgentQueued
+        let startTimer = !timerScheduled
+        urgentQueued = urgentQueued || urgent
+        timerScheduled = true
+        lock.unlock()
+        if urgent {
+            queue.async { self.flush() }
+        }
+        if startTimer {
+            queue.asyncAfter(deadline: .now() + interval) {
+                self.lock.lock()
+                self.timerScheduled = false
+                self.lock.unlock()
+                self.flush()
+            }
+        }
     }
 
+    /// Waits for writes already queued (tests).
+    func waitForWrites() {
+        queue.sync {}
+    }
+
+    /// Deletes the journal; nothing is written after this.
     func remove() {
-        try? FileManager.default.removeItem(at: url)
+        queue.sync {
+            lock.lock()
+            removed = true
+            lock.unlock()
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
+    /// On `queue`: one write with everything recorded so far.
+    private func flush(force: Bool = false) {
+        lock.lock()
+        guard !removed, force || unsaved > 0 else {
+            lock.unlock()
+            return
+        }
+        journal.completed = done.indices.filter { done[$0] }
+        let snapshot = journal
+        unsaved = 0
+        urgentQueued = false
+        lock.unlock()
+        try? snapshot.write(to: url)
     }
 }
 
@@ -139,11 +247,10 @@ final class RunJournalWriter {
 enum StaleTempFiles {
     static let maxAge: TimeInterval = 3600
 
-    /// The folders a run writes into: the chosen folder, or the sources' folders.
-    static func folders(for items: [InputItem], mode: OutputMode) -> [URL] {
-        if case .newFolder(let root) = mode { return [root.standardizedFileURL] }
+    /// Every folder the planned outputs go into, once each, in plan order.
+    static func folders(for plans: [PlannedOutput]) -> [URL] {
         var seen = Set<String>()
-        return items.map { $0.source.deletingLastPathComponent().standardizedFileURL }
+        return plans.map { $0.destination.deletingLastPathComponent().standardizedFileURL }
             .filter { seen.insert($0.path).inserted }
     }
 

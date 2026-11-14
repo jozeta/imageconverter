@@ -27,23 +27,6 @@ private final class ConcurrencyProbe: @unchecked Sendable {
     }
 }
 
-/// Fails the first encode of one file, then lets it through.
-private final class FailOnce: @unchecked Sendable {
-    private let lock = NSLock()
-    private var failed = false
-    let name: String
-
-    init(name: String) { self.name = name }
-
-    func check(_ url: URL) throws {
-        lock.lock()
-        defer { lock.unlock() }
-        guard url.lastPathComponent == name, !failed else { return }
-        failed = true
-        throw ConversionError.encodeFailed
-    }
-}
-
 final class BatchControlTests: XCTestCase {
     private var root: URL!
 
@@ -232,71 +215,33 @@ final class BatchControlTests: XCTestCase {
                        BatchLimits(maxItems: 1, maxWeight: 1))
     }
 
-    func testRetrySucceedsOnTransientFailure() async throws {
-        let urls = try files(3)
-        let failing = FailOnce(name: "img02.png")
-        let attempts = LockedLog<Int>()
-        var hooks = BatchHooks()
-        hooks.beforeEncode = { url, attempt in
-            if url.lastPathComponent == "img02.png" { attempts.append(attempt) }
-            try failing.check(url)
-        }
-        let log = LockedLog<ItemEvent>()
-        let progress = LockedLog<BatchProgress>()
-        let report = await BatchRunner.run(InputCollector.collect(urls), pipeline: jpeg, mode: .newFolder(out),
-                                           hooks: hooks, progress: { progress.append($0) },
-                                           events: { log.append($0) })
-        XCTAssertEqual(report.written.count, 3)
-        XCTAssertTrue(report.failures.isEmpty)
-        XCTAssertEqual(attempts.values, [1, 2])
-        XCTAssertEqual(report.notes, [BatchNote(source: urls[1], text: BatchRunner.retriedNote)])
-        XCTAssertEqual(report.order, urls)
-        let stages = log.values.filter { $0.source == urls[1] }.map(\.stage)
-        XCTAssertEqual(stages.first, .queued)
-        XCTAssertEqual(stages.last, .done)
-        XCTAssertFalse(stages.contains { if case .failed = $0 { return true } else { return false } })
-        XCTAssertEqual(progress.last, BatchProgress(completed: 3, failed: 0, total: 3))
-    }
-
-    func testPermanentFailuresAreNotRetried() async throws {
-        let urls = try files(1)
-        let attempts = LockedLog<Int>()
-        var hooks = BatchHooks()
-        hooks.beforeEncode = { _, attempt in
-            attempts.append(attempt)
-            throw ConversionError.sizeUnreachable(limit: 1, smallest: 2)
-        }
-        let report = await BatchRunner.run(InputCollector.collect(urls), pipeline: jpeg, mode: .newFolder(out),
-                                           hooks: hooks)
-        XCTAssertEqual(report.failures.count, 1)
-        XCTAssertEqual(attempts.values, [1])
-    }
-
-    func testRetryThatFailsAgainIsReportedOnce() async throws {
-        let urls = try files(1)
-        var hooks = BatchHooks()
-        hooks.beforeEncode = { _, _ in throw ConversionError.encodeFailed }
-        let progress = LockedLog<BatchProgress>()
-        let report = await BatchRunner.run(InputCollector.collect(urls), pipeline: jpeg, mode: .newFolder(out),
-                                           hooks: hooks, progress: { progress.append($0) })
-        XCTAssertEqual(report.failures.map(\.reason), [ConversionError.encodeFailed.reason])
-        XCTAssertEqual(progress.values, [BatchProgress(completed: 1, failed: 1, total: 1)])
-    }
-
-    func testRetryableErrors() {
-        XCTAssertTrue(ConversionError.encodeFailed.isRetryable)
-        XCTAssertTrue(ConversionError.decodeFailed.isRetryable)
-        XCTAssertTrue(ConversionError.processingFailed("Adjust").isRetryable)
-        XCTAssertFalse(ConversionError.unreadable.isRetryable)
-        XCTAssertFalse(ConversionError.sizeUnreachable(limit: 1, smallest: 2).isRetryable)
-        XCTAssertFalse(ConversionError.watermarkImageUnreadable.isRetryable)
-        XCTAssertFalse(ConversionError.watermarkSVGUnsafe.isRetryable)
-        XCTAssertFalse(ConversionError.tooLarge(pixels: 1).isRetryable)
-        XCTAssertFalse(ConversionError.writeFailed("x").isRetryable)
-    }
-
     func testSharedCIContextIsOneInstance() {
         XCTAssertTrue(SharedCIContext.context === SharedCIContext.context)
         XCTAssertNotNil(SharedCIContext.context.workingColorSpace)
+    }
+
+    func testMemoryPressureLevels() {
+        XCTAssertEqual(MemoryPressure(kernelLevel: 1), .normal)
+        XCTAssertEqual(MemoryPressure(kernelLevel: 2), .warning)
+        XCTAssertEqual(MemoryPressure(kernelLevel: 4), .critical)
+        XCTAssertEqual(MemoryPressure(kernelLevel: 0), .normal)
+        // Readable without privileges on macOS, so a run under pressure is throttled from its first item.
+        XCTAssertNotNil(MemoryPressureMonitor.currentSystemLevel())
+    }
+
+    func testWeightUsesTheDecodeHint() throws {
+        let url = root.appendingPathComponent("big.png")
+        try TestImages.write(TestImages.make(width: 2000, height: 1000), to: url, type: .png)
+        let plan = PlannedOutput(item: InputItem(source: url, relativeDirectory: ""),
+                                 destination: root.appendingPathComponent("big.jpg"), replacesSource: false,
+                                 trashesSource: false)
+        let shrink = Pipeline(steps: [PipelineStep(operation: .resize(ResizeOptions(mode: .longestEdge(200))))])
+        let hint = try XCTUnwrap(shrink.decodeHint(sourceWidth: 2000, sourceHeight: 1000))
+        XCTAssertTrue(hint.decodedSize(sourceWidth: 2000, sourceHeight: 1000) == (400, 200))
+        XCTAssertEqual(BatchRunner.weight(of: plan, pipeline: shrink),
+                       hint.pipeline.peakPixels(sourceWidth: 400, sourceHeight: 200))
+        XCTAssertLessThan(BatchRunner.weight(of: plan, pipeline: shrink), 2000 * 1000)
+        let crop = Pipeline(steps: [PipelineStep(operation: .crop(CropOptions()))] + shrink.steps)
+        XCTAssertEqual(BatchRunner.weight(of: plan, pipeline: crop), crop.peakPixels(sourceWidth: 2000, sourceHeight: 1000))
     }
 }

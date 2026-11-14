@@ -93,6 +93,15 @@ public struct ItemEvent: Equatable, Sendable {
 /// The system's memory pressure, as the batch sees it.
 public enum MemoryPressure: Sendable {
     case normal, warning, critical
+
+    /// From the kernel's pressure level (`kern.memorystatus_vm_pressure_level`: 1, 2 or 4).
+    init(kernelLevel: Int) {
+        switch kernelLevel {
+        case 4...: self = .critical
+        case 2...: self = .warning
+        default: self = .normal
+        }
+    }
 }
 
 /// Follows the system's memory pressure notifications for the length of a run.
@@ -103,6 +112,8 @@ final class MemoryPressureMonitor: @unchecked Sendable {
                                                                  queue: .global(qos: .utility))
 
     init() {
+        // The source only reports changes, so start from the kernel's current level.
+        level = Self.currentSystemLevel() ?? .normal
         source.setEventHandler { [weak self] in
             guard let self else { return }
             let event = self.source.data
@@ -115,6 +126,15 @@ final class MemoryPressureMonitor: @unchecked Sendable {
     }
 
     deinit { source.cancel() }
+
+    /// `kern.memorystatus_vm_pressure_level` (1 normal, 2 warning, 4 critical), the level the dispatch
+    /// source's notifications follow; nil when it can't be read.
+    static func currentSystemLevel() -> MemoryPressure? {
+        var value: Int32 = 0
+        var size = MemoryLayout<Int32>.size
+        guard sysctlbyname("kern.memorystatus_vm_pressure_level", &value, &size, nil, 0) == 0 else { return nil }
+        return MemoryPressure(kernelLevel: Int(value))
+    }
 
     var current: MemoryPressure {
         lock.lock()

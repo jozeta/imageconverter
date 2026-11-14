@@ -53,7 +53,10 @@ public enum SizeEstimator {
                   let encoded = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                 throw ConversionError.encodeFailed
             }
-            return EncodedPreview(bytes: data.count, original: result.source, encoded: encoded,
+            // The comparison views want the full-size original; decode it only when the render didn't.
+            let original = result.downsampled
+                ? try ImageLoader.load(item.source, maxPixels: maxPixels).image : result.source
+            return EncodedPreview(bytes: data.count, original: original, encoded: encoded,
                                   quality: result.quality, note: result.note ?? note)
         }
     }

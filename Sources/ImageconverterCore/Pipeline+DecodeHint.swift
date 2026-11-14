@@ -10,6 +10,13 @@ public struct DecodeHint: Equatable, Sendable {
     /// have produced from the full-size image (a percentage or a fit would otherwise be measured on the smaller
     /// image). Metadata and DPI still come from the original pipeline and source.
     public let pipeline: Pipeline
+
+    /// The size ImageIO decodes a `sourceWidth` x `sourceHeight` source at with this hint (longest side
+    /// `maxLongSide`, aspect kept), for memory scheduling.
+    public func decodedSize(sourceWidth: Int, sourceHeight: Int) -> (width: Int, height: Int) {
+        let scale = Double(maxLongSide) / Double(max(1, sourceWidth, sourceHeight))
+        return (max(1, Int((Double(sourceWidth) * scale).rounded())), max(1, Int((Double(sourceHeight) * scale).rounded())))
+    }
 }
 
 extension Pipeline {

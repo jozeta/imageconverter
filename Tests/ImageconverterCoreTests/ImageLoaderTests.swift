@@ -81,15 +81,17 @@ final class ImageLoaderTests: XCTestCase {
         try TestImages.write(photo(width: 1600, height: 1200), to: url, type: .png)
         for mode in [ResizeMode.longestEdge(300), .maxWidth(250), .percent(20), .fitBox(width: 320, height: 320)] {
             let pipeline = Pipeline(steps: [resize(mode)])
-            let full = try BatchRunner.prepare(url, pipeline: pipeline, assets: .empty, maxPixels: 250_000_000)
-            let fast = try BatchRunner.prepare(url, pipeline: pipeline, assets: .empty, maxPixels: 250_000_000,
-                                               downsample: true)
-            XCTAssertEqual(fast.image.width, full.image.width, "\(mode)")
-            XCTAssertEqual(fast.image.height, full.image.height, "\(mode)")
-            let stats = try XCTUnwrap(ImageDifference.stats(before: full.image, after: fast.image))
+            // The full path: decode everything, then run the pipeline as written.
+            let source = try ImageLoader.load(url).image
+            let full = try pipeline.apply(to: source)
+            let fast = try BatchRunner.prepare(url, pipeline: pipeline, assets: .empty, maxPixels: 250_000_000)
+            XCTAssertTrue(fast.downsampled, "\(mode)")
+            XCTAssertEqual(fast.image.width, full.width, "\(mode)")
+            XCTAssertEqual(fast.image.height, full.height, "\(mode)")
+            let stats = try XCTUnwrap(ImageDifference.stats(before: full, after: fast.image))
             XCTAssertGreaterThan(stats.psnr, 40, "\(mode)")
             // Peak memory: the decoded image is far smaller.
-            XCTAssertEqual(full.source.width * full.source.height, 1600 * 1200)
+            XCTAssertEqual(source.width * source.height, 1600 * 1200)
             XCTAssertLessThan(fast.source.width * fast.source.height, 1600 * 1200 / 4, "\(mode)")
         }
     }
@@ -101,13 +103,10 @@ final class ImageLoaderTests: XCTestCase {
         ])
         var pipeline = Pipeline(steps: [resize(.physical(width: 2, height: nil, unit: .inch, dpi: 100))])
         pipeline.metadata = MetadataOptions(isEnabled: true)
-        let full = try BatchRunner.prepare(url, pipeline: pipeline, assets: .empty, maxPixels: 250_000_000)
-        let fast = try BatchRunner.prepare(url, pipeline: pipeline, assets: .empty, maxPixels: 250_000_000,
-                                           downsample: true)
-        XCTAssertLessThan(fast.source.width, full.source.width)
+        let fast = try BatchRunner.prepare(url, pipeline: pipeline, assets: .empty, maxPixels: 250_000_000)
+        XCTAssertLessThan(fast.source.width, 1200)
         XCTAssertEqual(fast.image.width, 200)
-        XCTAssertEqual(fast.properties[kCGImagePropertyDPIWidth as String] as? Double,
-                       full.properties[kCGImagePropertyDPIWidth as String] as? Double)
+        XCTAssertEqual(fast.properties[kCGImagePropertyDPIWidth as String] as? Double, 100)
         // The artist travels in the output XMP, read from the original file.
         XCTAssertTrue(fast.properties.values.contains { "\($0)".contains("dc:[0] = Ann") })
         XCTAssertEqual(fast.properties[kCGImagePropertyPixelWidth as String] as? Int, 1200)
@@ -118,8 +117,8 @@ final class ImageLoaderTests: XCTestCase {
         try TestImages.write(photo(width: 1600, height: 1200), to: url, type: .png)
         let pipeline = Pipeline(steps: [PipelineStep(operation: .crop(CropOptions())), resize(.longestEdge(200))])
         XCTAssertNil(pipeline.decodeHint(sourceWidth: 1600, sourceHeight: 1200))
-        let prepared = try BatchRunner.prepare(url, pipeline: pipeline, assets: .empty, maxPixels: 250_000_000,
-                                               downsample: true)
+        let prepared = try BatchRunner.prepare(url, pipeline: pipeline, assets: .empty, maxPixels: 250_000_000)
+        XCTAssertFalse(prepared.downsampled)
         XCTAssertEqual(prepared.source.width, 1600, "Decoded at full size")
         XCTAssertEqual(prepared.image.width, 200)
     }

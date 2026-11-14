@@ -72,7 +72,9 @@ extension ConversionError {
     /// tries the file once more at the end. Unreadable files, size limits and watermark problems never change.
     public var isRetryable: Bool {
         switch self {
-        case .decodeFailed, .encodeFailed, .processingFailed: return true
+        case .decodeFailed, .encodeFailed: return true
+        // A watermark that can't be drawn fails the same way every time.
+        case .processingFailed(let step): return step != StepKind.watermark.displayName
         default: return false
         }
     }

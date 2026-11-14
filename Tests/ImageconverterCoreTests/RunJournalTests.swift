@@ -79,23 +79,44 @@ final class RunJournalTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: journalURL.path))
     }
 
-    func testJournalMarksCompletedItemsInBatches() throws {
-        var clock = Date(timeIntervalSince1970: 1000)
+    func testJournalMarksCompletedItemsInBatchesAndOnATimer() throws {
         let items = (0..<50).map { InputItem(source: URL(fileURLWithPath: "/tmp/\($0).png"), relativeDirectory: "") }
         let writer = RunJournalWriter(url: journalURL,
                                       journal: RunJournal(items: items, pipeline: Pipeline(), mode: .overwrite),
-                                      now: { clock })
+                                      interval: 0.3)
         writer.writeNow()
         for index in 0..<19 { writer.markCompleted(index) }
-        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, [], "Fewer than 20 within a second wait")
+        writer.waitForWrites()
+        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, [], "Fewer than 20: the timer hasn't fired")
         writer.markCompleted(19)
-        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, Array(0..<20))
-        writer.markCompleted(20)
-        clock = clock.addingTimeInterval(1.1)
-        writer.markCompleted(21)
-        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, Array(0..<22), "A second passed")
+        writer.waitForWrites()
+        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, Array(0..<20), "20 write at once")
+        writer.markCompleted(25)
+        writer.markCompleted(25)
+        Thread.sleep(forTimeInterval: 0.6)
+        writer.waitForWrites()
+        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, Array(0..<20) + [25], "The timer wrote it")
         writer.remove()
-        XCTAssertFalse(FileManager.default.fileExists(atPath: journalURL.path))
+        writer.markCompleted(30)
+        Thread.sleep(forTimeInterval: 0.4)
+        writer.waitForWrites()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: journalURL.path), "Nothing is written after remove")
+    }
+
+    func testCompletedIsStoredAsRuns() throws {
+        let items = (0..<100_000).map { InputItem(source: URL(fileURLWithPath: "/p/\($0).jpg"), relativeDirectory: "") }
+        var journal = RunJournal(items: items, pipeline: Pipeline(), mode: .overwrite)
+        journal.completed = Array(0..<99_998) + [99_999]
+        try journal.write(to: journalURL)
+        let text = try String(contentsOf: journalURL, encoding: .utf8)
+        XCTAssertTrue(text.contains("\"completed\":[[0,99997],[99999,99999]]"))
+        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed.count, 99_999)
+        XCTAssertEqual(RunJournal.runs([3, 1, 2, 2, 7]), [[1, 3], [7, 7]])
+        XCTAssertEqual(RunJournal.expand([[1, 3], [7, 7]], count: 8), [1, 2, 3, 7])
+        // Overlapping, touching, reversed, out of range or malformed runs are refused.
+        for runs in [[[1, 3], [2, 5]], [[1, 3], [4, 5]], [[3, 1]], [[0, 8]], [[1]], [[-1, 0]]] {
+            XCTAssertNil(RunJournal.expand(runs, count: 8), "\(runs)")
+        }
     }
 
     func testHostileJournalsAreRejected() throws {
@@ -110,7 +131,6 @@ final class RunJournalTests: XCTestCase {
         for mutate in [
             { (journal: inout RunJournal) in journal.schemaVersion = 99 },
             { (journal: inout RunJournal) in journal.completed = [5] },
-            { (journal: inout RunJournal) in journal.completed = [0, 0] },
             { (journal: inout RunJournal) in journal.items = [.init(path: "relative.png", relativeDirectory: "")] },
             { (journal: inout RunJournal) in journal.items = [.init(path: "/tmp/a\u{0}.png", relativeDirectory: "")] },
             { (journal: inout RunJournal) in journal.outputMode = .newFolder(URL(string: "https://example.com")!) },
@@ -196,12 +216,12 @@ final class RunJournalTests: XCTestCase {
     }
 
     func testStaleTempFolders() {
-        let items = [InputItem(source: URL(fileURLWithPath: "/a/one.png"), relativeDirectory: ""),
-                     InputItem(source: URL(fileURLWithPath: "/a/two.png"), relativeDirectory: ""),
-                     InputItem(source: URL(fileURLWithPath: "/b/three.png"), relativeDirectory: "")]
-        XCTAssertEqual(StaleTempFiles.folders(for: items, mode: .newFolder(URL(fileURLWithPath: "/out"))).map(\.path),
-                       ["/out"])
-        XCTAssertEqual(StaleTempFiles.folders(for: items, mode: .overwrite).map(\.path), ["/a", "/b"])
-        XCTAssertEqual(StaleTempFiles.folders(for: items, mode: .sameFolder(suffix: "")).map(\.path), ["/a", "/b"])
+        func plan(_ source: String, _ destination: String) -> PlannedOutput {
+            PlannedOutput(item: InputItem(source: URL(fileURLWithPath: source), relativeDirectory: ""),
+                          destination: URL(fileURLWithPath: destination), replacesSource: false, trashesSource: false)
+        }
+        let plans = [plan("/a/one.png", "/out/one.jpg"), plan("/a/two.png", "/out/sub/two.jpg"),
+                     plan("/b/three.png", "/out/three.jpg"), plan("/b/four.png", "/b/four.jpg")]
+        XCTAssertEqual(StaleTempFiles.folders(for: plans).map(\.path), ["/out", "/out/sub", "/b"])
     }
 }

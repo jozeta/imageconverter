@@ -19,9 +19,10 @@ extension BatchRunner {
         writer?.writeNow()
         // A normal finish and a cancel both end here; only a crash or a forced quit leaves the journal.
         defer { writer?.remove() }
-        StaleTempFiles.remove(in: StaleTempFiles.folders(for: items, mode: mode))
         guard let plan = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels), !Task.isCancelled
         else { return BatchReport(cancelled: true) }
+        // Temp files never collide with planned names, so this can wait until every destination folder is known.
+        StaleTempFiles.remove(in: StaleTempFiles.folders(for: plan.plans))
 
         announce(plan, items: items, events: events, writer: writer)
         if !plan.skipped.isEmpty {
@@ -142,10 +143,12 @@ final class BatchScheduler {
                 handle(result)
             }
         }
-        // Every item ends with a final event, also when the run stopped before it.
+        // Every item ends with a final event, also when the run stopped before it. A failure that was waiting
+        // for its retry is final now, and counted like any other.
         for index in finished.indices where !finished[index] {
             if case .failure(let error) = outcomes[index] {
-                emit(index, .failed(error.reason), inputBytes: inputSizes[index])
+                failed += 1
+                finish(index, .failed(error.reason), inputBytes: inputSizes[index], outputBytes: nil, duration: nil)
             } else {
                 emit(index, .cancelled)
             }
@@ -207,7 +210,7 @@ final class BatchScheduler {
         let attempt = attempts[index]
         group.addTask {
             let started = Date()
-            let options = ItemRunOptions(downsample: true, lowMemory: lowMemory, attempt: attempt, beforeEncode: hook,
+            let options = ItemRunOptions(lowMemory: lowMemory, attempt: attempt, beforeEncode: hook,
                                          stage: { events(ItemEvent(index: inputIndex, source: source, stage: $0)) })
             let outcome = BatchRunner.process(planned, job: job, assets: assets, maxPixels: maxPixels, trash: trash,
                                               options: options)
@@ -218,22 +221,27 @@ final class BatchScheduler {
 
     // MARK: Queue order
 
-    /// Moves waiting items whose source was asked for to the front, in the order asked.
+    /// Moves waiting items whose source was asked for to the front, in the order asked; items waiting for
+    /// their retry move to the front of the retry pass.
     private func applyPriorities() {
         guard let control = settings.control else { return }
         for request in control.takePriorityRequests() {
             var rank: [String: Int] = [:]
             for (position, url) in request.enumerated() where rank[key(url)] == nil { rank[key(url)] = position }
-            let waiting = Array(queue[head...])
-            let rankOf = { (index: Int) in rank[self.key(self.plan.plans[index].item.source)] }
-            let moved = waiting.filter { rankOf($0) != nil }.enumerated().sorted { lhs, rhs in
-                let (left, right) = (rankOf(lhs.element) ?? 0, rankOf(rhs.element) ?? 0)
-                return left != right ? left < right : lhs.offset < rhs.offset
-            }.map(\.element)
-            guard !moved.isEmpty else { continue }
-            let movedSet = Set(moved)
-            queue = Array(queue[..<head]) + moved + waiting.filter { !movedSet.contains($0) }
+            queue = Array(queue[..<head]) + prioritized(Array(queue[head...]), rank: rank)
+            retryQueue = prioritized(retryQueue, rank: rank)
         }
+    }
+
+    private func prioritized(_ waiting: [Int], rank: [String: Int]) -> [Int] {
+        let rankOf = { (index: Int) in rank[self.key(self.plan.plans[index].item.source)] }
+        let moved = waiting.filter { rankOf($0) != nil }.enumerated().sorted { lhs, rhs in
+            let (left, right) = (rankOf(lhs.element) ?? 0, rankOf(rhs.element) ?? 0)
+            return left != right ? left < right : lhs.offset < rhs.offset
+        }.map(\.element)
+        guard !moved.isEmpty else { return waiting }
+        let movedSet = Set(moved)
+        return moved + waiting.filter { !movedSet.contains($0) }
     }
 
     private func key(_ url: URL) -> String { url.standardizedFileURL.path }
@@ -275,9 +283,14 @@ final class BatchScheduler {
     }
 
     private func finish(_ index: Int, _ stage: ItemEvent.Stage, result: WorkerResult, outputBytes: Int?) {
+        finish(index, stage, inputBytes: result.inputBytes, outputBytes: outputBytes, duration: result.duration)
+    }
+
+    private func finish(_ index: Int, _ stage: ItemEvent.Stage, inputBytes: Int?, outputBytes: Int?,
+                        duration: TimeInterval?) {
         finished[index] = true
         completed += 1
-        emit(index, stage, inputBytes: result.inputBytes, outputBytes: outputBytes, duration: result.duration)
+        emit(index, stage, inputBytes: inputBytes, outputBytes: outputBytes, duration: duration)
         settings.progress(BatchProgress(completed: completed, failed: failed, total: settings.total))
     }
 

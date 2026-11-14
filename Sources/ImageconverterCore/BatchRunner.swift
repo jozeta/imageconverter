@@ -110,8 +110,10 @@ public struct BatchReport: Equatable, Sendable {
 /// What one item encodes to, before it is committed.
 struct EncodedItem {
     let data: Data
-    /// The upright image as decoded (full size unless the batch's decode hint applied).
+    /// The upright image as decoded (smaller than the file when the decode hint applied, see `downsampled`).
     let source: CGImage
+    /// True when `source` was decoded below full size (`Pipeline.decodeHint`).
+    let downsampled: Bool
     /// The quality the compression mode chose; nil for formats without one.
     let quality: Double?
     let note: String?
@@ -171,10 +173,15 @@ public enum BatchRunner {
     }
 
     /// Peak pixels of one item, from a header-only read; unreadable files weigh 1 and fail later in `convert`.
+    /// When the decode hint applies, the peak of the hinted pipeline on the smaller decoded image (ImageIO
+    /// decodes JPEG and HEIC at the reduced size directly; other formats may briefly need more while decoding).
     static func weight(of plan: PlannedOutput, pipeline: Pipeline) -> Int {
-        max(1, ImageLoader.pixelSize(of: plan.item.source).map {
-            pipeline.peakPixels(sourceWidth: $0.width, sourceHeight: $0.height)
-        } ?? 1)
+        guard let size = ImageLoader.pixelSize(of: plan.item.source) else { return 1 }
+        if let hint = pipeline.decodeHint(sourceWidth: size.width, sourceHeight: size.height) {
+            let decoded = hint.decodedSize(sourceWidth: size.width, sourceHeight: size.height)
+            return max(1, hint.pipeline.peakPixels(sourceWidth: decoded.width, sourceHeight: decoded.height))
+        }
+        return max(1, pipeline.peakPixels(sourceWidth: size.width, sourceHeight: size.height))
     }
 
     static func makeReport(
@@ -277,6 +284,7 @@ public enum BatchRunner {
     struct PreparedItem {
         /// The upright image as decoded: full size, or smaller when a decode hint applied.
         let source: CGImage
+        let downsampled: Bool
         /// The pipeline's output image.
         let image: CGImage
         /// Output metadata properties.
@@ -285,22 +293,21 @@ public enum BatchRunner {
         let notes: [String]
     }
 
-    /// Shared by the batch, the size estimate and the quality ladder so none of them can drift. With
-    /// `downsample` (the batch), a pipeline that starts by shrinking is decoded at twice the target size
-    /// (`Pipeline.decodeHint`); metadata, DPI and the pixel guard still use the full-size source.
+    /// Shared by the batch, the size estimate and the quality ladder so none of them can drift: all of them
+    /// decode a pipeline that starts by shrinking at twice the target size (`Pipeline.decodeHint`), the one
+    /// decision for all three. Metadata, DPI and the pixel guard still use the full-size source.
     static func prepare(
-        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int, downsample: Bool = false,
-        lowMemory: Bool = false, stage: (ItemEvent.Stage) -> Void = { _ in }
+        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int,
+        options: ItemRunOptions = ItemRunOptions()
     ) throws -> PreparedItem {
         // A watermark image that can't be read fails the file before its source is decoded.
         if let missing = assets.missingError(for: pipeline) { throw missing }
-        stage(.decoding)
-        let header = downsample ? ImageLoader.header(of: url) : nil
-        let fullSize = header?.uprightSize
+        options.stage(.decoding)
+        let fullSize = ImageLoader.header(of: url)?.uprightSize
         let hint = fullSize.flatMap { pipeline.decodeHint(sourceWidth: $0.width, sourceHeight: $0.height) }
         let loaded = try ImageLoader.load(url, maxPixels: maxPixels, maxLongSide: hint?.maxLongSide,
-                                          includeMetadata: pipeline.metadata.isActive, lowMemory: lowMemory)
-        stage(.processing)
+                                          includeMetadata: pipeline.metadata.isActive, lowMemory: options.lowMemory)
+        options.stage(.processing)
         var stepNotes: [String] = []
         let textContext = pipeline.watermarkTextContext(source: url, properties: loaded.properties)
         let image = try (hint?.pipeline ?? pipeline).apply(to: loaded.image, assets: assets, textContext: textContext,
@@ -309,17 +316,17 @@ public enum BatchRunner {
         let height = hint != nil ? fullSize?.height ?? loaded.image.height : loaded.image.height
         let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
                                                    sourceWidth: width, sourceHeight: height)
-        return PreparedItem(source: loaded.image, image: image, properties: properties, notes: stepNotes)
+        return PreparedItem(source: loaded.image, downsampled: hint != nil, image: image, properties: properties,
+                            notes: stepNotes)
     }
 
     /// Load, apply, metadata and encode for one file: everything the batch does before it commits.
     /// The size estimate shares it so the estimate can't drift from what is written.
     static func encodeItem(
         _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int,
-        options: ItemRunOptions = ItemRunOptions(downsample: false)
+        options: ItemRunOptions = ItemRunOptions()
     ) throws -> EncodedItem {
-        let prepared = try prepare(url, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
-                                   downsample: options.downsample, lowMemory: options.lowMemory, stage: options.stage)
+        let prepared = try prepare(url, pipeline: pipeline, assets: assets, maxPixels: maxPixels, options: options)
         let properties = prepared.properties
         let stepNotes = prepared.notes
         options.stage(.encoding)
@@ -329,15 +336,15 @@ public enum BatchRunner {
             ? MetadataDates.dateTaken(in: properties) : nil
         // Step notes (e.g. "No document edges found") come first, then the encoder's.
         let notes = stepNotes + [result.note].compactMap { $0 }
-        return EncodedItem(data: result.data, source: prepared.source, quality: result.quality,
+        return EncodedItem(data: result.data, source: prepared.source, downsampled: prepared.downsampled,
+                           quality: result.quality,
                            note: notes.isEmpty ? nil : notes.joined(separator: "; "), dateTaken: taken)
     }
 }
 
-/// How the batch runs one item: decode options, the attempt, and where its stages go.
+/// How one item is run: low-memory decode, the attempt, and where its stages go. The defaults are what the
+/// size estimate and the quality ladder use; the batch only adds the attempt, its hooks and its events.
 struct ItemRunOptions {
-    /// Use the pipeline's decode hint (the batch); the estimate and the preview decode at full size.
-    var downsample = true
     var lowMemory = false
     /// 1, or 2 on the end-of-batch retry.
     var attempt = 1
