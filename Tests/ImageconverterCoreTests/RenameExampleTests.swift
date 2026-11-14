@@ -32,6 +32,17 @@ final class RenameExampleTests: XCTestCase {
             "4032x3024.jpg")
     }
 
+    /// Final review minor 3: the example names a copy like the batch and the preview (`RenameRendering`).
+    func testCopyKeepsTheSourceExtensionLikeTheBatch() {
+        let url = URL(fileURLWithPath: "/tmp/Photo.PNG")
+        let copy = pipeline("{name}_{format}")
+        let example = RenameExample.render(source: url, header: nil, created: nil, pipeline: copy, isCopy: true)
+        let base = RenameRendering.baseName(for: InputItem(source: url, relativeDirectory: ""), index: 0,
+                                            pipeline: copy, isCopy: true)
+        XCTAssertEqual(example, "Photo_PNG.png")
+        XCTAssertEqual(example, "\(base ?? "").png")
+    }
+
     func testCounterFollowsTheItemIndex() {
         XCTAssertEqual(
             RenameExample.render(

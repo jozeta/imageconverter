@@ -33,7 +33,7 @@ final class AppModel {
     /// Comparison mode, batch browser mode and the selected item's difference and quality renders.
     let compare: CompareController
     /// "Example: name.ext" for the Rename editor; see `refreshRenameExample()`.
-    private(set) var renameExample = ""
+    var renameExample = ""
 
     /// The selected image (index into `items`); see `selectedItemIndex` for the clamped value.
     var selectedIndex = 0
@@ -96,8 +96,8 @@ final class AppModel {
     @ObservationIgnored var thumbnailsLoading: Set<URL> = []
     @ObservationIgnored var thumbnailsFailed: Set<URL> = []
     @ObservationIgnored private let defaults: UserDefaults
-    @ObservationIgnored private var exampleSource: (url: URL, info: RenameSource)?
-    @ObservationIgnored private var exampleCache: (key: RenameExampleKey, text: String)?
+    @ObservationIgnored var exampleSource: (url: URL, info: RenameSource)?
+    @ObservationIgnored var exampleCache: (key: RenameExampleKey, text: String)?
     @ObservationIgnored let presetStore: PresetStore
     static let pipelineKey = "currentPipeline"
     static let selectedPresetKey = "selectedPresetID"
@@ -194,8 +194,9 @@ final class AppModel {
         Task { [weak self] in
             let found = await Task.detached(priority: .userInitiated) { InputCollector.collect(urls) }.value
             guard let self else { return }
-            var seen = Set(self.items)
-            for item in found where seen.insert(item).inserted {
+            // By file, not by item: a file added loose and again through its folder is listed once.
+            var seen = Set(self.items.map(\.pathKey))
+            for item in found where seen.insert(item.pathKey).inserted {
                 self.items.append(item)
             }
             self.pendingAdds -= 1
@@ -252,6 +253,8 @@ final class AppModel {
     @discardableResult
     func startRun(_ batch: [InputItem], pipeline: Pipeline, mode: OutputMode, presetName: String?,
                   completion: (@MainActor (BatchReport) -> Void)? = nil) -> Bool {
+        // One item per file, so the run's event indices match this list (the runner deduplicates the same way).
+        let batch = InputItem.unique(batch)
         guard !isRunning, !batch.isEmpty else { return false }
         runInfo = (batch.count, Date(), mode.kind.rawValue)
         isRunning = true
@@ -312,89 +315,4 @@ final class AppModel {
                     type: failed > 0 ? .bad : (report.cancelled ? .info : .ok))
     }
 
-}
-
-// MARK: - Rename example
-
-extension AppModel {
-
-    /// What the live example depends on; when it changes the example is recomputed.
-    var renameExampleKey: RenameExampleKey {
-        RenameExampleKey(
-            exampleItem: selectedItemIndex.map { items[$0].source }, index: selectedItemIndex ?? 0, pattern: pipeline.rename.pattern,
-            counterStart: pipeline.rename.counterStart,
-            replacements: pipeline.rename.replacements,
-            prefix: pipeline.rename.prefix, suffix: pipeline.rename.suffix, removeSpaces: pipeline.rename.removeSpaces,
-            specialCharacters: pipeline.rename.specialCharacters, replacement: pipeline.rename.replacement,
-            caseStyle: pipeline.rename.caseStyle,
-            format: pipeline.output.format, steps: pipeline.steps)
-    }
-
-    /// Renders the rename pattern for the selected image (the first by default, or a built-in sample when there are none).
-    /// The file is read off the main actor; the header is kept per file and the result per key.
-    func refreshRenameExample() async {
-        let key = renameExampleKey
-        if let cached = exampleCache, cached.key == key {
-            renameExample = cached.text
-            return
-        }
-        var pipeline = self.pipeline
-        var index = key.index
-        var skipped = false
-        // With conditions the example uses this image's branch and its counter number in the batch.
-        if pipeline.hasConditions, let selected = selectedItemIndex,
-           let conditions = await factsCache.preview(of: selected, in: items, pipeline: pipeline) {
-            guard !Task.isCancelled else { return }
-            index = conditions.counterIndex
-            skipped = conditions.resolved.disposition == .skip
-            let rename = pipeline.rename
-            pipeline = conditions.resolved.pipeline
-            pipeline.rename = rename
-        }
-        let known = exampleSource.flatMap { $0.url == key.exampleItem ? $0.info : nil }
-        let (info, rendered) = await Task.detached(priority: .userInitiated) { [pipeline, index] in
-            Self.renderExample(url: key.exampleItem, known: known, pipeline: pipeline, index: index)
-        }.value
-        let text = skipped ? "\(ConditionalStep.skippedReason): this image isn't written" : rendered
-        guard !Task.isCancelled else { return }
-        if let url = key.exampleItem { exampleSource = (url, info) }
-        exampleCache = (key, text)
-        renameExample = text
-    }
-
-    nonisolated private static func renderExample(
-        url: URL?, known: RenameSource?, pipeline: Pipeline, index: Int
-    ) -> (RenameSource, String) {
-        var info = known ?? RenameSource(header: nil, created: nil)
-        if let url, known == nil {
-            info = RenameSource(
-                header: ImageLoader.header(of: url),
-                created: (try? url.resourceValues(forKeys: [.creationDateKey]))?.creationDate)
-        }
-        let name = RenameExample.render(source: url, header: info.header, created: info.created, pipeline: pipeline,
-                                    index: index)
-        return (info, "Example: \(name)")
-    }
-}
-
-/// The part of a source image the rename example needs; read once per file.
-struct RenameSource: @unchecked Sendable {
-    let header: ImageHeader?
-    let created: Date?
-}
-
-struct RenameExampleKey: Equatable {
-    let exampleItem: URL?
-    let index: Int
-    let pattern: String
-    let counterStart: Int
-    let replacements: [ReplacementRule]
-    let prefix: String
-    let suffix: String
-    let removeSpaces: Bool
-    let specialCharacters: SpecialCharacters
-    let replacement: String
-    let caseStyle: CaseStyle
-    let format: OutputFormat
-    let steps: [PipelineStep]
 }

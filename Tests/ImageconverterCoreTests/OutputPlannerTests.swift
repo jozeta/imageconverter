@@ -15,6 +15,24 @@ final class OutputPlannerTests: XCTestCase {
         XCTAssertEqual(plans.map(\.destination.path), ["/out/a.jpg", "/out/a_2.jpg"])
     }
 
+    /// Final review I3: a second overwrite plan for one original is refused, in place or with a format change.
+    func testOverwriteRefusesASecondPlanForTheSameSource() {
+        let loose = item("a.jpg")
+        let viaFolder = item("A.JPG", rel: "src")
+        for format in [OutputFormat.jpeg, .png] {
+            let plans = OutputPlanner.plan([loose, viaFolder], format: format, mode: .overwrite,
+                                           fileExists: { _ in false })
+            XCTAssertFalse(plans[0].isRefused)
+            XCTAssertTrue(plans[1].isRefused, "\(format)")
+            XCTAssertThrowsError(try FileCommitter.commit(Data(), for: plans[1], trash: { _ in XCTFail("trashed") }))
+        }
+        let other = OutputPlanner.plan([loose, viaFolder], format: .jpeg, mode: .sameFolder(suffix: "_n"),
+                                       fileExists: { _ in false })
+        XCTAssertFalse(other.contains(where: \.isRefused))
+        XCTAssertEqual(InputItem.unique([loose, viaFolder, item("b.jpg")]).map(\.source.lastPathComponent),
+                       ["a.jpg", "b.jpg"])
+    }
+
     func testSameFolderNoSuffixWhenFormatChanges() {
         let plans = OutputPlanner.plan([item("IMG.heic")], format: .jpeg,
                                        mode: .sameFolder(suffix: "_new"), fileExists: { _ in false })

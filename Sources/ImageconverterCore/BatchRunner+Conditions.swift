@@ -49,6 +49,7 @@ extension BatchRunner {
     /// destinations planned by the same path the batch uses. In input order; nil when the task is cancelled.
     public static func plan(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode,
                             maxPixels: Int = 250_000_000) async -> [PlannedFile]? {
+        let items = InputItem.unique(items)
         guard let run = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels) else { return nil }
         var byPlan: [URL: (PlannedOutput, Disposition)] = [:]
         for (plan, job) in zip(run.plans, run.jobs) { byPlan[plan.item.source] = (plan, job.disposition) }
@@ -64,6 +65,8 @@ extension BatchRunner {
     static func process(_ plan: PlannedOutput, job: ResolvedPipeline, assets: WatermarkAssets, maxPixels: Int,
                         trash: Trasher, options: ItemRunOptions = ItemRunOptions())
         -> (Result<WrittenItem?, ConversionError>, Int?) {
+        // Refused by the planner (a second plan for one original): fail before anything is read or written.
+        if plan.isRefused { return (.failure(.writeFailed("Invalid output plan")), fileSize(plan.item.source)) }
         if job.disposition == .copyOriginal {
             options.stage(.writing)
             return copyOriginal(plan, trash: trash)

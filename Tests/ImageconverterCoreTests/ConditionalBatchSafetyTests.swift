@@ -156,4 +156,18 @@ final class ConditionalBatchSafetyTests: XCTestCase {
         XCTAssertNil(estimate.encoded)
         XCTAssertEqual(estimate.note, "Copied unchanged")
     }
+    /// Final review I3: the same original listed loose and through its folder is processed once in overwrite mode.
+    func testDuplicateItemsRunOnceInOverwriteMode() async throws {
+        let file = try source("dup.jpg", width: 40, height: 20)
+        let rotate = Pipeline(steps: [PipelineStep(operation: .rotateFlip(RotateFlipOptions(rotation: .cw90)))],
+                              output: OutputSettings(format: .jpeg))
+        let duplicated = [InputItem(source: file, relativeDirectory: ""),
+                          InputItem(source: file, relativeDirectory: root.lastPathComponent)]
+        let report = await BatchRunner.run(duplicated, pipeline: rotate, mode: .overwrite, trash: noTrash)
+        XCTAssertEqual(report.failures, [])
+        XCTAssertEqual(report.written, [file])
+        XCTAssertEqual(ImageLoader.pixelSize(of: file)?.width, 20, "rotated once, not twice")
+        let planned = await BatchRunner.plan(duplicated, pipeline: rotate, mode: .overwrite)
+        XCTAssertEqual(planned?.count, 1)
+    }
 }

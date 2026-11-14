@@ -21,11 +21,14 @@ enum RenameRendering {
         var context = RenameContext.make(
             source: item.source, header: header, outputSize: size, format: pipeline.output.format,
             counter: overflow ? Int.max : counter, fileCreationDate: created)
-        if isCopy {
-            let ext = item.source.pathExtension.lowercased()
-            context.ext = ext
-            context.format = OutputFormat.allCases.first { $0.fileExtensions.contains(ext) }?.displayName ?? ext.uppercased()
-        }
+        if isCopy { describeCopy(of: item.source, in: &context) }
         return pipeline.rename.render(template, context)
+    }
+
+    /// A copy keeps the source's own extension (lower-cased) and format name.
+    static func describeCopy(of source: URL, in context: inout RenameContext) {
+        let ext = source.pathExtension.lowercased()
+        context.ext = ext
+        context.format = OutputFormat.allCases.first { $0.fileExtensions.contains(ext) }?.displayName ?? ext.uppercased()
     }
 }

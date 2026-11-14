@@ -36,6 +36,9 @@ public struct PlannedOutput: Equatable, Sendable {
         self.replacesSource = replacesSource
         self.trashesSource = trashesSource
     }
+
+    /// A plan the planner refused (a second plan for the same original): `FileCommitter` rejects it.
+    public var isRefused: Bool { replacesSource && trashesSource }
 }
 
 /// One item to plan: its format (or the source's own extension, for a copy of the original) and name.
@@ -118,8 +121,17 @@ public enum OutputPlanner {
         claimed.formUnion(reservedSources.map(key))
 
         var plans: [PlannedOutput] = []
+        var plannedSources = Set<String>()
         for target in targets {
             let item = target.item
+            // Overwrite mode refuses a second plan for a source already planned (the batch deduplicates first;
+            // this is the guard): it gets a plan `FileCommitter` rejects ("Invalid output plan") before
+            // touching anything, so one original is never replaced or trashed twice.
+            if isOverwrite, !plannedSources.insert(key(item.source)).inserted {
+                plans.append(PlannedOutput(item: item, destination: item.source, replacesSource: true,
+                                           trashesSource: true))
+                continue
+            }
             if inPlace(target) {
                 plans.append(PlannedOutput(item: item, destination: item.source,
                                            replacesSource: true, trashesSource: false))

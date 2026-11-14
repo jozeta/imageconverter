@@ -19,20 +19,22 @@ extension RenameContext {
 /// The live "Example: ..." for the rename pattern. Pure: the caller reads the file.
 public enum RenameExample {
     /// "<base>.<ext>" for the image at `index` in the batch (counter = start + index), or for a built-in sample when there is no `source`.
-    /// An unreadable header means a 4032 x 3024 source.
+    /// An unreadable header means a 4032 x 3024 source. `isCopy`: the image is copied unchanged, so `{ext}`,
+    /// `{format}` and the extension are the source's own, as in the batch (`RenameRendering`).
     public static func render(source: URL?, header: ImageHeader?, created: Date?, pipeline: Pipeline,
-                              index: Int = 0) -> String {
+                              index: Int = 0, isCopy: Bool = false) -> String {
         let format = pipeline.output.format
         let template = RenameTemplate(pipeline.rename.pattern)
         let (sum, overflow) = pipeline.rename.counterStart.addingReportingOverflow(max(0, index))
         let counter = overflow ? Int.max : sum
         let upright = header?.uprightSize ?? (width: 4032, height: 3024)
         let output = pipeline.outputSize(sourceWidth: upright.width, sourceHeight: upright.height)
-        let context: RenameContext
+        var context: RenameContext
         if let source {
             context = RenameContext.make(
                 source: source, header: header, outputSize: (output.width, output.height), format: format,
                 counter: counter, fileCreationDate: template.needsDate ? created : nil)
+            if isCopy { RenameRendering.describeCopy(of: source, in: &context) }
         } else {
             context = RenameContext.sample(format: format, outputSize: output, counter: counter)
         }
