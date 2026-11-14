@@ -158,7 +158,7 @@ final class ExternalRequestsTests: XCTestCase {
     }
 
     func testCanPinWhileASlotIsFree() {
-        let full = (1...5).map { preset("p\($0)", slot: $0) } + [preset("free")]
+        let full = (1...5).map { (number: Int) in preset("p\(number)", slot: number) } + [preset("free")]
         XCTAssertNil(ServicePins.freeSlot(in: full))
         XCTAssertFalse(ServicePins.canPin(full[5].id, in: full))
         // A pinned preset can always be pinned again (and unpinned).

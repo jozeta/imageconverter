@@ -549,26 +549,34 @@ without AVIF) at 85 % without its GPS location in **Processed Images**, with a C
 5. The list shows each job's trigger, folders, last run ("2 min ago · 12 converted, 1 failed") and status
    (*Watching*, *Scheduled*, *Running 3/12*, *Paused*, *Off*). Select a job for **Run Now**, **Open Last Report**
    (the newest `imageconverter-report-<date>.csv` next to the outputs) or **Reveal Output**; double-click (or
-   **Edit…**) to change it; right-click for **Switch Off/On**, **Process All Files Again…** and **Delete…** (the
-   folders and images are never touched).
+   **Edit…**) to change it; right-click for **Switch Off/On**, **Process All Files Again…** (asks first, naming the
+   job and its folders) and **Delete…** (the folders and images are never touched).
 
 Good to know:
 
 - Jobs run while the app is open (watching and schedules stop when it quits and catch up when it starts again).
   Switch on **Keep running in the menu bar when the window is closed** at the bottom of the Jobs window to keep the
   app in the menu bar (job status, Pause All Jobs, Open imageconverter, Jobs…, Quit) after its windows close.
-- One run per job at a time: files that arrive during a run are collected into one follow-up run. Job runs are
-  background runs at low priority with half the processor cores and half the memory budget, so they never block
-  (or wait for) a run in the main window.
+- One run per job at a time: files that arrive during a run are collected into one follow-up run. Only one job
+  batch runs at a time across all jobs (the others show *Waiting*), at low priority with half the processor cores
+  and half the memory budget, so jobs never block (or wait for) a run in the main window and leave it its share.
+  The app and the command line (`imageconverter jobs run`) never run the same job at once: the second one reports
+  "This job is already running."
+- Quitting while a batch or a job runs asks **Stop and quit?** (Cancel is the default). Stopping keeps the files
+  already written, records them so they aren't processed again, and leaves no temporary files behind.
 - **On a schedule** looks for new and changed images every N minutes or hours (at least every 5 minutes).
   **Manually** runs only on **Run Now** (or an `imageconverter://jobs/run` link).
-- The first time a watch job is switched on, macOS asks whether imageconverter may show notifications; jobs then
-  report when a watched or scheduled run converted files or failed. Saying no changes nothing else.
+- The first time a watched or scheduled job is switched on, macOS asks whether imageconverter may show
+  notifications; jobs then report when a watched or scheduled run converted files or failed (at most one
+  notification per job per minute, adding up the runs in between). Saying no changes nothing else. Runs you start
+  yourself (Run Now, a link) show their result in the main window instead.
 - Folders are remembered as security-scoped bookmarks, so a job keeps working after the folder is moved or renamed
-  (and, in the sandboxed 1.0 app, after a relaunch). A folder that can't be found any more (deleted, or its disk
+  (also while it is being watched; the files it already processed move with it and aren't converted again) and,
+  in the sandboxed 1.0 app, after a relaunch. A folder that can't be found any more (deleted, or its disk
   unplugged) switches the job off with a message ("The input folder "Incoming Images" can't be found."); edit the job,
   choose the folder again and switch it on.
-- **Pause all jobs** stops every watcher and schedule until you switch it off (a run in progress finishes).
+- **Pause all jobs** stops every watcher and schedule and drops runs that were waiting, until you switch it off (a
+  run in progress finishes). Switching one job off does the same for that job.
 - Every run that processed files is kept in the run history; failures also go to the error log
   (`~/Library/Application Support/imageconverter/logs/errors.log`).
 

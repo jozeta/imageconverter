@@ -12,6 +12,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installURLHandler()
     }
 
+    /// A running batch or job is stopped cleanly first (see `QuitCoordinator`).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated { QuitCoordinator.shared.shouldTerminate() }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Watching and schedules start with the app, not with the Jobs window.
         MainActor.assumeIsolated {
@@ -56,6 +61,10 @@ final class ExternalActions {
         self.model = model
         self.settings = settings
         self.openWindow = openWindow
+        // Results of runs the user started (Run now, links) and missing folders show as toasts in this window.
+        JobsController.shared.messenger = { [weak model] text, isProblem in
+            model?.toasts.show(text, type: isProblem ? .bad : .ok)
+        }
         let pending = waiting
         waiting = []
         for work in pending { work(model, settings) }

@@ -229,4 +229,37 @@ final class JobRunnerTests: XCTestCase {
         XCTAssertEqual(again.batch.order, [])
         XCTAssertNil(again.reportFile)
     }
+
+    // MARK: Fix round 1
+
+    func testASecondRunnerOfTheSameJobIsRefused() async throws {
+        try drop("a.jpg")
+        let job = job()
+        // Another process (or the app) holds the job's lock.
+        let held = try XCTUnwrap(JobLock.acquire(store.lockURL(for: job.id)))
+        let refused = await run(job)
+        XCTAssertEqual(refused.problem, JobLock.busyMessage)
+        XCTAssertEqual(refused.batch.order, [])
+        held.release()
+        let done = await run(job)
+        XCTAssertNil(done.problem)
+        XCTAssertEqual(done.batch.written.count, 1)
+        // Released at the end of the run.
+        XCTAssertNotNil(JobLock.acquire(store.lockURL(for: job.id)))
+    }
+
+    func testRunResultsAreMergedIntoTheLedgerAsItIsNow() throws {
+        let id = UUID()
+        let old = FileFingerprint(path: "/x/old.jpg", size: 1, modified: 1)
+        var start = ProcessedLedger()
+        start.recordProcessed([old])
+        try store.saveLedger(start, id: id)
+        // Meanwhile someone resets the ledger; the run's result lands on the reset one.
+        try store.resetLedger(id: id)
+        let new = FileFingerprint(path: "/x/new.jpg", size: 2, modified: 2)
+        try store.updateLedger(id: id) { $0.recordProcessed([new]) }
+        let ledger = try store.loadLedger(id: id)
+        XCTAssertTrue(ledger.isSettled(new))
+        XCTAssertFalse(ledger.isSettled(old))
+    }
 }

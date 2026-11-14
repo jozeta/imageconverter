@@ -53,7 +53,7 @@ final class FolderAccessTests: XCTestCase {
         let out = try folder("Out")
         let outcome = JobFolders.resolve(job(inputs: [incoming], output: .newFolder(out)), sandboxed: false,
                                          resolver: { _ in nil }, bookmarker: { Data($0.lastPathComponent.utf8) })
-        guard case .ready(let ready, let changed) = outcome else { return XCTFail("\(outcome)") }
+        guard case .ready(let ready, let changed, _) = outcome else { return XCTFail("\(outcome)") }
         XCTAssertTrue(changed)
         XCTAssertEqual(ready.inputBookmarks, [Data("Incoming".utf8)])
         XCTAssertEqual(ready.outputBookmark, Data("Out".utf8))
@@ -68,13 +68,30 @@ final class FolderAccessTests: XCTestCase {
             job(inputs: [gone], output: .sameFolder(suffix: "_new"), bookmarks: [old], outputBookmark: Data("x".utf8)),
             sandboxed: true, resolver: { _ in FolderAccess.Resolved(url: moved, refreshed: Data("new".utf8)) },
             bookmarker: { _ in nil })
-        guard case .ready(let ready, let changed) = outcome else { return XCTFail("\(outcome)") }
+        guard case .ready(let ready, let changed, _) = outcome else { return XCTFail("\(outcome)") }
         XCTAssertTrue(changed)
         // Stored as the real path, the form watchers and the ledger use.
         XCTAssertEqual(ready.inputs.map(\.path), [WatchFilter.canonicalPath(moved)])
         XCTAssertEqual(ready.inputBookmarks, [Data("new".utf8)])
         // Not a new-folder job: no output bookmark.
         XCTAssertNil(ready.outputBookmark)
+    }
+
+    func testAccessUsesTheURLTheBookmarkResolvedTo() throws {
+        let incoming = try folder("Incoming")
+        let out = try folder("Out")
+        // Only the resolved instance carries the sandbox permission: a marker fragment tells instances apart.
+        let marked = { (url: URL) in URL(string: url.absoluteString + "#resolved")! }
+        let outcome = JobFolders.resolve(
+            job(inputs: [incoming], output: .newFolder(out), bookmarks: [Data("in".utf8)], outputBookmark: Data("out".utf8)),
+            sandboxed: true,
+            resolver: { FolderAccess.Resolved(url: marked($0 == Data("in".utf8) ? incoming : out)) },
+            bookmarker: { _ in nil })
+        guard case .ready(let ready, _, let access) = outcome else { return XCTFail("\(outcome)") }
+        XCTAssertEqual(access, [marked(incoming), marked(out)])
+        XCTAssertEqual(access.map(\.fragment), ["resolved", "resolved"])
+        // The stored paths stay plain.
+        XCTAssertEqual(ready.inputs, [incoming])
     }
 
     func testUnchangedJobIsNotMarkedChanged() throws {
@@ -84,7 +101,7 @@ final class FolderAccessTests: XCTestCase {
         let outcome = JobFolders.resolve(original, sandboxed: true,
                                          resolver: { _ in FolderAccess.Resolved(url: incoming) },
                                          bookmarker: { _ in XCTFail("no new bookmark needed"); return nil })
-        XCTAssertEqual(outcome, .ready(original, changed: false))
+        XCTAssertEqual(outcome, .ready(original, changed: false, access: [incoming]))
     }
 
     func testUnresolvableInputMakesTheJobUnavailable() {
@@ -99,7 +116,7 @@ final class FolderAccessTests: XCTestCase {
         let out = root.appendingPathComponent("Processed", isDirectory: true)
         let unsandboxed = JobFolders.resolve(job(inputs: [incoming], output: .newFolder(out)), sandboxed: false,
                                              resolver: { _ in nil }, bookmarker: { _ in nil })
-        guard case .ready(let ready, _) = unsandboxed else { return XCTFail("\(unsandboxed)") }
+        guard case .ready(let ready, _, _) = unsandboxed else { return XCTFail("\(unsandboxed)") }
         XCTAssertEqual(ready.output, .newFolder(out))
         let sandboxed = JobFolders.resolve(job(inputs: [incoming], output: .newFolder(out)), sandboxed: true,
                                            resolver: { _ in nil }, bookmarker: { _ in nil })

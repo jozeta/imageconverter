@@ -188,6 +188,31 @@ extension Job {
     }
 }
 
+extension Job {
+    /// The editor's changes (`edited` against the `base` it opened with) applied to the job as it is now: fields the
+    /// user didn't touch keep their current value, so a folder the app followed (new path and bookmark) or a
+    /// reason it was switched off isn't overwritten by a stale draft. Bookmarks go with their folders.
+    public static func merge(base: Job, edited: Job, current: Job) -> Job {
+        var job = current
+        if edited.name != base.name { job.name = edited.name }
+        if edited.pipeline != base.pipeline { job.pipeline = edited.pipeline }
+        if edited.presetID != base.presetID { job.presetID = edited.presetID }
+        if edited.recursive != base.recursive { job.recursive = edited.recursive }
+        if edited.trigger != base.trigger { job.trigger = edited.trigger }
+        if edited.report != base.report { job.report = edited.report }
+        if edited.isEnabled != base.isEnabled { job.isEnabled = edited.isEnabled }
+        if edited.inputs != base.inputs {
+            job.inputs = edited.inputs
+            job.inputBookmarks = nil
+        }
+        if edited.output != base.output {
+            job.output = edited.output
+            job.outputBookmark = nil
+        }
+        return job
+    }
+}
+
 /// When scheduled jobs run.
 public enum JobSchedule {
     /// Five minutes: a shorter schedule would mostly re-scan unchanged folders.
@@ -246,10 +271,17 @@ public final class JobStore: @unchecked Sendable {
         try templates.rename(id: id, to: name)
     }
 
-    /// Deletes the job and its ledger.
+    /// Deletes the job, its ledger and its lock file.
     public func delete(id: UUID) throws {
         try templates.delete(id: id)
         try resetLedger(id: id)
+        try? FileManager.default.removeItem(at: lockURL(for: id))
+    }
+
+    /// `jobs/<id>.lock`: held (`flock`) for the length of a run, so the app and the command line never run the
+    /// same job at once (see `JobLock`).
+    public func lockURL(for id: UUID) -> URL {
+        directory.appendingPathComponent("\(id.uuidString).lock", isDirectory: false)
     }
 
     // MARK: Ledgers
@@ -263,6 +295,10 @@ public final class JobStore: @unchecked Sendable {
     public func loadLedger(id: UUID) throws -> ProcessedLedger {
         ledgerLock.lock()
         defer { ledgerLock.unlock() }
+        return try readLedger(id: id)
+    }
+
+    private func readLedger(id: UUID) throws -> ProcessedLedger {
         let url = ledgerURL(for: id)
         // lstat: a dangling link is still "there" (and then rejected), only a missing file means "none yet".
         var info = stat()
@@ -278,14 +314,32 @@ public final class JobStore: @unchecked Sendable {
     public func saveLedger(_ ledger: ProcessedLedger, id: UUID) throws {
         ledgerLock.lock()
         defer { ledgerLock.unlock() }
+        try writeLedger(ledger, id: id)
+    }
+
+    private func writeLedger(_ ledger: ProcessedLedger, id: UUID) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try JSONEncoder().encode(ledger).write(to: ledgerURL(for: id), options: .atomic)
+    }
+
+    /// Reads the ledger as it is now, applies `change` and saves it, under one lock: a run records its results
+    /// on top of whatever happened meanwhile (a reset, a rebase), never over it.
+    @discardableResult
+    public func updateLedger<T>(id: UUID, _ change: (inout ProcessedLedger) throws -> T) throws -> T {
+        ledgerLock.lock()
+        defer { ledgerLock.unlock() }
+        var ledger = try readLedger(id: id)
+        let result = try change(&ledger)
+        try writeLedger(ledger, id: id)
+        return result
     }
 
     /// Moves ledger entries along with folders that moved (see `JobFolders.moves`). A missing ledger stays missing.
     public func rebaseLedger(id: UUID, moves: [(from: URL, to: URL)]) throws {
         guard !moves.isEmpty else { return }
-        var ledger = try loadLedger(id: id)
+        ledgerLock.lock()
+        defer { ledgerLock.unlock() }
+        var ledger = try readLedger(id: id)
         guard ledger.count + ledger.outputCount > 0 else { return }
         for move in moves {
             // Ledger paths are `InputCollector`'s (`resolvingSymlinksInPath`: `/tmp`, not `/private/tmp`). The old
@@ -293,7 +347,7 @@ public final class JobStore: @unchecked Sendable {
             let target = move.to.resolvingSymlinksInPath().path
             for old in Self.spellings(of: move.from) { ledger.rebase(from: old, to: target) }
         }
-        try saveLedger(ledger, id: id)
+        try writeLedger(ledger, id: id)
     }
 
     static func spellings(of url: URL) -> Set<String> {

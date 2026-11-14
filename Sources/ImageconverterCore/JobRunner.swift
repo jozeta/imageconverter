@@ -49,11 +49,17 @@ public enum JobRunner {
                                 waiting: selection.waiting, reportFile: nil, problem: problem)
         }
 
+        // One runner per job across processes (the app and the command line).
+        guard let lock = JobLock.acquire(store.lockURL(for: job.id)) else {
+            return finish(BatchReport(), total: 0, selection: Selection(), problem: JobLock.busyMessage)
+        }
+        defer { lock.release() }
+
         let presets = presetStore?.loadAll().presets ?? PresetStore.builtIns
         guard let pipeline = job.resolvedPipeline(presets: presets) else {
             return finish(BatchReport(), total: 0, selection: Selection(), problem: "The job's preset no longer exists.")
         }
-        var ledger: ProcessedLedger
+        let ledger: ProcessedLedger
         do { ledger = try store.loadLedger(id: job.id) } catch {
             return finish(BatchReport(), total: 0, selection: Selection(),
                           problem: "The list of processed files couldn't be read. Reset it to process every file again.")
@@ -68,11 +74,9 @@ public enum JobRunner {
         let batch = await BatchRunner.run(selection.items, pipeline: pipeline, mode: job.output, maxPixels: maxPixels,
                                           concurrency: concurrency, memoryBudgetPixels: memoryBudgetPixels,
                                           trash: trash, progress: progress)
-        let gaveUp = update(&ledger, with: batch, fingerprints: selection.fingerprints)
         var problems: [String] = []
-        do { try store.saveLedger(ledger, id: job.id) } catch {
-            problems.append("The list of processed files couldn't be saved: \(error.localizedDescription)")
-        }
+        let (gaveUp, ledgerProblem) = record(batch, selection: selection, loaded: ledger, store: store, id: job.id)
+        if let ledgerProblem { problems.append(ledgerProblem) }
 
         var result = finish(batch, total: selection.items.count, selection: selection, problem: nil)
         for index in result.report.entries.indices where result.report.entries[index].status == .failed
@@ -89,6 +93,19 @@ public enum JobRunner {
         }
         result.problem = problems.isEmpty ? nil : problems.joined(separator: " ")
         return result
+    }
+
+    /// Records the run on the ledger as it is now (a reset or a folder rebase during the run is kept). Returns the
+    /// sources given up on, and a problem when the ledger couldn't be saved.
+    private static func record(_ batch: BatchReport, selection: Selection, loaded: ProcessedLedger, store: JobStore,
+                               id: UUID) -> (Set<String>, String?) {
+        do {
+            return (try store.updateLedger(id: id) { update(&$0, with: batch, fingerprints: selection.fingerprints) }, nil)
+        } catch {
+            var unsaved = loaded
+            return (update(&unsaved, with: batch, fingerprints: selection.fingerprints),
+                    "The list of processed files couldn't be saved: \(error.localizedDescription)")
+        }
     }
 
     struct Selection {

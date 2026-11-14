@@ -8,6 +8,8 @@ struct JobDraft: Identifiable {
     enum Unit: String, CaseIterable { case minutes, hours }
 
     var job: Job
+    /// The job as the editor opened it: saving applies only what changed (see `Job.merge`).
+    let original: Job
     let isNew: Bool
     var trigger: Trigger
     var every: Int
@@ -20,6 +22,7 @@ struct JobDraft: Identifiable {
 
     init(_ job: Job, isNew: Bool) {
         self.job = job
+        original = job
         self.isNew = isNew
         var interval = JobSchedule.minimumInterval * 3
         switch job.trigger {

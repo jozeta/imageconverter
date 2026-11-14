@@ -12,6 +12,7 @@ struct JobsView: View {
     @State private var selection: UUID?
     @State private var editing: JobDraft?
     @State private var confirmingDelete: Job?
+    @State private var confirmingReset: Job?
     @State private var actionFailure: String?
     @Environment(\.openWindow) private var openWindow
 
@@ -31,7 +32,7 @@ struct JobsView: View {
         .lgCompact()
         .sheet(item: $editing) { draft in
             JobEditor(draft: draft, presets: model.allPresets, currentPipeline: model.pipeline) { job in
-                try controller.save(job)
+                try controller.save(job, base: draft.isNew ? nil : draft.original)
                 selection = job.id
             }
         }
@@ -42,6 +43,17 @@ struct JobsView: View {
             Button("Cancel", role: .cancel) {}
         } message: { _ in
             Text("Its folders and the images in them are not touched. The list of processed files is deleted.")
+        }
+        .confirmationDialog("Process all files of \(confirmingReset?.name ?? "") again?",
+                            isPresented: Binding(get: { confirmingReset != nil }, set: { if !$0 { confirmingReset = nil } }),
+                            presenting: confirmingReset) { job in
+            Button(job.output.kind == .overwrite ? "Forget and Re-encode Originals" : "Forget Processed Files",
+                   role: job.output.kind == .overwrite ? .destructive : nil) {
+                perform { try controller.resetProcessed(job.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: { job in
+            Text(Self.resetMessage(job))
         }
         .alert("Couldn't do that", isPresented: Binding(get: { actionFailure != nil }, set: { if !$0 { actionFailure = nil } })) {
             Button("OK", role: .cancel) {}
@@ -98,7 +110,7 @@ struct JobsView: View {
                 Button("Run Now") { controller.runNow(id) }
                 Button(job.isEnabled ? "Switch Off" : "Switch On") { controller.setEnabled(id, !job.isEnabled) }
                 Divider()
-                Button("Process All Files Again…") { perform { try controller.resetProcessed(id) } }
+                Button("Process All Files Again…") { confirmingReset = job }
                 Button("Delete…") { confirmingDelete = job }
                     .disabled(controller.status(of: id).isRunning)
             }
@@ -243,6 +255,7 @@ extension JobsView {
             }
             return ("Running", .ok)
         }
+        if status.isQueued { return ("Waiting", .neutral) }
         if !job.isEnabled {
             return job.disabledReason == nil ? ("Off", .neutral) : ("Off: folder missing", .bad)
         }
@@ -263,6 +276,16 @@ extension JobsView {
         let output = pipeline.output
         let quality = output.format.supportsQuality ? " \(Int((output.clampedQuality * 100).rounded())) %" : ""
         parts.append(output.format.displayName + quality)
-        return parts.joined(separator: " · ")
+        let text = parts.joined(separator: " · ")
+        return text.prefix(1).uppercased() + text.dropFirst()
+    }
+
+    /// Names the job and its folders, and what the next run will do.
+    static func resetMessage(_ job: Job) -> String {
+        let folders = job.inputs.map { "\u{2022} " + $0.path }.joined(separator: "\n")
+        let effect = job.output.kind == .overwrite
+            ? "The next run converts every image in these folders again and replaces the originals once more."
+            : "The next run converts every image in these folders again; existing results get new names (_2, _3, …)."
+        return "The job forgets which files it has processed.\n\n\(folders)\n\n\(effect)"
     }
 }

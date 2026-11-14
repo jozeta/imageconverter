@@ -18,7 +18,11 @@ struct MenuBarContent: View {
         Divider()
         Button(controller.pausedAll ? "Resume All Jobs" : "Pause All Jobs") { controller.pausedAll.toggle() }
         Divider()
-        Button("Open imageconverter") { show(MainWindow.id) }
+        Button("Open imageconverter") {
+            // Brings the existing main window forward; opens one only when it was closed.
+            MenuBarMode.shared.windowWillShow()
+            ExternalActions.shared.showWindow()
+        }
         Button("Jobs…") { show(JobsView.windowID) }
         Divider()
         Button("Quit imageconverter") { NSApp.terminate(nil) }

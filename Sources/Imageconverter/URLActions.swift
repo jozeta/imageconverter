@@ -85,6 +85,9 @@ extension ExternalActions {
         // Through the Jobs controller: one run per job at a time (a link during a run becomes its follow-up).
         let jobs = JobsController.shared
         jobs.start()
+        let waits = jobs.hasActiveRuns
+        model.toasts.show(waits ? "The job \(job.name) runs once the current job run has finished"
+                                : "Running the job \(job.name)…", type: .info)
         jobs.runNow(job.id)
     }
 }

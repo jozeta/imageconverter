@@ -87,8 +87,10 @@ public enum FolderAccess {
 /// moved folders followed.
 public enum JobFolders {
     public enum Outcome: Equatable, Sendable {
-        /// The job as it should run (and, when `changed`, be saved: new URLs or bookmarks).
-        case ready(Job, changed: Bool)
+        /// The job as it should run (and, when `changed`, be saved: new URLs or bookmarks), and the URLs to start
+        /// access on: the very instances the bookmarks resolved to (only those carry the sandbox's permission),
+        /// or the plain URLs where there is no bookmark. Inputs first, then the new-folder output.
+        case ready(Job, changed: Bool, access: [URL])
         /// A folder can't be found; `reason` says which, for the user.
         case unavailable(reason: String)
     }
@@ -102,6 +104,7 @@ public enum JobFolders {
         var changed = false
         let stored = job.inputBookmarks?.count == job.inputs.count ? job.inputBookmarks : nil
         var bookmarks: [Data] = []
+        var access: [URL] = []
         for (index, input) in job.inputs.enumerated() {
             switch folder(input, bookmark: stored?[index], sandboxed: sandboxed, resolver: resolver,
                           bookmarker: bookmarker) {
@@ -109,17 +112,18 @@ public enum JobFolders {
                 return .unavailable(reason: "The input folder \u{201C}\(input.lastPathComponent)\u{201D} can't be found.")
             case .some(let found):
                 if !same(found.url, input) { updated.inputs[index] = found.url; changed = true }
+                access.append(found.access)
                 if let data = found.bookmark { bookmarks.append(data) }
             }
         }
         let newBookmarks = bookmarks.count == job.inputs.count ? bookmarks : nil
         if newBookmarks != job.inputBookmarks { updated.inputBookmarks = newBookmarks; changed = true }
 
-        if let reason = resolveOutput(&updated, changed: &changed, sandboxed: sandboxed, resolver: resolver,
-                                      bookmarker: bookmarker) {
-            return .unavailable(reason: reason)
+        switch resolveOutput(&updated, changed: &changed, sandboxed: sandboxed, resolver: resolver,
+                             bookmarker: bookmarker) {
+        case .failure(let failure): return .unavailable(reason: failure.reason)
+        case .success(let output): return .ready(updated, changed: changed, access: access + (output.map { [$0] } ?? []))
         }
-        return .ready(updated, changed: changed)
     }
 
     /// The folders that moved between `old` and `updated` (same job, inputs in the same order), for
@@ -132,21 +136,33 @@ public enum JobFolders {
         return moves
     }
 
-    /// Nil when the output is fine (and `job` updated); otherwise why it isn't.
+    /// A folder as it is now: the URL to store, the URL to access it through, and its bookmark.
+    private struct Found {
+        var url: URL
+        var access: URL
+        var bookmark: Data?
+    }
+
+    private struct Unavailable: Error {
+        let reason: String
+    }
+
+    /// The output folder's access URL (nil when the output isn't a new folder), `job` updated; or why it can't be used.
     private static func resolveOutput(_ job: inout Job, changed: inout Bool, sandboxed: Bool,
-                                      resolver: (Data) -> FolderAccess.Resolved?, bookmarker: (URL) -> Data?) -> String? {
+                                      resolver: (Data) -> FolderAccess.Resolved?,
+                                      bookmarker: (URL) -> Data?) -> Result<URL?, Unavailable> {
         guard case .newFolder(let root) = job.output else {
             if job.outputBookmark != nil { job.outputBookmark = nil; changed = true }
-            return nil
+            return .success(nil)
         }
         // Only a bookmark that resolves somewhere else (the folder moved) changes the output.
         guard let found = folder(root, bookmark: job.outputBookmark, sandboxed: sandboxed, resolver: resolver,
                                  bookmarker: bookmarker, mayBeMissing: true) else {
-            return "The output folder \u{201C}\(root.lastPathComponent)\u{201D} can't be found."
+            return .failure(Unavailable(reason: "The output folder \u{201C}\(root.lastPathComponent)\u{201D} can't be found."))
         }
         if !same(found.url, root) { job.output = .newFolder(found.url); changed = true }
         if found.bookmark != job.outputBookmark { job.outputBookmark = found.bookmark; changed = true }
-        return nil
+        return .success(found.access)
     }
 
     /// The same folder, whatever the trailing slash or symlinked parent (`/tmp` and `/private/tmp`).
@@ -156,18 +172,19 @@ public enum JobFolders {
 
     private static func folder(_ url: URL, bookmark: Data?, sandboxed: Bool,
                                resolver: (Data) -> FolderAccess.Resolved?, bookmarker: (URL) -> Data?,
-                               mayBeMissing: Bool = false) -> (url: URL, bookmark: Data?)? {
+                               mayBeMissing: Bool = false) -> Found? {
         if let bookmark, let resolved = resolver(bookmark) {
-            // The real path (`/private/tmp`, not `/tmp`), the form the watcher and the ledger use.
+            // Stored as the real path (`/private/tmp`, not `/tmp`), the form the watcher uses; accessed through the
+            // resolved instance itself.
             let real = URL(fileURLWithPath: WatchFilter.canonicalPath(resolved.url), isDirectory: true)
-            return (same(real, url) ? url : real, resolved.refreshed ?? bookmark)
+            return Found(url: same(real, url) ? url : real, access: resolved.url, bookmark: resolved.refreshed ?? bookmark)
         }
         if FolderAccess.isFolder(url) {
             // Unsandboxed the plain URL is enough; sandboxed it works only while the app still has access.
-            return (url, bookmarker(url) ?? bookmark)
+            return Found(url: url, access: url, bookmark: bookmarker(url) ?? bookmark)
         }
         // Not there (yet): fine for a new output folder outside the sandbox, where the run creates it.
-        if mayBeMissing && !sandboxed { return (url, nil) }
+        if mayBeMissing && !sandboxed { return Found(url: url, access: url, bookmark: nil) }
         return nil
     }
 }
