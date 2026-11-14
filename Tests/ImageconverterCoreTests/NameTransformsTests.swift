@@ -99,4 +99,40 @@ final class NameTransformsTests: XCTestCase {
         XCTAssertEqual(RenameTemplate("{datetime}").render(context), "2024-06-01_090503")
         XCTAssertTrue(RenameTemplate("{datetime}").needsDate)
     }
+
+    private func exposure(focal: Double?, aperture: Double?, time: Double?) -> RenameContext {
+        var context = ctx()
+        context.focalLength = focal
+        context.aperture = aperture
+        context.exposureTime = time
+        return context
+    }
+
+    func testUntrustedExifNumbersRenderNothing() {
+        let bad: [Double] = [.infinity, -.infinity, .nan, 1e-300, -5, 0, 1e300]
+        for value in bad {
+            let context = exposure(focal: value, aperture: value, time: value)
+            XCTAssertEqual(RenameTemplate("{focal}{aperture}{shutter}").render(context), "my photo 01", "\(value)")
+        }
+    }
+
+    func testShutterAndApertureFormats() {
+        func shutter(_ time: Double) -> String { RenameTemplate("{shutter}").render(exposure(focal: nil, aperture: nil, time: time)) }
+        XCTAssertEqual(shutter(2), "2s")
+        XCTAssertEqual(shutter(1.5), "1.5s")
+        XCTAssertEqual(shutter(0.8), "0.8s")
+        XCTAssertEqual(shutter(0.9999), "1s")
+        XCTAssertEqual(shutter(1.0 / 250), "1-250s")
+        XCTAssertEqual(RenameTemplate("{aperture}").render(exposure(focal: nil, aperture: 1.78, time: nil)), "f1.8")
+        XCTAssertEqual(RenameTemplate("{aperture}").render(exposure(focal: nil, aperture: 8, time: nil)), "f8")
+    }
+
+    func testTitleCaseSplitsOnUnderscoreAndDash() {
+        XCTAssertEqual(NameTransforms.caseStyle("my_photo-two three", style: .title), "My_Photo-Two Three")
+    }
+
+    func testDigitsStayAttached() {
+        XCTAssertEqual(NameTransforms.caseStyle("IMG_1234 HDR", style: .camel), "img1234Hdr")
+        XCTAssertEqual(NameTransforms.caseStyle("photo2Final", style: .snake), "photo2final")
+    }
 }

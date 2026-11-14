@@ -233,22 +233,30 @@ public struct RenameTemplate: Equatable, Sendable {
 
     private static func exposureValue(of name: String, context: RenameContext) -> String {
         switch name {
-        case "focal": return context.focalLength.map { "\(Int($0.rounded()))mm" } ?? ""
-        case "aperture": return context.aperture.map { "f" + trimmed($0) } ?? ""
-        case "shutter": return context.exposureTime.map(shutter) ?? ""
+        case "focal":
+            // EXIF numbers are untrusted: out-of-range or non-finite values render nothing (and never reach Int()).
+            guard let focal = context.focalLength, focal.isFinite, focal >= 0.5, focal <= 10_000 else { return "" }
+            return "\(Int(focal.rounded()))mm"
+        case "aperture":
+            guard let value = context.aperture, value.isFinite, value >= 0.1, value <= 1000 else { return "" }
+            return "f" + trimmed(value)
+        case "shutter":
+            guard let seconds = context.exposureTime, seconds.isFinite, seconds >= 1e-6, seconds <= 3600 else { return "" }
+            return shutter(seconds)
         default: return ""
         }
     }
 
+    /// One decimal place, without a trailing `.0` (so f/1.78 becomes `1.8`).
     private static func trimmed(_ value: Double) -> String {
         let text = String(format: "%.1f", value)
         return text.hasSuffix(".0") ? String(text.dropLast(2)) : text
     }
 
-    /// `0.004` becomes `1-250s` (no `/` in file names); a second or more is `2s` or `1.5s`.
+    /// `0.004` becomes `1-250s` (no `/` in file names). From 0.3 s up it is plain seconds to one decimal
+    /// (`0.8s`, `1s`, `2s`, `1.5s`), so `1-1s` never appears. The caller has range-checked `seconds`.
     private static func shutter(_ seconds: Double) -> String {
-        guard seconds > 0, seconds.isFinite else { return "" }
-        if seconds < 1 { return "1-\(Int((1 / seconds).rounded()))s" }
+        if seconds < 0.3 { return "1-\(Int((1 / seconds).rounded()))s" }
         return trimmed(seconds) + "s"
     }
 

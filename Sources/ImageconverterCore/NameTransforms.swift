@@ -25,6 +25,7 @@ public enum NameTransforms {
             || char == "-" || char == "_" || char == "."
     }
 
+    /// Note that `replace` also collapses and trims runs of the replacement character already in the name.
     /// `replace` swaps each run of other characters for `replacement` (runs of the replacement collapse to one,
     /// and it is trimmed from both ends); `remove` drops them.
     public static func specialCharacters(_ name: String, mode: SpecialCharacters, replacement: String) -> String {
@@ -63,7 +64,7 @@ public enum NameTransforms {
         var current = ""
         var previous: Character?
         for char in name {
-            if char == " " || char == "-" || char == "_" || char == "." || char.isWhitespace {
+            if char.isWhitespace || char == "-" || char == "_" || char == "." {
                 if !current.isEmpty { words.append(current) }
                 current = ""
             } else {
@@ -97,8 +98,14 @@ public enum NameTransforms {
             guard let first = all.first else { return "" }
             return first.lowercased() + all.dropFirst().map(capitalised).joined()
         case .title:
-            return name.split(separator: " ", omittingEmptySubsequences: false)
-                .map { capitalised(String($0)) }.joined(separator: " ")
+            // Splits on spaces, `_` and `-` but keeps them, so only each word's first letter changes.
+            var out = ""
+            var atStart = true
+            for char in name {
+                out += atStart ? String(char).uppercased() : String(char).lowercased()
+                atStart = char.isWhitespace || char == "_" || char == "-"
+            }
+            return out
         }
     }
 }
