@@ -13,6 +13,8 @@ public enum ExternalRequestError: Error, Equatable, Sendable {
     case nothingToRun
     case busy
     case cancelled
+    /// A script can't answer "Discard the interrupted batch?", so its run is refused instead.
+    case interruptedBatchWaiting
 
     public var message: String {
         switch self {
@@ -28,6 +30,8 @@ public enum ExternalRequestError: Error, Equatable, Sendable {
         case .nothingToRun: return "Add images to imageconverter first."
         case .busy: return "imageconverter is already converting. Try again when the run has finished."
         case .cancelled: return "The conversion was cancelled."
+        case .interruptedBatchWaiting:
+            return "An interrupted batch is waiting; resume or discard it first."
         }
     }
 }
@@ -45,6 +49,20 @@ public struct ConvertPlan: Equatable, Sendable {
 /// The checks shared by the AppleScript commands and the Finder services. Their input comes from other
 /// processes, so every file is checked before anything is read, and names are matched like the app does.
 public enum ExternalRequests {
+    /// What an external request that starts a run does about a kept interrupted batch, which the run would replace.
+    public enum InterruptedRunDecision: Equatable, Sendable {
+        case proceed
+        /// Ask "Discard the interrupted batch?" like Run (a Finder service).
+        case ask
+        /// Refuse with `ExternalRequestError.interruptedBatchWaiting` (a script can't answer a question).
+        case refuse
+    }
+
+    public static func interruptedRunDecision(hasInterruptedRun: Bool, interactive: Bool) -> InterruptedRunDecision {
+        guard hasInterruptedRun else { return .proceed }
+        return interactive ? .ask : .refuse
+    }
+
     public static let maxFiles = 10_000
 
     /// The files in an AppleScript parameter: one or a list of aliases, `POSIX file` values (both arrive as

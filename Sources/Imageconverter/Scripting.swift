@@ -62,7 +62,7 @@ final class ConvertScriptCommand: ImageconverterScriptCommand {
                 }
                 let plan = try ExternalRequests.convertPlan(files: files, presetName: presetName, folder: folder,
                                                             presets: model.allPresets, globalMode: settings.outputMode)
-                return runSuspended { try await ExternalActions.shared.convert(plan, model: model) }
+                return runSuspended { try await ExternalActions.shared.convert(plan, model: model, interactive: false) }
             } catch {
                 fail(error)
                 return nil
@@ -102,22 +102,26 @@ final class RunBatchScriptCommand: ImageconverterScriptCommand {
                 guard !model.items.isEmpty else { throw ExternalRequestError.nothingToRun }
                 guard let mode = settings.outputMode else { throw ExternalRequestError.noOutputFolder }
                 let actions = ExternalActions.shared
+                try await actions.checkInterruptedRun(model: model, interactive: false)
+                // Captured once: the confirmation lists exactly the images that then run.
+                let batch = model.items
+                let pipeline = model.pipeline
+                let presetName = model.session.selected?.name
                 if mode.kind == .overwrite {
-                    let count = model.items.count
+                    let count = batch.count
                     let pipelineName = model.session.selected.map {
                         model.session.isModified ? "the preset \($0.name) (with unsaved changes)" : "the preset \($0.name)"
                     } ?? "the current pipeline (no preset)"
                     guard await actions.confirm(
                         title: "Replace \(count) original \(count == 1 ? "image" : "images")?",
                         message: "A script asks to run the batch. It "
-                            + ExternalRequests.runSummary(files: model.items.map(\.source), pipelineName: pipelineName,
+                            + ExternalRequests.runSummary(files: batch.map(\.source), pipelineName: pipelineName,
                                                           mode: mode).replacingOccurrences(of: "Converts", with: "converts",
                                                                                            options: .anchored),
                         confirm: "Replace Originals", destructive: true) else { throw ExternalRequestError.cancelled }
                 }
                 return try await withCheckedThrowingContinuation { continuation in
-                    let started = model.startRun(model.items, pipeline: model.pipeline, mode: mode,
-                                                 presetName: model.session.selected?.name) {
+                    let started = model.startRun(batch, pipeline: pipeline, mode: mode, presetName: presetName) {
                         continuation.resume(returning: $0.written)
                     }
                     if !started { continuation.resume(throwing: ExternalRequestError.busy) }

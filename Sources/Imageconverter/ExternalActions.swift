@@ -132,8 +132,30 @@ final class ExternalActions {
         }
     }
 
+    /// Before an external request starts a run: a kept interrupted batch would be replaced (its journal can't be
+    /// resumed afterwards). `interactive` (a Finder service) asks like Run; a script is refused with a message.
+    func checkInterruptedRun(model: AppModel, interactive: Bool) async throws {
+        switch ExternalRequests.interruptedRunDecision(hasInterruptedRun: model.interruptedRun != nil,
+                                                       interactive: interactive) {
+        case .proceed: return
+        case .refuse: throw ExternalRequestError.interruptedBatchWaiting
+        case .ask: break
+        }
+        let left = model.interruptedRun?.remainingItems.count ?? 0
+        let confirmed = await confirm(
+            title: "Discard the interrupted batch?",
+            message: "\(left) \(left == 1 ? "image" : "images") of the interrupted batch "
+                + "\(left == 1 ? "wasn't" : "weren't") converted. This conversion replaces it, so it can't be resumed "
+                + "afterwards.",
+            confirm: "Discard and Convert", destructive: true)
+        guard confirmed else { throw ExternalRequestError.cancelled }
+        model.discardInterruptedRun()
+    }
+
     /// Converts a checked plan in the background, asking first in overwrite mode. Returns the written files.
-    func convert(_ plan: ConvertPlan, model: AppModel) async throws -> [URL] {
+    /// A kept interrupted batch is asked about first (`interactive`) or refuses the run (scripts).
+    func convert(_ plan: ConvertPlan, model: AppModel, interactive: Bool) async throws -> [URL] {
+        try await checkInterruptedRun(model: model, interactive: interactive)
         if plan.needsOverwriteConfirmation {
             let count = plan.files.count
             let confirmed = await confirm(

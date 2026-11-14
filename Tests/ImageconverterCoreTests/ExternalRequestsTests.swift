@@ -73,6 +73,12 @@ final class ExternalRequestsTests: XCTestCase {
     func testErrorMessagesAreReadable() {
         XCTAssertTrue(ExternalRequestError.unknownPreset(name: "X").message.contains("\"X\""))
         XCTAssertFalse(ExternalRequestError.busy.message.isEmpty)
+        XCTAssertEqual(ExternalRequestError.interruptedBatchWaiting.message,
+                       "An interrupted batch is waiting; resume or discard it first.")
+        // Final review I2: a service asks like Run, a script is refused, nothing waiting goes ahead.
+        XCTAssertEqual(ExternalRequests.interruptedRunDecision(hasInterruptedRun: true, interactive: true), .ask)
+        XCTAssertEqual(ExternalRequests.interruptedRunDecision(hasInterruptedRun: true, interactive: false), .refuse)
+        XCTAssertEqual(ExternalRequests.interruptedRunDecision(hasInterruptedRun: false, interactive: false), .proceed)
     }
 
     func testScriptValues() throws {

@@ -71,7 +71,7 @@ final class ServicesProvider: NSObject {
                             files: files, presetName: preset.name, folder: nil, presets: model.userPresets,
                             globalMode: settings.outputMode)
                         model.toasts.show("Converting \(plan.files.count) with \(preset.name)…", type: .info)
-                        _ = try await actions.convert(plan, model: model)
+                        _ = try await actions.convert(plan, model: model, interactive: true)
                     } catch ExternalRequestError.cancelled {
                         model.toasts.show("Nothing was converted", type: .info)
                     } catch {
