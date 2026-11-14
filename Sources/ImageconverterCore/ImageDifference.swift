@@ -15,7 +15,9 @@ public enum ImageDifference {
     /// Per-channel absolute difference times `amplify`, clamped, on black. Nil when the sizes differ.
     /// Works in row strips so memory stays at two 8-bit copies plus a small float scratch.
     public static func render(before: CGImage, after: CGImage, amplify: Double = 4) -> CGImage? {
-        guard var (left, right) = buffers(before, after) else { return nil }
+        guard let pair = buffers(before, after) else { return nil }
+        var left = pair.0
+        let right = pair.1
         var factor = Float(max(0, amplify))
         var low: Float = 0
         var high: Float = 255
@@ -32,7 +34,9 @@ public enum ImageDifference {
 
     /// Error figures over the RGB channels. Nil when the sizes differ, like `render`.
     public static func stats(before: CGImage, after: CGImage) -> Stats? {
-        guard var (left, right) = buffers(before, after) else { return nil }
+        guard let pair = buffers(before, after) else { return nil }
+        var left = pair.0
+        let right = pair.1
         var sum = 0.0
         var squares = 0.0
         var maxError: Float = 0
