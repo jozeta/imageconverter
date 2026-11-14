@@ -17,6 +17,12 @@ struct ImageconverterApp: App {
     init() {
         // A SwiftPM executable starts as a background process; make it a regular app with a window.
         NSApplication.shared.setActivationPolicy(.regular)
+        #if DEBUG
+        // `swift run` has no bundle icon; use the repo's Resources/AppIcon.png when it is there.
+        let icon = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("../../Resources/AppIcon.png").standardizedFileURL
+        if let image = NSImage(contentsOf: icon) { NSApplication.shared.applicationIconImage = image }
+        #endif
     }
 
     var body: some Scene {
