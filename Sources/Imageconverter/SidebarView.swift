@@ -88,20 +88,8 @@ struct SidebarView: View {
 
     @ViewBuilder private var runSection: some View {
         if model.isRunning {
-            VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-                if model.previewCollapsed, let progress = model.progress {
-                    ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
-                        .accessibilityLabel("Conversion progress")
-                    Text("\(progress.completed) / \(progress.total)")
-                        .font(LadaGlass.Typography.mono)
-                }
-                // With the preview open, Cancel sits next to the progress bar in the pane instead.
-                if model.previewCollapsed {
-                    Button("Cancel") { model.cancel() }
-                        .buttonStyle(.lg(.secondary))
-                        .accessibilityLabel("Cancel the conversion")
-                }
-            }
+            // With the preview open, the progress area sits in the pane instead.
+            if model.previewCollapsed { RunProgressArea(model: model) }
         } else {
             Button("Run on \(model.items.count) \(model.items.count == 1 ? "image" : "images")") {
                 model.run(settings: settings)
@@ -109,6 +97,8 @@ struct SidebarView: View {
             .buttonStyle(.lg(.primary))
             .disabled(model.items.isEmpty || model.isAdding)
             .accessibilityLabel("Run the conversion")
+            // The last run's numbers stay here when the preview is hidden.
+            if model.previewCollapsed, model.monitor.hasResults { PerformancePanel(model: model) }
         }
     }
 

@@ -51,6 +51,10 @@ struct BatchThumbnail: View {
             RoundedRectangle(cornerRadius: LadaGlass.Radius.small)
                 .strokeBorder(isSelected ? LadaGlass.accent.color : LadaGlass.Colors.border,
                               lineWidth: isSelected ? 2 : 1))
+        // The item's stage in the running (or last) batch.
+        .overlay(alignment: .bottomTrailing) {
+            if let stage = model.monitor.stage(for: item.source) { StageRing(stage: stage).padding(2) }
+        }
         .task(id: item.source) { await model.loadThumbnail(for: item.source) }
     }
 }
@@ -99,7 +103,9 @@ struct Filmstrip: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.source.lastPathComponent)
+        .accessibilityValue(model.monitor.stage(for: item.source)?.title ?? "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .processNextMenu(model: model, sources: [item.source])
     }
 }
 
@@ -169,7 +175,9 @@ struct BatchGrid: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.source.lastPathComponent)
+        .accessibilityValue(model.monitor.stage(for: item.source)?.title ?? "")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .processNextMenu(model: model, sources: [item.source])
     }
 }
 
@@ -212,7 +220,8 @@ struct ResizableArea<Content: View>: View {
                 .accessibilityAdjustableAction { direction in
                     compare.resizeBrowser(by: direction == .increment ? 20 : -20)
                 }
-            content.frame(height: compare.browserHeight)
+            // Gives way (down to 60 pt) when the pane is short, so the preview above keeps its room.
+            content.frame(minHeight: 60, maxHeight: compare.browserHeight)
         }
     }
 
@@ -221,5 +230,16 @@ struct ResizableArea<Content: View>: View {
         guard inside != cursorPushed else { return }
         cursorPushed = inside
         if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+    }
+}
+
+extension View {
+    /// "Process Next" while a batch runs (keyboard: File > Process Selected Next).
+    func processNextMenu(model: AppModel, sources: [URL]) -> some View {
+        contextMenu {
+            if model.isRunning {
+                Button("Process Next") { model.processNext(sources) }
+            }
+        }
     }
 }

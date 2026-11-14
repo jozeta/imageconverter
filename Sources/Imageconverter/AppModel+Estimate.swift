@@ -41,7 +41,7 @@ extension AppModel {
 
     /// Recomputes the size estimate 400 ms after the last change, off the main actor.
     func scheduleEstimate() {
-        guard !isRunning, let index = selectedItemIndex else {
+        guard previewAllowed, let index = selectedItemIndex else {
             cancelEstimate()
             return
         }

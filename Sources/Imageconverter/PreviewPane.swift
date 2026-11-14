@@ -7,6 +7,7 @@ struct PreviewPane: View {
     @Bindable var model: AppModel
     /// Below this pane width the two images are stacked.
     static let stackedBelow: CGFloat = 560
+    static let stageMinHeight: CGFloat = 140
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
@@ -22,7 +23,10 @@ struct PreviewPane: View {
                 GeometryReader { geometry in
                     ComparisonStage(model: model, stacked: geometry.size.width < Self.stackedBelow)
                 }
+                // Room for the image even while the progress area and a tall list share the pane.
+                .frame(minHeight: Self.stageMinHeight)
                 .overlay { if model.isRenderingPreview { spinner } }
+                .overlay { if !model.previewAllowed { pausedNote } }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Before and after, \(model.compare.mode.title)")
                 .accessibilityZoomAction { action in
@@ -34,7 +38,8 @@ struct PreviewPane: View {
                 if showsQualityPanel {
                     QualityPanel(model: model, stacked: narrow)
                 }
-                runProgress
+                // Progress, Pause/Cancel and the Performance disclosure, directly above the table.
+                RunProgressArea(model: model)
                 // The bottom handle (pipeline collapse) is a compact mode: the details and thumbnails go too.
                 if !model.pipelineCollapsed {
                     infoTable
@@ -135,33 +140,21 @@ struct PreviewPane: View {
         }
     }
 
+    /// Low-memory mode leaves the preview alone while a batch runs.
+    private var pausedNote: some View {
+        Text("Preview paused during the run (low-memory mode)")
+            .font(LadaGlass.Typography.body)
+            .foregroundStyle(LadaGlass.Colors.muted)
+            .padding(LadaGlass.Spacing.s)
+            .lgSurface()
+    }
+
     private var spinner: some View {
         ProgressView()
             .controlSize(.small)
             .padding(LadaGlass.Spacing.s)
             .lgSurface()
             .accessibilityLabel("Rendering the preview")
-    }
-
-    /// Progress bar and Cancel while a batch runs, directly above the table.
-    @ViewBuilder private var runProgress: some View {
-        if model.isRunning {
-            HStack(spacing: LadaGlass.Spacing.s) {
-                if let progress = model.progress {
-                    ProgressView(value: Double(progress.completed), total: Double(max(progress.total, 1)))
-                        .accessibilityLabel("Conversion progress")
-                    Text("\(progress.completed) / \(progress.total)")
-                        .font(LadaGlass.Typography.mono)
-                        .foregroundStyle(LadaGlass.Colors.muted)
-                } else {
-                    ProgressView().controlSize(.small)
-                    Spacer()
-                }
-                Button("Cancel") { model.cancel() }
-                    .buttonStyle(.lg(.secondary))
-                    .accessibilityLabel("Cancel the conversion")
-            }
-        }
     }
 
     @ViewBuilder private var infoTable: some View {

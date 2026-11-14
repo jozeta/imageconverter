@@ -22,7 +22,10 @@ final class AppModel {
     var progress: BatchProgress?
     /// The last run in the shared report model (summary plus one entry per file); cleared by a new run or Clear.
     var runReport: ProcessingReport?
-    var isRunning = false
+    /// A run that doesn't report stages (a saved job) starts from a clean monitor, not the last run's stages.
+    var isRunning = false {
+        didSet { if isRunning, !oldValue, !monitor.isActive { monitor.reset() } }
+    }
     /// Number of drops/pickers still being scanned off the main actor.
     private(set) var pendingAdds = 0
     var isAdding: Bool { pendingAdds > 0 }
@@ -60,6 +63,18 @@ final class AppModel {
     var pipelineCollapsed: Bool {
         didSet { defaults.set(pipelineCollapsed, forKey: Self.pipelineCollapsedKey) }
     }
+    /// Two workers and a quarter of the memory budget; also stops the preview during a run. Applies to a
+    /// running batch from its next item on (see `AppModel+Performance.swift`).
+    var lowMemoryMode: Bool {
+        didSet {
+            defaults.set(lowMemoryMode, forKey: Self.lowMemoryModeKey)
+            lowMemoryModeChanged()
+        }
+    }
+    /// Stages, throughput and resources of the running (or last) batch.
+    let monitor = RunMonitor()
+    /// A batch the app never got to the end of, found at launch; the resume sheet shows while it is set.
+    var interruptedRun: RunJournal?
 
     @ObservationIgnored var task: Task<Void, Never>?
     @ObservationIgnored var previewTask: Task<Void, Never>?
@@ -89,6 +104,7 @@ final class AppModel {
     static let selectedPresetKey = "selectedPresetID"
     static let previewCollapsedKey = "previewCollapsed"
     static let pipelineCollapsedKey = "pipelineCollapsed"
+    static let lowMemoryModeKey = "lowMemoryMode"
 
     init(defaults: UserDefaults = .standard,
          presetStore: PresetStore = PresetStore(directory: PresetStore.defaultDirectory)) {
@@ -97,6 +113,7 @@ final class AppModel {
         compare = CompareController(defaults: defaults)
         previewCollapsed = defaults.bool(forKey: Self.previewCollapsedKey)
         pipelineCollapsed = defaults.bool(forKey: Self.pipelineCollapsedKey)
+        lowMemoryMode = defaults.bool(forKey: Self.lowMemoryModeKey)
         windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey))
         let saved = Self.loadPipeline(from: defaults)
         session = PresetSession(selected: nil, pipeline: saved)
@@ -197,6 +214,7 @@ final class AppModel {
         cancelEstimate()
         progress = nil
         runReport = nil
+        monitor.reset()
         Task { await factsCache.removeAll() }
     }
 
@@ -238,18 +256,28 @@ final class AppModel {
         guard !isRunning, !batch.isEmpty else { return false }
         runInfo = (batch.count, Date(), mode.kind.rawValue)
         isRunning = true
-        resetPreview()
-        cancelEstimate()
+        // Without low-memory mode the preview stays alive, at a higher priority than the batch.
+        if lowMemoryMode {
+            resetPreview()
+            cancelEstimate()
+        }
         runReport = nil
         progress = BatchProgress(completed: 0, failed: 0, total: batch.count)
-        task = Task { [weak self] in
-            let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, progress: { update in
+        interruptedRun = nil  // this run's journal replaces the old one
+        let control = BatchControl(lowMemory: lowMemoryMode)
+        monitor.prepare(control: control)
+        // Batch work is `.utility` so the UI and the preview (`.userInitiated`) stay responsive.
+        task = Task(priority: .utility) { [weak self] in
+            let pixels = await Self.sourcePixels(of: batch)
+            guard let events = self?.monitor.begin(sourcePixels: pixels) else { return }
+            let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, control: control,
+                                               journal: AppDefaults.journalURL, progress: { update in
                 Task { @MainActor in
                     // Updates can arrive out of order; only move forward.
                     guard let self, self.isRunning, update.completed > (self.progress?.completed ?? 0) else { return }
                     self.progress = update
                 }
-            })
+            }, events: events)
             self?.finish(report, presetName: presetName)
             completion?(report)
         }
@@ -267,6 +295,7 @@ final class AppModel {
     private func finish(_ report: BatchReport, presetName: String?) {
         isRunning = false
         task = nil
+        monitor.end()
         Task { await previewRenderer.purge() }
         schedulePreview(mode: previewMode)
         scheduleEstimate()
@@ -367,10 +396,4 @@ struct RenameExampleKey: Equatable {
     let caseStyle: CaseStyle
     let format: OutputFormat
     let steps: [PipelineStep]
-}
-
-/// Reference wrapper so `NSCache` can hold a `CGImage`.
-final class CGImageBox: @unchecked Sendable {
-    let image: CGImage
-    init(_ image: CGImage) { self.image = image }
 }

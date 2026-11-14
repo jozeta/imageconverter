@@ -44,11 +44,24 @@ struct BatchTable: View {
             .width(min: 60, ideal: 80)
             TableColumn("Estimated") { row in mono(estimate(for: row.id)) }
                 .width(min: 70, ideal: 90)
-            // After a cancelled run, files without an entry were never processed.
-            TableColumn("Status") { row in status(statuses[row.id.path] ?? (hasReport ? .cancelled : nil)) }
-                .width(min: 60, ideal: 80)
+            // Live stages during a run and its final ones after (read through the monitor, which the cells
+            // observe). Runs without stages (saved jobs) use the report; after a cancelled run, files without an
+            // entry were never processed.
+            TableColumn("Status") { row in
+                if let stage = model.monitor.stage(for: row.id) {
+                    liveStatus(stage, running: model.isRunning)
+                } else {
+                    status(statuses[row.id.path] ?? (hasReport ? .cancelled : nil))
+                }
+            }
+            .width(min: 60, ideal: 80)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
+        .contextMenu(forSelectionType: URL.self) { urls in
+            if model.isRunning, !urls.isEmpty {
+                Button("Process Next") { model.processNext(model.items.map(\.source).filter(urls.contains)) }
+            }
+        }
         .onChange(of: model.items, initial: true) { _, items in
             rows = items.enumerated().map { BatchRow(index: $0.offset, item: $0.element) }
             model.compare.setActiveSources(Set(items.map(\.source)))
@@ -78,6 +91,16 @@ struct BatchTable: View {
         case .failed: LGChip("Failed", status: .bad)
         case .cancelled: LGChip("Not run", status: .neutral)
         case nil: mono("—")
+        }
+    }
+
+    /// The item's stage; working stages are named (Decoding, Encoding…). Still queued after the run: not run.
+    @ViewBuilder private func liveStatus(_ stage: ItemStage, running: Bool) -> some View {
+        switch stage.ring {
+        case .queued: LGChip(running ? stage.title : ItemStage.cancelled.title, status: .neutral)
+        case .working: LGChip(stage.title, status: .neutral)
+        case .done: LGChip(stage.title, status: stage == .skipped ? .warn : .ok)
+        case .failed: LGChip(stage.title, status: .bad)
         }
     }
 

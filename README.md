@@ -17,6 +17,7 @@ Started 2026-11-13. The full design is in
 ### Unreleased
 
 - **Jobs** (Window ▸ Jobs, ⌘J): watch folders or run on a schedule with a saved pipeline or a linked preset, while the app is open; one run at a time per job, a catch-up run when watching starts, a report file per run, notifications, and an optional menu bar mode. See [Process a folder automatically](#process-a-folder-automatically).
+- **Performance**: Pause/Resume (⌥⌘.), "12 / 124 · 3.4 img/s · about 2 min left", each image's stage in the list and as a ring on the thumbnails, a Performance panel (CPU, memory, workers, img/s, MP/s, elapsed), Low-memory mode, Process Next, a preview that keeps working during a run, and an offer to resume a batch that was interrupted. See [Performance](#performance).
 - Finder Quick Actions ("Convert with imageconverter" and up to 5 pinned presets), AppleScript commands (`convert`, `add files`, `run batch`, `presets`) and `imageconverter://` links, active once the app is packaged (milestone 6). See [Finder, AppleScript and links](#finder-applescript-and-links).
 - Watermark editor: rotation (with 0°/−45°/45°/90° buttons), a Tiled layout (spacing, staggered rows), shadow and outline for text, an **Insert** menu for tokens such as `{filename}` and `{year}` with the text shown for the selected image, SVG logos (including Illustrator exports), and a **Templates** menu (Apply, Save as template…, Delete).
 - If / then / else steps: test each image's size, file size, format, transparency, orientation, GPS or camera, and give it its own steps, output, metadata or rename, copy it unchanged or skip it; the preview shows which branch an image takes, and skipped files are counted apart from failures.
@@ -248,6 +249,14 @@ Jobs (Window ▸ Jobs, ⌘J; see [Process a folder automatically](#process-a-fol
 | Enabled | Off: never starts by itself (Run Now still works) | on |
 | Pause all jobs | Bottom of the Jobs window or the menu bar; UserDefaults key `jobsPaused` | off |
 | Keep running in the menu bar when the window is closed | Shows the menu bar item and hides the Dock icon once the last window closes; key `keepInMenuBar` | off |
+
+Performance:
+
+| Setting | What it is | Default |
+|---------|------------|---------|
+| Low-memory mode | At most two images at a time and a quarter of the memory budget; the preview pauses during a run. View ▸ Low-Memory Mode or the switch in the Performance panel; takes effect from the next image of a running batch. UserDefaults key `lowMemoryMode` | off |
+| Performance panel | Shown or hidden with its disclosure arrow (not saved) | hidden |
+| Run journal | `~/Library/Application Support/imageconverter/journal.json` while a batch runs; deleted when it finishes or is cancelled | — |
 
 Presets and preview:
 
@@ -561,6 +570,45 @@ Good to know:
 - **Pause all jobs** stops every watcher and schedule until you switch it off (a run in progress finishes).
 - Every run that processed files is kept in the run history; failures also go to the error log
   (`~/Library/Application Support/imageconverter/logs/errors.log`).
+
+## Performance
+
+<table>
+  <tr>
+    <td><img src="docs/performance-running.png" alt="Progress area and Performance panel during a run" width="400"><br>A run in progress: progress line with rate and time left, Pause and Cancel, and the Performance panel</td>
+    <td><img src="docs/performance-rings.png" alt="Grid of thumbnails with stage rings" width="400"><br>Each thumbnail's ring shows its stage: queued, working, done or failed</td>
+  </tr>
+  <tr>
+    <td><img src="docs/performance-low-memory.png" alt="Low-memory mode during a run" width="400"><br>Low-memory mode: two workers, the list shows each image's stage, the preview pauses</td>
+    <td><img src="docs/performance-resume.png" alt="The interrupted-batch sheet" width="400"><br>After a crash or a forced quit: resume or discard the interrupted batch</td>
+  </tr>
+</table>
+
+While a batch runs, the progress area (above the image list, or under Run in the sidebar when the preview is
+hidden) shows a bar and a line such as **12 / 124 · 3.4 img/s · about 2 min left**. The rate and the time left
+are averaged over the last few seconds and weighted by image size, and appear once three images are done.
+
+- **Pause** (or **File ▸ Pause Run**, ⌥⌘.) lets the images already being converted finish and starts no new ones;
+  **Resume** carries on. **Cancel** (⌘.) stops the run; finished files stay, and nothing half-written is left.
+- **Each image's stage**: the List view's Status column shows Queued, Decoding, Processing, Encoding, Writing,
+  then Written, Skipped, Failed or Not run; Filmstrip and Grid thumbnails get a small ring (outline: queued,
+  part ring: working, check: done, cross: failed). The stages stay after the run until the next run or Clear.
+- **Process Next**: right-click an image (or select it and choose **File ▸ Process Selected Next**) to move it to
+  the front of the queue if it hasn't started yet.
+- **Performance** (the disclosure in the progress area, also after a run): CPU (share of all cores), memory,
+  workers in use, images and megapixels per second and the elapsed time, sampled once a second only while a
+  batch runs; after the run, the averages, the peak memory and the number of images done.
+- **Low-memory mode** (the switch next to Performance, or **View ▸ Low-Memory Mode**; remembered): at most two
+  images at a time and a quarter of the memory budget, from the next image of a running batch on. Use it for
+  very large images or when other apps need the memory. Without it, the preview and the size estimate keep
+  working during a run at a higher priority than the batch, so you can look through the images while they convert.
+- **Interrupted batches**: while a batch runs, a small journal records which images are done. If the app quits
+  before the end (a crash, a forced quit, or quitting during a run), the next launch asks
+  "The last batch was interrupted (18 of 30 images were done)": **Resume** adds the images still to do, restores
+  the batch's pipeline and Save to setting and runs them (files that are gone are listed); **Discard** forgets it;
+  **Not Now** asks again at the next launch. Starting another run replaces the journal.
+- The batch runs at a lower priority than the window, so the app stays responsive; the number of workers also
+  drops by itself when the Mac gets hot or short of memory.
 
 ## Finder, AppleScript and links
 

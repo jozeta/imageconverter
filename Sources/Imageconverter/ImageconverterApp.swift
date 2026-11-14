@@ -43,6 +43,7 @@ struct ImageconverterApp: App {
                     .keyboardShortcut("p", modifiers: [.option, .command])
                 Button(model.pipelineCollapsed ? "Expand Pipeline" : "Collapse Pipeline") { model.togglePipeline() }
                 .keyboardShortcut("l", modifiers: [.option, .command])
+                Toggle("Low-Memory Mode", isOn: $model.lowMemoryMode)
                 Divider()
                 compareCommands
                 Divider()
@@ -58,6 +59,11 @@ struct ImageconverterApp: App {
                 Button("Cancel Run") { model.cancel() }
                     .keyboardShortcut(".", modifiers: .command)
                     .disabled(!model.isRunning)
+                Button(model.monitor.isPaused ? "Resume Run" : "Pause Run") { model.togglePause() }
+                    .keyboardShortcut(".", modifiers: [.option, .command])
+                    .disabled(!model.isRunning || !model.monitor.isActive)
+                Button("Process Selected Next") { model.processSelectedNext() }
+                    .disabled(!model.isRunning || !model.monitor.isActive || model.items.isEmpty)
             }
         }
 
@@ -143,6 +149,7 @@ private struct MainWindowContent: View {
                minHeight: sizer.heightRange.lowerBound, maxHeight: sizer.heightRange.upperBound,
                alignment: .topLeading)
         .clipped()
+        .interruptedRunSheet(model: model, settings: settings)
         .background(WindowAccessor {
             sizer.attach($0)
             ExternalActions.shared.attachWindow($0)
@@ -153,6 +160,7 @@ private struct MainWindowContent: View {
             ExternalActions.shared.attach(model: model, settings: settings) { [openWindow] in
                 openWindow(id: Self.windowID)
             }
+            model.checkInterruptedRunOnce()
             #if DEBUG
             applyDebugArguments()
             #endif
@@ -190,6 +198,11 @@ private struct MainWindowContent: View {
         }
         if arguments.contains("-debugShowQuality") { model.compare.showsQuality = true }
         openJobsWindowIfAsked(arguments)
+        // `-debugAutoRun` runs the batch once the files are in; `-debugExpandPerformance` opens the panel;
+        // `-debugResumeInterrupted` presses Resume on the interrupted-batch sheet.
+        if arguments.contains("-debugExpandPerformance") { model.monitor.expanded = true }
+        if arguments.contains("-debugAutoRun") { model.debugAutoRun(settings: settings) }
+        if arguments.contains("-debugResumeInterrupted") { model.debugResumeInterrupted(settings: settings) }
         if let index = arguments.firstIndex(of: "-debugWindowWidth"), index + 1 < arguments.count,
            let width = Double(arguments[index + 1]) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {

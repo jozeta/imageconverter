@@ -72,7 +72,7 @@ extension AppModel {
         previewTask?.cancel()
         previewGeneration += 1
         let generation = previewGeneration
-        guard !previewCollapsed, !isRunning, let index = selectedItemIndex else {
+        guard !previewCollapsed, previewAllowed, let index = selectedItemIndex else {
             isRenderingPreview = false
             if items.isEmpty {
                 previewResult = nil
@@ -86,7 +86,7 @@ extension AppModel {
         let batch = items
         let pipeline = self.pipeline
         isRenderingPreview = true
-        previewTask = Task { [weak self] in
+        previewTask = Task(priority: .userInitiated) { [weak self] in
             do { try await Task.sleep(for: Self.previewDebounce) } catch { return }
             guard let renderer = self?.previewRenderer, let cache = self?.factsCache else { return }
             // The counter number the batch would give this item (skipped items before it take none), and the
@@ -150,4 +150,10 @@ extension AppModel {
         // Core's decode limits decide first, like every other reader.
         ImageLoader.thumbnail(of: url, maxPixelSize: thumbnailPixels)
     }
+}
+
+/// Reference wrapper so `NSCache` can hold a `CGImage`.
+final class CGImageBox: @unchecked Sendable {
+    let image: CGImage
+    init(_ image: CGImage) { self.image = image }
 }
