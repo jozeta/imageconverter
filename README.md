@@ -475,6 +475,50 @@ Examples (one step each):
 
 (More how-tos once the features exist: build and save a preset.)
 
+## Command line and Shortcuts
+
+The package also builds a command-line tool, so batches can run from Terminal, scripts, cron or a Shortcuts "Run Shell Script" action. It uses the same engine as the app.
+
+```sh
+swift build -c release --product imageconverter-cli
+cp .build/release/imageconverter-cli /usr/local/bin/imageconverter   # named imageconverter once installed
+```
+
+(The built file is called `imageconverter-cli` because `imageconverter` would clash with the app's `Imageconverter` on a case-insensitive disk.)
+
+| Command | What it does |
+| --- | --- |
+| `imageconverter convert <files or folders...> [options]` | Convert images |
+| `imageconverter presets list [--json]` | List the built-in presets and your own |
+| `imageconverter jobs list [--json]` | List saved jobs |
+| `imageconverter jobs run NAME [--quiet\|--json]` | Run a saved job once |
+| `imageconverter --version`, `--help` | Version (same number as the app) and usage |
+
+Convert options (options override the preset or pipeline file):
+
+| Option | Meaning |
+| --- | --- |
+| `--preset NAME` or `--pipeline FILE.json` | Start from a saved preset or from a pipeline/preset JSON file (at most 1 MB, validated like presets) |
+| `--out DIR`, `--same-folder [--suffix S]`, `--overwrite --yes` | Where results go; choose exactly one. `--overwrite` replaces originals and is refused without `--yes` (replaced originals go to the Trash) |
+| `--format jpeg\|png\|heic\|avif\|tiff\|gif\|bmp\|jpeg2000` | Output format |
+| `--quality 0-100` | Quality for lossy formats |
+| `--max-size 500KB` | Largest file size (KB and MB are decimal) |
+| `--resize-long PX` | Scale so the longest edge is PX pixels |
+| `--strip-gps`, `--strip-all` | Remove the location, or all metadata |
+| `--report csv\|json\|text` | Print a full report on stdout |
+| `--dry-run` | List the files that would be written; writes nothing (renaming rules and conditions are not evaluated) |
+| `--quiet`, `--json` | No progress; `--json` prints the JSON report |
+
+Progress goes to stderr and results to stdout. Exit codes: 0 all done, 1 some files failed, 2 usage error, 3 nothing to do. The tool reads presets and jobs from `~/Library/Application Support/imageconverter/`.
+
+Example in Shortcuts: add **Run Shell Script** (Shell: zsh, Input: as arguments) with
+
+```sh
+/usr/local/bin/imageconverter convert "$@" --preset "Web export" --out ~/Desktop/web --json
+```
+
+and pass the files from a Finder action; a following **Get Dictionary from Input** reads the JSON (`summary.succeeded`, `summary.failed`, `entries`).
+
 ## Tests
 
 ```sh

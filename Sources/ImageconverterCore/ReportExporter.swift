@@ -105,7 +105,7 @@ public enum ReportExporter {
 
     /// One line: no control characters, no line or paragraph separators (U+2028/U+2029), no bidi overrides that
     /// could disguise a name ("gpj.exe").
-    static func printable(_ text: String) -> String {
+    public static func printable(_ text: String) -> String {
         let replaced: Set<Unicode.GeneralCategory> = [.control, .format, .lineSeparator, .paragraphSeparator]
         return String(String.UnicodeScalarView(text.unicodeScalars.map { scalar in
             replaced.contains(scalar.properties.generalCategory) ? "?" : scalar

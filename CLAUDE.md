@@ -63,6 +63,7 @@ swiftlint           # if installed (brew install swiftlint)
     `FolderWatcher` (FSEvents watcher, `ReadinessTracker` 2 s stability state machine, `WatchFilter`), `JobScheduler` (schedule timers),
     `JobRunner` (candidates → ledger and 2 s stability check → `BatchRunner` → ledger update → report file), `ProcessingReport` (run summary + entries),
     `ReportExporter` (CSV with formula-injection guard, JSON with sorted keys, text), `ZoomMath` (`ZoomState`, zoom around an anchor, pan, clamping), `WindowLayout` (main window size rules and frame maths), `NameReplacement` (find/replace in names, plain or regex), `SizeEstimator` (encodes a full-size render for the size estimate)
+- `Sources/ImageconverterCLIKit/`: the command line (hand-written `CLIParser`, `CLIRunner`, `ConvertCommand`, `ListCommands`); `Sources/ImageconverterCLI/main.swift` is a thin wrapper (product `imageconverter-cli`, installed as `imageconverter`; tests in `Tests/ImageconverterCLITests/`). Core: `AppInfo.version` (kept equal to `VERSION` by a test), `PipelineFile`
 - `Tests/ImageconverterCoreTests/`: tests (operations on small generated images, rename tokens,
   resize/crop maths, collisions, preset round-trip and rejection, metadata really stripped)
 - `docs/superpowers/specs/`: design documents; `docs/superpowers/plans/`: implementation plans
