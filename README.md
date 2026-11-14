@@ -83,8 +83,9 @@ Started 2026-11-13. The full design is in
     part-way through the pipeline, so a resize before a condition doesn't change what it sees. With
     several conditions, later overrides win and skip wins over copy. The preview and size estimate follow
     each image's own branch.
-  - (available) **Metadata** (always last, above Output): strip everything, location only or camera
-    details, or set artist, copyright and description; the color profile is always kept
+  - (available) **Metadata** (always last, above Output): strip everything (with a keep list) or single
+    groups, set title, artist, copyright, description, keywords, date taken, GPS and allowlisted extra fields,
+    with templates; the color profile is always kept
   - (available) **Rename** (always last): a pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`,
     with a live example
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
@@ -133,10 +134,14 @@ Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 | Option | What it does | Default |
 |--------|--------------|---------|
 | Metadata | Switches the Metadata step on | off |
-| Remove all metadata | Strips all metadata (the color profile is kept) | off |
-| Remove location (GPS) | Removes the GPS block and the IPTC city, sub-location, region/state, country and location fields | on |
-| Remove camera details | Removes make, model, software, host computer, lens, serial numbers, owner name, maker notes, image unique ID, Exif aux and RAW/DNG/CIFF camera data | off |
-| Set artist / copyright / description | Writes the text after the removal (an empty text removes the field) | off |
+| Remove all metadata | Strips all metadata except the **Keep** list (copyright, author, date taken, camera details, location; orientation and the color profile are always kept) | off |
+| Remove location / camera / author / thumbnail / IPTC / XMP | Individual removals (see "Metadata step" below) | location on, others off |
+| Set title / artist / copyright / description | Writes the text after the removal (an empty text removes the field; the © button inserts the sign) | off |
+| Keywords | Tokens added to, or replacing, the file's keywords | none |
+| Date taken | Keep, Set (date and time) or Shift (earlier/later by days, hours, minutes) | Keep |
+| Set file dates to date taken | The output file's creation and modification dates follow the date taken | off |
+| Location | Keep, Remove, or Set latitude, longitude and optional altitude | Keep |
+| More fields | Extra EXIF/IPTC/XMP fields from the allowlist | none |
 | Rename | Switches the Rename step on | off |
 | Pattern | Rename pattern, see the token table below | `{name}` |
 | Find / Replace | Replaces text in the name after the pattern; plain text or a regular expression | empty |
@@ -313,12 +318,43 @@ Your pipeline is kept between launches.
 5. When it ends, a notice shows the result. Files that could not be converted are listed in the
    sidebar (name and reason) until the next run.
 
+### Metadata step
+
+The Metadata editor has five collapsible groups and a **Templates** menu:
+
+<img src="docs/metadata-editor.png" alt="Metadata editor with all groups open" width="400">
+
+- **Remove**: all metadata (with a **Keep** checklist: copyright, author, date taken, camera details,
+  location; orientation is always applied to the pixels and the color profile is never stripped, so those two
+  are shown ticked and locked), or individually location (GPS), camera details, author, the embedded thumbnail,
+  IPTC and XMP.
+- **Describe**: title, artist, copyright, description and keywords. Keywords are tokens (Return or a comma
+  adds one); **Add** merges them with the file's own, **Replace** replaces them (empty Replace clears them).
+- **Date**: keep the date taken, **Set** it, or **Shift** it earlier or later by days, hours and minutes
+  (files without a date keep none). **Set file dates to date taken** also changes the file's own dates.
+- **Location**: keep, remove, or set latitude (-90 to 90), longitude (-180 to 180) and an optional altitude in
+  metres; wrong values show a message and nothing is written until they are fixed.
+- **More fields**: rows of namespace (EXIF, IPTC, XMP), field and value. Only fields on a fixed **allowlist**
+  can be chosen (EXIF: ImageDescription, Artist, Copyright, Software, Make, Model, LensModel, UserComment,
+  BodySerialNumber; IPTC: ObjectName, Headline, Byline, BylineTitle, Credit, Source, CopyrightNotice,
+  CaptionAbstract, City, SubLocation, ProvinceState, CountryName, CountryCode, Writer, SpecialInstructions,
+  OriginalTransmissionReference; XMP: dc, photoshop, xmpRights and Iptc4xmpCore fields). Anything else in a
+  saved pipeline or template is dropped when it loads. An empty value clears the field.
+- **Templates**: *Apply* adds a template's settings on top of the current ones (removals only ever turn on,
+  fields it sets replace yours, custom fields merge), *Save as template...* stores the current settings under a
+  name, *Delete* removes a saved one. Three built-ins: Privacy, Web (keep copyright) and Remove everything.
+  Templates are files in `~/Library/Application Support/imageconverter/metadata-templates/`.
+
+Limits of ImageIO: the XMP packet can only be left out completely for JPEG and TIFF; PNG, HEIC and GIF keep
+EXIF and IPTC inside XMP, so "Remove XMP" removes only the XMP-only fields there. Setting a title replaces
+all of the file's language variants of it (only the one you typed remains).
+
 ### Strip location before sharing
 
 1. In the pipeline, under **Always last**, open **Metadata** and switch it on.
-2. Leave **Remove location (GPS)** on. Add **Remove camera details** to drop the make, model, lens
+2. In **Remove**, leave **Remove location (GPS)** on. Add **Remove camera details** to drop the make, model, lens
    and serial numbers too, or **Remove all metadata** to strip everything.
-3. Optionally tick **Set artist**, **Set copyright** or **Set description** and type the text; it is
+3. Optionally open **Describe** and tick **Set artist**, **Set copyright** or **Set description** and type the text; it is
    written after the removal, so it survives. Untick to leave a field as it is. A ticked field with empty text removes that field.
 4. Run the batch. The removed information is not in the output files. The color profile is always
    kept, so the images look the same.

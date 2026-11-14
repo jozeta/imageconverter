@@ -6,6 +6,8 @@ struct ImageconverterApp: App {
     @State private var model = AppModel(defaults: AppDefaults.store, presetStore: PresetStore(directory: AppDefaults.presetsDirectory))
     @State private var watermarkTemplates = WatermarkTemplatesModel(store: .watermark(
         directory: AppDefaults.templatesDirectory(folder: WatermarkTemplateStore.watermarkFolderName)))
+    @State private var metadataTemplates = MetadataTemplatesModel(store: .metadata(
+        directory: AppDefaults.templatesDirectory(folder: MetadataTemplateStore.folderName)))
     @State private var settings = AppSettings(defaults: AppDefaults.store)
 
     init() {
@@ -18,6 +20,7 @@ struct ImageconverterApp: App {
             MainWindowContent(model: model, settings: settings)
                 .environment(model)
                 .environment(watermarkTemplates)
+                .environment(metadataTemplates)
                 .onChange(of: PreviewRequest(model: model, mode: settings.outputMode), initial: true) { _, request in
                     model.schedulePreview(mode: request.mode)
                     model.scheduleEstimate()
