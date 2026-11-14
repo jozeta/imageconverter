@@ -20,6 +20,8 @@ public enum ConversionError: Error, Equatable, Sendable {
     case processingFailed(String)
     /// The watermark image is missing or can't be read.
     case watermarkImageUnreadable
+    /// The watermark image's bookmark no longer opens it and its path can't be read (moved, or access gone).
+    case watermarkImageNoAccess
     /// The SVG watermark uses something outside the allowlist: scripts, animation, entities, advanced CSS, ...
     case watermarkSVGUnsafe
     /// The SVG watermark embeds images or links to other files (`<image>`, `data:`, non-local `href`/`url()`,
@@ -70,6 +72,8 @@ public enum ConversionError: Error, Equatable, Sendable {
             return "Couldn't apply the \(step) step"
         case .watermarkImageUnreadable:
             return "Couldn't read the watermark image"
+        case .watermarkImageNoAccess:
+            return "Couldn't open the watermark image \u{2014} choose it again"
         case .watermarkSVGUnsafe:
             return "This SVG uses features that aren't supported (scripts, animation or advanced styling). "
                 + "Export it as plain SVG or PNG."

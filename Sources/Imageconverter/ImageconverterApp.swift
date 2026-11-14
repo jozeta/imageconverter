@@ -22,7 +22,11 @@ struct ImageconverterApp: App {
         let icon = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .appendingPathComponent("../../Resources/AppIcon.png").standardizedFileURL
         if let image = NSImage(contentsOf: icon) { NSApplication.shared.applicationIconImage = image }
+        // `-debugSimulateSandbox`: the folder-access questions appear as in the sandboxed app (screenshots).
+        if CommandLine.arguments.contains("-debugSimulateSandbox") { Sandbox.simulated = true }
         #endif
+        // Remembered folder grants are opened once, at launch, and stay open.
+        AccessStore.shared.activate()
     }
 
     var body: some Scene {
@@ -41,6 +45,7 @@ struct ImageconverterApp: App {
             JobsCommands()
             HistoryCommands()
             PrivacyCommands()
+            FolderAccessCommands()
             AboutCommands()
             CommandGroup(after: .saveItem) {
                 Button("Save Preset") { model.saveCurrent() }
@@ -96,6 +101,11 @@ struct ImageconverterApp: App {
             PrivacyWindow()
         }
         .defaultSize(width: 480, height: 520)
+
+        Window("Folder Access", id: FolderAccessWindow.windowID) {
+            FolderAccessWindow(store: AccessStore.shared)
+        }
+        .defaultSize(width: 520, height: 380)
 
         MenuBarExtra("imageconverter", systemImage: jobs.runningCount > 0 ? "arrow.triangle.2.circlepath" : "photo.stack",
                      isInserted: $jobs.keepInMenuBar) {
@@ -201,6 +211,7 @@ private struct MainWindowContent: View {
         if arguments.contains("-debugShowAbout") { openWindow(id: AboutView.windowID) }
         if arguments.contains("-debugShowPrivacy") { openWindow(id: PrivacyWindow.windowID) }
         if arguments.contains("-debugShowHistory") { openWindow(id: HistoryView.windowID) }
+        if arguments.contains("-debugShowFolderAccess") { openWindow(id: FolderAccessWindow.windowID) }
     }
 
     /// Debug-only launch options for screenshots: `-debugAddFiles <path>…` adds images at launch,

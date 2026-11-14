@@ -3,8 +3,25 @@ import ImageconverterCore
 
 /// Runs a parsed command. The executable is a thin wrapper around `CLIRunner.main`.
 public enum CLIRunner {
-    /// Parses and runs `arguments` (without the program name); returns the exit code.
-    public static func main(_ arguments: [String], environment: CLIEnvironment = .standard()) async -> Int32 {
+    /// Parses and runs `arguments` (without the program name); returns the exit code. `--data-dir DIR` (anywhere
+    /// before `--`) reads presets and jobs from DIR instead of the environment's folders.
+    public static func main(_ given: [String], environment: CLIEnvironment = .standard()) async -> Int32 {
+        var environment = environment
+        let arguments: [String]
+        do {
+            let extracted = try CLIDataDirectory.extract(given)
+            arguments = extracted.arguments
+            if let directory = extracted.dataDirectory {
+                environment = environment.with(dataDirectory: CLIDataDirectory.resolve(home: CLIDataDirectory.realHome,
+                                                                                       override: directory))
+            }
+        } catch let error as CLIUsageError {
+            environment.err("imageconverter: \(error.message)")
+            environment.err("Run 'imageconverter --help' for usage.")
+            return CLIExit.usage
+        } catch {
+            return CLIExit.usage
+        }
         switch CLIParser.parse(arguments) {
         case .failure(let error):
             environment.err("imageconverter: \(error.message)")

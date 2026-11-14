@@ -46,9 +46,26 @@ public struct RunJournal: Codable, Equatable, Sendable {
     /// completed: a resumed run tries them again. Stored in the file as `[first, last]` runs, so a finished
     /// stretch of 100 000 files is one pair.
     public var completed: [Int]
+    /// Bookmarks of the folders the sources are in (the outermost ones, at most `maxFolderBookmarks`) and of the
+    /// new-folder output, so a resumed run in the sandbox can open them again. Nil in older journals.
+    public var folderBookmarks: [FolderBookmark]?
+    public var outputBookmark: Data?
+
+    public static let maxFolderBookmarks = 200
+
+    /// A folder's path (for naming it when it can't be opened) and its bookmark.
+    public struct FolderBookmark: Codable, Equatable, Sendable {
+        public var path: String
+        public var bookmark: Data
+
+        public init(path: String, bookmark: Data) {
+            self.path = path
+            self.bookmark = bookmark
+        }
+    }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, id, started, items, pipeline, outputMode, completed
+        case schemaVersion, id, started, items, pipeline, outputMode, completed, folderBookmarks, outputBookmark
     }
 
     public init(from decoder: Decoder) throws {
@@ -65,6 +82,9 @@ public struct RunJournal: Codable, Equatable, Sendable {
                                                    debugDescription: "Invalid completed ranges")
         }
         completed = indices
+        // Optional and untrusted: anything malformed is dropped (the run can still be resumed without it).
+        folderBookmarks = try? container.decodeIfPresent([FolderBookmark].self, forKey: .folderBookmarks)
+        outputBookmark = try? container.decodeIfPresent(Data.self, forKey: .outputBookmark)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -76,6 +96,8 @@ public struct RunJournal: Codable, Equatable, Sendable {
         try container.encode(pipeline, forKey: .pipeline)
         try container.encode(outputMode, forKey: .outputMode)
         try container.encode(Self.runs(completed), forKey: .completed)
+        try container.encodeIfPresent(folderBookmarks, forKey: .folderBookmarks)
+        try container.encodeIfPresent(outputBookmark, forKey: .outputBookmark)
     }
 
     /// Consecutive indices as `[first, last]` pairs (duplicates collapse).
@@ -104,9 +126,11 @@ public struct RunJournal: Codable, Equatable, Sendable {
         return indices
     }
 
-    /// In overwrite mode each source's fingerprint is read now (`fingerprint`, injectable for tests).
+    /// In overwrite mode each source's fingerprint is read now (`fingerprint`, injectable for tests). Bookmarks of
+    /// the sources' outermost folders and the output folder are made with `bookmarker` (while the run has access).
     public init(items: [InputItem], pipeline: Pipeline, mode: OutputMode, started: Date = Date(),
-                fingerprint: (URL) -> FileFingerprint? = FileFingerprint.of) {
+                fingerprint: (URL) -> FileFingerprint? = FileFingerprint.of,
+                bookmarker: (URL) -> Data? = FolderAccess.bookmark) {
         schemaVersion = Self.currentVersion
         id = UUID()
         self.started = started
@@ -118,6 +142,31 @@ public struct RunJournal: Codable, Equatable, Sendable {
         self.pipeline = pipeline
         outputMode = mode
         completed = []
+        let folders = AccessNeeds.roots(of: items.map { $0.source.deletingLastPathComponent() })
+        let bookmarks = folders.prefix(Self.maxFolderBookmarks).compactMap { folder in
+            bookmarker(folder).map { FolderBookmark(path: folder.path, bookmark: $0) }
+        }
+        folderBookmarks = bookmarks.isEmpty ? nil : bookmarks
+        if case .newFolder(let folder) = mode { outputBookmark = bookmarker(folder) }
+    }
+
+    /// What resuming can open again: the folders whose bookmarks resolve (start access on these exact URLs), and
+    /// the folders that can't be found or opened any more (by their recorded path).
+    public func regainAccess(resolver: (Data) -> FolderAccess.Resolved? = FolderAccess.resolve)
+        -> (access: [URL], unavailable: [URL]) {
+        var access: [URL] = []
+        var unavailable: [URL] = []
+        for folder in folderBookmarks ?? [] {
+            if let resolved = resolver(folder.bookmark) {
+                access.append(resolved.url)
+            } else {
+                unavailable.append(URL(fileURLWithPath: folder.path, isDirectory: true))
+            }
+        }
+        if let outputBookmark, case .newFolder(let folder) = outputMode {
+            if let resolved = resolver(outputBookmark) { access.append(resolved.url) } else { unavailable.append(folder) }
+        }
+        return (access, unavailable)
     }
 
     public var inputItems: [InputItem] {
@@ -180,7 +229,11 @@ public struct RunJournal: Codable, Equatable, Sendable {
     private var isValid: Bool {
         guard schemaVersion == Self.currentVersion, items.count <= Self.maxItems,
               items.allSatisfy({ Self.isValidPath($0.path) && Self.isValidText($0.relativeDirectory) }),
-              completed.allSatisfy(items.indices.contains) else {
+              completed.allSatisfy(items.indices.contains),
+              (folderBookmarks?.count ?? 0) <= Self.maxFolderBookmarks,
+              (folderBookmarks ?? []).allSatisfy({ Self.isValidPath($0.path)
+                  && $0.bookmark.count <= ImageWatermark.maxBookmarkSize }),
+              (outputBookmark?.count ?? 0) <= ImageWatermark.maxBookmarkSize else {
             return false
         }
         if case .newFolder(let folder) = outputMode { return folder.isFileURL && Self.isValidPath(folder.path) }

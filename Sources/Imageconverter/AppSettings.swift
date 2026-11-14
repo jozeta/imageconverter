@@ -4,13 +4,15 @@ import ImageconverterCore
 
 /// User preferences for where converted files go, persisted in `UserDefaults`.
 ///
-/// The output folder is stored as a plain path string for now. Security-scoped bookmarks arrive
-/// with sandboxing in milestone 6.
+/// The output folder is stored as a path and a bookmark (`outputFolderBookmark`), so the sandboxed app can open it
+/// again after a relaunch: the bookmark is resolved at launch (a moved folder is followed) and access stays started.
+/// When it no longer resolves, the run asks for the folder again (`AccessStore.ensureAccess`).
 @MainActor @Observable
 final class AppSettings {
     private enum Key {
         static let modeKind = "outputModeKind"
         static let folder = "outputFolder"
+        static let folderBookmark = "outputFolderBookmark"
         static let suffix = "sameFolderSuffix"
     }
 
@@ -21,8 +23,18 @@ final class AppSettings {
     }
 
     var outputFolder: URL? {
-        didSet { defaults.set(outputFolder?.path, forKey: Key.folder) }
+        didSet {
+            defaults.set(outputFolder?.path, forKey: Key.folder)
+            guard outputFolder != oldValue else { return }
+            // Made now, while the app has access (the folder was just chosen in a panel).
+            let bookmark = outputFolder.flatMap(FolderAccess.bookmark)
+            defaults.set(bookmark, forKey: Key.folderBookmark)
+            outputAccess = nil
+            if let outputFolder, bookmark != nil { AccessStore.shared.addSessionRoot(outputFolder) }
+        }
     }
+    /// Access started on the resolved output folder bookmark at launch.
+    @ObservationIgnored private var outputAccess: FolderAccess.Grant?
 
     var sameFolderSuffix: String {
         didSet { defaults.set(sameFolderSuffix, forKey: Key.suffix) }
@@ -33,6 +45,24 @@ final class AppSettings {
         modeKind = defaults.string(forKey: Key.modeKind).flatMap(OutputModeKind.init(rawValue:)) ?? .newFolder
         outputFolder = defaults.string(forKey: Key.folder).map { URL(fileURLWithPath: $0, isDirectory: true) }
         sameFolderSuffix = defaults.string(forKey: Key.suffix) ?? OutputPlanner.defaultSuffix
+        restoreOutputAccess()
+    }
+
+    /// Resolves the output folder's bookmark: access started on the resolved URL, a stale bookmark refreshed, a
+    /// moved folder followed. Nothing happens when it doesn't resolve (the folder is asked for at run time).
+    private func restoreOutputAccess() {
+        guard outputFolder != nil, let data = defaults.data(forKey: Key.folderBookmark),
+              let found = FolderAccess.resolve(data) else { return }
+        outputAccess = FolderAccess.Grant([found.url])
+        AccessStore.shared.addSessionRoot(found.url)
+        if let refreshed = found.refreshed { defaults.set(refreshed, forKey: Key.folderBookmark) }
+        let path = found.url.standardizedFileURL.path
+        if path != outputFolder?.standardizedFileURL.path {
+            // `didSet` stores the new path and a fresh bookmark (made while access is still on), then drops the
+            // old access; it is started again on the resolved URL.
+            outputFolder = URL(fileURLWithPath: path, isDirectory: true)
+            outputAccess = FolderAccess.Grant([found.url])
+        }
     }
 
     /// Nil only when the kind is "new folder" and no folder has been chosen yet.

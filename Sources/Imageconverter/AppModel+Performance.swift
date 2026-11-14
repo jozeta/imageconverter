@@ -116,6 +116,16 @@ extension AppModel {
         guard let journal = interruptedRun, !isRunning else { return }
         interruptedRun = nil
         let existing = items
+        // The batch's folders, opened again through the journal's bookmarks (the sandbox forgets them on quit).
+        let regained = journal.regainAccess()
+        AccessStore.shared.holdForSession(regained.access)
+        if !regained.unavailable.isEmpty {
+            let names = regained.unavailable.map(\.path).sorted()
+            let count = names.count
+            toasts.show("\(count) \(count == 1 ? "folder" : "folders") of the interrupted batch can't be opened", type: .bad,
+                        description: names.prefix(20).joined(separator: "\n") + (count > 20 ? "\n…" : "")
+                            + "\nIts images are listed as missing, or you're asked for the folder when the run starts.")
+        }
         Task { [weak self] in
             let plan = await Task.detached(priority: .userInitiated) {
                 ResumePlan.make(journal: journal, existing: existing,

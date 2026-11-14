@@ -31,6 +31,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- **Folder access** for the sandboxed app: a run that needs a folder asks for it once with a pre-filled panel, and the answer is remembered (Help ▸ Folder Access… lists and removes them); the output folder, watermark images and an interrupted batch keep bookmarks so they still open after a relaunch. See [Folder access](#folder-access).
 - **Privacy**: an automatic privacy scan with a shield chip and panel ("Remove these from the output"), a Privacy row in the preview table, and Help ▸ Privacy… with the offline statement and the limits in force. See [Privacy](#privacy).
 - **Jobs** (Window ▸ Jobs, ⌘J): watch folders or run on a schedule with a saved pipeline or a linked preset, while the app is open; one run at a time per job, a catch-up run when watching starts, a report file per run, notifications, and an optional menu bar mode. See [Process a folder automatically](#process-a-folder-automatically).
 - **Reports and history**: after a run the Report section shows summary cards with Export (CSV, JSON, HTML, text) and the error log, and Window ▸ History (⌥⌘H) keeps the last 100 runs, manual and jobs. See [Reports and history](#reports-and-history).
@@ -729,6 +730,19 @@ time: links that arrive meanwhile are ignored and counted in one message. Escape
 | `imageconverter://add?path=/Users/me/a.jpg&path=/Users/me/Trip` | Adds the files and folders (absolute paths). |
 | `imageconverter://jobs/run?name=Nightly` | Runs the saved job once (or once more after the run in progress). |
 
+## Folder access
+
+The packaged app runs in the App Sandbox: it can only open and write files and folders you gave it. Images you drop or add can always be read, and a dropped folder can be written into for the rest of the session. Anything else is asked for once, when it is needed:
+
+- **Same folder as original** and **Overwrite original files** write into the folder each image is in. When the app doesn't have that folder yet, Run (and Finder Quick Actions, AppleScript, links and Resume) first shows an open panel already showing the folder, with the message *"imageconverter needs access to “Photos” to save next to the originals. Choose this folder (or one that contains it) to allow it."* Click **Allow**. Choosing a folder that contains several of the needed folders (your Pictures folder, say) answers all of them at once; choosing an unrelated folder asks again. **Cancel** stops the run before anything is written ("Not run: no access to …").
+- **New folder** needs only the output folder (chosen in the Output row; also asked for after a relaunch if its bookmark no longer opens it), plus the images' own folders when an image can't be read (files given by a script or link rather than dropped).
+- Allowed folders are remembered (up to 200, least recently used dropped first) and opened again at every launch. **Help ▸ Folder Access…** lists them, marks the ones that can't be found ("Not found"), and has **Remove** and **Remove All**; a removed folder is asked for again next time.
+- The output folder and watermark images are stored with a bookmark next to the path, so presets, watermark templates and the saved pipeline keep working after a relaunch and follow a file or folder that was moved. When a watermark image can't be opened any more, the editor and the report say *"Couldn't open the watermark image — choose it again"*.
+- An interrupted batch's journal keeps bookmarks of the images' folders and the output folder, so **Resume** opens them again; folders that can't be opened are listed, and anything still missing is asked for when the resumed run starts.
+- Jobs keep their own folder bookmarks (see [Process a folder automatically](#process-a-folder-automatically)).
+
+Outside the sandbox (`swift run`) nothing is asked; bookmarks are still made, so the same settings work in the packaged app. For screenshots, DEBUG builds accept `-debugSimulateSandbox` (ask as if sandboxed) and `-debugShowFolderAccess` (open the Folder Access window).
+
 ## Command line and Shortcuts
 
 The package also builds a command-line tool, so batches can run from Terminal, scripts, cron or a Shortcuts "Run Shell Script" action. It uses the same engine as the app.
@@ -763,7 +777,7 @@ Convert options (options override the preset or pipeline file):
 | `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked); writes nothing; honours `--report`/`--json` |
 | `--quiet`, `--json` | No progress; `--json` prints the JSON report |
 
-Progress goes to stderr and results to stdout. Missing input paths are reported on stderr and count as failed files; options that the chosen format ignores (`--quality`, `--max-size` with PNG, TIFF, ...) print a warning. Only long options exist; file names starting with `-` go after `--`. Ctrl-C stops cleanly (no temp files left), prints the partial report and exits 130. `--strip-gps` and `--strip-all` also hold for images a preset's condition sends to its own metadata settings or to "Copy original unchanged" (those are converted instead). The tool isn't coordinated with the app: don't run it over a folder an active job watches. Exit codes: 0 all done, 1 some files failed or missing, 2 usage error, 3 nothing to do, 130 interrupted. The tool reads presets and jobs from `~/Library/Application Support/imageconverter/`.
+Progress goes to stderr and results to stdout. Missing input paths are reported on stderr and count as failed files; options that the chosen format ignores (`--quality`, `--max-size` with PNG, TIFF, ...) print a warning. Only long options exist; file names starting with `-` go after `--`. Ctrl-C stops cleanly (no temp files left), prints the partial report and exits 130. `--strip-gps` and `--strip-all` also hold for images a preset's condition sends to its own metadata settings or to "Copy original unchanged" (those are converted instead). The tool isn't coordinated with the app: don't run it over a folder an active job watches. Exit codes: 0 all done, 1 some files failed or missing, 2 usage error, 3 nothing to do, 130 interrupted. The tool reads presets and jobs from the sandboxed app's container (`~/Library/Containers/io.github.jozeta.imageconverter/Data/Library/Application Support/imageconverter/`) when it exists, else from `~/Library/Application Support/imageconverter/` (where an unsandboxed `swift run` keeps them); `--data-dir DIR` (anywhere before `--`) reads them from DIR instead. macOS may ask once whether Terminal may access another app's data the first time the tool reads the container.
 
 Example in Shortcuts: add **Run Shell Script** (Shell: zsh, Input: as arguments) with
 

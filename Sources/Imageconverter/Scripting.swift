@@ -125,7 +125,11 @@ final class RunBatchScriptCommand: ImageconverterScriptCommand {
                     let started = model.startRun(batch, pipeline: pipeline, mode: mode, presetName: presetName) {
                         continuation.resume(returning: $0.written)
                     }
-                    if !started { continuation.resume(throwing: ExternalRequestError.busy) }
+                    switch started {
+                    case .started: break
+                    case .busy: continuation.resume(throwing: ExternalRequestError.busy)
+                    case .noAccess: continuation.resume(throwing: ExternalRequestError.noFolderAccess)
+                    }
                 }
             }
         }

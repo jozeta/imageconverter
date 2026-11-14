@@ -15,6 +15,8 @@ public enum ExternalRequestError: Error, Equatable, Sendable {
     case cancelled
     /// A script can't answer "Discard the interrupted batch?", so its run is refused instead.
     case interruptedBatchWaiting
+    /// Sandbox: the user didn't allow a folder the run needs.
+    case noFolderAccess
 
     public var message: String {
         switch self {
@@ -32,6 +34,8 @@ public enum ExternalRequestError: Error, Equatable, Sendable {
         case .cancelled: return "The conversion was cancelled."
         case .interruptedBatchWaiting:
             return "An interrupted batch is waiting; resume or discard it first."
+        case .noFolderAccess:
+            return "imageconverter wasn't allowed to use a folder the conversion needs, so nothing was converted."
         }
     }
 }

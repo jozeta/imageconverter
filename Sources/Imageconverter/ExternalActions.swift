@@ -128,7 +128,7 @@ final class ExternalActions {
                 model.toasts.show("Wait for the run to finish before adding images", type: .info)
                 return
             }
-            model.add(urls)
+            model.add(urls, userChosen: false)
         }
     }
 
@@ -182,7 +182,11 @@ final class ExternalActions {
                                          presetName: plan.preset.name) { report in
                 continuation.resume(returning: report.written)
             }
-            if !started { continuation.resume(throwing: ExternalRequestError.busy) }
+            switch started {
+            case .started: break
+            case .busy: continuation.resume(throwing: ExternalRequestError.busy)
+            case .noAccess: continuation.resume(throwing: ExternalRequestError.noFolderAccess)
+            }
         }
     }
 

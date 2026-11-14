@@ -5,7 +5,8 @@ import ImageconverterCore
 /// The chosen file's name with a small thumbnail, loaded off the main actor. An SVG goes through the same
 /// sanitiser the batch uses, so a refused file shows why here, before a run.
 struct WatermarkThumbnail: View {
-    let path: String
+    let watermark: ImageWatermark
+    private var path: String { watermark.path }
     @State private var thumbnail: NSImage?
     @State private var problem: String?
 
@@ -34,10 +35,10 @@ struct WatermarkThumbnail: View {
                         .accessibilityLabel("Problem: \(problem)")
                 }
             }
-            .task(id: path) {
+            .task(id: watermark) {
                 thumbnail = nil
                 problem = nil
-                let loaded = await Self.loadThumbnail(path: path)
+                let loaded = await Self.loadThumbnail(watermark)
                 guard !Task.isCancelled else { return }
                 switch loaded {
                 case .success(let image): thumbnail = image
@@ -47,21 +48,27 @@ struct WatermarkThumbnail: View {
         }
     }
 
-    private static func loadThumbnail(path: String) async -> Result<NSImage, ConversionError> {
+    private static func loadThumbnail(_ watermark: ImageWatermark) async -> Result<NSImage, ConversionError> {
         await Task.detached(priority: .utility) { () -> Result<NSImage, ConversionError> in
-            let fileURL = URL(fileURLWithPath: path)
-            if SVGRasterizer.isSVG(fileURL) {
-                do {
-                    let image = try SVGRasterizer.rasterize(url: fileURL)
-                    return .success(NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)))
-                } catch {
-                    return .failure(error as? ConversionError ?? .watermarkSVGInvalid)
-                }
+            watermark.withFile { url in
+                guard let url else { return .failure(.watermarkImageNoAccess) }
+                return thumbnail(of: url)
             }
-            guard let cgImage = ImageLoader.thumbnail(of: fileURL, maxPixelSize: 64) else {
-                return .failure(.watermarkImageUnreadable)
-            }
-            return .success(NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)))
         }.value
+    }
+
+    nonisolated private static func thumbnail(of fileURL: URL) -> Result<NSImage, ConversionError> {
+        if SVGRasterizer.isSVG(fileURL) {
+            do {
+                let image = try SVGRasterizer.rasterize(url: fileURL)
+                return .success(NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height)))
+            } catch {
+                return .failure(error as? ConversionError ?? .watermarkSVGInvalid)
+            }
+        }
+        guard let cgImage = ImageLoader.thumbnail(of: fileURL, maxPixelSize: 64) else {
+            return .failure(.watermarkImageUnreadable)
+        }
+        return .success(NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)))
     }
 }

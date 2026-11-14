@@ -190,8 +190,11 @@ final class AppModel {
     }
 
     /// Scans `urls` off the main actor (large folders), then merges new items in, skipping duplicates.
-    func add(_ urls: [URL]) {
+    /// `userChosen`: dropped or picked in a panel, so the sandbox lets the app use those folders this session
+    /// (false for scripts, services and links, which bring no such permission).
+    func add(_ urls: [URL], userChosen: Bool = true) {
         guard !urls.isEmpty else { return }
+        if userChosen { AccessStore.shared.noteAdded(urls) }
         pendingAdds += 1
         Task { [weak self] in
             let found = await Task.detached(priority: .userInitiated) { InputCollector.collect(urls) }.value
@@ -220,16 +223,6 @@ final class AppModel {
         Task { await factsCache.removeAll(); await privacy.cache.removeAll() }
     }
 
-    /// Asks for files and folders to add.
-    func chooseInputs() {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
-        panel.prompt = "Add"
-        if panel.runModal() == .OK { add(panel.urls) }
-    }
-
     func run(settings: AppSettings) {
         guard !isRunning, !isAdding, !items.isEmpty, confirmDiscardingInterruptedRun() else { return }
         if settings.modeKind == .newFolder, !Self.isExistingDirectory(settings.outputFolder) {
@@ -250,14 +243,20 @@ final class AppModel {
         startRun(items, pipeline: pipeline, mode: mode, presetName: session.selected?.name)
     }
 
-    /// Runs `batch` with `pipeline` (Run, or a service or script with its own files and preset), showing
-    /// progress and the report like Run. Returns false when a run is already going; `completion` gets the report.
+    /// Runs `batch` with `pipeline` (Run, or a service, script, link or resume with its own files and preset),
+    /// showing progress and the report like Run. In the sandbox it first asks for any folder the run needs that
+    /// the app can't use yet (`AccessStore.ensureAccess`). `completion` gets the report.
     @discardableResult
     func startRun(_ batch: [InputItem], pipeline: Pipeline, mode: OutputMode, presetName: String?,
-                  completion: (@MainActor (BatchReport) -> Void)? = nil) -> Bool {
+                  completion: (@MainActor (BatchReport) -> Void)? = nil) -> AppRunStart {
         // One item per file, so the run's event indices match this list (the runner deduplicates the same way).
         let batch = InputItem.unique(batch)
-        guard !isRunning, !batch.isEmpty else { return false }
+        guard !isRunning, !batch.isEmpty else { return .busy }
+        guard AccessStore.shared.ensureAccess(sources: batch.map(\.source), mode: mode, toasts: toasts) else {
+            return .noAccess
+        }
+        // The panels run a modal loop: another request may have started a run meanwhile.
+        guard !isRunning else { return .busy }
         runInfo = (batch.count, Date(), mode.kind.rawValue)
         isRunning = true
         let control = BatchControl(lowMemory: lowMemoryMode)
@@ -286,13 +285,7 @@ final class AppModel {
             self?.finish(report, presetName: presetName)
             completion?(report)
         }
-        return true
-    }
-
-    private static func isExistingDirectory(_ url: URL?) -> Bool {
-        guard let url else { return false }
-        var isDirectory: ObjCBool = false
-        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+        return .started
     }
 
     func cancel() { task?.cancel() }
@@ -317,4 +310,31 @@ final class AppModel {
                     type: failed > 0 ? .bad : (report.cancelled ? .info : .ok))
     }
 
+}
+
+/// What `startRun` did.
+enum AppRunStart: Equatable {
+    case started
+    /// A run is already going (or there was nothing to run).
+    case busy
+    /// Sandbox: the user didn't allow a folder the run needs (a toast said so).
+    case noAccess
+}
+
+extension AppModel {
+    /// Asks for files and folders to add.
+    func chooseInputs() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Add"
+        if panel.runModal() == .OK { add(panel.urls) }
+    }
+
+    private static func isExistingDirectory(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
 }

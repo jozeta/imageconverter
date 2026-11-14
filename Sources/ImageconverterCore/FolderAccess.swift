@@ -4,10 +4,8 @@ import Foundation
 /// reopen a folder the user picked once), resolved with stale detection, and access started only around the
 /// work that needs it. Without the sandbox the plain URL works, so every step falls back to it.
 public enum FolderAccess {
-    /// True inside the App Sandbox (milestone 6); the plain-URL fallbacks only apply outside it.
-    public static var isSandboxed: Bool {
-        ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] != nil
-    }
+    /// True inside the App Sandbox (`Sandbox.isActive`); the plain-URL fallbacks only apply outside it.
+    public static var isSandboxed: Bool { Sandbox.isActive }
 
     /// A security-scoped bookmark of `url` (read-write, app scope), or a plain bookmark when that can't be made
     /// (outside the sandbox it may not be; a plain one still follows a moved folder). Nil when neither works.
@@ -37,8 +35,24 @@ public enum FolderAccess {
                             relativeTo: nil, bookmarkDataIsStale: &stale))
             ?? (try? URL(resolvingBookmarkData: data, options: [.withoutUI], relativeTo: nil,
                          bookmarkDataIsStale: &stale))
-        guard let url, isFolder(url) else { return nil }
+        // Checked with access on: in the sandbox the folder can't even be looked at without it.
+        guard let url, withAccess([url], { isFolder(url) }) else { return nil }
         // The new bookmark must be made while access is on, or a sandboxed app can't create it.
+        let refreshed = stale ? withAccess([url]) { bookmark(for: url) } : nil
+        return Resolved(url: url, refreshed: refreshed)
+    }
+
+    /// The file (not a folder) `data` points to now, or nil when it can't be found. A watermark image's bookmark.
+    public static func resolveFile(_ data: Data) -> Resolved? {
+        var stale = false
+        let url = (try? URL(resolvingBookmarkData: data, options: [.withSecurityScope, .withoutUI],
+                            relativeTo: nil, bookmarkDataIsStale: &stale))
+            ?? (try? URL(resolvingBookmarkData: data, options: [.withoutUI], relativeTo: nil,
+                         bookmarkDataIsStale: &stale))
+        guard let url else { return nil }
+        var isDirectory: ObjCBool = false
+        let exists = withAccess([url]) { FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) }
+        guard exists, !isDirectory.boolValue else { return nil }
         let refreshed = stale ? withAccess([url]) { bookmark(for: url) } : nil
         return Resolved(url: url, refreshed: refreshed)
     }

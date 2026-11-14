@@ -29,7 +29,7 @@ public struct WatermarkAssets: @unchecked Sendable {
             guard case .watermark(let options) = step.operation,
                   case .image(let watermark) = options.content,
                   tried.insert(watermark.path).inserted else { continue }
-            switch read(watermark.path, maxPixels: maxPixels) {
+            switch read(watermark, maxPixels: maxPixels) {
             case .success(let image): images[watermark.path] = image
             case .failure(let error): errors[watermark.path] = error
             }
@@ -62,9 +62,16 @@ public struct WatermarkAssets: @unchecked Sendable {
     /// How many images were loaded.
     var count: Int { images.count }
 
-    private static func read(_ path: String, maxPixels: Int) -> Result<CGImage, ConversionError> {
-        guard !path.isEmpty else { return .failure(.watermarkImageUnreadable) }
-        let url = URL(fileURLWithPath: path)
+    /// Through the watermark's bookmark when it has one (see `ImageWatermark.withFile`).
+    static func read(_ watermark: ImageWatermark, maxPixels: Int) -> Result<CGImage, ConversionError> {
+        guard !watermark.path.isEmpty else { return .failure(.watermarkImageUnreadable) }
+        return watermark.withFile { url in
+            guard let url else { return .failure(.watermarkImageNoAccess) }
+            return read(url, maxPixels: maxPixels)
+        }
+    }
+
+    private static func read(_ url: URL, maxPixels: Int) -> Result<CGImage, ConversionError> {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory),
               !isDirectory.boolValue else { return .failure(.watermarkImageUnreadable) }
