@@ -2,7 +2,11 @@ import Foundation
 
 /// A record of a running batch, so a run interrupted by a crash or a forced quit can be offered again on the
 /// next launch. Written when the run starts, updated as items finish, and deleted when the run ends normally
-/// or is cancelled: a journal that is still there means the app never got to the end.
+/// or is cancelled: a journal that is still there means the app never got to the end. Each completion is also
+/// appended at once to a small completion log next to it (`completionLogURL`), so a crash right after a commit
+/// doesn't leave that item looking unfinished. In overwrite mode every item also keeps its source's size and
+/// modification date from the start: a resumed run leaves alone a source that no longer matches (it was already
+/// replaced), so the pipeline is never applied twice to an original.
 public struct RunJournal: Codable, Equatable, Sendable {
     public static let currentVersion = 1
     /// Large enough for 100 000 paths; the file is untrusted on read, like presets.
@@ -12,10 +16,23 @@ public struct RunJournal: Codable, Equatable, Sendable {
     public struct Item: Codable, Equatable, Sendable {
         public var path: String
         public var relativeDirectory: String
+        /// The source's size and modification date (seconds since 1970) when the run started; overwrite mode
+        /// only (nil otherwise, and in older journals).
+        public var size: Int?
+        public var modified: Double?
 
-        public init(path: String, relativeDirectory: String) {
+        public init(path: String, relativeDirectory: String, size: Int? = nil, modified: Double? = nil) {
             self.path = path
             self.relativeDirectory = relativeDirectory
+            self.size = size
+            self.modified = modified
+        }
+
+        /// False when the file at `path` no longer has the size and date recorded at the start (nil: nothing was
+        /// recorded, or the file can't be read).
+        func matches(_ current: FileFingerprint?) -> Bool? {
+            guard let size, let modified, let current else { return nil }
+            return current.size == size && current.modified == modified
         }
     }
 
@@ -87,11 +104,17 @@ public struct RunJournal: Codable, Equatable, Sendable {
         return indices
     }
 
-    public init(items: [InputItem], pipeline: Pipeline, mode: OutputMode, started: Date = Date()) {
+    /// In overwrite mode each source's fingerprint is read now (`fingerprint`, injectable for tests).
+    public init(items: [InputItem], pipeline: Pipeline, mode: OutputMode, started: Date = Date(),
+                fingerprint: (URL) -> FileFingerprint? = FileFingerprint.of) {
         schemaVersion = Self.currentVersion
         id = UUID()
         self.started = started
-        self.items = items.map { Item(path: $0.source.path, relativeDirectory: $0.relativeDirectory) }
+        self.items = items.map { item in
+            let print = mode == .overwrite ? fingerprint(item.source) : nil
+            return Item(path: item.source.path, relativeDirectory: item.relativeDirectory, size: print?.size,
+                        modified: print?.modified)
+        }
         self.pipeline = pipeline
         outputMode = mode
         completed = []
@@ -115,17 +138,37 @@ public struct RunJournal: Codable, Equatable, Sendable {
     }
 
     /// The journal of a run that didn't finish, or nil when there is none or it isn't a valid journal (not a
-    /// regular file, too large, malformed, a newer version, or inconsistent paths and indices).
+    /// regular file, too large, malformed, a newer version, or inconsistent paths and indices). Completions in
+    /// the completion log are added (lines that aren't an index of this journal are ignored).
     public static func pending(at url: URL? = defaultURL) -> RunJournal? {
         guard let url, let data = try? StoredFile.readData(url, maxSize: maxFileSize),
-              let journal = try? JSONDecoder().decode(RunJournal.self, from: data), journal.isValid else { return nil }
+              var journal = try? JSONDecoder().decode(RunJournal.self, from: data), journal.isValid else { return nil }
+        let logged = loggedCompletions(at: completionLogURL(for: url), count: journal.items.count)
+        if !logged.isEmpty { journal.completed = Array(Set(journal.completed).union(logged)).sorted() }
         return journal
     }
 
-    /// Deletes the journal (after the user resumed or dismissed it).
+    /// Where the completion log of the journal at `url` is kept.
+    public static func completionLogURL(for url: URL) -> URL {
+        url.deletingLastPathComponent().appendingPathComponent(url.lastPathComponent + ".done")
+    }
+
+    /// One index per line; untrusted like the journal (size-capped, only indices inside `0..<count`).
+    static func loggedCompletions(at url: URL, count: Int) -> Set<Int> {
+        guard let data = try? StoredFile.readData(url, maxSize: maxFileSize),
+              let text = String(data: data, encoding: .utf8) else { return [] }
+        var indices = Set<Int>()
+        for line in text.split(separator: "\n") {
+            if let index = Int(line), (0..<count).contains(index) { indices.insert(index) }
+        }
+        return indices
+    }
+
+    /// Deletes the journal and its completion log (after the user resumed or dismissed it).
     public static func discard(at url: URL? = defaultURL) {
         guard let url else { return }
         try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.removeItem(at: completionLogURL(for: url))
     }
 
     /// Writes atomically, creating the folder when needed.
@@ -153,9 +196,10 @@ public struct RunJournal: Codable, Equatable, Sendable {
     }
 }
 
-/// Keeps the journal of one run up to date. Completions are recorded in a bitmap (cheap on the batch's
-/// collecting side) and written on a background serial queue: after 20 new ones, or at most a second after
-/// the first unsaved one, whichever comes first, coalescing everything in between.
+/// Keeps the journal of one run up to date. Each completion is appended at once to the completion log (one
+/// short write, so it survives a crash right after the commit), and recorded in a bitmap that is written into
+/// the journal itself on a background serial queue: after 20 new ones, or at most a second after the first
+/// unsaved one, whichever comes first, coalescing everything in between.
 final class RunJournalWriter: @unchecked Sendable {
     static let batchSize = 20
 
@@ -170,6 +214,7 @@ final class RunJournalWriter: @unchecked Sendable {
     private var timerScheduled = false
     private var urgentQueued = false
     private var removed = false
+    private var log: FileHandle?
 
     init(url: URL, journal: RunJournal, interval: TimeInterval = 1) {
         self.url = url
@@ -182,7 +227,16 @@ final class RunJournalWriter: @unchecked Sendable {
     /// Writes the current state before returning (the run's start). A journal that can't be written doesn't
     /// stop the run; it only can't be recovered.
     func writeNow() {
-        queue.sync { flush(force: true) }
+        queue.sync {
+            flush(force: true)
+            // A fresh, empty completion log for this run (an old one belongs to the journal this one replaces).
+            let logURL = RunJournal.completionLogURL(for: url)
+            lock.lock()
+            defer { lock.unlock() }
+            guard !removed, log == nil,
+                  FileManager.default.createFile(atPath: logURL.path, contents: nil) else { return }
+            log = try? FileHandle(forWritingTo: logURL)
+        }
     }
 
     func markCompleted(_ index: Int) {
@@ -192,6 +246,7 @@ final class RunJournalWriter: @unchecked Sendable {
             return
         }
         done[index] = true
+        try? log?.write(contentsOf: Data("\(index)\n".utf8))
         unsaved += 1
         let urgent = unsaved >= Self.batchSize && !urgentQueued
         let startTimer = !timerScheduled
@@ -221,8 +276,10 @@ final class RunJournalWriter: @unchecked Sendable {
         queue.sync {
             lock.lock()
             removed = true
+            try? log?.close()
+            log = nil
             lock.unlock()
-            try? FileManager.default.removeItem(at: url)
+            RunJournal.discard(at: url)
         }
     }
 

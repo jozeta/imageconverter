@@ -36,6 +36,13 @@ public enum ConversionError: Error, Equatable, Sendable {
     /// A condition skips this file, so there is nothing to estimate (never a batch failure).
     case skippedByCondition
 
+    /// True when the new file was written and only trashing the original failed: the item is done (a resumed
+    /// run mustn't convert it again).
+    public var outputWasCommitted: Bool {
+        if case .writeFailed(let detail) = self { return detail.hasPrefix(FileCommitter.trashFailurePrefix) }
+        return false
+    }
+
     /// A user-facing English explanation.
     public var reason: String {
         switch self {

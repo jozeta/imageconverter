@@ -44,11 +44,13 @@ public enum FileCommitter {
             do {
                 try trash(plan.item.source)
             } catch {
-                throw ConversionError.writeFailed(
-                    "Converted, but couldn't move the original to the Trash: \(error.localizedDescription)")
+                throw ConversionError.writeFailed(trashFailurePrefix + error.localizedDescription)
             }
         }
     }
+
+    /// Starts the reason of a failure that happened after the new file was in place.
+    static let trashFailurePrefix = "Converted, but couldn't move the original to the Trash: "
 
     // MARK: Temp files
 

@@ -13,6 +13,8 @@ extension BatchRunner {
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in },
         events: @escaping @Sendable (ItemEvent) -> Void = { _ in }
     ) async -> BatchReport {
+        // One plan per file: two items for the same original would both replace it in overwrite mode.
+        let items = InputItem.unique(items)
         let writer = journal.map {
             RunJournalWriter(url: $0, journal: RunJournal(items: items, pipeline: pipeline, mode: mode))
         }
@@ -283,6 +285,8 @@ final class BatchScheduler {
             }
             failed += 1
             finish(index, .failed(error.reason), result: result, outputBytes: nil)
+            // Written, only the Trash failed: resuming would convert it again into `name_2`.
+            if error.outputWasCommitted { writer?.markCompleted(plan.planIndices[index]) }
         }
     }
 

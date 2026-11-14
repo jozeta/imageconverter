@@ -138,6 +138,14 @@ extension AppModel {
             toasts.show("\(count) \(count == 1 ? "file" : "files") of the interrupted batch \(count == 1 ? "is" : "are") missing",
                         type: .bad, description: names.prefix(20).joined(separator: "\n") + (count > 20 ? "\n…" : ""))
         }
+        if !plan.alreadyReplaced.isEmpty {
+            let names = plan.alreadyReplaced.map(\.lastPathComponent).sorted()
+            let count = names.count
+            toasts.show("\(count) \(count == 1 ? "original was" : "originals were") already replaced",
+                        type: .info,
+                        description: "Changed since the batch started, so not converted again:\n"
+                            + names.prefix(20).joined(separator: "\n") + (count > 20 ? "\n…" : ""))
+        }
         switch plan.problem {
         case .nothingLeft:
             RunJournal.discard(at: AppDefaults.journalURL)

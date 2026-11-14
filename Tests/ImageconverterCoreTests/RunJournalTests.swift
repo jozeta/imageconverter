@@ -87,20 +87,68 @@ final class RunJournalTests: XCTestCase {
         writer.writeNow()
         for index in 0..<19 { writer.markCompleted(index) }
         writer.waitForWrites()
-        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, [], "Fewer than 20: the timer hasn't fired")
+        XCTAssertEqual(try mainFile().completed, [], "Fewer than 20: the timer hasn't fired")
+        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, Array(0..<19), "The completion log has them at once")
         writer.markCompleted(19)
         writer.waitForWrites()
-        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, Array(0..<20), "20 write at once")
+        XCTAssertEqual(try mainFile().completed, Array(0..<20), "20 write at once")
         writer.markCompleted(25)
         writer.markCompleted(25)
         Thread.sleep(forTimeInterval: 0.6)
         writer.waitForWrites()
-        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, Array(0..<20) + [25], "The timer wrote it")
+        XCTAssertEqual(try mainFile().completed, Array(0..<20) + [25], "The timer wrote it")
         writer.remove()
         writer.markCompleted(30)
         Thread.sleep(forTimeInterval: 0.4)
         writer.waitForWrites()
         XCTAssertFalse(FileManager.default.fileExists(atPath: journalURL.path), "Nothing is written after remove")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: RunJournal.completionLogURL(for: journalURL).path))
+    }
+
+    /// The journal file alone, without the completion log.
+    private func mainFile() throws -> RunJournal {
+        try JSONDecoder().decode(RunJournal.self, from: Data(contentsOf: journalURL))
+    }
+
+    func testHostileCompletionLogLinesAreIgnored() throws {
+        let items = (0..<3).map { InputItem(source: URL(fileURLWithPath: "/tmp/\($0).png"), relativeDirectory: "") }
+        try RunJournal(items: items, pipeline: Pipeline(), mode: .sameFolder(suffix: "_n")).write(to: journalURL)
+        try Data("1\n-4\n99\nxyz\n2\n".utf8).write(to: RunJournal.completionLogURL(for: journalURL))
+        XCTAssertEqual(RunJournal.pending(at: journalURL)?.completed, [1, 2])
+        RunJournal.discard(at: journalURL)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: RunJournal.completionLogURL(for: journalURL).path))
+    }
+
+    /// Final review I1: an overwrite batch "crashes" right after replacing an original, before the journal or
+    /// even the completion log has it. Resuming must not process that original a second time.
+    func testResumeAfterCrashDoesNotReprocessReplacedOriginals() async throws {
+        let urls = try files(3)
+        let journalURL = journalURL
+        let logURL = RunJournal.completionLogURL(for: journalURL)
+        let crash = root.appendingPathComponent("crash", isDirectory: true)
+        try FileManager.default.createDirectory(at: crash, withIntermediateDirectories: true)
+        let crashJournal = crash.appendingPathComponent("journal.json")
+        let crashLog = RunJournal.completionLogURL(for: crashJournal)
+        let pipeline = Pipeline(steps: [PipelineStep(operation: .rotateFlip(RotateFlipOptions(rotation: .cw90)))],
+                                output: OutputSettings(format: .png))
+        let report = await BatchRunner.run(
+            InputCollector.collect(urls), pipeline: pipeline, mode: .overwrite, concurrency: 1,
+            trash: { _ in XCTFail("in place, nothing is trashed") }, journal: journalURL, events: { event in
+                // `.done` of item 1 is sent before item 1 is recorded: the disk now looks like a crash then.
+                guard event.index == 1, event.stage == .done else { return }
+                try? FileManager.default.copyItem(at: journalURL, to: crashJournal)
+                try? FileManager.default.copyItem(at: logURL, to: crashLog)
+            })
+        XCTAssertEqual(report.failures, [])
+        let crashed = try XCTUnwrap(RunJournal.pending(at: crashJournal))
+        XCTAssertEqual(crashed.completed, [0], "item 0 came from the completion log")
+        XCTAssertNotNil(crashed.items[1].size, "overwrite mode records each source's fingerprint")
+        let plan = ResumePlan.make(journal: crashed, existing: [],
+                                   fileExists: { FileManager.default.fileExists(atPath: $0) },
+                                   directoryExists: { _ in true })
+        XCTAssertFalse(plan.toRun.map(\.source).contains(urls[1]), "item 1 was replaced and must not run again")
+        XCTAssertTrue(plan.alreadyReplaced.contains(urls[1]))
+        XCTAssertTrue(plan.toRun.isEmpty, "every original was replaced by the end of the run")
     }
 
     func testCompletedIsStoredAsRuns() throws {
