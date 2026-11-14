@@ -215,16 +215,18 @@ struct SingleComparison: View {
         let showBefore = compare.showingBefore || after.image == nil
         VStack(spacing: LadaGlass.Spacing.xs) {
             HStack(spacing: LadaGlass.Spacing.s) {
-                LGChip(showBefore ? "Before" : "After", status: showBefore ? .warn : .neutral)
-                Button(compare.showingBefore ? "Show After" : "Show Before") { compare.showingBefore.toggle() }
-                    .buttonStyle(.lg(.ghost))
-                    .disabled(after.image == nil)
-                    .help(CompareMode.single.help)
+                Button { compare.showingBefore.toggle() } label: {
+                    Label(showBefore ? "Before" : "After", systemImage: "arrow.left.arrow.right")
+                }
+                .buttonStyle(.lg(.secondary))
+                .disabled(after.image == nil)
+                .help(CompareMode.single.help)
+                .accessibilityLabel(showBefore ? "Showing before image" : "Showing after image")
+                .accessibilityHint(showBefore ? "Toggle to after" : "Toggle to before")
                 Text("Hold Space over the image or press B")
                     .font(LadaGlass.Typography.label)
                     .foregroundStyle(LadaGlass.Colors.muted)
                     .lineLimit(1)
-                    .accessibilityLabel(compare.showingBefore ? "Show After" : "Show Before")
             }
             ZStack {
                 // After keeps its geometry while hidden, so the zoom range and 100 % stay the After image's.
