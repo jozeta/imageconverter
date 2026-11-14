@@ -88,6 +88,7 @@ public enum MetadataOps {
             remove(iptcLocationKeys, from: iptcKey, in: &props)
         case .set:
             props.removeValue(forKey: gpsKey) // replaced, with nothing of the old position left
+            if options.removePlaceNames { remove(iptcLocationKeys, from: iptcKey, in: &props) }
         }
         if options.removeCamera {
             remove(tiffCameraKeys, from: tiffKey, in: &props)

@@ -11,6 +11,12 @@ extension MetadataOptions {
             || removeXMP || dateTaken != .keep
     }
 
+    /// True when these (active) options remove the location with its place names: `.remove`, or "remove all"
+    /// without keeping the location.
+    var removesLocationEntirely: Bool {
+        isActive && (location == .remove || removeAll && !keepWhenRemovingAll.contains(.location))
+    }
+
     /// These options with `floor`'s removals added (when `floor` is active): every removal switch ORed, a
     /// location or date the floor removes or replaces wins over "keep", and with "remove all" only what both
     /// keep is kept.
@@ -28,10 +34,16 @@ extension MetadataOptions {
         merged.removeIPTC = removeIPTC || floor.removeIPTC
         merged.removeXMP = removeXMP || floor.removeXMP
         if location == .keep { merged.location = floor.location }
-        if dateTaken == .keep { merged.dateTaken = floor.dateTaken }
+        // Replacing only the coordinates would keep the real place names the floor removes.
+        if floor.removesLocationEntirely, case .set = merged.location { merged.removePlaceNames = true }
+        // A shift of the real date reveals it; the floor's fixed date wins over it.
+        switch (dateTaken, floor.dateTaken) {
+        case (.keep, _), (.shift, .set): merged.dateTaken = floor.dateTaken
+        default: break
+        }
         if merged.removeAll {
             // A removal the override asks for also drops that field from the floor's keep list.
-            if merged.location == .remove { merged.keepWhenRemovingAll.remove(.location) }
+            if merged.location == .remove || merged.removePlaceNames { merged.keepWhenRemovingAll.remove(.location) }
             if merged.removeCamera { merged.keepWhenRemovingAll.remove(.cameraInfo) }
             if merged.removeAuthor { merged.keepWhenRemovingAll.remove(.author) }
         }

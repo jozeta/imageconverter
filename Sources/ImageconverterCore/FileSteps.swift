@@ -39,6 +39,9 @@ public struct MetadataOptions: Codable, Equatable, Sendable {
     /// to `.keep`; the editor and the batch report say so. Not saved.
     public internal(set) var dateTakenWasInvalid = false
     public static let invalidDateNote = "Saved date setting was invalid and was ignored"
+    /// With a location `.set`: also remove the source's IPTC/XMP place names (as `.remove` does). Set only by the
+    /// removal floor (`withRemovals(from:)`), when the Metadata step removes the location; not saved.
+    public internal(set) var removePlaceNames = false
     /// After writing, the file's creation and modification dates become the resulting date taken, or the
     /// source file's own dates when there is none.
     public var setFileDates = false

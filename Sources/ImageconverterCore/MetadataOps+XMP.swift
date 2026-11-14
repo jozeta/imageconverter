@@ -110,7 +110,9 @@ extension MetadataOps {
         switch options.location {
         case .keep: break
         case .remove: removeTags(in: meta) { _, path, name in locationPaths.contains(path) || isGPSName(name) }
-        case .set: removeTags(in: meta) { _, _, name in isGPSName(name) }
+        case .set:
+            let places = options.removePlaceNames
+            removeTags(in: meta) { _, path, name in isGPSName(name) || places && locationPaths.contains(path) }
         }
         if options.removeCamera {
             removeTags(in: meta) { namespace, path, name in isCameraTag(namespace: namespace, path: path, name: name) }
