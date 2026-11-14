@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- Geometry editors: free angle and straighten, Perspective (Auto and keystone), Trim and the canvas Ratio mode.
 - Compression modes in the Output row: Quality, Target size, Maximum size and Smart, Progressive JPEG, Optimise PNG and AVIF; the estimate shows the chosen quality.
 - Compression report: size percentages in the estimate and preview, a "saved" toast after a run, and a Report section in the sidebar (per-file sizes, skipped files, notes).
 - **Save to** dropdown in the Output row (new folder, same folder, overwrite originals) replaces the Settings window; the Rename step is unavailable while overwriting, and the same-folder suffix defaults to `_new`.
@@ -53,8 +54,16 @@ Started 2026-11-13. The full design is in
     enlarge). Pick the **resampling** (Lanczos, Bicubic, Bilinear, Nearest neighbour). **Set DPI** (default
     300) labels the output's print resolution without changing pixels.
   - (available) **Crop**: fixed size or aspect ratio (a menu of common ratios or a custom one), with an anchor point
-  - (available) **Rotate / flip**
-  - (available) **Canvas / padding**: with a background colour
+  - (available) **Rotate / flip**: 90° turns, an **Angle** (slider −45…45°, or type −180…180°, clockwise) with
+    **Fill corners** (white, transparent or a colour; the canvas grows) or **Crop to fit (straighten)** (the
+    largest centred rectangle with the original ratio), **Mirror (flip horizontally)** and **Flip vertically**
+  - (available) **Perspective**: **Auto** finds a document or screen and squares it up (the report says "No
+    document edges found" if there is none); **Vertical** and **Horizontal** keystone sliders (−100…100) are
+    applied after it, with the result cropped so no empty corners show
+  - (available) **Trim**: removes a border of transparent pixels, one **Colour**, or the **Edge colour**
+    (sampled from the corners); **Tolerance** 0–100 % and **Padding** in pixels keep a margin
+  - (available) **Canvas / padding**: padding in pixels or percent, a fixed canvas size, or a **Ratio** (1:1 … 3:4 or
+    custom) that grows the shorter side without cropping, with an anchor and a background colour
   - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original
   - (available) **Adjust**: exposure, brilliance, highlights, shadows, contrast, brightness, black point,
     saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction
@@ -211,7 +220,7 @@ folder for access and remember your answer. Until then it runs unsandboxed.
 
 ### Build a pipeline
 
-1. In the sidebar, press **+ Add step** and pick Resize, Crop, Rotate / flip, Canvas / padding or
+1. In the sidebar, press **+ Add step** and pick Resize, Crop, Rotate / flip, Perspective, Trim, Canvas / padding or
    Color profile. The step is added at the end and opens so you can set it.
 2. Open or close a step by clicking its row; its settings (size, anchor, colour, profile, ...) are
    inside. The muted line under the name summarises them. The header shows how many steps are on.

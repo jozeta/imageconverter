@@ -34,11 +34,14 @@ struct StepEditor: View {
             AdjustEditor(options: Binding(
                 get: { if case .adjust(let opts) = operation { return opts } else { return AdjustOptions() } },
                 set: { operation = .adjust($0) }))
-        case .perspective, .trim:
-            // Placeholder until the editors for these steps arrive.
-            Text("Settings arrive in the next update")
-                .font(LadaGlass.Typography.label)
-                .foregroundStyle(LadaGlass.Colors.muted)
+        case .perspective:
+            PerspectiveEditor(options: Binding(
+                get: { if case .perspective(let opts) = operation { return opts } else { return PerspectiveOptions() } },
+                set: { operation = .perspective($0) }))
+        case .trim:
+            TrimEditor(options: Binding(
+                get: { if case .trim(let opts) = operation { return opts } else { return TrimOptions() } },
+                set: { operation = .trim($0) }))
         case .watermark:
             WatermarkEditor(options: Binding(
                 get: { if case .watermark(let opts) = operation { return opts } else { return WatermarkOptions() } },
@@ -127,31 +130,13 @@ private struct CropEditor: View {
     }
 }
 
-// MARK: - Rotate / flip
-
-private struct RotateFlipEditor: View {
-    @Binding var options: RotateFlipOptions
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Picker("Rotation", selection: $options.rotation) {
-                ForEach(Rotation.allCases, id: \.self) { Text("\($0.rawValue)°").tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityLabel("Rotation")
-            Toggle("Flip horizontally", isOn: $options.flipHorizontal)
-            Toggle("Flip vertically", isOn: $options.flipVertical)
-        }
-    }
-}
-
 // MARK: - Canvas / padding
 
 private struct CanvasEditor: View {
     @Binding var options: CanvasOptions
 
     private enum Kind: String, CaseIterable {
-        case padding = "Padding px", percent = "Padding %", size = "Canvas size", aspect = "Aspect"
+        case padding = "Padding px", percent = "Padding %", size = "Canvas size", aspect = "Ratio"
     }
 
     private var kind: Kind {
@@ -168,6 +153,9 @@ private struct CanvasEditor: View {
     private var size: (wide: Int, high: Int) {
         if case .size(let wide, let high) = options.mode { return (wide, high) } else { return (2000, 2000) }
     }
+    private var aspectRatio: (wide: Double, high: Double) {
+        if case .aspect(let wide, let high) = options.mode { return (wide, high) } else { return (1, 1) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
@@ -178,12 +166,13 @@ private struct CanvasEditor: View {
                     case .padding: options.mode = .padding(pixels: pixels)
                     case .percent: options.mode = .paddingPercent(percent)
                     case .size: options.mode = .size(width: size.wide, height: size.high)
-                    case .aspect: options.mode = .aspect(width: 1, height: 1)
+                    case .aspect: options.mode = .aspect(width: aspectRatio.wide, height: aspectRatio.high)
                     }
                 })) {
                 ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
+            .labelsHidden()
             .accessibilityLabel("Canvas mode")
             switch kind {
             case .padding:
@@ -207,10 +196,13 @@ private struct CanvasEditor: View {
                     AnchorPicker(anchor: $options.anchor)
                 }
             case .aspect:
-                // Placeholder until the aspect fields arrive.
-                Text("Settings arrive in the next update")
-                    .font(LadaGlass.Typography.label)
-                    .foregroundStyle(LadaGlass.Colors.muted)
+                AspectRatioPicker(mode: $options.mode)
+                HStack(alignment: .top, spacing: LadaGlass.Spacing.s) {
+                    Text("Anchor").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                    AnchorPicker(anchor: $options.anchor)
+                }
+                Text("Pads the shorter side until the image fits the ratio.")
+                    .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
             }
             Toggle("Transparent", isOn: Binding(
                 get: { options.background.alpha == 0 },
