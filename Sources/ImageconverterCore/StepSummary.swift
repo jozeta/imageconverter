@@ -175,7 +175,10 @@ extension RenameOptions {
     /// One-line description for the pipeline list: the pattern, plus the rule count when there are several.
     public var summary: String {
         let count = replacements.filter { !$0.find.isEmpty }.count
-        return count > 1 ? "\(pattern) · \(count) replacements" : pattern
+        var parts = [pattern]
+        if count > 1 { parts.append("\(count) replacements") }
+        if caseStyle != .keep { parts.append("\(caseStyle.rawValue) case") }
+        return parts.joined(separator: " · ")
     }
 }
 

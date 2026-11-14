@@ -161,6 +161,14 @@ public struct RenameOptions: Codable, Equatable, Sendable {
     public var counterStart: Int
     /// Find and replace rules, applied in order to the rendered name; a rule with an empty `find` does nothing.
     public var replacements: [ReplacementRule]
+    /// Text put before and after the rendered name (after find and replace).
+    public var prefix: String
+    public var suffix: String
+    public var removeSpaces: Bool
+    public var specialCharacters: SpecialCharacters
+    /// What `.replace` writes for other characters: `-`, `_`, `.` or empty.
+    public var replacement: String
+    public var caseStyle: CaseStyle
 
     /// The counter start is limited to 0...999_999_999 when decoded.
     public static let counterRange = 0...999_999_999
@@ -168,16 +176,25 @@ public struct RenameOptions: Codable, Equatable, Sendable {
     public static let maxReplacements = 20
 
     public init(isEnabled: Bool = false, isIncluded: Bool? = nil, pattern: String = "{name}", counterStart: Int = 1,
-                replacements: [ReplacementRule] = []) {
+                replacements: [ReplacementRule] = [], prefix: String = "", suffix: String = "",
+                removeSpaces: Bool = false, specialCharacters: SpecialCharacters = .keep,
+                replacement: String = "-", caseStyle: CaseStyle = .keep) {
         self.isEnabled = isEnabled
         self.isIncluded = isIncluded ?? isEnabled
         self.pattern = pattern
         self.counterStart = counterStart
         self.replacements = replacements
+        self.prefix = prefix
+        self.suffix = suffix
+        self.removeSpaces = removeSpaces
+        self.specialCharacters = specialCharacters
+        self.replacement = NameTransforms.allowedReplacements.contains(replacement) ? replacement : "-"
+        self.caseStyle = caseStyle
     }
 
     private enum CodingKeys: String, CodingKey {
         case isEnabled, isIncluded, pattern, counterStart, replacements
+        case prefix, suffix, removeSpaces, specialCharacters, replacement, caseStyle
     }
 
     /// The single-rule keys of older files; read, never written.
@@ -192,6 +209,13 @@ public struct RenameOptions: Codable, Equatable, Sendable {
         pattern = try container.decodeIfPresent(String.self, forKey: .pattern) ?? "{name}"
         let start = try container.decodeIfPresent(Int.self, forKey: .counterStart) ?? 1
         counterStart = min(max(start, Self.counterRange.lowerBound), Self.counterRange.upperBound)
+        prefix = try container.decodeIfPresent(String.self, forKey: .prefix) ?? ""
+        suffix = try container.decodeIfPresent(String.self, forKey: .suffix) ?? ""
+        removeSpaces = try container.decodeIfPresent(Bool.self, forKey: .removeSpaces) ?? false
+        specialCharacters = (try? container.decodeIfPresent(SpecialCharacters.self, forKey: .specialCharacters)) ?? .keep
+        let decodedReplacement = try container.decodeIfPresent(String.self, forKey: .replacement) ?? "-"
+        replacement = NameTransforms.allowedReplacements.contains(decodedReplacement) ? decodedReplacement : "-"
+        caseStyle = (try? container.decodeIfPresent(CaseStyle.self, forKey: .caseStyle)) ?? .keep
         if let rules = try container.decodeIfPresent([ReplacementRule].self, forKey: .replacements) {
             replacements = Array(rules.prefix(Self.maxReplacements))
             // Rules without an id all got the same fallback; give repeats a position-based id (ForEach needs unique ids).

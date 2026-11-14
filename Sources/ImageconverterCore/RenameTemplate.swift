@@ -15,11 +15,16 @@ public struct RenameContext: Sendable {
     public var width: Int
     public var height: Int
     public var counter: Int
+    public var focalLength: Double?
+    public var aperture: Double?
+    /// Shutter time in seconds.
+    public var exposureTime: Double?
 
     public init(
         name: String, ext: String, format: String, folder: String, date: Date?,
         make: String?, model: String?, lens: String?, iso: Int?,
-        width: Int, height: Int, counter: Int
+        width: Int, height: Int, counter: Int,
+        focalLength: Double? = nil, aperture: Double? = nil, exposureTime: Double? = nil
     ) {
         self.name = name
         self.ext = ext
@@ -33,6 +38,9 @@ public struct RenameContext: Sendable {
         self.width = width
         self.height = height
         self.counter = counter
+        self.focalLength = focalLength
+        self.aperture = aperture
+        self.exposureTime = exposureTime
     }
 
     // swiftlint:disable function_parameter_count
@@ -77,7 +85,10 @@ public struct RenameContext: Sendable {
             iso: iso,
             width: outputSize.0,
             height: outputSize.1,
-            counter: counter)
+            counter: counter,
+            focalLength: (exif?[kCGImagePropertyExifFocalLength as String] as? NSNumber)?.doubleValue,
+            aperture: (exif?[kCGImagePropertyExifFNumber as String] as? NSNumber)?.doubleValue,
+            exposureTime: (exif?[kCGImagePropertyExifExposureTime as String] as? NSNumber)?.doubleValue)
     }
     // swiftlint:enable function_parameter_count
 }
@@ -93,13 +104,14 @@ public struct RenameTemplate: Equatable, Sendable {
 
     static let knownTokens: Set<String> = [
         "name", "ext", "date", "time", "camera", "make", "lens", "iso",
-        "width", "height", "format", "folder", "counter",
+        "width", "height", "format", "folder", "counter", "seq", "focal", "aperture", "shutter", "datetime",
     ]
 
     /// Every supported token, in menu order; formatted tokens carry an example argument.
     public static let tokenExamples = [
         "{name}", "{ext}", "{date:yyyy-MM-dd}", "{time:HHmmss}", "{camera}", "{make}", "{lens}", "{iso}",
-        "{width}", "{height}", "{format}", "{folder}", "{counter:000}",
+        "{width}", "{height}", "{format}", "{folder}", "{counter:000}", "{seq}",
+        "{focal}", "{aperture}", "{shutter}", "{datetime}",
     ]
 
     private let parts: [Part]
@@ -137,11 +149,11 @@ public struct RenameTemplate: Equatable, Sendable {
 
     /// True when the pattern reads the image header (size, camera, lens, ISO or a capture date).
     public var needsHeader: Bool {
-        uses(["date", "time", "camera", "make", "lens", "iso", "width", "height"])
+        uses(["date", "time", "datetime", "camera", "make", "lens", "iso", "width", "height", "focal", "aperture", "shutter"])
     }
 
     /// True when the pattern uses a date or time (and so the file's creation date as a fallback).
-    public var needsDate: Bool { uses(["date", "time"]) }
+    public var needsDate: Bool { uses(["date", "time", "datetime"]) }
 
     /// Token names outside the supported list, in order of appearance. They render literally.
     public var unknownTokens: [String] {
@@ -194,7 +206,10 @@ public struct RenameTemplate: Equatable, Sendable {
         case "ext": return context.ext
         case "date": return format(context.date, arg, default: "yyyy-MM-dd")
         case "time": return format(context.date, arg, default: "HHmmss")
-        case "counter":
+        case "datetime":
+            let day = format(context.date, nil, default: "yyyy-MM-dd")
+            return day.isEmpty ? "" : day + "_" + format(context.date, nil, default: "HHmmss")
+        case "counter", "seq":
             let text = String(max(context.counter, 0))
             let width = (arg?.allSatisfy { $0 == "0" } ?? false) ? (arg?.count ?? 0) : 0
             return String(repeating: "0", count: max(width - text.count, 0)) + text
@@ -212,8 +227,29 @@ public struct RenameTemplate: Equatable, Sendable {
         case "height": return String(context.height)
         case "format": return context.format
         case "folder": return context.folder
+        default: return exposureValue(of: name, context: context)
+        }
+    }
+
+    private static func exposureValue(of name: String, context: RenameContext) -> String {
+        switch name {
+        case "focal": return context.focalLength.map { "\(Int($0.rounded()))mm" } ?? ""
+        case "aperture": return context.aperture.map { "f" + trimmed($0) } ?? ""
+        case "shutter": return context.exposureTime.map(shutter) ?? ""
         default: return ""
         }
+    }
+
+    private static func trimmed(_ value: Double) -> String {
+        let text = String(format: "%.1f", value)
+        return text.hasSuffix(".0") ? String(text.dropLast(2)) : text
+    }
+
+    /// `0.004` becomes `1-250s` (no `/` in file names); a second or more is `2s` or `1.5s`.
+    private static func shutter(_ seconds: Double) -> String {
+        guard seconds > 0, seconds.isFinite else { return "" }
+        if seconds < 1 { return "1-\(Int((1 / seconds).rounded()))s" }
+        return trimmed(seconds) + "s"
     }
 
     private static func format(_ date: Date?, _ arg: String?, default fallback: String) -> String {

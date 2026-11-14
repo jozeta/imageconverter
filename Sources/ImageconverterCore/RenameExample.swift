@@ -11,7 +11,8 @@ extension RenameContext {
             name: "IMG_0001", ext: format.fileExtensions.first ?? "", format: format.displayName,
             folder: "Photos", date: date, make: "Apple", model: "iPhone 15 Pro",
             lens: "iPhone 15 Pro back camera 6.765mm f/1.78", iso: 80,
-            width: outputSize.width, height: outputSize.height, counter: counter)
+            width: outputSize.width, height: outputSize.height, counter: counter,
+            focalLength: 24, aperture: 1.78, exposureTime: 1.0 / 120)
     }
 }
 
@@ -35,6 +36,6 @@ public enum RenameExample {
         } else {
             context = RenameContext.sample(format: format, outputSize: output, counter: counter)
         }
-        return "\(template.render(context, transform: pipeline.rename.replacing(in:))).\(context.ext)"
+        return "\(pipeline.rename.render(template, context)).\(context.ext)"
     }
 }

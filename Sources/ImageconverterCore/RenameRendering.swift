@@ -18,6 +18,6 @@ enum RenameRendering {
         let context = RenameContext.make(
             source: item.source, header: header, outputSize: size, format: pipeline.output.format,
             counter: overflow ? Int.max : counter, fileCreationDate: created)
-        return template.render(context, transform: pipeline.rename.replacing(in:))
+        return pipeline.rename.render(template, context)
     }
 }
