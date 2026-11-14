@@ -29,10 +29,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         installURLHandler()
     }
 
+    /// Files and folders opened with the app: dropped on its Dock icon, Open With in Finder, `open -a` (see
+    /// `handleOpenDocuments`). They come with the sandbox's permission, so they are added like a drop (folders
+    /// count as allowed this session).
+    private func openFiles(_ urls: [URL]) {
+        let files = urls.filter(\.isFileURL)
+        guard !files.isEmpty else { return }
+        MainActor.assumeIsolated {
+            do {
+                ExternalActions.shared.add(try ExternalRequests.validatedFiles(files), userChosen: true)
+            } catch {
+                ExternalActions.shared.reportProblem(error, title: "Couldn't add the files")
+            }
+        }
+    }
+
+    /// The link handler, and the open-documents handler (instead of `application(_:open:)`: SwiftUI would also
+    /// open a new, empty window for every file opened while the app runs).
     private func installURLHandler() {
         NSAppleEventManager.shared().setEventHandler(
             self, andSelector: #selector(handleGetURL(_:reply:)),
             forEventClass: AEEventClass(kInternetEventClass), andEventID: AEEventID(kAEGetURL))
+        NSAppleEventManager.shared().setEventHandler(
+            self, andSelector: #selector(handleOpenDocuments(_:reply:)),
+            forEventClass: AEEventClass(kCoreEventClass), andEventID: AEEventID(kAEOpenDocuments))
+    }
+
+    @objc private func handleOpenDocuments(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        guard let list = event.paramDescriptor(forKeyword: keyDirectObject) else { return }
+        // A single file arrives as one descriptor, several as a list (1-based); at most what a request may hold.
+        let count = min(list.numberOfItems, ExternalRequests.maxFiles + 1)
+        let items = count == 0 ? [list] : (1...count).compactMap { list.atIndex($0) }
+        openFiles(items.compactMap(\.fileURLValue))
     }
 
     @objc private func handleGetURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
@@ -53,6 +81,8 @@ final class ExternalActions {
     /// The document window hosting the model (from the root view's window accessor).
     private weak var window: NSWindow?
     private var openWindow: (() -> Void)?
+    /// The main window has been attached once (a launch-time request waits for it; see `runWaiting`).
+    private var windowAttached = false
     private var waiting: [(AppModel, AppSettings) -> Void] = []
     /// Saved jobs, for `imageconverter://jobs/run`: the Jobs controller's store, so ledgers share one lock.
     var jobStore: JobStore { JobsController.shared.store }
@@ -65,19 +95,30 @@ final class ExternalActions {
         JobsController.shared.messenger = { [weak model] text, isProblem in
             model?.toasts.show(text, type: isProblem ? .bad : .ok)
         }
+        runWaiting()
+    }
+
+    /// Called by the main window's accessor, so sheets go to that window and never to Settings or a panel.
+    func attachWindow(_ window: NSWindow?) {
+        guard let window else { return }
+        self.window = window
+        windowAttached = true
+        runWaiting()
+    }
+
+    /// Requests that arrived during launch run once both the model and its window are there: `showWindow` would
+    /// otherwise not find the window yet and open a second one.
+    private func runWaiting() {
+        guard let model, let settings, windowAttached, !waiting.isEmpty else { return }
         let pending = waiting
         waiting = []
         for work in pending { work(model, settings) }
     }
 
-    /// Called by the main window's accessor, so sheets go to that window and never to Settings or a panel.
-    func attachWindow(_ window: NSWindow?) {
-        if let window { self.window = window }
-    }
-
-    /// Runs `work` now, or once the model is attached.
+    /// Runs `work` now, or once the model and the main window are attached (at launch).
     func withModel(_ work: @escaping (AppModel, AppSettings) -> Void) {
-        if let model, let settings { work(model, settings) } else { waiting.append(work) }
+        if let model, let settings, windowAttached, waiting.isEmpty { work(model, settings) } else { waiting.append(work) }
+        runWaiting()
     }
 
     /// Brings the app forward with its main window: restored from the Dock when minimised, reopened only
@@ -120,15 +161,17 @@ final class ExternalActions {
         }
     }
 
-    /// Adds files and folders to the batch and shows the window (Finder service, script, confirmed link).
-    func add(_ urls: [URL]) {
+    /// Adds files and folders to the batch and shows the window (Finder service, script, confirmed link, files
+    /// opened with the app). `userChosen`: the user handed them over (opened with the app), so in the sandbox the
+    /// app may use those folders this session.
+    func add(_ urls: [URL], userChosen: Bool = false) {
         withModel { model, _ in
             self.showWindow()
             guard !model.isRunning else {
                 model.toasts.show("Wait for the run to finish before adding images", type: .info)
                 return
             }
-            model.add(urls, userChosen: false)
+            model.add(urls, userChosen: userChosen)
         }
     }
 

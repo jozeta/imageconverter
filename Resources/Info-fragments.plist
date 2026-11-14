@@ -21,6 +21,10 @@
   NSAppleScriptEnabled / OSAScriptingDefinition: the AppleScript dictionary (commands convert, add files,
   run batch, presets). The command classes are in Sources/Imageconverter/Scripting.swift.
 
+  CFBundleDocumentTypes: images and folders can be opened with the app (dropped on its Dock icon, Finder's Open
+  With, `open -a imageconverter file.jpg`); AppDelegate.application(_:open:) adds them to the batch. Role Viewer
+  and rank Alternate: the app is offered for images but never becomes their default app.
+
   CFBundleURLTypes: the imageconverter:// scheme (open, preset?name=, add?path=, jobs/run?name=). Links are
   untrusted; see URLAction.parse and Sources/Imageconverter/URLActions.swift. The release script replaces
   CFBundleURLName's "BUNDLE_IDENTIFIER" with the app's bundle identifier.
@@ -142,6 +146,33 @@
 	<true/>
 	<key>OSAScriptingDefinition</key>
 	<string>imageconverter.sdef</string>
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Image</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.image</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Folder</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.folder</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
