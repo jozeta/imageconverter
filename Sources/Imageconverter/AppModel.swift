@@ -192,9 +192,10 @@ final class AppModel {
 
     /// Scans `urls` off the main actor (large folders), then merges new items in, skipping duplicates.
     /// `userChosen`: dropped or picked in a panel, so the sandbox lets the app use those folders this session
-    /// (false for scripts, services and links, which bring no such permission).
+    /// (false for scripts, services and links, which bring no such permission). Nothing is added while a run is
+    /// in progress (drops, Add…, Open With and Services are all refused then).
     func add(_ urls: [URL], userChosen: Bool = true) {
-        guard !urls.isEmpty else { return }
+        guard !urls.isEmpty, !isRunning else { return }
         if userChosen { AccessStore.shared.noteAdded(urls) }
         pendingAdds += 1
         Task { [weak self] in
@@ -328,8 +329,9 @@ enum AppRunStart: Equatable {
 }
 
 extension AppModel {
-    /// Asks for files and folders to add.
+    /// Asks for files and folders to add (not while a run is in progress).
     func chooseInputs() {
+        guard !isRunning else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true

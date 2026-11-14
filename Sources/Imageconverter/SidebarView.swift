@@ -166,6 +166,7 @@ struct SidebarView: View {
                 .multilineTextAlignment(.center)
             Button("Add…") { model.chooseInputs() }
                 .buttonStyle(.lg(.secondary))
+                .disabled(model.isRunning)
                 .accessibilityLabel("Add images or folders")
         }
         .frame(maxWidth: .infinity)

@@ -25,11 +25,13 @@ final class AppSettings {
     var outputFolder: URL? {
         didSet {
             defaults.set(outputFolder?.path, forKey: Key.folder)
-            guard outputFolder != oldValue else { return }
-            // Made now, while the app has access (the folder was just chosen in a panel).
+            // Made now, while the app has access (the folder was just chosen in a panel). Also when the same folder
+            // is chosen again: that replaces a bookmark that no longer opens it.
             let bookmark = outputFolder.flatMap(FolderAccess.usableBookmark)
+            let same = outputFolder == oldValue
+            if same && bookmark == nil { return }    // nothing better than what is stored
             defaults.set(bookmark, forKey: Key.folderBookmark)
-            outputAccess = nil
+            if !same { outputAccess = nil }
             if let outputFolder, bookmark != nil { AccessStore.shared.addSessionRoot(outputFolder) }
         }
     }

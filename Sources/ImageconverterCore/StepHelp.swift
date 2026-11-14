@@ -192,7 +192,7 @@ public enum StepHelp {
                     "Compression: Quality, Target size, Maximum size, or Smart (lowest quality that still looks the same, up to 95 %).",
                     "JPEG can be Progressive; Optimise PNG tries every PNG filter for "
                         + "the smallest file. The size line is for the selected image.",
-                    "Save to: a new folder (all files flat), the same folder (suffix "
+                    "Save to: a new folder (flat, unless a condition picks a subfolder), the same folder (suffix "
                         + "such as _new only if the name is unchanged), or overwrite."
                 ],
                 tips: [

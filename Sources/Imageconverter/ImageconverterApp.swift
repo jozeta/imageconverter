@@ -103,7 +103,7 @@ struct ImageconverterApp: App {
         .defaultSize(width: 480, height: 520)
 
         Window("Folder Access", id: FolderAccessWindow.windowID) {
-            FolderAccessWindow(store: AccessStore.shared)
+            FolderAccessWindow(store: AccessStore.shared, busy: model.isRunning || jobs.runningCount > 0)
         }
         .defaultSize(width: 520, height: 380)
 

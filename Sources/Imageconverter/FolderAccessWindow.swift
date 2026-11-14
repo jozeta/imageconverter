@@ -2,9 +2,13 @@ import SwiftUI
 import ImageconverterCore
 
 /// Help ▸ Folder Access…: the folders imageconverter remembers access to, with Add Folder…, Remove and Remove All.
+/// Removing stops access at once, so it is refused while a batch or a job runs (`busy`): the run would lose the
+/// folders it is writing into.
 struct FolderAccessWindow: View {
     static let windowID = "folder-access"
     @Bindable var store: AccessStore
+    /// A batch or a job is running.
+    var busy = false
     @State private var selection: FolderGrantList.Grant.ID?
 
     var body: some View {
@@ -36,19 +40,27 @@ struct FolderAccessWindow: View {
                 Button("Add Folder\u{2026}") { addFolder() }
                     .accessibilityLabel("Add a folder imageconverter may use")
                 Button("Remove") {
+                    guard !busy else { return }
                     if let selection { store.remove(selection) }
                     selection = nil
                 }
-                .disabled(selection == nil)
+                .disabled(selection == nil || busy)
                 .accessibilityLabel("Remove the selected folder")
                 Button("Remove All") {
+                    guard !busy else { return }
                     store.removeAll()
                     selection = nil
                 }
-                .disabled(store.grants.isEmpty)
+                .disabled(store.grants.isEmpty || busy)
                 Spacer()
             }
             .buttonStyle(.lg(.secondary))
+            if busy {
+                Text("Folders can't be removed while a batch or a job is running. Try again when it has finished.")
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(LadaGlass.Spacing.l)
         .frame(minWidth: 440, minHeight: 320)
