@@ -205,6 +205,34 @@ final class CLIRunnerTests: XCTestCase {
         }
     }
 
+    /// Re-review N2: `--strip-all` removes everything, even what the preset's "keep when removing all" list names.
+    func testStripAllIgnoresThePresetsKeepList() async throws {
+        let url = root.appendingPathComponent("keep.jpg")
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString,
+                                                                        1, nil))
+        let gps: [String: Any] = [kCGImagePropertyGPSDictionary as String: [
+            kCGImagePropertyGPSLatitude as String: 59.3, kCGImagePropertyGPSLatitudeRef as String: "N",
+            kCGImagePropertyGPSLongitude as String: 18.0, kCGImagePropertyGPSLongitudeRef as String: "E"
+        ] as [String: Any]]
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(
+            XCTUnwrap(CGImageSourceCreateWithURL(writePNG("seed2.png") as CFURL, nil)), 0, nil))
+        CGImageDestinationAddImage(destination, image, gps as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        var metadata = MetadataOptions(isEnabled: true, location: .keep)
+        metadata.keepWhenRemovingAll = [.location, .copyright]
+        let file = root.appendingPathComponent("keep.json")
+        try JSONEncoder().encode(Pipeline(output: OutputSettings(format: .jpeg), metadata: metadata)).write(to: file)
+        let outDir = root.appendingPathComponent("stripall")
+        let result = await run(["convert", url.path, "--pipeline", file.path, "--out", outDir.path, "--strip-all",
+                                "--quiet"])
+        XCTAssertEqual(result.code, 0, result.err)
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(outDir.appendingPathComponent("keep.jpg") as CFURL, nil))
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] ?? [:]
+        XCTAssertNil(properties[kCGImagePropertyGPSDictionary as String])
+        XCTAssertEqual(ConvertCommand.applyOverrides(try CLIParser.parseConvert(["x", "--strip-all", "--out", "o"]),
+                                                     to: Pipeline(metadata: metadata)).metadata.keepWhenRemovingAll, [])
+    }
+
     func testWarnsWhenFlagsDoNotApplyToFormat() async throws {
         let source = try writePNG("w.png")
         let result = await run(["convert", source.path, "--out", root.appendingPathComponent("o").path,

@@ -86,7 +86,7 @@ enum CLIText {
       --quality 0-100                         Quality for lossy formats
       --max-size 500KB                        Largest file size (lowers quality as needed)
       --resize-long PX                        Longest edge in pixels
-      --strip-gps | --strip-all               Remove GPS data, or all metadata
+      --strip-gps | --strip-all               Remove GPS data, or all metadata (ignores the preset's keep list)
       --report csv|json|text                  Print a full report to stdout
       --dry-run                               Show what would be written; change nothing
       --quiet                                 No progress on stderr (Ctrl-C stops cleanly, exit 130)

@@ -110,7 +110,11 @@ enum ConvertCommand {
             pipeline.metadata.isEnabled = true
             pipeline.metadata.isIncluded = true
             if options.stripGPS { pipeline.metadata.location = .remove }
-            if options.stripAll { pipeline.metadata.removeAll = true }
+            if options.stripAll {
+                // Really everything: the preset's "keep when removing all" list doesn't apply.
+                pipeline.metadata.removeAll = true
+                pipeline.metadata.keepWhenRemovingAll = []
+            }
         }
         return pipeline
     }
