@@ -4,8 +4,11 @@ import Foundation
 public struct JobRunResult: Sendable {
     public var batch: BatchReport
     public var report: ProcessingReport
-    /// Candidates left alone because this exact version was already processed (or written by the job).
+    /// Candidates left alone: this exact version was processed, given up on, or written by the job.
     public var unchanged: Int
+    /// Candidates still being written (changed less than `stableFor` ago, or not readable yet); not recorded,
+    /// so the next run looks at them again.
+    public var waiting: Int
     /// The report file written, if the job has one and the run processed files.
     public var reportFile: URL?
     /// A problem with the run as a whole (linked preset gone, ledger unreadable, report not written).
@@ -13,10 +16,15 @@ public struct JobRunResult: Sendable {
 }
 
 public enum JobRunner {
+    /// How long a file must be unchanged before a scan takes it, like `FolderWatcher`'s readiness rule.
+    public static let stableFor: TimeInterval = 2
+
     /// Runs `job` over `files` (from a watcher; each must lie in one of the job's folders) or, when nil, over
-    /// everything in its folders. Files whose current version is in the ledger are skipped; the rest go through
-    /// `BatchRunner`, then the processed sources and the written files are recorded (so a job's own outputs are
-    /// never inputs, and a bad file isn't retried until it changes) and the report file is written.
+    /// everything in its folders that changed at least `stableFor` seconds before `now` and is readable (a file
+    /// still being copied waits for the next run). Settled files (see `ProcessedLedger`) are skipped; the rest go
+    /// through `BatchRunner`. Then successes are recorded as done, failures count an attempt (after
+    /// `ProcessedLedger.maxAttempts` an unchanged file is given up on, which the report says once), written files
+    /// are recorded as outputs (never inputs), and the report file is written.
     public static func run(
         _ job: Job,
         files: [URL]? = nil,
@@ -28,51 +36,45 @@ public enum JobRunner {
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
     ) async -> JobRunResult {
         let startedAt = now()
-        func finish(_ batch: BatchReport, total: Int, unchanged: Int, problem: String?) -> JobRunResult {
+        func finish(_ batch: BatchReport, total: Int, selection: Selection, problem: String?) -> JobRunResult {
             var report = ProcessingReport(batch: batch, total: total, outputMode: job.output.kind.rawValue,
                                           jobName: job.name, startedAt: startedAt, finishedAt: now())
-            report.summary.skipped = unchanged
-            report.summary.total += unchanged
-            return JobRunResult(batch: batch, report: report, unchanged: unchanged, reportFile: nil, problem: problem)
+            report.summary.skipped = selection.unchanged
+            report.summary.total += selection.unchanged
+            return JobRunResult(batch: batch, report: report, unchanged: selection.unchanged,
+                                waiting: selection.waiting, reportFile: nil, problem: problem)
         }
 
         let presets = presetStore?.loadAll().presets ?? PresetStore.builtIns
         guard let pipeline = job.resolvedPipeline(presets: presets) else {
-            return finish(BatchReport(), total: 0, unchanged: 0, problem: "The job's preset no longer exists.")
+            return finish(BatchReport(), total: 0, selection: Selection(), problem: "The job's preset no longer exists.")
         }
         var ledger: ProcessedLedger
         do { ledger = try store.loadLedger(id: job.id) } catch {
-            return finish(BatchReport(), total: 0, unchanged: 0,
+            return finish(BatchReport(), total: 0, selection: Selection(),
                           problem: "The list of processed files couldn't be read. Reset it to process every file again.")
         }
 
-        var items: [InputItem] = []
-        var fingerprints: [URL: FileFingerprint] = [:]
-        var unchanged = 0
-        for item in candidates(for: job, files: files) {
-            guard let fingerprint = FileFingerprint.of(item.source) else { continue }
-            if ledger.contains(fingerprint) {
-                unchanged += 1
-            } else {
-                items.append(item)
-                fingerprints[item.source] = fingerprint
-            }
+        let selection = select(candidates(for: job, files: files), ledger: ledger,
+                               stableBefore: files == nil ? startedAt.addingTimeInterval(-stableFor) : nil)
+        guard !selection.items.isEmpty else {
+            return finish(BatchReport(), total: 0, selection: selection, problem: nil)
         }
-        guard !items.isEmpty else { return finish(BatchReport(), total: 0, unchanged: unchanged, problem: nil) }
 
-        let batch = await BatchRunner.run(items, pipeline: pipeline, mode: job.output, maxPixels: maxPixels,
+        let batch = await BatchRunner.run(selection.items, pipeline: pipeline, mode: job.output, maxPixels: maxPixels,
                                           trash: trash, progress: progress)
-        // Sources first (as they were before the run), then what was written: in overwrite mode the written file
-        // is the source path's new version and must win.
-        var processed = batch.order.compactMap { fingerprints[$0] }
-        processed += batch.written.compactMap(FileFingerprint.of)
-        ledger.record(processed)
+        let gaveUp = update(&ledger, with: batch, fingerprints: selection.fingerprints)
         var problems: [String] = []
         do { try store.saveLedger(ledger, id: job.id) } catch {
             problems.append("The list of processed files couldn't be saved: \(error.localizedDescription)")
         }
 
-        var result = finish(batch, total: items.count, unchanged: unchanged, problem: nil)
+        var result = finish(batch, total: selection.items.count, selection: selection, problem: nil)
+        for index in result.report.entries.indices where result.report.entries[index].status == .failed
+            && gaveUp.contains(result.report.entries[index].source) {
+            let reason = result.report.entries[index].note ?? "Failed"
+            result.report.entries[index].note = "Gave up after \(ProcessedLedger.maxAttempts) attempts: \(reason)"
+        }
         if let format = job.report, let folder = reportFolder(for: job) {
             do {
                 result.reportFile = try writeReport(result.report, format: format, in: folder, date: startedAt)
@@ -82,6 +84,50 @@ public enum JobRunner {
         }
         result.problem = problems.isEmpty ? nil : problems.joined(separator: " ")
         return result
+    }
+
+    struct Selection {
+        var items: [InputItem] = []
+        var fingerprints: [URL: FileFingerprint] = [:]
+        var unchanged = 0
+        var waiting = 0
+    }
+
+    /// Settled files are counted as unchanged; with `stableBefore`, files modified after it or not readable wait.
+    static func select(_ candidates: [InputItem], ledger: ProcessedLedger, stableBefore: Date?) -> Selection {
+        var selection = Selection()
+        for item in candidates {
+            guard let fingerprint = FileFingerprint.of(item.source) else { continue }
+            if ledger.isSettled(fingerprint) {
+                selection.unchanged += 1
+                continue
+            }
+            if let stableBefore {
+                guard let snapshot = FileSnapshot.take(item.source), snapshot.readable,
+                      snapshot.modified <= stableBefore else {
+                    selection.waiting += 1
+                    continue
+                }
+            }
+            selection.items.append(item)
+            selection.fingerprints[item.source] = fingerprint
+        }
+        return selection
+    }
+
+    /// Records the run; returns the source paths given up on in this run.
+    static func update(_ ledger: inout ProcessedLedger, with batch: BatchReport,
+                       fingerprints: [URL: FileFingerprint]) -> Set<String> {
+        let failed = Set(batch.failures.map(\.source))
+        var gaveUp: Set<String> = []
+        // Sources as they were before the run (in overwrite mode the path's new version is an output).
+        ledger.recordProcessed(batch.order.filter { !failed.contains($0) }.compactMap { fingerprints[$0] })
+        for source in batch.failures.map(\.source) {
+            guard let fingerprint = fingerprints[source] else { continue }
+            if ledger.recordFailure(fingerprint) >= ProcessedLedger.maxAttempts { gaveUp.insert(source.path) }
+        }
+        ledger.recordOutputs(batch.written.compactMap(FileFingerprint.of))
+        return gaveUp
     }
 
     // MARK: Inputs
@@ -136,8 +182,9 @@ public enum JobRunner {
         let files = FileManager.default
         try files.createDirectory(at: folder, withIntermediateDirectories: true)
         let temp = folder.appendingPathComponent("\(FileCommitter.tempPrefix)\(UUID().uuidString).tmp")
-        try ReportExporter.data(report, format: format).write(to: temp, options: [.withoutOverwriting])
+        // Before the write: a failed write must not leave a partial temp file behind either.
         defer { try? files.removeItem(at: temp) }
+        try ReportExporter.data(report, format: format).write(to: temp, options: [.withoutOverwriting])
         for number in 1...1000 {
             let destination = folder.appendingPathComponent(reportFileName(date: date, format: format, number: number))
             do {

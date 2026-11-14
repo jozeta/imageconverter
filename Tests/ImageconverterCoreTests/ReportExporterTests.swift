@@ -51,11 +51,12 @@ final class ReportExporterTests: XCTestCase {
 
     func testTextIsOneLinePerFileWithoutControlCharacters() {
         var report = sampleReport()
-        report.entries[0].source = "/in/evil\nfailed: fake\u{202E}gpj.exe"
+        report.entries[0].source = "/in/evil\nfailed: fake\u{202E}gpj\u{2028}x\u{2029}.exe"
         let text = ReportExporter.text(report)
         XCTAssertTrue(text.contains("3 files: 1 succeeded, 1 failed, 1 skipped, 0 cancelled"))
-        XCTAssertTrue(text.contains("succeeded: /in/evil?failed: fake?gpj.exe \u{2192} /out/a.jpg"), text)
+        XCTAssertTrue(text.contains("succeeded: /in/evil?failed: fake?gpj?x?.exe \u{2192} /out/a.jpg"), text)
         XCTAssertFalse(text.contains("\u{202E}"))
+        XCTAssertFalse(text.contains("\u{2028}"))
         XCTAssertTrue(text.contains("Job: Drop"))
     }
 

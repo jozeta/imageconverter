@@ -172,8 +172,8 @@ public enum JobSchedule {
 /// Jobs as `jobs/<id>.json` (through the hardened `TemplateStore`) and their processed-file ledgers as
 /// `jobs/<id>.ledger.json` (the store skips those: their names aren't UUIDs).
 public final class JobStore: @unchecked Sendable {
-    /// A ledger of 100 000 long paths fits; anything larger is not ours.
-    static let maxLedgerFileSize = 128 * 1_048_576
+    /// 100 000 inputs and 100 000 outputs with long paths fit; anything larger is not ours.
+    static let maxLedgerFileSize = 256 * 1_048_576
 
     public let directory: URL
     private let templates: TemplateStore<JobSettings>
@@ -194,8 +194,12 @@ public final class JobStore: @unchecked Sendable {
     public func save(_ job: Job) throws {
         var stored = job
         if case .schedule(let every) = job.trigger { stored.trigger = .schedule(every: JobSchedule.clamped(every)) }
+        // The same rules as loading, so a saved job is never skipped on the next load.
         guard stored.inputs.count <= JobSettings.maxInputs,
               stored.inputs.allSatisfy(JobSettings.isLocalFolderURL) else {
+            throw PresetError.invalidStructure
+        }
+        if case .newFolder(let root) = stored.output, !JobSettings.isLocalFolderURL(root) {
             throw PresetError.invalidStructure
         }
         try templates.save(stored.template)
@@ -250,90 +254,5 @@ public final class JobStore: @unchecked Sendable {
         } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
             return
         }
-    }
-}
-
-/// What identifies one version of a file: a file is processed once unless its size or modification date changes.
-public struct FileFingerprint: Hashable, Codable, Sendable {
-    public var path: String
-    public var size: Int
-    /// Seconds since 1970 (a Double round-trips exactly through JSON).
-    public var modified: Double
-
-    public init(path: String, size: Int, modified: Double) {
-        self.path = path
-        self.size = size
-        self.modified = modified
-    }
-
-    /// The fingerprint of a regular file on disk; nil when it isn't one or can't be read.
-    public static func of(_ url: URL) -> FileFingerprint? {
-        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]
-        guard let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true,
-              let size = values.fileSize, let modified = values.contentModificationDate else { return nil }
-        return FileFingerprint(path: url.path, size: size, modified: modified.timeIntervalSince1970)
-    }
-}
-
-/// The files a job has already processed (and written), oldest first, capped at `maxEntries`.
-public struct ProcessedLedger: Codable, Equatable, Sendable {
-    public static let maxEntries = 100_000
-    public static let schemaVersion = 1
-
-    /// Path → fingerprint and the order it was recorded in.
-    private var byPath: [String: (fingerprint: FileFingerprint, order: Int)] = [:]
-    private var nextOrder = 0
-
-    public init() {}
-
-    public var count: Int { byPath.count }
-
-    /// True when this exact version of the file was processed (or written by the job).
-    public func contains(_ fingerprint: FileFingerprint) -> Bool {
-        byPath[fingerprint.path]?.fingerprint == fingerprint
-    }
-
-    /// Records the files; an older version of the same path is replaced. The oldest entries go past the cap.
-    public mutating func record(_ fingerprints: [FileFingerprint]) {
-        for fingerprint in fingerprints {
-            byPath[fingerprint.path] = (fingerprint, nextOrder)
-            nextOrder += 1
-        }
-        let excess = byPath.count - Self.maxEntries
-        guard excess > 0 else { return }
-        let oldest = byPath.sorted { $0.value.order < $1.value.order }.prefix(excess)
-        for (path, _) in oldest { byPath[path] = nil }
-    }
-
-    /// Oldest first.
-    public var fingerprints: [FileFingerprint] {
-        byPath.values.sorted { $0.order < $1.order }.map(\.fingerprint)
-    }
-
-    public static func == (lhs: ProcessedLedger, rhs: ProcessedLedger) -> Bool {
-        lhs.fingerprints == rhs.fingerprints
-    }
-
-    private enum CodingKeys: String, CodingKey { case schemaVersion, entries }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let version = try container.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
-        guard version <= Self.schemaVersion else {
-            throw DecodingError.dataCorruptedError(forKey: .schemaVersion, in: container,
-                                                   debugDescription: "Unsupported ledger version")
-        }
-        let entries = try container.decode([FileFingerprint].self, forKey: .entries)
-        guard entries.allSatisfy({ $0.path.hasPrefix("/") && $0.size >= 0 && $0.modified.isFinite }) else {
-            throw DecodingError.dataCorruptedError(forKey: .entries, in: container,
-                                                   debugDescription: "Invalid ledger entry")
-        }
-        record(Array(entries.suffix(Self.maxEntries)))
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(Self.schemaVersion, forKey: .schemaVersion)
-        try container.encode(fingerprints, forKey: .entries)
     }
 }

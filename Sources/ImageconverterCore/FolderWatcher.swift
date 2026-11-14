@@ -113,7 +113,7 @@ public struct WatchFilter: Sendable {
 
 /// Watches folders with FSEvents (file-level events, 1 s latency) and reports files once they are ready
 /// (see `ReadinessTracker`). Only changes after `start()` are reported; run the job once to catch up.
-/// `onReady` is called on the watcher's own serial queue.
+/// `onReady` is called on the watcher's own serial queue. Call `stop()` when done (deinit also stops it).
 public final class FolderWatcher: @unchecked Sendable {
     public let filter: WatchFilter
     private let latency: TimeInterval
@@ -199,29 +199,48 @@ public final class FolderWatcher: @unchecked Sendable {
 
     private func stopOnQueue() {
         if let stream {
+            // Stopped and invalidated now (no callback runs after this), but released later: this may run inside the
+            // stream's own callout (stop() or the last release from onReady), where releasing it is not safe.
             FSEventStreamStop(stream)
             FSEventStreamInvalidate(stream)
-            FSEventStreamRelease(stream)
+            let released = StreamBox(stream: stream)
+            queue.async { FSEventStreamRelease(released.stream) }
         }
         stream = nil
         timer?.cancel()
         timer = nil
+        // A later start() only reports changes from then on: don't keep files nobody polls.
+        tracker = ReadinessTracker(stableFor: tracker.stableFor)
+    }
+
+    private struct StreamBox: @unchecked Sendable {
+        let stream: FSEventStreamRef
     }
 
     /// Runs on `queue` (the stream's dispatch queue).
     private func handle(paths: [String], flags: [FSEventStreamEventFlags]) {
         let now = clock()
         for (path, flag) in zip(paths, flags) {
-            let isDirectory = flag & FSEventStreamEventFlags(kFSEventStreamEventFlagItemIsDir) != 0
-            let mustScan = flag & FSEventStreamEventFlags(kFSEventStreamEventFlagMustScanSubDirs) != 0
-            if isDirectory || mustScan {
-                // A folder moved in, or events were dropped: look at what is inside.
-                scan(path, now: now)
-            } else if filter.accepts(path) {
+            switch Self.action(for: flag) {
+            case .scan: scan(path, now: now)
+            case .ignore: break
+            case .file where filter.accepts(path):
                 tracker.note(URL(fileURLWithPath: path), now: now)
+            case .file: break
             }
         }
         startPollingIfNeeded()
+    }
+
+    enum EventAction: Equatable { case file, scan, ignore }
+
+    /// Events were dropped, or a folder was created or moved in: scan it. Other folder events (tags, permissions,
+    /// removal) say nothing about new files. Everything else is about one file.
+    static func action(for flags: FSEventStreamEventFlags) -> EventAction {
+        func has(_ flag: Int) -> Bool { flags & FSEventStreamEventFlags(flag) != 0 }
+        if has(kFSEventStreamEventFlagMustScanSubDirs) { return .scan }
+        guard has(kFSEventStreamEventFlagItemIsDir) else { return .file }
+        return has(kFSEventStreamEventFlagItemCreated) || has(kFSEventStreamEventFlagItemRenamed) ? .scan : .ignore
     }
 
     private func scan(_ path: String, now: Date) {
@@ -255,62 +274,5 @@ public final class FolderWatcher: @unchecked Sendable {
             timer = nil
         }
         if !ready.isEmpty { onReady(ready) }
-    }
-}
-
-/// Runs scheduled jobs: one repeating wall-clock timer per job (so time asleep counts), on `queue`.
-public final class JobScheduler: @unchecked Sendable {
-    private let queue: DispatchQueue
-    private let minimumInterval: TimeInterval
-    private let lock = NSLock()
-    private var timers: [UUID: DispatchSourceTimer] = [:]
-
-    public convenience init(queue: DispatchQueue = DispatchQueue(label: "imageconverter.job-scheduler")) {
-        self.init(queue: queue, minimumInterval: JobSchedule.minimumInterval)
-    }
-
-    /// Tests pass a shorter minimum; the app always uses `JobSchedule.minimumInterval`.
-    init(queue: DispatchQueue, minimumInterval: TimeInterval) {
-        self.queue = queue
-        self.minimumInterval = minimumInterval
-    }
-
-    deinit { cancelAll() }
-
-    public var scheduledIDs: Set<UUID> {
-        lock.lock()
-        defer { lock.unlock() }
-        return Set(timers.keys)
-    }
-
-    /// Calls `action` every `interval` seconds (at least the minimum), first at `nextRun(after: start)`.
-    /// Replaces an earlier schedule for the same id.
-    public func schedule(_ id: UUID, every interval: TimeInterval, start: Date = Date(),
-                         action: @escaping @Sendable () -> Void) {
-        let every = interval.isFinite ? max(interval, minimumInterval) : minimumInterval
-        let delay = max(0, start.addingTimeInterval(every).timeIntervalSinceNow)
-        let source = DispatchSource.makeTimerSource(queue: queue)
-        source.schedule(wallDeadline: .now() + delay, repeating: every, leeway: .milliseconds(Int(every * 50)))
-        source.setEventHandler(handler: action)
-        lock.lock()
-        let old = timers.updateValue(source, forKey: id)
-        lock.unlock()
-        old?.cancel()
-        source.resume()
-    }
-
-    public func cancel(_ id: UUID) {
-        lock.lock()
-        let old = timers.removeValue(forKey: id)
-        lock.unlock()
-        old?.cancel()
-    }
-
-    public func cancelAll() {
-        lock.lock()
-        let all = timers.values
-        timers = [:]
-        lock.unlock()
-        all.forEach { $0.cancel() }
     }
 }

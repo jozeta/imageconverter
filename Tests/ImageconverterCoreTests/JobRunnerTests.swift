@@ -42,8 +42,10 @@ final class JobRunnerTests: XCTestCase {
             output: mode ?? .newFolder(output), trigger: .watch, report: report)
     }
 
+    /// Runs as if 10 s had passed, so the files just written count as settled (see `testFilesStillBeingWrittenWait`).
     private func run(_ job: Job, files: [URL]? = nil, presets: PresetStore? = nil) async -> JobRunResult {
-        await JobRunner.run(job, files: files, store: store, presetStore: presets, trash: noTrash)
+        await JobRunner.run(job, files: files, store: store, presetStore: presets, trash: noTrash,
+                            now: { Date().addingTimeInterval(10) })
     }
 
     func testLedgerSkipsUnchangedAndRedoesChanged() async throws {
@@ -65,15 +67,45 @@ final class JobRunnerTests: XCTestCase {
         XCTAssertEqual(third.unchanged, 1)
     }
 
-    func testFailedFilesAreNotRetriedUntilTheyChange() async throws {
+    func testFailedFilesAreRetriedThreeTimesThenGivenUp() async throws {
         let bad = input.appendingPathComponent("bad.jpg")
         try Data("not an image".utf8).write(to: bad)
+        let job = job(report: .csv)
+        for attempt in 1...3 {
+            let result = await run(job)
+            XCTAssertEqual(result.batch.failures.map(\.source.lastPathComponent), ["bad.jpg"], "attempt \(attempt)")
+            let note = try XCTUnwrap(result.report.entries.first?.note)
+            XCTAssertEqual(note.hasPrefix("Gave up after 3 attempts"), attempt == 3, note)
+        }
+        let fourth = await run(job)
+        XCTAssertEqual(fourth.batch.order, [], "given up: not tried again while unchanged")
+        XCTAssertEqual(fourth.unchanged, 1)
+
+        try Data("still not an image".utf8).write(to: bad)
+        let changed = await run(job)
+        XCTAssertEqual(changed.batch.failures.count, 1, "a changed file is tried again")
+        XCTAssertFalse(changed.report.entries.first?.note?.hasPrefix("Gave up") ?? true)
+    }
+
+    func testFilesStillBeingWrittenWait() async throws {
+        try drop("fresh.jpg")
         let job = job()
-        let first = await run(job)
-        XCTAssertEqual(first.batch.failures.count, 1)
-        let second = await run(job)
-        XCTAssertEqual(second.batch.failures.count, 0)
-        XCTAssertEqual(second.unchanged, 1)
+        let early = await JobRunner.run(job, store: store, trash: noTrash, now: { Date() })
+        XCTAssertEqual(early.batch.order, [], "changed less than 2 s ago")
+        XCTAssertEqual(early.waiting, 1)
+        XCTAssertEqual(try store.loadLedger(id: job.id).count, 0, "waiting files are not recorded")
+        let later = await JobRunner.run(job, store: store, trash: noTrash, now: { Date().addingTimeInterval(3) })
+        XCTAssertEqual(later.batch.written.count, 1)
+        XCTAssertEqual(later.waiting, 0)
+    }
+
+    func testUnreadableFilesWait() async throws {
+        let locked = try drop("locked.jpg")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: locked.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: locked.path) }
+        let result = await run(job())
+        XCTAssertEqual(result.batch.order, [])
+        XCTAssertEqual(result.waiting, 1)
     }
 
     func testOwnOutputsAreNeverInputs() async throws {
@@ -135,40 +167,50 @@ final class JobRunnerTests: XCTestCase {
     /// The example job from the spec: a watched drop folder with the Web export preset (≤ 2048 px, no GPS)
     /// and a CSV report next to the outputs.
     func testExampleJobEndToEnd() async throws {
-        let webExport = try XCTUnwrap(PresetStore.builtIns.first { $0.name == "Web export" })
-        let job = job(presetID: webExport.id, report: .csv)
-        try store.save(job)
-        let job2 = try XCTUnwrap(store.load().jobs.first)
-
-        var ready: [URL] = []
+        let job = try savedExampleJob()
         let delivered = expectation(description: "watcher saw both files")
         let seen = LockedLog<URL>()
-        let watcher = FolderWatcher(folders: job2.inputs, recursive: job2.recursive, excluded: job2.excludedFolders,
+        let watcher = FolderWatcher(folders: job.inputs, recursive: job.recursive, excluded: job.excludedFolders,
                                     stableFor: 0.5, pollInterval: 0.2) { urls in
             urls.forEach(seen.append)
             if Set(seen.values.map(\.lastPathComponent)).isSuperset(of: ["one.jpg", "two.jpg"]) { delivered.fulfill() }
         }
         XCTAssertTrue(watcher.start())
+        defer { watcher.stop() }
         try await Task.sleep(nanoseconds: 500_000_000)
+        try dropExampleFiles()
+        guard await XCTWaiter.fulfillment(of: [delivered], timeout: 20) == .completed else {
+            throw XCTSkip("FSEvents delivered no event in this environment (testExampleJobScheduledRun covers the job)")
+        }
+        try await assertExampleRun(job, files: seen.values)
+    }
+
+    /// The same job run by a schedule or "Run now": a scan of the folder instead of watcher events.
+    func testExampleJobScheduledRun() async throws {
+        let job = try savedExampleJob()
+        try dropExampleFiles()
+        try await assertExampleRun(job, files: nil)
+    }
+
+    private func savedExampleJob() throws -> Job {
+        let webExport = try XCTUnwrap(PresetStore.builtIns.first { $0.name == "Web export" })
+        try store.save(job(presetID: webExport.id, report: .csv))
+        return try XCTUnwrap(store.load().jobs.first)
+    }
+
+    private func dropExampleFiles() throws {
         try drop("one.jpg", width: 3000, height: 1000)
         try drop("two.jpg", width: 1200, height: 2600)
-        if await XCTWaiter.fulfillment(of: [delivered], timeout: 20) == .completed {
-            ready = seen.values
-        } else {
-            // FSEvents may not deliver in a sandboxed test run; the job itself still gets tested.
-            print("SKIP watcher part: FSEvents delivered no event")
-            ready = [input.appendingPathComponent("one.jpg"), input.appendingPathComponent("two.jpg")]
-        }
-        watcher.stop()
+    }
 
-        let result = await run(job2, files: ready)
+    private func assertExampleRun(_ job: Job, files: [URL]?) async throws {
+        let result = await run(job, files: files)
         XCTAssertNil(result.problem)
         XCTAssertEqual(result.batch.failures, [])
         XCTAssertEqual(result.batch.written.map(\.lastPathComponent).sorted(), ["one.jpg", "two.jpg"])
         for url in result.batch.written {
             XCTAssertEqual(url.deletingLastPathComponent().lastPathComponent, "out")
-            let data = try Data(contentsOf: url)
-            let properties = try TestImages.properties(of: data)
+            let properties = try TestImages.properties(of: try Data(contentsOf: url))
             XCTAssertNil(properties[kCGImagePropertyGPSDictionary as String], url.lastPathComponent)
             let width = try XCTUnwrap(properties[kCGImagePropertyPixelWidth as String] as? Int)
             let height = try XCTUnwrap(properties[kCGImagePropertyPixelHeight as String] as? Int)
@@ -182,7 +224,7 @@ final class JobRunnerTests: XCTestCase {
         XCTAssertTrue(csv.contains(#""TOTAL","","2 files: 2 succeeded, 0 failed, 0 skipped, 0 cancelled""#), csv)
 
         // The outputs and the report are inside the input folder, yet nothing is processed again.
-        let again = await run(job2)
+        let again = await run(job)
         XCTAssertEqual(again.batch.order, [])
         XCTAssertNil(again.reportFile)
     }

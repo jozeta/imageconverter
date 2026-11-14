@@ -63,7 +63,9 @@ final class JobsTests: XCTestCase {
         let job = sampleJob()
         try store.save(job)
         var ledger = ProcessedLedger()
-        ledger.record([FileFingerprint(path: "/a.jpg", size: 1, modified: 2)])
+        ledger.recordProcessed([FileFingerprint(path: "/a.jpg", size: 1, modified: 2)])
+        ledger.recordFailure(FileFingerprint(path: "/b.jpg", size: 1, modified: 2))
+        ledger.recordOutputs([FileFingerprint(path: "/out/a.png", size: 1, modified: 2)])
         try store.saveLedger(ledger, id: job.id)
         XCTAssertEqual(try store.loadLedger(id: job.id), ledger)
         try store.delete(id: job.id)
@@ -74,11 +76,46 @@ final class JobsTests: XCTestCase {
     func testLedgerMatchesPathSizeAndDate() {
         var ledger = ProcessedLedger()
         let print = FileFingerprint(path: "/in/a.jpg", size: 100, modified: 1_700_000_000.123456)
-        ledger.record([print])
-        XCTAssertTrue(ledger.contains(print))
-        XCTAssertFalse(ledger.contains(FileFingerprint(path: "/in/a.jpg", size: 101, modified: print.modified)))
-        XCTAssertFalse(ledger.contains(FileFingerprint(path: "/in/a.jpg", size: 100, modified: print.modified + 1)))
-        XCTAssertFalse(ledger.contains(FileFingerprint(path: "/in/b.jpg", size: 100, modified: print.modified)))
+        ledger.recordProcessed([print])
+        XCTAssertTrue(ledger.isSettled(print))
+        XCTAssertFalse(ledger.isSettled(FileFingerprint(path: "/in/a.jpg", size: 101, modified: print.modified)))
+        XCTAssertFalse(ledger.isSettled(FileFingerprint(path: "/in/a.jpg", size: 100, modified: print.modified + 1)))
+        XCTAssertFalse(ledger.isSettled(FileFingerprint(path: "/in/b.jpg", size: 100, modified: print.modified)))
+    }
+
+    func testFailuresSettleAfterThreeAttemptsOfTheSameVersion() {
+        var ledger = ProcessedLedger()
+        let bad = FileFingerprint(path: "/in/bad.jpg", size: 5, modified: 1)
+        XCTAssertEqual(ledger.recordFailure(bad), 1)
+        XCTAssertFalse(ledger.isSettled(bad))
+        XCTAssertEqual(ledger.recordFailure(bad), 2)
+        XCTAssertFalse(ledger.isSettled(bad))
+        XCTAssertEqual(ledger.recordFailure(bad), 3)
+        XCTAssertTrue(ledger.isSettled(bad))
+        let changed = FileFingerprint(path: "/in/bad.jpg", size: 6, modified: 2)
+        XCTAssertFalse(ledger.isSettled(changed))
+        XCTAssertEqual(ledger.recordFailure(changed), 1, "a changed file starts over")
+        ledger.recordProcessed([changed])
+        XCTAssertEqual(ledger.failures(of: changed), 0)
+        XCTAssertTrue(ledger.isSettled(changed))
+    }
+
+    func testOutputsHaveTheirOwnCap() {
+        var ledger = ProcessedLedger()
+        let output = FileFingerprint(path: "/in/a_new.png", size: 1, modified: 1)
+        ledger.recordOutputs([output])
+        ledger.recordProcessed((0..<(ProcessedLedger.maxEntries + 1)).map {
+            FileFingerprint(path: "/in/\($0).jpg", size: 1, modified: 1)
+        })
+        XCTAssertEqual(ledger.count, ProcessedLedger.maxEntries)
+        XCTAssertTrue(ledger.isSettled(output), "pruning old inputs never makes an old output an input")
+    }
+
+    func testVersionOneLedgerLoadsAsProcessed() throws {
+        let json = #"{"schemaVersion":1,"entries":[{"path":"/in/a.jpg","size":3,"modified":4.5}]}"#
+        let ledger = try JSONDecoder().decode(ProcessedLedger.self, from: Data(json.utf8))
+        XCTAssertTrue(ledger.isSettled(FileFingerprint(path: "/in/a.jpg", size: 3, modified: 4.5)))
+        XCTAssertEqual(ledger.outputCount, 0)
     }
 
     func testLedgerCapDropsTheOldest() throws {
@@ -86,11 +123,11 @@ final class JobsTests: XCTestCase {
         let all = (0..<(ProcessedLedger.maxEntries + 5)).map {
             FileFingerprint(path: "/in/\($0).jpg", size: $0, modified: 1)
         }
-        ledger.record(all)
+        ledger.recordProcessed(all)
         XCTAssertEqual(ledger.count, ProcessedLedger.maxEntries)
-        XCTAssertFalse(ledger.contains(all[4]))
-        XCTAssertTrue(ledger.contains(all[5]))
-        XCTAssertTrue(ledger.contains(all[all.count - 1]))
+        XCTAssertFalse(ledger.isSettled(all[4]))
+        XCTAssertTrue(ledger.isSettled(all[5]))
+        XCTAssertTrue(ledger.isSettled(all[all.count - 1]))
         let decoded = try JSONDecoder().decode(ProcessedLedger.self, from: JSONEncoder().encode(ledger))
         XCTAssertEqual(decoded, ledger)
     }

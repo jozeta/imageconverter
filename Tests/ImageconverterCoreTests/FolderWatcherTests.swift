@@ -1,3 +1,4 @@
+import CoreServices
 import XCTest
 @testable import ImageconverterCore
 
@@ -125,5 +126,33 @@ final class FolderWatcherTests: XCTestCase {
         }
         Thread.sleep(forTimeInterval: 1)
         XCTAssertEqual(seen.values.map(\.lastPathComponent), ["photo.jpg"])
+    }
+
+    func testStopForgetsPendingFiles() throws {
+        let watcher = FolderWatcher(folders: [root], recursive: false, stableFor: 60) { _ in }
+        XCTAssertTrue(watcher.start())
+        Thread.sleep(forTimeInterval: 0.5)
+        try Data(count: 8).write(to: root.appendingPathComponent("slow.jpg"))
+        let deadline = Date().addingTimeInterval(20)
+        while watcher.pendingFiles.isEmpty, Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+        guard !watcher.pendingFiles.isEmpty else {
+            watcher.stop()
+            throw XCTSkip("FSEvents delivered no event in this environment")
+        }
+        watcher.stop()
+        XCTAssertTrue(watcher.pendingFiles.isEmpty)
+    }
+
+    func testOnlyArrivingFoldersAreScanned() {
+        func flags(_ values: Int...) -> FSEventStreamEventFlags { FSEventStreamEventFlags(values.reduce(0, |)) }
+        let dir = kFSEventStreamEventFlagItemIsDir
+        XCTAssertEqual(FolderWatcher.action(for: flags(dir, kFSEventStreamEventFlagItemCreated)), .scan)
+        XCTAssertEqual(FolderWatcher.action(for: flags(dir, kFSEventStreamEventFlagItemRenamed)), .scan)
+        XCTAssertEqual(FolderWatcher.action(for: flags(kFSEventStreamEventFlagMustScanSubDirs)), .scan)
+        XCTAssertEqual(FolderWatcher.action(for: flags(dir, kFSEventStreamEventFlagItemChangeOwner)), .ignore)
+        XCTAssertEqual(FolderWatcher.action(for: flags(dir, kFSEventStreamEventFlagItemXattrMod)), .ignore)
+        XCTAssertEqual(FolderWatcher.action(for: flags(dir, kFSEventStreamEventFlagItemRemoved)), .ignore)
+        XCTAssertEqual(FolderWatcher.action(for: flags(kFSEventStreamEventFlagItemIsFile,
+                                                       kFSEventStreamEventFlagItemModified)), .file)
     }
 }
