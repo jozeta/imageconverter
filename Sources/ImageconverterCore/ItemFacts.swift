@@ -37,30 +37,29 @@ public struct ItemFacts: Equatable, Sendable {
     static let alphaScanSize = 256
 
     /// Reads the facts of `url`; nil when it isn't a readable image. `scanAlpha: false` trusts the header's
-    /// alpha flag (no thumbnail decode), for callers whose conditions don't test transparency. An image over
-    /// `maxPixels` is never scanned (ImageIO would decode all of it for the thumbnail): the header decides, and
-    /// the batch's own pixel guard fails the file later.
+    /// alpha flag (no thumbnail decode), for callers whose conditions don't test transparency. An image that
+    /// breaks the decode limits (`DecodeLimits`, pixel limit `maxPixels`) is never scanned (ImageIO would decode
+    /// all of it for the thumbnail): the header decides, and the batch's own guard fails the file later.
     public static func read(_ url: URL, scanAlpha: Bool = true,
                             maxPixels: Int = ImageLoader.defaultMaxPixels) -> ItemFacts? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
-              CGImageSourceGetCount(source) > 0,
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
-              let width = properties[kCGImagePropertyPixelWidth as String] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight as String] as? Int,
-              width > 0, height > 0 else { return nil }
-        let upright = ImageHeader(width: width, height: height, properties: properties).uprightSize
+              let header = ImageHeader.read(source) else { return nil }
+        let properties = header.properties
+        let upright = header.uprightSize
         let type = CGImageSourceGetType(source) as String? ?? ""
+        let fileBytes = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        let size = fileBytes ?? 0
         let headerAlpha = properties[kCGImagePropertyHasAlpha as String] as? Bool ?? false
         var hasAlpha = headerAlpha
         // PNG, TIFF and HEIC often carry an alpha channel that is fully opaque: look before believing it.
-        let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
-        if headerAlpha, scanAlpha, scannedTypes.contains(type), !overflow, pixels <= maxPixels {
+        let limits = DecodeLimits.standard.capped(maxPixels: maxPixels)
+        if headerAlpha, scanAlpha, scannedTypes.contains(type), size <= limits.maxFileBytes,
+           (try? limits.check(source, fileBytes: fileBytes)) != nil {
             hasAlpha = hasTransparentPixel(source) ?? true
         }
         let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
         let gps = properties[kCGImagePropertyGPSDictionary as String] as? [String: Any]
-        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
         return ItemFacts(
             width: upright.width, height: upright.height, fileSize: size, format: writableFormat(for: type),
             sourceType: type, hasAlpha: hasAlpha, hasGPS: !(gps?.isEmpty ?? true),

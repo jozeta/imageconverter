@@ -154,7 +154,8 @@ public enum BatchRunner {
     /// critical; a memory warning halves the budget and critical pressure leaves one worker. `control` pauses,
     /// resumes, reorders and switches low-memory mode (2 workers, a quarter of the budget). With `journal`, a
     /// `RunJournal` is kept there for the length of the run. Before planning, temp files a crash left in the
-    /// destination folders (over an hour old, exact `FileCommitter` pattern) are removed.
+    /// destination folders (over an hour old, exact `FileCommitter` pattern) are removed; after a cancel, every
+    /// temp file of that pattern in them that this process isn't writing (`FileCommitter.cleanUp`).
     public static func run(
         _ items: [InputItem],
         pipeline: Pipeline,

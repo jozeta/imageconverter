@@ -66,6 +66,7 @@ public enum QualityLadder {
     public static func crop(_ data: Data, region: CGRect, maxSide: Int) -> CGImage? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithData(data as CFData, options),
+              (try? DecodeLimits.standard.check(source, fileBytes: nil)) != nil,
               let decoded = CGImageSourceCreateImageAtIndex(source, 0, options) else { return nil }
         return RegionCrop.draw(decoded, region: region, maxSide: maxSide)
     }

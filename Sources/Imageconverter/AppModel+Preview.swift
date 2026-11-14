@@ -1,6 +1,5 @@
 import AppKit
 import CoreGraphics
-import ImageIO
 import ImageconverterCore
 
 extension AppModel {
@@ -148,15 +147,7 @@ extension AppModel {
     }
 
     nonisolated private static func makeThumbnail(_ url: URL) -> CGImage? {
-        guard let pixels = ImageLoader.pixelCount(of: url), pixels <= ImageLoader.defaultMaxPixels else { return nil }
-        let loadOptions = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, loadOptions) else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: thumbnailPixels,
-            kCGImageSourceShouldCacheImmediately: true
-        ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        // Core's decode limits decide first, like every other reader.
+        ImageLoader.thumbnail(of: url, maxPixelSize: thumbnailPixels)
     }
 }

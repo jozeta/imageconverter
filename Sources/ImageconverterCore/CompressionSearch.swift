@@ -110,6 +110,7 @@ public enum CompressionSearch {
                 kCGImageSourceThumbnailMaxPixelSize: max(width, height),
             ]
             guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  (try? DecodeLimits.standard.check(source, fileBytes: nil)) != nil,
                   let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
                   let luma = ImageSimilarity.luma(decoded, width: width, height: height) else { return false }
             return ImageSimilarity.ssim(reference, luma, width: width, height: height) >= smartThreshold

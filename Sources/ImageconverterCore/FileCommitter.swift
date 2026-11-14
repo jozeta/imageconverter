@@ -24,7 +24,8 @@ public enum FileCommitter {
         }
         let files = FileManager.default
         let directory = plan.destination.deletingLastPathComponent()
-        let temp = directory.appendingPathComponent("\(tempPrefix)\(UUID().uuidString).tmp")
+        let temp = beginTemp(in: directory)
+        defer { endTemp(temp) }
 
         do {
             try files.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -47,5 +48,90 @@ public enum FileCommitter {
                     "Converted, but couldn't move the original to the Trash: \(error.localizedDescription)")
             }
         }
+    }
+
+    // MARK: Temp files
+
+    /// Temp files this process is writing right now, and every folder it has written to; a clean-up never
+    /// removes a temp file that is still being written here.
+    private static let state = TempState()
+
+    /// A new temp file URL in `directory`, registered as in use until `endTemp`.
+    static func beginTemp(in directory: URL) -> URL {
+        let temp = directory.appendingPathComponent("\(tempPrefix)\(UUID().uuidString)\(tempSuffix)")
+        state.begin(temp)
+        return temp
+    }
+
+    static func endTemp(_ temp: URL) { state.end(temp) }
+
+    static let tempSuffix = ".tmp"
+
+    /// True only for the exact pattern `.imageconverter-<UUID>.tmp`, with an uppercase UUID as
+    /// `UUID().uuidString` writes it.
+    public static func isTempFileName(_ name: String) -> Bool {
+        guard name.hasPrefix(tempPrefix), name.hasSuffix(tempSuffix) else { return false }
+        let middle = String(name.dropFirst(tempPrefix.count).dropLast(tempSuffix.count))
+        return UUID(uuidString: middle)?.uuidString == middle
+    }
+
+    /// Every folder a commit has written to in this process (standardized), for the clean-up when the app quits.
+    public static var writtenDirectories: [URL] { state.directories }
+
+    /// Removes this app's temp files directly in `directories` (not in subfolders): only regular files (never
+    /// folders or links) named exactly `.imageconverter-<UUID>.tmp`, older than `age` seconds, and not being
+    /// written by this process right now. Called when a run is cancelled, when the app quits and, with an age
+    /// of an hour, at the start of a run. The files are deleted, not "securely wiped": on SSDs and APFS
+    /// (copy-on-write) overwriting a file doesn't reliably overwrite its old blocks, so wiping would promise
+    /// something it can't do.
+    public static func cleanUp(in directories: [URL], olderThan age: TimeInterval = 0, now: Date = Date()) {
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
+        for folder in directories {
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { continue }
+            for name in names where isTempFileName(name) {
+                let url = folder.appendingPathComponent(name)
+                guard !state.isInUse(url), let values = try? url.resourceValues(forKeys: keys),
+                      values.isRegularFile == true, values.isSymbolicLink != true,
+                      let modified = values.contentModificationDate,
+                      age <= 0 || now.timeIntervalSince(modified) >= age else {
+                    continue
+                }
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
+}
+
+/// Lock-protected bookkeeping for `FileCommitter`'s temp files.
+private final class TempState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var inUse = Set<String>()
+    private var folders: [URL] = []
+    private var folderPaths = Set<String>()
+
+    func begin(_ temp: URL) {
+        let folder = temp.deletingLastPathComponent().standardizedFileURL
+        lock.lock()
+        inUse.insert(temp.standardizedFileURL.path)
+        if folderPaths.insert(folder.path).inserted { folders.append(folder) }
+        lock.unlock()
+    }
+
+    func end(_ temp: URL) {
+        lock.lock()
+        inUse.remove(temp.standardizedFileURL.path)
+        lock.unlock()
+    }
+
+    func isInUse(_ url: URL) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return inUse.contains(url.standardizedFileURL.path)
+    }
+
+    var directories: [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return folders
     }
 }

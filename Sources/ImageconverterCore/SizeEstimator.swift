@@ -49,7 +49,9 @@ public enum SizeEstimator {
             }
             let result = try BatchRunner.encodeItem(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
             let data = result.data
+            // The app encoded this itself, so no file-size heuristic; the hard limits still apply.
             guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                  (try? DecodeLimits.standard.check(source, fileBytes: nil)) != nil,
                   let encoded = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                 throw ConversionError.encodeFailed
             }

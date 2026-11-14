@@ -254,27 +254,8 @@ enum StaleTempFiles {
             .filter { seen.insert($0.path).inserted }
     }
 
-    /// True only for the exact pattern, with an uppercase UUID as `UUID().uuidString` writes it.
-    static func matches(_ name: String) -> Bool {
-        let prefix = FileCommitter.tempPrefix
-        let suffix = ".tmp"
-        guard name.hasPrefix(prefix), name.hasSuffix(suffix) else { return false }
-        let middle = String(name.dropFirst(prefix.count).dropLast(suffix.count))
-        return UUID(uuidString: middle)?.uuidString == middle
-    }
-
-    /// Removes matching regular files (never folders or links) older than `maxAge` directly in `folders`.
+    /// Removes matching temp files older than `maxAge` directly in `folders` (`FileCommitter.cleanUp`).
     static func remove(in folders: [URL], now: Date = Date()) {
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
-        for folder in folders {
-            guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { continue }
-            for name in names where matches(name) {
-                let url = folder.appendingPathComponent(name)
-                guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true,
-                      values.isSymbolicLink != true, let modified = values.contentModificationDate,
-                      now.timeIntervalSince(modified) > maxAge else { continue }
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
+        FileCommitter.cleanUp(in: folders, olderThan: maxAge, now: now)
     }
 }

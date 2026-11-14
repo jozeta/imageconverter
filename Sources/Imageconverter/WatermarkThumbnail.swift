@@ -1,5 +1,4 @@
 import AppKit
-import ImageIO
 import SwiftUI
 import ImageconverterCore
 
@@ -59,18 +58,7 @@ struct WatermarkThumbnail: View {
                     return .failure(error as? ConversionError ?? .watermarkSVGInvalid)
                 }
             }
-            guard let header = ImageLoader.header(of: fileURL),
-                  header.width <= ImageLoader.defaultMaxPixels / header.height else {
-                return .failure(.watermarkImageUnreadable)
-            }
-            let url = fileURL as CFURL
-            let options: [CFString: Any] = [
-                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                kCGImageSourceCreateThumbnailWithTransform: true,
-                kCGImageSourceThumbnailMaxPixelSize: 64
-            ]
-            guard let source = CGImageSourceCreateWithURL(url, nil),
-                  let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            guard let cgImage = ImageLoader.thumbnail(of: fileURL, maxPixelSize: 64) else {
                 return .failure(.watermarkImageUnreadable)
             }
             return .success(NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)))

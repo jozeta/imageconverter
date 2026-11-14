@@ -55,6 +55,9 @@ public enum SVGRasterizer {
         if pixels > Double(max(1, maxPixels)) { scale *= CGFloat((Double(max(1, maxPixels)) / pixels).squareRoot()) }
         let width = max(1, Int((natural.width * scale).rounded()))
         let height = max(1, Int((natural.height * scale).rounded()))
+        // The same gate as every other decode (the raster is RGBA8; there is no file size to compare).
+        try DecodeLimits.standard.capped(maxPixels: maxPixels).check(width: width, height: height, bytesPerPixel: 4,
+                                                                     fileBytes: nil, type: UTType.svg.identifier)
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {

@@ -22,7 +22,8 @@ extension BatchRunner {
         guard let plan = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels), !Task.isCancelled
         else { return BatchReport(cancelled: true) }
         // Temp files never collide with planned names, so this can wait until every destination folder is known.
-        StaleTempFiles.remove(in: StaleTempFiles.folders(for: plan.plans))
+        let folders = StaleTempFiles.folders(for: plan.plans)
+        StaleTempFiles.remove(in: folders)
 
         announce(plan, items: items, events: events, writer: writer)
         if !plan.skipped.isEmpty {
@@ -33,6 +34,8 @@ extension BatchRunner {
             trash: trash, control: control, hooks: hooks, progress: progress, events: events)
         let scheduler = BatchScheduler(plan: plan, settings: settings, writer: writer)
         await scheduler.execute()
+        // Every worker has finished, so nothing of this run is mid-write: whatever matches the pattern is a leftover.
+        if scheduler.cancelled { FileCommitter.cleanUp(in: folders) }
         return makeReport(plans: plan.plans, outcomes: scheduler.outcomes, inputSizes: scheduler.inputSizes,
                           cancelled: scheduler.cancelled,
                           durations: scheduler.durations)

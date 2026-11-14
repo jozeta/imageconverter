@@ -182,9 +182,12 @@ public enum JobRunner {
     static func writeReport(_ report: ProcessingReport, format: ReportFormat, in folder: URL, date: Date) throws -> URL {
         let files = FileManager.default
         try files.createDirectory(at: folder, withIntermediateDirectories: true)
-        let temp = folder.appendingPathComponent("\(FileCommitter.tempPrefix)\(UUID().uuidString).tmp")
+        let temp = FileCommitter.beginTemp(in: folder)
         // Before the write: a failed write must not leave a partial temp file behind either.
-        defer { try? files.removeItem(at: temp) }
+        defer {
+            try? files.removeItem(at: temp)
+            FileCommitter.endTemp(temp)
+        }
         try ReportExporter.data(report, format: format).write(to: temp, options: [.withoutOverwriting])
         for number in 1...1000 {
             let destination = folder.appendingPathComponent(reportFileName(date: date, format: format, number: number))

@@ -42,39 +42,25 @@ public enum ImageLoader {
         header(of: url)?.uprightSize
     }
 
-    /// The first frame's size and property dictionary, read from the header only (no decode).
-    /// Nil if unreadable.
+    /// The first frame's size and property dictionary, read from the header only (no decode, no limits:
+    /// for information such as names and sizes). Nil if unreadable.
     public static func header(of url: URL) -> ImageHeader? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
-              CGImageSourceGetCount(source) > 0,
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
-              let width = properties[kCGImagePropertyPixelWidth as String] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight as String] as? Int,
-              width > 0, height > 0 else { return nil }
-        return ImageHeader(width: width, height: height, properties: properties)
+        return CGImageSourceCreateWithURL(url as CFURL, options).flatMap(ImageHeader.read)
     }
 
     /// Loads the first frame of `url`, rotated upright according to its EXIF orientation.
-    /// Throws `.tooLarge` before decoding when the image exceeds `maxPixels`. With `maxLongSide`, a
+    /// Throws before decoding when the file breaks `limits` (capped at `maxPixels`): too many pixels, a side
+    /// too long, too much memory, too large a file or a likely decompression bomb. With `maxLongSide`, a
     /// larger image is downsampled so its longer side fits. `includeMetadata` also reads the XMP view
     /// (only the Metadata step needs it). `lowMemory` leaves the decode to ImageIO's first draw instead of
     /// decoding into a cached buffer up front (the batch's retry and low-memory mode).
-    public static func load(_ url: URL, maxPixels: Int = defaultMaxPixels, maxLongSide: Int? = nil,
-                            includeMetadata: Bool = false, lowMemory: Bool = false) throws -> LoadedImage {
-        let options = [kCGImageSourceShouldCache: false] as CFDictionary
-        guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
-              CGImageSourceGetCount(source) > 0,
-              var properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
-              let width = properties[kCGImagePropertyPixelWidth as String] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight as String] as? Int,
-              width > 0, height > 0 else {
-            throw ConversionError.unreadable
-        }
-        let (pixels, overflow) = width.multipliedReportingOverflow(by: height)
-        if overflow || pixels > maxPixels {
-            throw ConversionError.tooLarge(pixels: overflow ? Int.max : pixels)
-        }
+    public static func load(_ url: URL, maxPixels: Int = defaultMaxPixels, limits: DecodeLimits = .standard,
+                            maxLongSide: Int? = nil, includeMetadata: Bool = false,
+                            lowMemory: Bool = false) throws -> LoadedImage {
+        let (source, header) = try limits.capped(maxPixels: maxPixels).open(url)
+        var properties = header.properties
+        let (width, height) = (header.width, header.height)
 
         let thumbnailOptions = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -95,5 +81,20 @@ public enum ImageLoader {
         }
         return LoadedImage(image: image, properties: properties,
                            metadata: includeMetadata ? CGImageSourceCopyMetadataAtIndex(source, 0, nil) : nil)
+    }
+}
+
+extension ImageLoader {
+    /// A thumbnail of `url` with its longer side at most `maxPixelSize`, upright; nil when the file is unreadable
+    /// or breaks `limits` (ImageIO may decode the whole image to make it).
+    public static func thumbnail(of url: URL, maxPixelSize: Int, limits: DecodeLimits = .standard) -> CGImage? {
+        guard let source = try? limits.open(url).source else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixelSize),
+            kCGImageSourceShouldCacheImmediately: true,
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 }

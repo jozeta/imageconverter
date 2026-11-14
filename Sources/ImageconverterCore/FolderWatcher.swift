@@ -86,7 +86,7 @@ public struct WatchFilter: Sendable {
 
     public func accepts(_ path: String) -> Bool {
         let name = (path as NSString).lastPathComponent
-        if name.hasPrefix(FileCommitter.tempPrefix) && name.hasSuffix(".tmp") { return false }
+        if name.hasPrefix(FileCommitter.tempPrefix) && name.hasSuffix(FileCommitter.tempSuffix) { return false }
         if isExcluded(path) { return false }
         return roots.contains { root in
             guard Self.isInside(path, root) else { return false }

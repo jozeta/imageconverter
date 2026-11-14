@@ -6,6 +6,14 @@ public enum ConversionError: Error, Equatable, Sendable {
     /// The header was read but the pixels couldn't be decoded (a damaged file, or memory ran out).
     case decodeFailed
     case tooLarge(pixels: Int)
+    /// One side is longer than `DecodeLimits.maxSide`.
+    case sideTooLong(side: Int, limit: Int)
+    /// Decoding (with working copies) would need more than `limit` bytes.
+    case needsTooMuchMemory(limit: Int)
+    /// The file itself is over `DecodeLimits.maxFileBytes`.
+    case fileTooLarge(limit: Int)
+    /// The header declares far more pixels than a file this small can hold.
+    case suspectedDecompressionBomb
     case encodeFailed
     case writeFailed(String)
     /// An image step failed; the value is the step's display name.
@@ -39,6 +47,14 @@ public enum ConversionError: Error, Equatable, Sendable {
             let megapixels = Int((Double(pixels) / 1_000_000).rounded())
             let limit = ImageLoader.defaultMaxPixels / 1_000_000
             return "Image is too large (\(megapixels) MP, limit \(limit) MP)"
+        case .sideTooLong(let side, let limit):
+            return "Image is too large (\(PixelCount.format(side)) px on one side, limit \(PixelCount.format(limit)) px)"
+        case .needsTooMuchMemory(let limit):
+            return "Would need more than \(ByteSize.format(limit)) of memory to open"
+        case .fileTooLarge(let limit):
+            return "File is too large to open (over \(ByteSize.format(limit)))"
+        case .suspectedDecompressionBomb:
+            return "Image declares far more pixels than its file size can hold (possible decompression bomb)"
         case .encodeFailed:
             return "Couldn't encode the image"
         case .writeFailed(let detail):
@@ -84,5 +100,15 @@ extension ConversionError {
 enum ByteSize {
     static func format(_ bytes: Int) -> String {
         ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    }
+}
+
+/// Pixel counts for messages, e.g. "65,535" (the app is English only).
+enum PixelCount {
+    static func format(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.numberStyle = .decimal
+        return formatter.string(from: NSNumber(value: value)) ?? String(value)
     }
 }
