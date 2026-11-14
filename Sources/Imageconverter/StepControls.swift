@@ -34,10 +34,14 @@ struct NumberField: View {
     var minimum = 1
     var maximum = Int.max
     var suffix = "px"
+    /// False where the row around the field already says what it is (the title stays the VoiceOver label).
+    var showsTitle = true
 
     var body: some View {
         HStack(spacing: LadaGlass.Spacing.xs) {
-            Text(title).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            if showsTitle {
+                Text(title).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            }
             TextField(title, value: Binding(get: { value }, set: { value = min(max(minimum, $0), maximum) }), format: .number)
                 .textFieldStyle(.roundedBorder)
                 .multilineTextAlignment(.trailing)

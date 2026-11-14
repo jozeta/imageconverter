@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 ### Unreleased
 
+- If / then / else steps: test each image's size, file size, format, transparency, orientation, GPS or camera, and give it its own steps, output, metadata or rename, copy it unchanged or skip it; the preview shows which branch an image takes, and skipped files are counted apart from failures.
 - Geometry editors: free angle and straighten, Perspective (Auto and keystone), Trim and the canvas Ratio mode.
 - Compression modes in the Output row: Quality, Target size, Maximum size and Smart, Progressive JPEG, Optimise PNG and AVIF; the estimate shows the chosen quality.
 - Compression report: size percentages in the estimate and preview, a "saved" toast after a run, and a Report section in the sidebar (per-file sizes, skipped files, notes).
@@ -68,7 +69,7 @@ Started 2026-11-13. The full design is in
   - (available) **Adjust**: exposure, brilliance, highlights, shadows, contrast, brightness, black point,
     saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction
   - (available) **Watermark**: text or image, with position, size, opacity and margin controls
-  - (coming: the editor arrives in a later update) **Condition** (if / then / else): up to 10 tests,
+  - (available) **Condition** (if / then / else): up to 10 tests,
     all or any of which must hold: longest edge, width, height or file size (greater than, less than, at
     least, at most), format (a writable format or any file type, e.g. camera RAW), transparency (a
     transparent pixel, checked on a small thumbnail), portrait / landscape / square, has a GPS location,
@@ -240,8 +241,8 @@ folder for access and remember your answer. Until then it runs unsandboxed.
 
 ### Build a pipeline
 
-1. In the sidebar, press **+ Add step** and pick Resize, Crop, Rotate / flip, Perspective, Trim, Canvas / padding or
-   Color profile. The step is added at the end and opens so you can set it.
+1. In the sidebar, press **+ Add step** and pick Resize, Crop, Rotate / flip, Perspective, Trim, Canvas / padding,
+   Color profile, Adjust, Watermark or **If … then … else** (see below). The step is added at the end and opens so you can set it.
 2. Open or close a step by clicking its row; its settings (size, anchor, colour, profile, ...) are
    inside. The muted line under the name summarises them. The header shows how many steps are on.
 3. Reorder by dragging the handle, or with the keyboard: the right-click menu has
@@ -351,6 +352,39 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
    The mark is always scaled down to fit inside the photo with twice the margin removed, so it is never cut off.
 6. Put the step after resizing and cropping if the mark should be sized to the final image. If an
    image watermark can't be read when the batch runs, those files are skipped and listed.
+
+### Process images differently by size, format or orientation
+
+1. Press **+ Add step** and pick **If … then … else** (at the bottom of the menu). The step tests each image's *source
+   file* (not the image part-way through the pipeline) and runs the **Then** actions when it matches, the **Else**
+   actions when it doesn't. Its actions take the step's place in the pipeline.
+2. Under **Match all / any of:**, set up to 10 conditions: **Longest edge**, **Width**, **Height** (>, <, ≥, ≤ a number
+   of pixels), **File size** (in KB or MB, 1 KB = 1000 bytes), **Format** (the writable formats, plus RAW from any camera,
+   WebP and any HEIF), **Transparency** (has transparency / is opaque), **Orientation** (portrait, landscape, square),
+   **Location** (has GPS / has no GPS) and **Camera** (make or model contains a text). **+ Add condition** adds one;
+   the trash button removes one (a step always keeps at least one).
+3. Fill **Then** and **Else** with **+ Add**: any image step (Resize, Crop, Watermark, …), **Set output…** (format and
+   compression for these images), **Set metadata…**, **Set rename…**, **Copy original unchanged** (the file is copied as
+   it is, nothing is decoded) or **Skip file** (nothing is written; the file counts as *skipped by a condition*, not
+   failed, and takes no counter number). Open an action to edit it with the usual editor; reorder actions by
+   dragging the handle or with **Move Up** / **Move Down** in the right-click menu.
+4. Select an image in the filmstrip: the preview header shows which branch it takes (**Then branch** / **Else branch**,
+   or "1 then · 2 else" with several conditions) and whether it is **Copied unchanged** or **Skipped by a condition**.
+   The Result name and the Rename example use the number the batch would give it.
+5. After a run the notice says, for example, "Converted 20 · 3 skipped by conditions · 1 failed"; the Report lists the
+   skipped files separately from failures.
+
+Examples (one step each):
+
+| If | Then | Else |
+| --- | --- | --- |
+| Longest edge > 4000 px | Resize › Longest edge 2048 | (nothing) |
+| Format is PNG **and** has transparency | Set output… › PNG | Set output… › JPEG |
+| Format is JPEG | Set output… › HEIC (WebP can't be written by macOS) | (nothing) |
+| Location: has GPS | Set metadata… › Remove location (GPS) | (nothing) |
+| File size < 500 KB | Copy original unchanged | (nothing) |
+| Orientation: portrait | Resize › Longest edge 1080 | Resize › Longest edge 2048 |
+| Orientation: landscape | Set output… › HEIC at 70 % | Set output… › JPEG at 85 % |
 
 (More how-tos once the features exist: build and save a preset.)
 

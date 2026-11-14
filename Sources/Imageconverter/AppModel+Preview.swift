@@ -57,6 +57,7 @@ extension AppModel {
         previewTask?.cancel()
         previewGeneration += 1
         previewResult = nil
+        previewConditions = nil
         previewFailure = nil
         previewFailureName = nil
         isRenderingPreview = false
@@ -74,23 +75,31 @@ extension AppModel {
             isRenderingPreview = false
             if items.isEmpty {
                 previewResult = nil
+                previewConditions = nil
                 previewFailure = nil
                 previewFailureName = nil
             }
             return
         }
         let item = items[index]
+        let batch = items
         let pipeline = self.pipeline
         isRenderingPreview = true
         previewTask = Task { [weak self] in
             do { try await Task.sleep(for: Self.previewDebounce) } catch { return }
-            guard let renderer = self?.previewRenderer else { return }
-            let outcome = await renderer.render(item: item, index: index, pipeline: pipeline, mode: mode)
+            guard let renderer = self?.previewRenderer, let cache = self?.factsCache else { return }
+            // The counter number the batch would give this item (skipped items before it take none), and the
+            // branch each condition takes. Only read from files when the pipeline has conditions.
+            let conditions = pipeline.hasConditions ? await cache.preview(of: index, in: batch, pipeline: pipeline) : nil
+            guard !Task.isCancelled else { return }
+            let outcome = await renderer.render(item: item, index: conditions?.counterIndex ?? index, pipeline: pipeline,
+                                                mode: mode)
             guard let self, generation == self.previewGeneration else { return }
             isRenderingPreview = false
             switch outcome {
             case .ready(let result):
                 previewResult = result
+                previewConditions = conditions
                 previewFailure = nil
                 previewFailureName = nil
             case .failed(let reason):
@@ -98,6 +107,7 @@ extension AppModel {
                 if reason == "Cancelled" { return }
                 // The previous image stays only when it belongs to this same item.
                 if previewResult?.source != item.source { previewResult = nil }
+                previewConditions = conditions
                 previewFailureName = item.source.lastPathComponent
                 previewFailure = reason
             }

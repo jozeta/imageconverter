@@ -4,6 +4,8 @@ import ImageconverterCore
 /// Edits one pipeline step; switches on the kind of operation.
 struct StepEditor: View {
     @Binding var operation: ImageOperation
+    /// What a condition's "Set output/metadata/rename…" start from.
+    var branchDefaults = BranchDefaults()
 
     var body: some View {
         switch operation {
@@ -47,10 +49,9 @@ struct StepEditor: View {
                 get: { if case .watermark(let opts) = operation { return opts } else { return WatermarkOptions() } },
                 set: { operation = .watermark($0) }))
         case .condition:
-            // The condition editor comes with its own task; until then the step shows its summary only.
-            Text(operation.summary)
-                .font(LadaGlass.Typography.label)
-                .foregroundStyle(LadaGlass.Colors.muted)
+            ConditionEditor(step: Binding(
+                get: { if case .condition(let step) = operation { return step } else { return ConditionalStep() } },
+                set: { operation = .condition($0) }), defaults: branchDefaults)
         }
     }
 }

@@ -38,7 +38,8 @@ struct PipelineSection: View {
                         },
                         dropEdge: { dropEdge(for: step.id) },
                         dragStarted: { draggedID = step.id },
-                        dropped: { model.moveStep($0, to: step.id) })
+                        dropped: { model.moveStep($0, to: step.id) },
+                        branchDefaults: branchDefaults)
                     .disabled(model.isRunning)
                 }
                 if model.pipeline.metadata.isIncluded || model.pipeline.rename.isIncluded {
@@ -82,6 +83,11 @@ struct PipelineSection: View {
             })
     }
 
+    private var branchDefaults: BranchDefaults {
+        BranchDefaults(output: model.pipeline.output, metadata: model.pipeline.metadata, rename: model.pipeline.rename,
+                       renameLockedHelp: settings.modeKind == .overwrite ? Self.overwriteHelp : nil)
+    }
+
     private var header: some View {
         Text("Pipeline · \(enabledCount) \(enabledCount == 1 ? "step" : "steps")")
             .font(LadaGlass.Typography.label)
@@ -90,11 +96,12 @@ struct PipelineSection: View {
 
     private var addMenu: some View {
         Menu("+ Add step") {
-            // Conditions get their editor separately; they can't be added from here yet.
             ForEach(StepKind.allCases.filter { $0 != .condition }, id: \.self) { kind in
                 // New steps start collapsed.
                 Button(kind.displayName) { _ = model.addStep(kind) }
             }
+            Divider()
+            Button("If … then … else") { _ = model.addStep(.condition) }
             if !model.pipeline.metadata.isIncluded || !model.pipeline.rename.isIncluded {
                 Divider()
                 Section("Always last") {
@@ -289,6 +296,7 @@ private struct StepRow: View {
     let dropEdge: () -> VerticalEdge?
     let dragStarted: () -> Void
     let dropped: (PipelineStep.ID) -> Bool
+    let branchDefaults: BranchDefaults
     @State private var isTargeted = false
     @State private var handleHovered = false
 
@@ -317,7 +325,7 @@ private struct StepRow: View {
             .contentShape(Rectangle())
             .contextMenu { actions }
         } content: {
-            StepEditor(operation: $step.operation)
+            StepEditor(operation: $step.operation, branchDefaults: branchDefaults)
         }
         .overlay(alignment: dropEdge() == .bottom ? .bottom : .top) {
             if isTargeted, let edge = dropEdge() {

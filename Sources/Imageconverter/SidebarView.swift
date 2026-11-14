@@ -134,6 +134,7 @@ struct SidebarView: View {
 
     private func reportTitle(_ summary: RunSummary, _ report: ProcessingReport) -> String {
         var parts = ["\(summary.succeeded) written"]
+        if summary.skipped > 0 { parts.append("\(summary.skipped) skipped by \(summary.skipped == 1 ? "a condition" : "conditions")") }
         if summary.failed > 0 { parts.append("\(summary.failed) failed") }
         let notes = report.entries.filter { $0.status == .succeeded && $0.note != nil }.count
         if notes > 0 { parts.append("\(notes) \(notes == 1 ? "note" : "notes")") }
@@ -142,7 +143,8 @@ struct SidebarView: View {
 
     private func reportTotals(_ summary: RunSummary) -> String {
         var parts = ["\(summary.succeeded) converted"]
-        if summary.failed > 0 { parts.append("\(summary.failed) skipped") }
+        if summary.skipped > 0 { parts.append("\(summary.skipped) skipped by \(summary.skipped == 1 ? "a condition" : "conditions")") }
+        if summary.failed > 0 { parts.append("\(summary.failed) failed") }
         if summary.cancelled > 0 { parts.append("\(summary.cancelled) not run") }
         if summary.succeeded > 0 {
             let change = SizeFormat.percentChange(from: summary.inputBytes, to: summary.outputBytes).map { " (\($0))" } ?? ""
@@ -155,8 +157,12 @@ struct SidebarView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(entry.name).font(LadaGlass.Typography.body).lineLimit(1).truncationMode(.middle)
             if entry.status == .failed {
-                Text(entry.note ?? "Skipped").font(LadaGlass.Typography.label)
+                Text(entry.note ?? "Failed").font(LadaGlass.Typography.label)
                     .foregroundStyle(LadaGlass.Colors.badText)
+            } else if entry.status == .skipped {
+                // Left alone on purpose: not a failure, so not red.
+                Text(entry.note ?? ConditionalStep.skippedReason).font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
             } else {
                 let change = entry.inputBytes.flatMap { input in
                     entry.outputBytes.flatMap { SizeFormat.percentChange(from: input, to: $0) }

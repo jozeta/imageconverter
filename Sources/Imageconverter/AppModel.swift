@@ -68,6 +68,10 @@ final class AppModel {
     @ObservationIgnored let windowSizer: WindowSizer
     @ObservationIgnored var previewMode: OutputMode?
     @ObservationIgnored let previewRenderer = PreviewRenderer()
+    /// Source facts for the preview's counter number and condition branches (see `AppModel+Preview.swift`).
+    @ObservationIgnored let factsCache = ItemFactsCache()
+    /// The condition branches and counter number of the item the latest preview shows.
+    var previewConditions: ConditionPreview?
     @ObservationIgnored let thumbnailCache: NSCache<NSURL, CGImageBox> = {
         let cache = NSCache<NSURL, CGImageBox>()
         cache.countLimit = 500
@@ -126,15 +130,20 @@ final class AppModel {
     // MARK: Pipeline editing
 
     func addStep(_ kind: StepKind) -> PipelineStep {
+        let step = PipelineStep(operation: Self.newOperation(kind))
+        pipeline.steps.append(step)
+        return step
+    }
+
+    /// A new step's settings: the kind's defaults, with the user's name in a text watermark.
+    static func newOperation(_ kind: StepKind) -> ImageOperation {
         var operation = kind.defaultOperation
         let fullName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
         if case .watermark(var options) = operation, !fullName.isEmpty {
             options.content = .text(TextWatermark(text: "© " + fullName))
             operation = .watermark(options)
         }
-        let step = PipelineStep(operation: operation)
-        pipeline.steps.append(step)
-        return step
+        return operation
     }
 
     func removeStep(_ id: PipelineStep.ID) {
@@ -252,16 +261,28 @@ final class AppModel {
                                      presetName: session.selected?.name, startedAt: runInfo.started)
         progress = nil
         dropMissingItems()
-        let done = report.written.count
-        let skipped = report.failures.count
+        let failed = report.failures.count
         let prefix = report.cancelled ? "Cancelled. " : ""
         let totals = runReport?.summary
         let saved = SizeFormat.savedPhrase(input: totals?.inputBytes ?? 0, output: totals?.outputBytes ?? 0).map { " · \($0)" } ?? ""
-        let what = skipped == 0 ? "\(done) \(done == 1 ? "image" : "images")" : "\(done), \(skipped) skipped"
-        toasts.show("\(prefix)Converted \(what)\(saved)", type: skipped > 0 ? .bad : (report.cancelled ? .info : .ok))
+        toasts.show("\(prefix)\(Self.toastCounts(written: report.written.count, skipped: report.skipped.count, failed: failed))\(saved)",
+                    type: failed > 0 ? .bad : (report.cancelled ? .info : .ok))
     }
 
-    // MARK: Rename example
+    /// "Converted 20 images", or "Converted 20 · 3 skipped by conditions · 1 failed".
+    static func toastCounts(written: Int, skipped: Int, failed: Int) -> String {
+        guard skipped > 0 || failed > 0 else { return "Converted \(written) \(written == 1 ? "image" : "images")" }
+        var parts = ["Converted \(written)"]
+        if skipped > 0 { parts.append("\(skipped) skipped by \(skipped == 1 ? "a condition" : "conditions")") }
+        if failed > 0 { parts.append("\(failed) failed") }
+        return parts.joined(separator: " · ")
+    }
+
+}
+
+// MARK: - Rename example
+
+extension AppModel {
 
     /// What the live example depends on; when it changes the example is recomputed.
     var renameExampleKey: RenameExampleKey {
@@ -283,11 +304,24 @@ final class AppModel {
             renameExample = cached.text
             return
         }
-        let pipeline = self.pipeline
+        var pipeline = self.pipeline
+        var index = key.index
+        var skipped = false
+        // With conditions the example uses this image's branch and its counter number in the batch.
+        if pipeline.hasConditions, let selected = selectedItemIndex,
+           let conditions = await factsCache.preview(of: selected, in: items, pipeline: pipeline) {
+            guard !Task.isCancelled else { return }
+            index = conditions.counterIndex
+            skipped = conditions.resolved.disposition == .skip
+            let rename = pipeline.rename
+            pipeline = conditions.resolved.pipeline
+            pipeline.rename = rename
+        }
         let known = exampleSource.flatMap { $0.url == key.exampleItem ? $0.info : nil }
-        let (info, text) = await Task.detached(priority: .userInitiated) {
-            Self.renderExample(url: key.exampleItem, known: known, pipeline: pipeline, index: key.index)
+        let (info, rendered) = await Task.detached(priority: .userInitiated) { [pipeline, index] in
+            Self.renderExample(url: key.exampleItem, known: known, pipeline: pipeline, index: index)
         }.value
+        let text = skipped ? "\(ConditionalStep.skippedReason): this image isn't written" : rendered
         guard !Task.isCancelled else { return }
         if let url = key.exampleItem { exampleSource = (url, info) }
         exampleCache = (key, text)

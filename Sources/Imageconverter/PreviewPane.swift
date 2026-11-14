@@ -51,12 +51,34 @@ struct PreviewPane: View {
     private var header: some View {
         HStack {
             Text("Preview").font(LadaGlass.Typography.subtitle)
+            conditionChips
             Spacer()
             if let percent = model.zoom.percent {
                 LGChip("\(percent) %", status: .neutral)
                     .accessibilityLabel("Zoom \(percent) percent")
             }
         }
+    }
+
+    /// Which branch each condition takes for the shown image, and whether it is copied or skipped.
+    @ViewBuilder private var conditionChips: some View {
+        if let result = model.previewResult, model.previewFailure == nil,
+           let conditions = model.previewConditions, !conditions.branches.isEmpty {
+            let text = Self.branchText(conditions.branches)
+            LGChip(text, status: .neutral)
+                .help("The pipeline this image gets from its conditions")
+                .accessibilityLabel("Condition: \(text)")
+            if let note = result.statusNote {
+                LGChip(note, status: result.disposition == .skip ? .warn : .ok)
+            }
+        }
+    }
+
+    /// "Then branch" / "Else branch"; with several conditions "1 then · 2 else".
+    static func branchText(_ branches: [ConditionBranch]) -> String {
+        if branches.count == 1 { return branches[0] == .then ? "Then branch" : "Else branch" }
+        return branches.enumerated().map { "\($0.offset + 1) \($0.element == .then ? "then" : "else")" }
+            .joined(separator: " · ")
     }
 
     private var spinner: some View {
