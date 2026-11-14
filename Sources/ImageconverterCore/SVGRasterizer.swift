@@ -1,6 +1,7 @@
 import AppKit
 import CoreGraphics
 import Foundation
+import UniformTypeIdentifiers
 
 /// Turns an SVG watermark into a bitmap. SVG files are untrusted: the file is size-checked and its text
 /// scanned before AppKit ever sees it, and anything that could reach outside the file (links, imports,
@@ -39,43 +40,132 @@ public enum SVGRasterizer {
         return data
     }
 
-    /// Refuses SVG text that isn't UTF-8 SVG, or that could load or run anything. The text is compared
-    /// lowercased with whitespace and quotes removed, so spacing and quoting tricks don't hide a link.
+    /// Refuses SVG text that isn't UTF-8 SVG, or that could load or run anything. Character references and
+    /// CSS escapes are decoded first, then the text is compared lowercased with whitespace and quotes removed,
+    /// so encoding, spacing and quoting tricks don't hide a link.
     static func check(_ data: Data) throws {
-        guard let text = String(data: data, encoding: .utf8) else { throw ConversionError.watermarkImageUnreadable }
-        let compact = String(text.lowercased().unicodeScalars.filter {
+        guard let text = String(data: data, encoding: .utf8), startsWithSVGElement(text) else {
+            throw ConversionError.watermarkImageUnreadable
+        }
+        let decoded = decodeCSSEscapes(decodeCharacterReferences(text))
+        let compact = String(decoded.lowercased().unicodeScalars.filter {
             !CharacterSet.whitespacesAndNewlines.contains($0) && $0 != "\"" && $0 != "'"
         }.map(Character.init))
-        guard compact.contains("<svg") else { throw ConversionError.watermarkImageUnreadable }
         let forbidden = ["<script", "<foreignobject", "@import", "<!entity", "<iframe", "<embed", "<object",
-                         "<?xml-stylesheet", "javascript:"]
+                         "<?xml-stylesheet", "javascript:", "data:",
+                         // Animation that rewrites a link at run time.
+                         "attributename=href", "attributename=xlink:href"]
         if forbidden.contains(where: compact.contains) { throw ConversionError.watermarkSVGUnsafe }
-        // Every link and CSS url() must point inside the file (#id) or be an inline raster image.
+        // Every link and CSS url() must point inside the file (#id).
         for marker in ["href=", "url("] where !referencesAreLocal(compact, after: marker) {
             throw ConversionError.watermarkSVGUnsafe
         }
     }
 
-    /// True when every occurrence of `marker` in `text` is followed by `#` or an inline PNG/JPEG/GIF.
+    /// True when the first element, after an optional BOM, XML declaration, comments and doctype, is `<svg`.
+    static func startsWithSVGElement(_ text: String) -> Bool {
+        var rest = Substring(text)
+        if rest.hasPrefix("\u{FEFF}") { rest = rest.dropFirst() }
+        while true {
+            rest = rest.drop { $0.isWhitespace }
+            if rest.hasPrefix("<?") {
+                guard let end = rest.range(of: "?>") else { return false }
+                rest = rest[end.upperBound...]
+            } else if rest.hasPrefix("<!--") {
+                guard let end = rest.range(of: "-->") else { return false }
+                rest = rest[end.upperBound...]
+            } else if rest.prefix(9).lowercased() == "<!doctype" {
+                // An internal subset ends with "]>", a plain doctype with ">".
+                let closing = rest.contains("[") && (rest.firstIndex(of: "[") ?? rest.endIndex)
+                    < (rest.firstIndex(of: ">") ?? rest.endIndex) ? "]>" : ">"
+                guard let end = rest.range(of: closing) else { return false }
+                rest = rest[end.upperBound...]
+            } else {
+                guard rest.prefix(4).lowercased() == "<svg" else { return false }
+                let next = rest.dropFirst(4).first
+                return next == nil || next == ">" || next == "/" || next?.isWhitespace == true
+            }
+        }
+    }
+
+    /// `&#104;` / `&#x68;` and the five predefined entities, decoded (unknown or invalid ones are kept).
+    static func decodeCharacterReferences(_ text: String) -> String {
+        let named = ["amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'"]
+        var out = ""
+        var rest = Substring(text)
+        while let amp = rest.firstIndex(of: "&") {
+            out += rest[..<amp]
+            let after = rest[rest.index(after: amp)...]
+            guard let semi = after.prefix(12).firstIndex(of: ";") else {
+                out.append("&")
+                rest = after
+                continue
+            }
+            let body = after[..<semi].lowercased()
+            var scalar: Unicode.Scalar?
+            if body.hasPrefix("#x") {
+                scalar = UInt32(body.dropFirst(2), radix: 16).flatMap(Unicode.Scalar.init)
+            } else if body.hasPrefix("#") {
+                scalar = UInt32(body.dropFirst(), radix: 10).flatMap(Unicode.Scalar.init)
+            }
+            if let scalar {
+                out.unicodeScalars.append(scalar)
+            } else if let value = named[body] {
+                out += value
+            } else {
+                out += "&" + after[..<semi] + ";"
+            }
+            rest = after[after.index(after: semi)...]
+        }
+        return out + rest
+    }
+
+    /// CSS escapes: `\72` (1–6 hex digits, one optional space after) becomes the character, `\x` becomes `x`.
+    static func decodeCSSEscapes(_ text: String) -> String {
+        var out = String.UnicodeScalarView()
+        let scalars = Array(text.unicodeScalars)
+        var index = 0
+        while index < scalars.count {
+            let scalar = scalars[index]
+            guard scalar == "\\", index + 1 < scalars.count else {
+                out.append(scalar)
+                index += 1
+                continue
+            }
+            var hex = ""
+            var next = index + 1
+            while next < scalars.count, hex.count < 6, scalars[next].properties.isASCIIHexDigit {
+                hex.unicodeScalars.append(scalars[next])
+                next += 1
+            }
+            if let value = UInt32(hex, radix: 16), !hex.isEmpty {
+                out.append(Unicode.Scalar(value) ?? "\u{FFFD}")
+                if next < scalars.count, scalars[next] == " " { next += 1 }
+                index = next
+            } else {
+                out.append(scalars[index + 1])
+                index += 2
+            }
+        }
+        return String(out)
+    }
+
+    /// True when every occurrence of `marker` in `text` is followed by `#` (a reference inside the file).
     private static func referencesAreLocal(_ text: String, after marker: String) -> Bool {
         var rest = Substring(text)
         while let range = rest.range(of: marker) {
             let value = rest[range.upperBound...]
-            let local = value.hasPrefix("#") || value.isEmpty
-                || ["data:image/png", "data:image/jpeg", "data:image/jpg", "data:image/gif"].contains {
-                    value.hasPrefix($0)
-                }
-            guard local else { return false }
-            rest = rest[range.upperBound...]
+            guard value.hasPrefix("#") || value.isEmpty else { return false }
+            rest = value
         }
         return true
     }
 
     private static func render(_ data: Data, maxPixels: Int) throws -> CGImage {
-        guard let image = NSImage(data: data) else { throw ConversionError.watermarkImageUnreadable }
-        // NSImage sniffs the data: only accept it when AppKit really read it as SVG.
-        guard image.representations.contains(where: { String(describing: type(of: $0)).contains("SVG") }) else {
-            throw ConversionError.watermarkSVGUnsupported
+        // The content is known to be SVG (`check`); whether AppKit can draw it is a property of this macOS.
+        guard NSImage.imageTypes.contains(UTType.svg.identifier) else { throw ConversionError.watermarkSVGUnsupported }
+        guard let image = NSImage(data: data), !image.representations.isEmpty else {
+            throw ConversionError.watermarkImageUnreadable
         }
         let natural = image.size
         guard natural.width.isFinite, natural.height.isFinite, natural.width > 0, natural.height > 0 else {

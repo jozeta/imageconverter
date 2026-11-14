@@ -46,7 +46,7 @@ final class WatermarkTemplatesTests: XCTestCase {
         XCTAssertTrue(builtIns.allSatisfy(\.isBuiltIn))
         XCTAssertEqual(builtIns[0].options.anchor, .bottomRight)
         XCTAssertEqual(builtIns[0].options.sizePercent, 4)
-        XCTAssertEqual(builtIns[1].options.rotation, 30)
+        XCTAssertEqual(builtIns[1].options.rotation, -30)
         XCTAssertEqual(builtIns[1].options.opacity, 0.15)
         XCTAssertEqual(builtIns[1].options.layout, .tiled(spacing: 100, stagger: true))
         XCTAssertEqual(builtIns[2].options.anchor, .bottomLeft)

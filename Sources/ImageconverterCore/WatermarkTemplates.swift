@@ -36,7 +36,7 @@ public enum WatermarkTemplates {
         let corner = WatermarkOptions(content: .text(TextWatermark(text: "© {year} {artist}")), anchor: .bottomRight,
                                       sizePercent: 4, opacity: WatermarkOptions.defaultOpacity, marginPercent: 3)
         let tiled = WatermarkOptions(content: .text(TextWatermark(text: "© {artist}")), anchor: .center,
-                                     sizePercent: 5, opacity: 0.15, marginPercent: 0, rotation: 30,
+                                     sizePercent: 5, opacity: 0.15, marginPercent: 0, rotation: -30,
                                      layout: .tiled(spacing: 100, stagger: true))
         let filename = WatermarkOptions(
             content: .text(TextWatermark(text: "{filename} · {date}", shadow: WatermarkShadow())),

@@ -42,6 +42,25 @@ final class WatermarkTextTests: XCTestCase {
                        "© Step / Step Artist")
         step.isEnabled = false
         XCTAssertEqual(WatermarkText.render("{copyright}", context: context(metadata: step)), "© Source")
+        // A field the active step removes renders empty (it mustn't reappear in the pixels)…
+        var removing = MetadataOptions(isEnabled: true, removeLocation: false)
+        removing.removeAuthor = true
+        XCTAssertEqual(WatermarkText.render("{artist}|{copyright}", context: context(metadata: removing)),
+                       "|© Source")
+        removing = MetadataOptions(isEnabled: true, removeAll: true, removeLocation: false)
+        XCTAssertEqual(WatermarkText.render("{artist}|{copyright}", context: context(metadata: removing)), "|")
+        removing.keepWhenRemovingAll = [.copyright]
+        XCTAssertEqual(WatermarkText.render("{artist}|{copyright}", context: context(metadata: removing)),
+                       "|© Source")
+        removing.keepWhenRemovingAll = [.author]
+        XCTAssertEqual(WatermarkText.render("{artist}|{copyright}", context: context(metadata: removing)),
+                       "Source Artist|")
+        // …unless the step also sets it (removal runs first), and a switched-off step removes nothing.
+        removing.copyright = "© Step"
+        XCTAssertEqual(WatermarkText.render("{copyright}", context: context(metadata: removing)), "© Step")
+        removing.isEnabled = false
+        XCTAssertEqual(WatermarkText.render("{artist}|{copyright}", context: context(metadata: removing)),
+                       "Source Artist|© Source")
         // Unknown tokens, and date patterns outside the safe subset, stay literal.
         XCTAssertEqual(WatermarkText.render("{nope} {date:'x'} {Filename}", context: source),
                        "{nope} {date:'x'} {Filename}")

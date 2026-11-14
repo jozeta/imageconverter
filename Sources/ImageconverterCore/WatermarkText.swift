@@ -23,7 +23,8 @@ public struct WatermarkTextContext: Equatable, Sendable {
     }
 
     /// The context for `source`. Copyright and artist come from the Metadata step when it is active and sets
-    /// them (an empty value counts: it clears the field), else from the source's EXIF/TIFF, IPTC or PNG fields.
+    /// them (an empty value counts: it clears the field); else they are empty when the step removes them, and
+    /// otherwise come from the source's EXIF/TIFF, IPTC or PNG fields.
     public static func make(source: URL, properties: [String: Any], metadata: MetadataOptions,
                             fileCreationDate: Date?) -> WatermarkTextContext {
         let tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any]
@@ -35,13 +36,19 @@ public struct WatermarkTextContext: Equatable, Sendable {
         let sourceArtist = text(tiff?[kCGImagePropertyTIFFArtist as String])
             ?? text(iptc?[kCGImagePropertyIPTCByline as String])
             ?? text(png?[kCGImagePropertyPNGAuthor as String])
-        let fromStep = metadata.isActive
+        let step = metadata.isActive
+        // Removal happens before setting: a value the step sets wins; a field it removes renders empty, so the
+        // stripped author or copyright doesn't reappear in the pixels.
+        let removesAll = step && metadata.removeAll
+        let removesArtist = step && (metadata.removeAuthor && !metadata.removeAll
+            || removesAll && !metadata.keepWhenRemovingAll.contains(.author))
+        let removesCopyright = removesAll && !metadata.keepWhenRemovingAll.contains(.copyright)
         return WatermarkTextContext(
             fileName: source.deletingPathExtension().lastPathComponent,
             fileNameWithExtension: source.lastPathComponent,
             date: RenameContext.captureDate(properties: properties, fileCreationDate: fileCreationDate),
-            copyright: (fromStep ? metadata.copyright : nil) ?? sourceCopyright,
-            artist: (fromStep ? metadata.artist : nil) ?? sourceArtist)
+            copyright: (step ? metadata.copyright : nil) ?? (removesCopyright ? nil : sourceCopyright),
+            artist: (step ? metadata.artist : nil) ?? (removesArtist ? nil : sourceArtist))
     }
 
     /// A string, or the first string of an array (IPTC Byline is a list); nil when empty.

@@ -212,8 +212,9 @@ final class WatermarkRenderTests: XCTestCase {
         options.content = .image(ImageWatermark(path: "x", shadow: WatermarkShadow(
             color: RGBAColor(red: 0, green: 0, blue: 1, alpha: 1), blur: 0, offset: 20)))
         let out = try ImageOps.watermark(base, options, asset: solid(100, 50, [1, 0, 0]))
-        // Rect x 331...391, y 261...291; the shadow is 6 px down and right.
-        let below = TestImages.pixel(of: out, x: 388, y: 294)
+        // The shadow (6 px down-right) counts in placement: the mark is x 325...385, y 255...285 and its shadow
+        // x 331...391, y 261...291, flush with the 9 px margin.
+        let below = TestImages.pixel(of: out, x: 388, y: 288)
         XCTAssertGreaterThan(below.blue, 200)
         XCTAssertLessThan(below.red, 60)
     }
@@ -231,5 +232,33 @@ final class WatermarkRenderTests: XCTestCase {
         }
         // A token that renders to nothing draws nothing.
         XCTAssertTrue(try ImageOps.watermark(base, textOptions("{artist}"), asset: nil, context: context) === base)
+    }
+
+    func testStyledMarkKeepsTheMargin() throws {
+        let base = TestImages.make(width: 400, height: 300, color: black)
+        var options = textOptions("IIII", anchor: .bottomRight)
+        options.content = .text(TextWatermark(
+            text: "IIII", fontName: "Helvetica-Bold", color: .white,
+            shadow: WatermarkShadow(color: RGBAColor(red: 0, green: 0, blue: 1, alpha: 1), blur: 10, offset: 20),
+            outline: WatermarkOutline(color: RGBAColor(red: 1, green: 0, blue: 0, alpha: 1), width: 20)))
+        let out = try ImageOps.watermark(base, options, asset: nil)
+        // 9 px margin on the right and bottom: nothing at all is drawn there.
+        XCTAssertTrue(hasInk(out, x: 0..<400, y: 200..<291, base: 0))
+        XCTAssertFalse(contains(out, x: 392..<400, y: 0..<300) { $0.red > 20 || $0.blue > 20 })
+        XCTAssertFalse(contains(out, x: 0..<400, y: 292..<300) { $0.red > 20 || $0.blue > 20 })
+    }
+
+    func testLargeTiledShadowCompletes() throws {
+        // 24 MP, the tiled built-in with a shadow: one stamped draw per tile, so this stays quick.
+        let base = TestImages.make(width: 6000, height: 4000, color: white)
+        var options = WatermarkTemplates.builtIns[1].options
+        options.content = .text(TextWatermark(text: "© Someone", shadow: WatermarkShadow()))
+        let start = Date()
+        let out = try ImageOps.watermark(base, options, asset: nil)
+        XCTAssertEqual(out.width, 6000)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 30)
+        // Marks really were drawn, near the corners too.
+        XCTAssertTrue(contains(out, x: 0..<400, y: 0..<400) { $0.red < 245 })
+        XCTAssertTrue(contains(out, x: 5600..<6000, y: 3600..<4000) { $0.red < 245 })
     }
 }

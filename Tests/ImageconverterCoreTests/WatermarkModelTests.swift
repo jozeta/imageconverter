@@ -231,4 +231,49 @@ final class WatermarkModelTests: XCTestCase {
             imageSize: CGSize(width: 20000, height: 20000), contentSize: CGSize(width: 10, height: 10), options: tiny))
         XCTAssertLessThanOrEqual(many.centers.count, Geometry.maxTiles)
     }
+
+    func testStyleExtentsCountInPlacement() throws {
+        let text = TextWatermark(text: "A", shadow: WatermarkShadow(blur: 10, offset: 20),
+                                 outline: WatermarkOutline(width: 10))
+        let options = WatermarkOptions(content: .text(text), anchor: .bottomRight, sizePercent: 10, opacity: 1,
+                                       marginPercent: 5)
+        let placement = try XCTUnwrap(Geometry.watermarkPlacement(
+            imageSize: CGSize(width: 1000, height: 800), contentSize: CGSize(width: 50, height: 50), options: options))
+        let center = try XCTUnwrap(placement.centers.first)
+        let extent = placement.extentBox(at: center)
+        XCTAssertEqual(extent.maxX, 960, accuracy: 0.001)
+        XCTAssertEqual(extent.maxY, 760, accuracy: 0.001)
+        // 80 px mark: outline 8 px around it, shadow reaching 24 px (offset 16 + blur 8) past it down-right.
+        XCTAssertEqual(placement.boundingSize.height, 96, accuracy: 0.001)
+        XCTAssertEqual(placement.shadowTrailing.height, 24, accuracy: 0.001)
+        XCTAssertEqual(placement.shadowLeading.height, 0, accuracy: 0.001)
+    }
+
+    func testCraftedTinySizeDoesNotTrap() {
+        for layout in [WatermarkLayout.single, .tiled(spacing: 0, stagger: true), .tiled(spacing: 400, stagger: false)] {
+            let options = WatermarkOptions(content: .image(ImageWatermark(path: "a")), sizePercent: 1e-300,
+                                           layout: layout)
+            XCTAssertNil(Geometry.watermarkPlacement(imageSize: CGSize(width: 8000, height: 6000),
+                                                     contentSize: CGSize(width: 10, height: 10), options: options))
+        }
+        let tiny = WatermarkOptions(content: .image(ImageWatermark(path: "a")), sizePercent: 1e-300,
+                                    layout: .tiled(spacing: 0, stagger: true))
+        let base = TestImages.make(width: 40, height: 30)
+        XCTAssertTrue(try ImageOps.watermark(base, tiny, asset: TestImages.make(width: 4, height: 4)) === base)
+    }
+
+    func testLayoutDecodesLeniently() throws {
+        let decoder = JSONDecoder()
+        XCTAssertEqual(try decoder.decode(WatermarkLayout.self, from: Data(#"{"tiled":{"spacing":50}}"#.utf8)),
+                       .tiled(spacing: 50, stagger: true))
+        XCTAssertEqual(try decoder.decode(WatermarkLayout.self, from: Data(#"{"tiled":{}}"#.utf8)),
+                       .tiled(spacing: 100, stagger: true))
+        XCTAssertEqual(try decoder.decode(WatermarkLayout.self, from: Data(#"{"spiral":{}}"#.utf8)), .single)
+        XCTAssertEqual(try decoder.decode(WatermarkLayout.self, from: Data(#"{"single":{}}"#.utf8)), .single)
+        for layout in [WatermarkLayout.single, .tiled(spacing: 30, stagger: false)] {
+            let data = try JSONEncoder().encode(layout)
+            XCTAssertEqual(try decoder.decode(WatermarkLayout.self, from: data), layout)
+        }
+        XCTAssertEqual(String(data: try JSONEncoder().encode(WatermarkLayout.single), encoding: .utf8), #"{"single":{}}"#)
+    }
 }

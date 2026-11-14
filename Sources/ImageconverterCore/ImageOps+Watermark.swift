@@ -24,11 +24,21 @@ extension ImageOps {
                                                           options: options),
               !placement.centers.isEmpty else { return image }
 
+        // A styled text mark is drawn once into a small image (outline under the fill), then stamped per tile,
+        // so a tiled layout costs one image draw per copy.
+        var stamp: Stamp?
+        if case .text(let line, let text) = mark, text.shadow != nil || (text.outline?.clampedWidth ?? 0) > 0 {
+            guard let built = textStamp(line, text, size: placement.markSize) else {
+                throw ConversionError.processingFailed(step)
+            }
+            stamp = built
+        }
+
         let ctx = try ImageOps.context(imageSize, like: image, step: step, alpha: hasAlpha(image))
         draw(image, at: .zero, size: imageSize, in: ctx)
         ctx.setAlpha(CGFloat(options.clampedOpacity))
         for center in placement.centers {
-            drawMark(mark, placement: placement, center: center, in: ctx)
+            drawMark(mark, stamp: stamp, placement: placement, center: center, in: ctx)
         }
         return try finish(ctx, step: step)
     }
@@ -53,54 +63,80 @@ extension ImageOps {
         }
     }
 
-    /// One copy of the mark, rotated about `center` (top-left coordinates). With a shadow or outline the parts
-    /// are composed in a transparency layer first, so the opacity and the shadow apply to the mark as a whole.
-    private static func drawMark(_ mark: Mark, placement: WatermarkPlacement, center: CGPoint, in ctx: CGContext) {
+    /// A pre-rendered styled mark and the size it is drawn at (centred on the mark's centre).
+    private struct Stamp {
+        let image: CGImage
+        let size: CGSize
+    }
+
+    /// The text with its outline, at its final pixel size, on a transparent bitmap padded by the outline width.
+    private static func textStamp(_ line: TextLine, _ text: TextWatermark, size: CGSize) -> Stamp? {
+        let outlineWidth = size.height * CGFloat(text.outline?.clampedWidth ?? 0) / 100
+        let width = Int((size.width + 2 * outlineWidth).rounded(.up)) + 2
+        let height = Int((size.height + 2 * outlineWidth).rounded(.up)) + 2
+        guard width <= maxPixels / max(1, height), let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return nil
+        }
+        // The mark's box, centred in the bitmap (y-up).
+        let box = CGRect(x: (CGFloat(width) - size.width) / 2, y: (CGFloat(height) - size.height) / 2,
+                         width: size.width, height: size.height)
+        // The line was measured at `referenceFontSize`; scale it to the box. `line.origin` is where the measured
+        // box starts relative to the baseline origin.
+        let scale = size.height / line.size.height
+        ctx.translateBy(x: box.minX - line.origin.x * scale, y: box.minY - line.origin.y * scale)
+        ctx.scaleBy(x: scale, y: scale)
+        if outlineWidth > 0, let outline = text.outline {
+            // The stroke is centred on the glyph edge and the fill covers its inner half.
+            ctx.setTextDrawingMode(.stroke)
+            ctx.setLineWidth(2 * outlineWidth / scale)
+            ctx.setLineJoin(.round)
+            ctx.setStrokeColor(cgColor(outline.color))
+            ctx.textPosition = .zero
+            CTLineDraw(line.line, ctx)
+            ctx.setTextDrawingMode(.fill)
+        }
+        ctx.setFillColor(cgColor(text.color))
+        ctx.textPosition = .zero
+        CTLineDraw(line.line, ctx)
+        guard let image = ctx.makeImage() else { return nil }
+        return Stamp(image: image, size: CGSize(width: width, height: height))
+    }
+
+    /// One copy of the mark, rotated about `center` (top-left coordinates). Each copy is a single draw, so the
+    /// opacity and shadow apply to the mark as a whole.
+    private static func drawMark(_ mark: Mark, stamp: Stamp?, placement: WatermarkPlacement, center: CGPoint,
+                                 in ctx: CGContext) {
         let size = placement.markSize
         ctx.saveGState()
         defer { ctx.restoreGState() }
-        // Core Graphics is y-up, so a clockwise turn is a negative angle.
-        ctx.translateBy(x: center.x, y: CGFloat(ctx.height) - center.y)
-        ctx.rotate(by: -CGFloat(placement.degrees) * .pi / 180)
-        let rect = CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height)
-
-        var outlineWidth: CGFloat = 0
-        if case .text(_, let text) = mark, let outline = text.outline, outline.clampedWidth > 0 {
-            outlineWidth = size.height * CGFloat(outline.clampedWidth) / 100
-        }
-        let shadow = mark.shadow
-        if let shadow {
+        if let shadow = mark.shadow {
             // Shadow offsets and blur are in device space, so "down-right" holds whatever the rotation.
             let offset = size.height * CGFloat(shadow.clampedOffset) / 100
             ctx.setShadow(offset: CGSize(width: offset, height: -offset),
                           blur: size.height * CGFloat(shadow.clampedBlur) / 100, color: cgColor(shadow.color))
         }
-        let layered = shadow != nil || outlineWidth > 0
-        if layered { ctx.beginTransparencyLayer(in: rect.insetBy(dx: -outlineWidth, dy: -outlineWidth), auxiliaryInfo: nil) }
+        // Core Graphics is y-up, so a clockwise turn is a negative angle.
+        ctx.translateBy(x: center.x, y: CGFloat(ctx.height) - center.y)
+        ctx.rotate(by: -CGFloat(placement.degrees) * .pi / 180)
+        if let stamp {
+            ctx.draw(stamp.image, in: CGRect(x: -stamp.size.width / 2, y: -stamp.size.height / 2,
+                                             width: stamp.size.width, height: stamp.size.height))
+            return
+        }
+        let rect = CGRect(x: -size.width / 2, y: -size.height / 2, width: size.width, height: size.height)
         switch mark {
         case .image(let asset, _):
             ctx.draw(asset, in: rect)
         case .text(let line, let text):
-            // The line was measured at `referenceFontSize`; scale it to the rect. `line.origin` is where the
-            // measured box starts relative to the baseline origin.
             let scale = size.height / line.size.height
             ctx.translateBy(x: rect.minX - line.origin.x * scale, y: rect.minY - line.origin.y * scale)
             ctx.scaleBy(x: scale, y: scale)
-            if outlineWidth > 0, let outline = text.outline {
-                // The stroke is centred on the glyph edge and the fill covers its inner half.
-                ctx.setTextDrawingMode(.stroke)
-                ctx.setLineWidth(2 * outlineWidth / scale)
-                ctx.setLineJoin(.round)
-                ctx.setStrokeColor(cgColor(outline.color))
-                ctx.textPosition = .zero
-                CTLineDraw(line.line, ctx)
-                ctx.setTextDrawingMode(.fill)
-            }
             ctx.setFillColor(cgColor(text.color))
             ctx.textPosition = .zero
             CTLineDraw(line.line, ctx)
         }
-        if layered { ctx.endTransparencyLayer() }
     }
 
     private static let referenceFontSize: CGFloat = 100

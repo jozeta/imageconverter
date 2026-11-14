@@ -149,4 +149,33 @@ final class SVGRasterizerTests: XCTestCase {
         XCTAssertGreaterThan(pixel.red, 250)
         XCTAssertLessThan(pixel.green, 5)
     }
+
+    func testEncodedAndAnimatedLinksRejected() throws {
+        // Character references and CSS escapes are decoded before the scan.
+        try assertUnsafe(##"<rect style="fill:u&#114;l(http://example.com/p.svg#p)" width="5" height="5"/>"##)
+        try assertUnsafe(##"<style>@&#x69;mport "x.css";</style>"##)
+        try assertUnsafe(##"<style>rect { fill: u\72 l(http://example.com/p.svg#p) }</style>"##)
+        try assertUnsafe(##"<style>@\69mport "x.css";</style>"##)
+        try assertUnsafe(##"<a><set attributeName="href" to="http://example.com"/></a>"##)
+        try assertUnsafe(##"<use href="#a"><animate attributeName="xlink:href" values="http://x/a.svg#a"/></use>"##)
+    }
+
+    func testDataURIsRejected() throws {
+        // An embedded raster would be decoded by AppKit outside the pixel guard.
+        try assertUnsafe(##"<image href="data:image/png;base64,iVBORw0KGgo=" width="5" height="5"/>"##)
+        try assertUnsafe(##"<image xlink:href="DATA:image/svg+xml,%3Csvg/%3E"/>"##)
+    }
+
+    func testSVGDetectedByContent() throws {
+        let rect = ##"<rect width="40" height="20" fill="red"/>"##
+        let prolog = "\u{FEFF}<?xml version=\"1.0\"?>\n<!-- logo -->\n<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" "
+            + "\"svg11.dtd\">\n" + svg(rect)
+        _ = try rasterizeOrSkip(try write(prolog))
+        for text in ["<html><body>" + svg(rect) + "</body></html>", "<svgx/>" + svg(rect), "hello " + svg(rect)] {
+            let url = try write(text, name: "x.svg")
+            XCTAssertThrowsError(try SVGRasterizer.rasterize(url: url), text) {
+                XCTAssertEqual($0 as? ConversionError, .watermarkImageUnreadable, text)
+            }
+        }
+    }
 }
