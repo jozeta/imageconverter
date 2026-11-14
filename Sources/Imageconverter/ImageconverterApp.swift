@@ -41,13 +41,13 @@ struct ImageconverterApp: App {
             JobsCommands()
             HistoryCommands()
             PrivacyCommands()
+            AboutCommands()
             CommandGroup(after: .saveItem) {
                 Button("Save Preset") { model.saveCurrent() }
                     .keyboardShortcut("s", modifiers: .command)
                     .disabled(model.isRunning)
             }
             CommandGroup(after: .toolbar) {
-            AboutCommands()
                 Button(model.previewCollapsed ? "Show Preview" : "Hide Preview") { model.togglePreview() }
                     .keyboardShortcut("p", modifiers: [.option, .command])
                 Button(model.pipelineCollapsed ? "Expand Pipeline" : "Collapse Pipeline") { model.togglePipeline() }
@@ -87,17 +87,17 @@ struct ImageconverterApp: App {
         }
         .defaultSize(width: 900, height: 560)
 
+        Window("About imageconverter", id: AboutView.windowID) {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
+
         Window("Privacy", id: PrivacyWindow.windowID) {
             PrivacyWindow()
         }
         .defaultSize(width: 480, height: 520)
 
         MenuBarExtra("imageconverter", systemImage: jobs.runningCount > 0 ? "arrow.triangle.2.circlepath" : "photo.stack",
-        Window("About imageconverter", id: AboutView.windowID) {
-            AboutView()
-        }
-        .windowResizability(.contentSize)
-
                      isInserted: $jobs.keepInMenuBar) {
             MenuBarContent(controller: jobs)
         }
@@ -198,13 +198,13 @@ private struct MainWindowContent: View {
     /// `-debugShowHistory` opens the History window.
     private func openJobsWindowIfAsked(_ arguments: [String]) {
         if arguments.contains("-debugShowJobs") || arguments.contains("-debugEditJob") { openWindow(id: JobsView.windowID) }
+        if arguments.contains("-debugShowAbout") { openWindow(id: AboutView.windowID) }
         if arguments.contains("-debugShowPrivacy") { openWindow(id: PrivacyWindow.windowID) }
         if arguments.contains("-debugShowHistory") { openWindow(id: HistoryView.windowID) }
     }
 
     /// Debug-only launch options for screenshots: `-debugAddFiles <path>…` adds images at launch,
     /// `-debugZoom <scale>` starts the preview zoomed (scale relative to fit) and `-debugWindowWidth <points>`
-        if arguments.contains("-debugShowAbout") { openWindow(id: AboutView.windowID) }
     /// widens the window once it has its first size, `-debugSelect <index>` selects an image and
     /// `-debugShowQuality` opens the Compare quality panel.
     private func applyDebugArguments() {
