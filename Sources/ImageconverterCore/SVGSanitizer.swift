@@ -10,6 +10,9 @@ enum SVGSanitizer {
     static let xmlNamespace = "http://www.w3.org/XML/1998/namespace"
     static let maxDepth = 64
     static let maxElements = 20_000
+    static let maxAttributes = 64
+    /// Most element instances the file may expand to once `use`, pattern, mask and clip references are followed.
+    static let maxInstances = 10_000
 
     /// A parsed, validated element.
     final class Element {
@@ -53,6 +56,7 @@ enum SVGSanitizer {
         let text = try decodeUTF8(data)
         try checkProlog(text)
         let root = try parse(Data(text.utf8))
+        try checkReferences(root)
         return Data(serialize(root).utf8)
     }
 
@@ -73,12 +77,34 @@ enum SVGSanitizer {
     static func checkProlog(_ text: String) throws {
         let lower = text.lowercased()
         if lower.contains("<!doctype") || lower.contains("<!entity") { throw ConversionError.watermarkSVGUnsafe }
-        guard lower.hasPrefix("<?xml"), let end = lower.range(of: "?>") else { return }
-        let declaration = lower[..<end.lowerBound]
-        guard let key = declaration.range(of: "encoding") else { return }
-        let value = declaration[key.upperBound...].drop { $0.isWhitespace || $0 == "=" || $0 == "\"" || $0 == "'" }
-            .prefix { $0 != "\"" && $0 != "'" && !$0.isWhitespace }
-        guard value == "utf-8" || value == "utf8" else { throw ConversionError.watermarkSVGUnsafe }
+        // `<?xml` followed by whitespace is the declaration (`<?xml-stylesheet` is a PI the parser refuses).
+        guard lower.hasPrefix("<?xml"), lower.dropFirst(5).first?.isWhitespace == true else { return }
+        guard let end = lower.range(of: "?>"),
+              let pseudo = declarationAttributes(lower[lower.index(lower.startIndex, offsetBy: 5)..<end.lowerBound]) else {
+            throw ConversionError.watermarkImageUnreadable
+        }
+        if let encoding = pseudo["encoding"], encoding != "utf-8", encoding != "utf8" {
+            throw ConversionError.watermarkSVGUnsafe
+        }
+    }
+
+    /// The XML declaration's `name="value"` pairs (either quote), or nil when it isn't well-formed.
+    static func declarationAttributes(_ text: Substring) -> [String: String]? {
+        var pairs: [String: String] = [:]
+        var rest = text.drop { $0.isWhitespace }
+        while !rest.isEmpty {
+            let name = rest.prefix { $0.isLetter }
+            guard !name.isEmpty else { return nil }
+            rest = rest.dropFirst(name.count).drop { $0.isWhitespace }
+            guard rest.first == "=" else { return nil }
+            rest = rest.dropFirst().drop { $0.isWhitespace }
+            guard let quote = rest.first, quote == "\"" || quote == "'" else { return nil }
+            rest = rest.dropFirst()
+            guard let close = rest.firstIndex(of: quote) else { return nil }
+            pairs[String(name)] = String(rest[..<close])
+            rest = rest[rest.index(after: close)...].drop { $0.isWhitespace }
+        }
+        return pairs
     }
 
     static func parse(_ data: Data) throws -> Element {
@@ -133,8 +159,9 @@ enum SVGSanitizer {
     /// Every `url(` must be exactly `url(#id)`; a style value may not use `@`, `\`, `expression` or `import`.
     static func checkValue(_ value: String, isStyle: Bool) throws {
         let lower = value.lowercased()
-        if isStyle, ["@", "\\", "expression", "import"].contains(where: lower.contains) {
-            throw ConversionError.watermarkSVGUnsafe
+        if isStyle {
+            if ["@", "\\", "expression", "import"].contains(where: lower.contains) { throw ConversionError.watermarkSVGUnsafe }
+            try checkStyle(lower)
         }
         var rest = Substring(lower)
         while let open = rest.range(of: "url(") {
@@ -220,13 +247,16 @@ enum SVGSanitizer {
                     qualifiedName qName: String?, attributes attributeDict: [String: String] = [:]) {
             guard refusal == nil else { return }
             count += 1
-            guard count <= maxElements, stack.count < maxDepth else { return refuse(parser) }
+            guard count <= maxElements, stack.count < maxDepth, attributeDict.count <= maxAttributes else {
+                return refuse(parser)
+            }
             // The root decides whether this is an SVG at all; anything else inside it is a violation.
             guard namespaceURI == svgNamespace, elements.contains(elementName) else {
                 return refuse(parser, stack.isEmpty ? .watermarkImageUnreadable : .watermarkSVGUnsafe)
             }
             if stack.isEmpty, elementName != "svg" { return refuse(parser, .watermarkImageUnreadable) }
             let element = Element(name: elementName)
+            var seen = Set<String>()
             // Sorted, so the canonical output doesn't depend on dictionary order.
             for (name, value) in attributeDict.sorted(by: { $0.key < $1.key }) {
                 let parts = name.split(separator: ":", maxSplits: 1).map(String.init)
@@ -235,9 +265,7 @@ enum SVGSanitizer {
                 do {
                     let canonical = try validatedAttribute(element: elementName, name: name, uri: uri, value: value)
                     // `href` and `xlink:href` both become `xlink:href`; keep one.
-                    if !element.attributes.contains(where: { $0.0 == canonical }) {
-                        element.attributes.append((canonical, value))
-                    }
+                    if seen.insert(canonical).inserted { element.attributes.append((canonical, value)) }
                 } catch {
                     return refuse(parser, error as? ConversionError ?? .watermarkSVGUnsafe)
                 }
