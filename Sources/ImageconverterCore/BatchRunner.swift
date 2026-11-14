@@ -20,6 +20,8 @@ public struct BatchFailure: Equatable, Sendable {
     public let reason: String
     /// Size of the source file, read on the worker before it was touched; nil if it couldn't be read.
     public let inputBytes: Int?
+    /// Seconds the worker spent on the file (0 when unknown); set by the runner after the fact.
+    public var duration: Double = 0
 
     public init(source: URL, reason: String, inputBytes: Int? = nil) {
         self.source = source
@@ -60,6 +62,12 @@ public struct BatchResultEntry: Equatable, Sendable {
     public let inputBytes: Int?
     public let outputBytes: Int
     public let note: String?
+    /// Seconds the worker spent on the file, and the pixel sizes read before and after (set by the runner).
+    public var duration: Double = 0
+    public var inputWidth: Int?
+    public var inputHeight: Int?
+    public var outputWidth: Int?
+    public var outputHeight: Int?
 
     public init(source: URL, destination: URL, inputBytes: Int?, outputBytes: Int, note: String? = nil) {
         self.source = source
@@ -114,9 +122,11 @@ struct EncodedItem {
 /// A written file and its note, if any.
 struct WrittenItem {
     let url: URL
-    let note: String?
+    var note: String?
     let inputBytes: Int?
     let outputBytes: Int
+    var inputSize: (width: Int, height: Int)?
+    var outputSize: (width: Int, height: Int)?
 }
 
 public enum BatchRunner {
@@ -169,7 +179,7 @@ public enum BatchRunner {
 
     static func makeReport(
         plans: [PlannedOutput], outcomes: [Result<WrittenItem?, ConversionError>?], inputSizes: [Int?],
-        cancelled: Bool
+        cancelled: Bool, durations: [TimeInterval] = []
     ) -> BatchReport {
         var report = BatchReport(cancelled: cancelled)
         for (index, (plan, outcome)) in zip(plans, outcomes).enumerated() {
@@ -178,13 +188,18 @@ public enum BatchRunner {
                 report.order.append(plan.item.source)
                 report.written.append(item.url)
                 if let note = item.note { report.notes.append(BatchNote(source: plan.item.source, text: note)) }
-                report.entries.append(BatchResultEntry(
+                var entry = BatchResultEntry(
                     source: plan.item.source, destination: item.url, inputBytes: item.inputBytes,
-                    outputBytes: item.outputBytes, note: item.note))
+                    outputBytes: item.outputBytes, note: item.note)
+                entry.duration = index < durations.count ? durations[index] : 0
+                (entry.inputWidth, entry.inputHeight) = (item.inputSize?.width, item.inputSize?.height)
+                (entry.outputWidth, entry.outputHeight) = (item.outputSize?.width, item.outputSize?.height)
+                report.entries.append(entry)
             case .failure(let error):
                 report.order.append(plan.item.source)
-                report.failures.append(BatchFailure(source: plan.item.source, reason: error.reason,
-                                                    inputBytes: inputSizes[index]))
+                var failure = BatchFailure(source: plan.item.source, reason: error.reason, inputBytes: inputSizes[index])
+                failure.duration = index < durations.count ? durations[index] : 0
+                report.failures.append(failure)
             case .success(nil), nil: break
             }
         }
@@ -197,6 +212,7 @@ public enum BatchRunner {
     ) -> (Result<WrittenItem?, ConversionError>, Int?) {
         // Read on the worker, before overwrite mode replaces the source.
         let inputBytes = fileSize(plan.item.source)
+        let inputSize = ImageLoader.pixelSize(of: plan.item.source)
         return (autoreleasepool { () -> Result<WrittenItem?, ConversionError> in
             do {
                 let encoded = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
@@ -211,8 +227,11 @@ public enum BatchRunner {
                                                          source: sourceDates) {
                     notes.append(failure)
                 }
-                return .success(WrittenItem(url: plan.destination, note: notes.isEmpty ? nil : notes.joined(separator: "; "),
-                                            inputBytes: inputBytes, outputBytes: encoded.data.count))
+                var written = WrittenItem(url: plan.destination, note: notes.isEmpty ? nil : notes.joined(separator: "; "),
+                                          inputBytes: inputBytes, outputBytes: encoded.data.count)
+                written.inputSize = inputSize
+                written.outputSize = ImageLoader.pixelSize(of: encoded.data)
+                return .success(written)
             } catch is CancellationError {
                 return .success(nil)
             } catch let error as ConversionError {

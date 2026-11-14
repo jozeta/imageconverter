@@ -77,6 +77,17 @@ final class BatchRunnerTests: XCTestCase {
         XCTAssertEqual(report.outputBytes, report.entries.map(\.outputBytes).reduce(0, +))
     }
 
+    func testRunnerRecordsDurationAndPixelSizes() async throws {
+        let src = try directory("src")
+        let url = src.appendingPathComponent("a.png")
+        try TestImages.write(TestImages.make(width: 30, height: 20), to: url, type: .png)
+        let report = await BatchRunner.run(InputCollector.collect([url]), pipeline: Pipeline(output: .init(format: .jpeg)),
+                                           mode: .newFolder(root.appendingPathComponent("out", isDirectory: true)))
+        let entry = try XCTUnwrap(report.entries.first)
+        XCTAssertGreaterThan(entry.duration, 0)
+        XCTAssertEqual([entry.inputWidth, entry.inputHeight, entry.outputWidth, entry.outputHeight], [30, 20, 30, 20])
+    }
+
     func testOverwriteMeasuresInputBeforeReplacing() async throws {
         let src = try directory("src")
         let url = src.appendingPathComponent("a.jpg")

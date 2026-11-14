@@ -59,3 +59,28 @@ final class ProcessingReportTests: XCTestCase {
         XCTAssertTrue(SizeFormat.savedPhrase(input: 1000, output: 1200)?.hasPrefix("grew by") ?? false)
     }
 }
+
+final class ProcessingReportTimingTests: XCTestCase {
+    func testDurationsAndSizesReachTheReport() {
+        var written = BatchResultEntry(source: URL(fileURLWithPath: "/in/a.jpg"), destination: URL(fileURLWithPath: "/out/a.jpg"),
+                                       inputBytes: 100, outputBytes: 50)
+        written.duration = 2
+        (written.inputWidth, written.inputHeight, written.outputWidth, written.outputHeight) = (40, 30, 20, 15)
+        var other = written
+        other = BatchResultEntry(source: URL(fileURLWithPath: "/in/b.jpg"), destination: URL(fileURLWithPath: "/out/b.jpg"),
+                                 inputBytes: 100, outputBytes: 100)
+        other.duration = 4
+        var failure = BatchFailure(source: URL(fileURLWithPath: "/in/c.jpg"), reason: "x", inputBytes: 1)
+        failure.duration = 1
+        var batch = BatchReport(entries: [written, other])
+        batch.failures = [failure]
+        let report = ProcessingReport(batch: batch, total: 3, outputMode: "x", startedAt: Date(timeIntervalSince1970: 10),
+                                      finishedAt: Date(timeIntervalSince1970: 17))
+        XCTAssertEqual(report.entries[0].duration, 2)
+        XCTAssertEqual(report.entries[0].outputWidth, 20)
+        XCTAssertEqual(report.entries[2].duration, 1)
+        XCTAssertEqual(report.summary.averageDuration, 3, accuracy: 1e-9)
+        XCTAssertEqual(report.summary.totalDuration, 7, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(report.summary.averageRatio), 0.75, accuracy: 1e-9)
+    }
+}

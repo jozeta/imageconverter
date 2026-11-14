@@ -13,7 +13,7 @@ public struct ReportEntry: Codable, Equatable, Sendable {
     /// Nil when the size couldn't be read.
     public var inputBytes: Int?
     public var outputBytes: Int?
-    /// Seconds spent on the file; 0 until the runner times files.
+    /// Seconds the worker spent on the file (0 when not timed, e.g. skipped files).
     public var duration: Double
     public var inputWidth: Int?
     public var inputHeight: Int?
@@ -114,11 +114,14 @@ public struct ProcessingReport: Equatable, Sendable {
         for entry in batch.entries {
             byName[entry.source, default: []].append(ReportEntry(
                 source: entry.source.path, destination: entry.destination.path, status: .succeeded,
-                inputBytes: entry.inputBytes, outputBytes: entry.outputBytes, note: entry.note))
+                inputBytes: entry.inputBytes, outputBytes: entry.outputBytes, duration: entry.duration,
+                inputWidth: entry.inputWidth, inputHeight: entry.inputHeight, outputWidth: entry.outputWidth,
+                outputHeight: entry.outputHeight, note: entry.note))
         }
         for failure in batch.failures {
             byName[failure.source, default: []].append(ReportEntry(
-                source: failure.source.path, status: .failed, inputBytes: failure.inputBytes, note: failure.reason))
+                source: failure.source.path, status: .failed, inputBytes: failure.inputBytes,
+                duration: failure.duration, note: failure.reason))
         }
         for skip in batch.skipped {
             byName[skip.source, default: []].append(ReportEntry(
@@ -131,7 +134,8 @@ public struct ProcessingReport: Equatable, Sendable {
         if batch.order.isEmpty {
             entries = batch.entries.compactMap { written in byName[written.source]?.first { $0.status == .succeeded } }
                 + batch.failures.map { failure in ReportEntry(source: failure.source.path, status: .failed,
-                                                        inputBytes: failure.inputBytes, note: failure.reason) }
+                                                        inputBytes: failure.inputBytes, duration: failure.duration,
+                                                        note: failure.reason) }
                 + batch.skipped.map { ReportEntry(source: $0.source.path, status: .skipped, inputBytes: $0.inputBytes,
                                                   note: $0.reason) }
         }

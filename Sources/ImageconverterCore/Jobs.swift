@@ -12,13 +12,14 @@ public enum JobTrigger: Codable, Equatable, Sendable {
 
 /// The file a job writes next to its outputs after each run that processed files.
 public enum ReportFormat: String, Codable, CaseIterable, Sendable {
-    case csv, json, text
+    case csv, json, text, html
 
     public var fileExtension: String {
         switch self {
         case .csv: return "csv"
         case .json: return "json"
         case .text: return "txt"
+        case .html: return "html"
         }
     }
 }

@@ -70,3 +70,38 @@ final class ReportExporterTests: XCTestCase {
         XCTAssertTrue(JobRunner.reportFileName(date: date, format: .csv, number: 2).hasSuffix("_2.csv"))
     }
 }
+
+final class ReportExporterHTMLTests: XCTestCase {
+    private func report(names: [String], note: String? = nil) -> ProcessingReport {
+        let entries = names.map {
+            ReportEntry(source: "/in/\($0)", destination: "/out/\($0)", status: .succeeded, inputBytes: 1000,
+                        outputBytes: 400, duration: 0.5, inputWidth: 400, inputHeight: 300, outputWidth: 200,
+                        outputHeight: 150, note: note)
+        }
+        let summary = RunSummary(startedAt: Date(timeIntervalSince1970: 0), finishedAt: Date(timeIntervalSince1970: 5),
+                                 jobName: "<b>job</b>", outputMode: "newFolder", total: names.count,
+                                 succeeded: names.count, failed: 0, inputBytes: 1000 * names.count,
+                                 outputBytes: 400 * names.count, averageRatio: 0.4)
+        return ProcessingReport(summary: summary, entries: entries)
+    }
+
+    func testHTMLEscapesFilenames() {
+        let html = ReportExporter.html(report(names: ["<script>alert(1)</script>.jpg", "a'b\"&.jpg"],
+                                              note: "<img src=x onerror=alert(1)>"))
+        XCTAssertTrue(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;.jpg"))
+        XCTAssertTrue(html.contains("a&#39;b&quot;&amp;.jpg"))
+        XCTAssertTrue(html.contains("&lt;b&gt;job&lt;/b&gt;"))
+        XCTAssertFalse(html.contains("<script"))
+        XCTAssertFalse(html.contains("<img"))
+    }
+
+    func testHTMLIsSelfContained() {
+        let html = ReportExporter.html(report(names: ["a.jpg"]))
+        for forbidden in ["http://", "https://", "src=", "<link", "@import", "url(", "<iframe"] {
+            XCTAssertFalse(html.contains(forbidden), forbidden)
+        }
+        XCTAssertTrue(html.contains("prefers-color-scheme:dark"))
+        XCTAssertTrue(html.contains("400\u{00D7}300 \u{2192} 200\u{00D7}150"))
+        XCTAssertEqual(ReportExporter.data(report(names: ["a.jpg"]), format: .html), Data(html.utf8))
+    }
+}

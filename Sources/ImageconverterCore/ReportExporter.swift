@@ -11,6 +11,7 @@ public enum ReportExporter {
         case .csv: return Data(csv(report).utf8)
         case .json: return json(report)
         case .text: return Data(text(report).utf8)
+        case .html: return Data(html(report).utf8)
         }
     }
 

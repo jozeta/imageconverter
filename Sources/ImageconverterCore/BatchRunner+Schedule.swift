@@ -33,7 +33,8 @@ extension BatchRunner {
         let scheduler = BatchScheduler(plan: plan, settings: settings, writer: writer)
         await scheduler.execute()
         return makeReport(plans: plan.plans, outcomes: scheduler.outcomes, inputSizes: scheduler.inputSizes,
-                          cancelled: scheduler.cancelled)
+                          cancelled: scheduler.cancelled,
+                          durations: scheduler.durations)
             .insertingSkipped(plan.skipped, inputOrder: items.map(\.source))
     }
 
@@ -84,6 +85,8 @@ final class BatchScheduler {
 
     private(set) var outcomes: [Result<WrittenItem?, ConversionError>?]
     private(set) var inputSizes: [Int?]
+    /// Seconds each plan's last attempt took.
+    private(set) var durations: [TimeInterval]
     private(set) var cancelled = false
 
     /// Plan indices in the order they start; `head` is the next one.
@@ -107,6 +110,7 @@ final class BatchScheduler {
         monitor = settings.hooks.memoryPressure == nil ? MemoryPressureMonitor() : nil
         outcomes = Array(repeating: nil, count: count)
         inputSizes = Array(repeating: nil, count: count)
+        durations = Array(repeating: 0, count: count)
         queue = Array(0..<count)
         attempts = Array(repeating: 0, count: count)
         finished = Array(repeating: false, count: count)
@@ -248,6 +252,7 @@ final class BatchScheduler {
     private func handle(_ result: WorkerResult) {
         let index = result.index
         inputSizes[index] = result.inputBytes
+        durations[index] = result.duration
         switch result.result {
         case .success(nil):
             // Cancelled during its compression search: nothing written. A retry keeps its first failure.
@@ -285,7 +290,8 @@ final class BatchScheduler {
 
 extension WrittenItem {
     func addingNote(_ text: String) -> WrittenItem {
-        WrittenItem(url: url, note: [note, text].compactMap { $0 }.joined(separator: "; "), inputBytes: inputBytes,
-                    outputBytes: outputBytes)
+        var copy = self
+        copy.note = [note, text].compactMap { $0 }.joined(separator: "; ")
+        return copy
     }
 }
