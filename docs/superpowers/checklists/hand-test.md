@@ -48,7 +48,10 @@ remembered folders may show "Allow again". Test relaunch behaviour **without reb
   are added (the folder recursively) and each file is listed once.
 - [ ] **Drop anywhere.** Drag a file over the preview area. Expected: a soft accent border and tint with "Drop
   images or folders to add them". Dropping adds the file. During a run the overlay doesn't appear and nothing is
-  added.
+  added; **Add…** and File ▸ Add Images… are disabled too.
+- [ ] **Drop on a step row.** Open a step and drag an image file from Finder onto that step's row (and onto an
+  action row inside an If … then … else). Expected: the file is added, as anywhere else in the window, and the
+  steps don't move.
 - [ ] **Dock icon.** Drag images and a folder onto imageconverter's Dock icon, with the app running and with it
   quit. Expected: they are added to the batch in the main window, which comes to the front. **No extra empty
   window opens** (this was the bug fixed in Task 5).
@@ -136,8 +139,44 @@ Start with Help ▸ Folder Access… ▸ Remove All.
   the watermark image — choose it again" (its bookmark belongs to another app). Note which one you see.
 - [ ] **Jobs.** Create a watch job with input and output folders chosen in the job editor. Quit, reopen. Expected:
   the job is still Watching and converts a newly copied file.
-- [ ] **Resume.** Interrupt a Same-folder run (force quit), reopen, Resume. Expected: it continues without asking,
-  or asks only for folders it lists as not reopened.
+- [ ] **Remove during a run.** Start a long run, open Help ▸ Folder Access…. Expected: Remove and Remove All are
+  disabled with "Folders can't be removed while a batch or a job is running." They work again after the run.
+- [ ] **Output folder chosen again.** Choose the same output folder again with Choose folder…, quit, reopen, Run.
+  Expected: no prompt.
+
+### 6a. Overwrite with rename (sandboxed)
+
+Prepare a folder `Shoot` (not allowed yet: Remove All first) with `a.jpg`, `b.jpg` and an unrelated file
+`a_web.heic`.
+
+- [ ] **Rename + new format.** Add `a.jpg` and `b.jpg` with **Add…** (files, not the folder). Save to: Overwrite
+  original files; add a Rename step `{name}_web`; Format HEIC; Run. Expected:
+  - the folder prompt once, "… to replace the originals", Allow;
+  - `b_web.heic` is saved and `b.jpg` is in the Trash (Finder ▸ Trash ▸ Put Back works);
+  - `a.jpg` becomes `a_web_2.heic` (the unrelated `a_web.heic` is untouched) and `a.jpg` is in the Trash;
+  - the report's destinations show the new names.
+- [ ] **Trash fails.** Copy a fresh `c.jpg` into `Shoot`, lock it (`chflags uchg Shoot/c.jpg`), run the same
+  pipeline on it. Expected: `c_web.heic` is saved and the file is listed as written with "Converted, but couldn't
+  move the original to the Trash: …" (not as failed). Unlock it afterwards (`chflags nouchg`).
+- [ ] **Job, no multiplying.** Make a watch job on `Shoot` with that pipeline in Overwrite mode, let it run once,
+  then Run Now again. Expected: the second run converts nothing new: no `*_web_web*` or extra `_2` files appear,
+  and the outputs aren't picked up as new inputs.
+
+### 6b. Resume in the sandbox
+
+- [ ] **Same folder.** Interrupt a Same-folder run (force quit), reopen, Resume. Expected: it continues without
+  asking, or asks only for a folder that didn't reopen.
+- [ ] **Loose files, New folder.** Remove All, then add 30 images with **Add…** (files, not their folder) from a
+  folder that isn't allowed, Save to: New folder, Run, force quit half-way. Reopen (don't rebuild), Resume.
+  Expected: no prompt, and the remaining images are converted (they were reopened through their own bookmarks).
+- [ ] **Resume asks.** Repeat, but make the journal's bookmarks stop working before reopening: rebuild with
+  `release.sh` (the ad hoc signature changes, so the old bookmarks no longer open), reopen, Resume. Expected:
+  before anything runs, an open panel asks for the images' folder "… to read the images". Allow: the remaining
+  images run. Repeat and Cancel: a toast "N files of the interrupted batch couldn't be opened" lists them; none is
+  reported as missing and nothing is dropped silently.
+- [ ] **Crash between save and Trash.** (Optional, hard to time.) Overwrite + Rename, force quit during the run,
+  Resume. Expected: at worst one image exists as `name` and `name_2`, with its original in the Trash; nothing is
+  lost.
 
 ## 7. Finder Services (Quick Actions)
 

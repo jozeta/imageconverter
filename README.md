@@ -55,7 +55,7 @@ Started 2026-11-13. The full design is in
 - Size estimate ("Original → about") under the quality slider.
 - Grab handles on the panel edges and View > Hide Preview (⌥⌘P) / Collapse Pipeline (⌥⌘L); the window resizes with them.
 - Original | Result table under the preview (name, folder, dimensions, size); progress bar and Cancel above it during a run.
-- Drop images or folders anywhere in the window (not only on the drop zone); the window highlights while you drag.
+- Drop images or folders anywhere in the window (not only on the drop zone, also on a pipeline step); the window highlights while you drag. While a batch runs, nothing can be added (drops, **Add…** and File ▸ Add Images… are off).
 - Pipeline rows reorder with a drag handle (Move Up/Down in the context menu).
 - Zoom the before/after preview with a trackpad pinch (or ⌘+ / ⌘− / ⌘0); both sides stay in sync, so encoder artifacts are easy to compare.
 - Compare modes (View ⌘1…⌘4): Side by side, Split with a draggable divider, Difference (amplified, with PSNR and mean error) and Single (hold Space or press B for Before); a checkerboard shows transparency; "Compare quality…" encodes the image at 40/60/80/95 % to pick a quality; the batch shows as a filmstrip, grid or list (with each file's result after a run).
@@ -393,8 +393,9 @@ Choosing **Overwrite originals** shows a warning once, when you select it, and n
 In this mode, when the format or name changes (for example HEIC → JPEG, or a Rename pattern), the new
 file is written into the original's folder and only then is the original **moved to the Trash**. No other
 file is ever replaced: a new name that is taken by another file, by another image of the batch or by
-another image's new name gets `_2`, `_3`, … In "New folder" mode, dropped folders keep their
-subfolder structure.
+another image's new name gets `_2`, `_3`, … In "New folder" mode every result goes straight into the
+chosen folder (the subfolders of a dropped folder aren't recreated), unless a condition's "Save into
+subfolder" action picks one.
 
 The packaged app (built by `scripts/release.sh`) runs in the App Sandbox, so it can only touch files
 and folders you drop or pick. When you drop loose files and write next to them, it asks once per
@@ -808,14 +809,18 @@ are averaged over the last few seconds and weighted by image size, and appear on
   is written). If the app stops before the end (a crash or a forced quit), the next launch asks
   "The last batch was interrupted (18 of 30 images were done)": **Resume** adds the images still to do and runs
   them with the batch's own pipeline and output, for that run only (your current pipeline and Save to setting don't
-  change; files that are gone are listed). A batch that overwrote its originals shows the overwrite warning and
+  change; files that are gone are listed, and in the sandboxed app a folder that no longer opens is asked for first:
+  see [Folder access](#folder-access)). A batch that overwrote its originals shows the overwrite warning and
   resumes only after you tick **Replace the original files**. **Discard** forgets it; **Not Now** keeps it and asks
   again at the next launch, and pressing Run (or a Finder Quick Action) first asks "Discard the interrupted batch?"
   (Cancel keeps it; a Quick Action asks this after "Replace originals?", and the batch is only discarded once every
   question was answered yes); an AppleScript `convert` or `run batch` is refused with "An interrupted batch is waiting; resume
   or discard it first." Stopping a run yourself (Stop, or Stop and Quit) ends it for good: nothing is offered
   afterwards. When an overwrite batch resumes, an original that changed since the batch started (it was most likely
-  replaced just before the crash) is left alone and listed, so no image is processed twice. A resumed batch numbers
+  replaced just before the crash) is left alone and listed, so no image is processed twice. One exception: with a
+  Rename step or a new format, a crash after the renamed file was saved but before its original went to the Trash
+  leaves the original unchanged, so the resumed batch converts it again; you then have `name` and `name_2`, and
+  the original is in the Trash. Nothing is lost; delete the duplicate. A resumed batch numbers
   `{counter}` from the start value again for the images still to do, so names may differ from an uninterrupted run
   (an existing name gets `_2`). The rate, time left and elapsed time leave out the time a run was paused.
 - The batch runs at a lower priority than the window, so the app stays responsive; the number of workers also
@@ -888,10 +893,10 @@ time: links that arrive meanwhile are ignored and counted in one message. Escape
 The packaged app runs in the App Sandbox: it can only open and write files and folders you gave it. Images you drop, add, open with the app (Dock icon, Open With, `open -a`) or send with a Finder Quick Action can always be read, and a dropped or opened folder can be written into for the rest of the session. Anything else is asked for once, when it is needed:
 
 - **Same folder as original** and **Overwrite original files** write into the folder each image is in. When the app doesn't have that folder yet, Run (and Finder Quick Actions, AppleScript, links and Resume) first shows an open panel already showing the folder, with the message *"imageconverter needs access to “Photos” to save next to the originals. Choose this folder (or one that contains it) to allow it."* Click **Allow**. Choosing a folder that contains several of the needed folders (your Pictures folder, say) answers all of them at once; choosing an unrelated folder asks again. **Cancel** stops the run before anything is written ("Not run: no access to …").
-- **New folder** needs only the output folder (chosen in the Output row; also asked for after a relaunch if its bookmark no longer opens it), plus the images' own folders when an image can't be read (for example a resumed batch whose folders no longer open).
-- Allowed folders are remembered (up to 200, least recently used dropped first) and opened again at every launch. **Help ▸ Folder Access…** lists them, marks the ones that can't be found ("Not found") or that no longer open and must be allowed again ("Allow again"), and has **Add Folder…** (allow a folder ahead of time, for example the folders your scripts, links or jobs use), **Remove** and **Remove All**; a removed folder is asked for again next time. A folder you choose that doesn't contain the one asked for isn't remembered; the question comes back saying so.
+- **New folder** needs only the output folder (chosen in the Output row; also asked for after a relaunch if its bookmark no longer opens it), plus the images' own folders when an image can't be read.
+- Allowed folders are remembered (up to 200, least recently used dropped first) and opened again at every launch. **Help ▸ Folder Access…** lists them, marks the ones that can't be found ("Not found") or that no longer open and must be allowed again ("Allow again"), and has **Add Folder…** (allow a folder ahead of time, for example the folders your scripts, links or jobs use), **Remove** and **Remove All**; a removed folder is asked for again next time. Remove and Remove All are unavailable while a batch or a job runs (it would lose access to the folders it is writing into). A folder you choose that doesn't contain the one asked for isn't remembered; the question comes back saying so.
 - The output folder and watermark images are stored with a bookmark next to the path, so presets, watermark templates and the saved pipeline keep working after a relaunch and follow a file or folder that was moved. When a watermark image can't be opened any more, the editor and the report say *"Couldn't open the watermark image — choose it again"*.
-- An interrupted batch's journal keeps bookmarks of the images' folders and the output folder, so **Resume** opens them again; folders that can't be opened are listed, and anything still missing is asked for when the resumed run starts.
+- An interrupted batch's journal keeps bookmarks of the images' folders, of images added on their own (up to 2 000, when their folder couldn't be bookmarked) and of the output folder, so **Resume** opens them again. Before the resumed run is planned, the folder of every image that still can't be read is asked for (*"… to read the images"*). Images in a folder you don't allow (**Cancel**) are listed as *"N files of the interrupted batch couldn't be opened"*; add them again to convert them. Images whose folder the app can read but which are gone are listed as missing.
 - Jobs keep their own folder bookmarks (see [Process a folder automatically](#process-a-folder-automatically)).
 
 Outside the sandbox (`swift run`) nothing is asked; bookmarks are still made, so the same settings work in the packaged app. For screenshots, DEBUG builds accept `-debugSimulateSandbox` (ask as if sandboxed) and `-debugShowFolderAccess` (open the Folder Access window).
