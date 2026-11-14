@@ -31,7 +31,14 @@ public struct MetadataOptions: Codable, Equatable, Sendable {
     /// Nil leaves keywords as they are.
     public var keywords: [String]?
     public var keywordsMode: KeywordsMode = .add
-    public var dateTaken: DateEdit = .keep
+    public var dateTaken: DateEdit = .keep {
+        // Any edit replaces the invalid saved setting, so its note goes away.
+        didSet { dateTakenWasInvalid = false }
+    }
+    /// True when the saved date setting couldn't be read (out of range, unknown mode) and `dateTaken` fell back
+    /// to `.keep`; the editor and the batch report say so. Not saved.
+    public internal(set) var dateTakenWasInvalid = false
+    public static let invalidDateNote = "Saved date setting was invalid and was ignored"
     /// After writing, the file's creation and modification dates become the resulting date taken, or the
     /// source file's own dates when there is none.
     public var setFileDates = false
@@ -64,8 +71,8 @@ public struct MetadataOptions: Codable, Equatable, Sendable {
     }
 
     /// Lenient: a missing or invalid field takes its default, so older saved pipelines keep loading
-    /// (an invalid GPS position becomes `.remove`, an invalid date edit `.keep`); custom fields outside
-    /// the allowlist are dropped.
+    /// (an invalid GPS position becomes `.remove`, an invalid date edit `.keep` with `dateTakenWasInvalid`
+    /// set, so the editor and the report say it was ignored); custom fields outside the allowlist are dropped.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? false
@@ -92,7 +99,12 @@ public struct MetadataOptions: Codable, Equatable, Sendable {
         title = try container.decodeIfPresent(String.self, forKey: .title)
         keywords = try container.decodeIfPresent([String].self, forKey: .keywords).map(MetadataFields.normalizedKeywords)
         keywordsMode = (try? container.decodeIfPresent(KeywordsMode.self, forKey: .keywordsMode)) ?? .add
-        dateTaken = (try? container.decodeIfPresent(DateEdit.self, forKey: .dateTaken)) ?? .keep
+        if let date = try? container.decodeIfPresent(DateEdit.self, forKey: .dateTaken) {
+            dateTaken = date
+        } else {
+            dateTaken = .keep
+            dateTakenWasInvalid = container.contains(.dateTaken)
+        }
         setFileDates = try container.decodeIfPresent(Bool.self, forKey: .setFileDates) ?? false
         let raw = try container.decodeIfPresent([MetadataFields.RawField].self, forKey: .custom) ?? []
         custom = MetadataFields.allowed(raw)

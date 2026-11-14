@@ -143,6 +143,7 @@ public struct ConditionalStep: Codable, Equatable, Sendable {
     public static let maxConditions = 10
     public static let skippedReason = "Skipped by a condition"
     public static let copiedNote = "Copied unchanged"
+    public static let convertedForPrivacyNote = "Converted instead of copied to remove metadata"
 
     public var match: Match
     /// 1...10 conditions.
@@ -209,16 +210,26 @@ public struct ResolvedPipeline: Equatable, Sendable {
     /// Holds no condition steps.
     public var pipeline: Pipeline
     public var disposition: Disposition
+    /// Notes for the report about how this item was resolved (e.g. a copy converted to remove metadata).
+    public var notes: [String]
 
-    public init(pipeline: Pipeline, disposition: Disposition = .process) {
+    public init(pipeline: Pipeline, disposition: Disposition = .process, notes: [String] = []) {
         self.pipeline = pipeline
         self.disposition = disposition
+        self.notes = notes
     }
 
-    /// "Skipped by a condition" / "Copied unchanged"; nil when processed.
+    /// What the batch adds to this item's report line: the resolution notes, then a saved date setting that
+    /// was invalid and ignored.
+    public var runNotes: [String] {
+        notes + (pipeline.metadata.isActive && pipeline.metadata.dateTakenWasInvalid
+            ? [MetadataOptions.invalidDateNote] : [])
+    }
+
+    /// "Skipped by a condition" / "Copied unchanged" / the first resolution note; nil when simply processed.
     public var statusNote: String? {
         switch disposition {
-        case .process: return nil
+        case .process: return notes.first
         case .copyOriginal: return ConditionalStep.copiedNote
         case .skip: return ConditionalStep.skippedReason
         }
@@ -245,9 +256,13 @@ extension Pipeline {
     /// steps of the branch its facts choose; output, metadata and rename overrides apply (later ones win);
     /// skip wins over copying the original, and both win over processing. Disabled condition steps are
     /// dropped. With no facts (an unreadable file), conditions are dropped and the file fails as usual later.
+    /// The Metadata step's removals are a floor: a metadata override keeps them (`withRemovals(from:)`), and a
+    /// copy whose metadata would have to change is converted instead, in the source's own format at the best
+    /// quality, with a note.
     public func resolved(for facts: ItemFacts?) -> ResolvedPipeline {
         var result = self
         var disposition = Disposition.process
+        var notes: [String] = []
         result.steps = []
         for step in steps {
             guard case .condition(let conditional) = step.operation else {
@@ -256,8 +271,15 @@ extension Pipeline {
             }
             guard step.isEnabled, let facts else { continue }
             for action in conditional.matches(facts) ? conditional.then : conditional.otherwise {
-                result.apply(action, disposition: &disposition)
+                result.apply(action, disposition: &disposition, floor: metadata)
             }
+        }
+        if disposition == .copyOriginal, result.metadata.hidesSourceData {
+            // A byte copy would keep what the Metadata step removes: convert with nothing else applied.
+            disposition = .process
+            result.steps = []
+            result.output = .faithful(facts?.format ?? result.output.format)
+            notes.append(ConditionalStep.convertedForPrivacyNote)
         }
         if disposition == .copyOriginal {
             // A copy is the unchanged source: no image steps (so `{width}`/`{height}` give its own size), and
@@ -265,10 +287,10 @@ extension Pipeline {
             result.steps = []
             if let format = facts?.format { result.output.format = format }
         }
-        return ResolvedPipeline(pipeline: result, disposition: disposition)
+        return ResolvedPipeline(pipeline: result, disposition: disposition, notes: notes)
     }
 
-    private mutating func apply(_ action: ConditionalAction, disposition: inout Disposition) {
+    private mutating func apply(_ action: ConditionalAction, disposition: inout Disposition, floor: MetadataOptions) {
         switch action {
         case .step(let inner):
             // Nesting is rejected on load; one built in code is ignored too.
@@ -278,7 +300,7 @@ extension Pipeline {
         case .metadata(var options):
             options.isIncluded = true
             options.isEnabled = true
-            metadata = options
+            metadata = options.withRemovals(from: floor)
         case .rename(var options):
             options.isIncluded = true
             options.isEnabled = true

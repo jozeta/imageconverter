@@ -19,7 +19,7 @@ public struct PreviewResult: @unchecked Sendable {
     /// What the batch would do with this item once its conditions are resolved; for a copy or a skip the
     /// after image is the before image.
     public let disposition: Disposition
-    /// "Skipped by a condition" / "Copied unchanged"; nil when the item is processed.
+    /// "Skipped by a condition" / "Copied unchanged" / "Converted instead of copied…"; nil when simply processed.
     public let statusNote: String?
 }
 
@@ -123,7 +123,7 @@ public actor PreviewRenderer {
             before: before, after: after, source: item.source, sourceName: item.source.lastPathComponent,
             outputName: destination.lastPathComponent,
             sourceSize: (source.width, source.height), outputSize: (result.width, result.height),
-            outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: nil))
+            outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: resolved.statusNote))
     }
 
     /// A copied or skipped item: the source on both sides, nothing applied.

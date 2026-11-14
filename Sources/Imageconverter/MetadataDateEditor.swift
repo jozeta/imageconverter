@@ -32,7 +32,10 @@ struct MetadataDateEditor: View {
         .accessibilityLabel("Date taken")
         switch options.dateTaken {
         case .keep:
-            EmptyView()
+            if options.dateTakenWasInvalid {
+                LGChip(MetadataOptions.invalidDateNote, status: .warn)
+                    .accessibilityLabel(MetadataOptions.invalidDateNote)
+            }
         case .set(let date):
             DatePicker("Date taken", selection: Binding(get: { date }, set: { options.dateTaken = .set($0) }),
                        in: Self.range, displayedComponents: [.date, .hourAndMinute])

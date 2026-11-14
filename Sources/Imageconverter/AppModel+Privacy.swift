@@ -85,7 +85,8 @@ extension AppModel {
     }
 
     /// Turns on the Metadata step with what the findings need; existing removals stay on (see
-    /// `PrivacyFindings.suggestion`).
+    /// `PrivacyFindings.suggestion`). The step's removals are a floor, so images a condition routes to its own
+    /// metadata settings or to "Copy original unchanged" lose them too (`MetadataOptions.withRemovals(from:)`).
     func removeFoundPrivacyData() {
         let merged = PrivacySummary.merged(Array(privacy.findings.values))
         guard !merged.isEmpty else { return }

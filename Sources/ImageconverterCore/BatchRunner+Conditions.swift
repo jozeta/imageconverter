@@ -72,8 +72,13 @@ extension BatchRunner {
         if let missing = assets.missingError(for: job.pipeline) {
             return (.failure(missing), fileSize(plan.item.source))
         }
-        return convert(plan, pipeline: job.pipeline, assets: assets, maxPixels: maxPixels, trash: trash,
-                       options: options)
+        let (result, inputBytes) = convert(plan, pipeline: job.pipeline, assets: assets, maxPixels: maxPixels,
+                                           trash: trash, options: options)
+        let resolutionNotes = job.runNotes
+        guard !resolutionNotes.isEmpty, case .success(var written?) = result else { return (result, inputBytes) }
+        // How the item was resolved comes first, then the step and encoder notes.
+        written.note = (resolutionNotes + [written.note].compactMap { $0 }).joined(separator: "; ")
+        return (.success(written), inputBytes)
     }
 
     /// How many files' facts are read at once (header reads and small scans are mostly I/O).

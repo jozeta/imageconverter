@@ -174,6 +174,37 @@ final class CLIRunnerTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: outDir.path))
     }
 
+    /// `--strip-gps --strip-all` are a floor a condition's metadata override or copy can't lower (review C1).
+    func testStripFlagsWinOverConditionOverridesAndCopies() async throws {
+        let url = root.appendingPathComponent("gps.jpg")
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString,
+                                                                        1, nil))
+        let gps: [String: Any] = [kCGImagePropertyGPSDictionary as String: [
+            kCGImagePropertyGPSLatitude as String: 59.3, kCGImagePropertyGPSLatitudeRef as String: "N",
+            kCGImagePropertyGPSLongitude as String: 18.0, kCGImagePropertyGPSLongitudeRef as String: "E"
+        ] as [String: Any]]
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(
+            XCTUnwrap(CGImageSourceCreateWithURL(writePNG("seed.png") as CFURL, nil)), 0, nil))
+        CGImageDestinationAddImage(destination, image, gps as CFDictionary)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+        for (index, branch) in [[ConditionalAction.metadata(MetadataOptions(location: .keep, artist: "A"))],
+                                [.copyOriginal]].enumerated() {
+            let condition = ConditionalStep(conditions: [.hasGPS(true)], then: branch)
+            let pipeline = Pipeline(steps: [PipelineStep(operation: .condition(condition))],
+                                    output: OutputSettings(format: .jpeg))
+            let file = root.appendingPathComponent("p\(index).json")
+            try JSONEncoder().encode(pipeline).write(to: file)
+            let outDir = root.appendingPathComponent("floor\(index)")
+            let result = await run(["convert", url.path, "--pipeline", file.path, "--out", outDir.path,
+                                    "--strip-gps", "--strip-all", "--quiet"])
+            XCTAssertEqual(result.code, 0, result.err)
+            let written = outDir.appendingPathComponent("gps.jpg")
+            let source = try XCTUnwrap(CGImageSourceCreateWithURL(written as CFURL, nil))
+            let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] ?? [:]
+            XCTAssertNil(properties[kCGImagePropertyGPSDictionary as String], "branch \(index) kept the location")
+        }
+    }
+
     func testWarnsWhenFlagsDoNotApplyToFormat() async throws {
         let source = try writePNG("w.png")
         let result = await run(["convert", source.path, "--out", root.appendingPathComponent("o").path,
