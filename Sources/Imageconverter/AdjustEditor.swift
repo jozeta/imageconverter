@@ -64,11 +64,9 @@ private struct AdjustSlider: View {
                 .onTapGesture(count: 2) { value = 0 }
                 .help("Double-click to reset")
                 .accessibilityHidden(true)
-            Slider(value: Binding(
+            AdjustSliderControl(value: Binding(
                 get: { AdjustOptions.clamped(value, to: field) },
-                set: { value = $0.rounded() }), in: field.range)
-                .tint(isNeutral ? LadaGlass.Colors.muted : LadaGlass.accent.color)
-                .simultaneousGesture(TapGesture(count: 2).onEnded { value = 0 })
+                set: { value = $0 }), range: field.range)
                 .help("Double-click to reset")
                 .accessibilityLabel(field.displayName)
                 .accessibilityValue(field == .hue ? "\(shown) degrees" : "\(shown)")
