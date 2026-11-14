@@ -6,7 +6,20 @@ final class AppInfoTests: XCTestCase {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent()
         let text = try String(contentsOf: root.appendingPathComponent("VERSION"), encoding: .utf8)
-        XCTAssertEqual(AppInfo.version, text.trimmingCharacters(in: .whitespacesAndNewlines))
+        XCTAssertEqual(AppInfo.compiledVersion, text.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    func testVersionAndBuildFallBackWithoutBundleValues() {
+        XCTAssertEqual(AppInfo.version(from: nil), AppInfo.compiledVersion)
+        XCTAssertEqual(AppInfo.version(from: ["CFBundleShortVersionString": "  ", "CFBundleVersion": 3]), AppInfo.compiledVersion)
+        XCTAssertEqual(AppInfo.build(from: [:]), "dev")
+        XCTAssertEqual(AppInfo.build(from: ["CFBundleVersion": 7]), "dev")
+    }
+
+    func testBundleValuesWin() {
+        let info: [String: Any] = ["CFBundleShortVersionString": "2.3.4", "CFBundleVersion": "42"]
+        XCTAssertEqual(AppInfo.version(from: info), "2.3.4")
+        XCTAssertEqual(AppInfo.build(from: info), "42")
     }
 
     func testPipelineFileAcceptsPipelineAndPresetAndRejectsOthers() throws {
