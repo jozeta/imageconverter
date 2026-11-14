@@ -8,6 +8,7 @@ struct PresetBar: View {
     @State private var showDiscard = false
     @State private var showRename = false
     @State private var showDelete = false
+    @State private var showClearAll = false
     /// Bumped when a switch is cancelled so the picker redraws with the real selection.
     @State private var pickerReset = 0
 
@@ -53,6 +54,10 @@ struct PresetBar: View {
                         set: { model.setSelectedPinnedForServices($0) }))
                         .disabled(!model.selectedPinnedForServices && !model.canPinSelected)
                         .help(quickActionHelp)
+                    Divider()
+                    Button("Clear All…") { showClearAll = true }
+                        .disabled(!model.canClearAll)
+                        .accessibilityLabel("Clear all images and pipeline steps")
                 }
                 .fixedSize()
                 .accessibilityLabel("More preset actions")
@@ -73,6 +78,12 @@ struct PresetBar: View {
         .confirmationDialog("Delete preset \(selectedName)?", isPresented: $showDelete) {
             Button("Delete", role: .destructive) { model.deleteSelected() }
             Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog("Clear all images and pipeline steps?", isPresented: $showClearAll) {
+            Button("Clear All", role: .destructive) { model.clearAll() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes every image from the list and resets the pipeline. Saved presets and your Save to setting aren't changed.")
         }
         .sheet(isPresented: $model.isSavingAs) {
             NameSheet(title: "Save as preset", initial: "", confirm: "Save", fieldLabel: "Preset name",
