@@ -589,8 +589,8 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
      the same) and **Folder path** (the image's folder contains a text).
    - **Dates**: **Date taken** (EXIF DateTimeOriginal, else the XMP date created; files without one never match a
      date, use **is present** with **Not** for "has no date taken"), **File created** and **File modified**: is before,
-     is after, is between two days (both included), is within the last N days, is in the year, is in the month, or is
-     known. Days are compared in the Mac's time zone.
+     is after, is between two days (both included), is within the last N days (calendar days: "the last 1 day"
+     is today and yesterday), is in the year, is in the month, or is known. Days are compared in the Mac's time zone.
    - **Metadata**: **Metadata field** (camera make, camera model, lens, ISO, focal length, aperture, shutter speed,
      artist, copyright, title, description, keywords, software, or any allowlisted EXIF, IPTC or XMP field) is, contains,
      is present or is missing; the numeric fields (ISO, focal length in mm, aperture as an f-number, shutter speed in
@@ -605,7 +605,11 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
      without one counts as 72), **Rotated (EXIF)** (its EXIF orientation turns or mirrors it) and **Animated / pages**
      (more than one frame or page).
 
-   Tick **Not** to turn a check around: "name does not start with “IMG”", "has no date taken", "is not 16-bit".
+   Tick **Not** to turn a check around: "name does not start with “IMG”", "has no date taken", "is not 16-bit". A
+   check on a value the file doesn't have (no date taken, no ISO, no camera) is false either way, so "date taken is not
+   before 2020" doesn't match undated files; use the presence checks (**is present** / **is missing**, "has no …") for
+   those. A regular expression that runs longer than 50 ms (for example `(a+)+$`) counts as no match and the report
+   says "Pattern took too long"; the same limit applies to the Rename step's find and replace.
    **+ Add condition** adds one; the trash button removes one (a step always keeps at least one). Everything is read
    from the file's header (the XMP packet and the frame count only when a check needs them), so checks stay quick on
    large batches.
@@ -619,7 +623,9 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
      or `{camera}`; inside the output folder, or inside the image's own folder when saving next to the originals; each
      folder name is made safe like a file name, `..` and empty names are dropped, at most 5 levels; ignored with a note
      when overwriting originals; name clashes are numbered per folder), **Add Finder tags…** (comma-separated; added to the
-     written file's own tags on this Mac) and **Copy original unchanged** (the file is copied as it is, nothing is decoded).
+     written file's own tags on this Mac; never to an original that overwrite mode leaves untouched, which the report
+     notes) and **Copy original unchanged** (the file is copied as it is, nothing is decoded; added keywords and a
+     preset's image steps are then ignored, with the note "Ignored for a copied original: …").
    - **Metadata**: **Set metadata…** and **Add keywords…** (comma-separated; added to the file's keywords, or to the ones
      the Metadata step sets; turns that step on with nothing removed when it was off).
    - **Flow**: **Skip file** (nothing is written; the file counts as *skipped by a condition*, not failed, and takes no
