@@ -68,6 +68,18 @@ Started 2026-11-13. The full design is in
   - (available) **Adjust**: exposure, brilliance, highlights, shadows, contrast, brightness, black point,
     saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction
   - (available) **Watermark**: text or image, with position, size, opacity and margin controls
+  - (coming: the editor arrives in a later update) **Condition** (if / then / else): up to 10 tests,
+    all or any of which must hold: longest edge, width, height or file size (greater than, less than, at
+    least, at most), format (a writable format or any file type, e.g. camera RAW), transparency (a
+    transparent pixel, checked on a small thumbnail), portrait / landscape / square, has a GPS location,
+    and camera make or model contains a text. Each branch can add image steps (not another condition),
+    change the output format and settings, metadata or rename for that image, **copy the original**
+    unchanged (same bytes and extension, nothing decoded; in overwrite mode the file is left as it is) or
+    **skip** it (nothing written; reported as "Skipped by a condition", not as a failure, and not given a
+    counter number). Conditions are tested against the **source file** (its header), not against the image
+    part-way through the pipeline, so a resize before a condition doesn't change what it sees. With
+    several conditions, later overrides win and skip wins over copy. The preview and size estimate follow
+    each image's own branch.
   - (available) **Metadata** (always last, above Output): strip everything, location only or camera
     details, or set artist, copyright and description; the color profile is always kept
   - (available) **Rename** (always last): a pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`,

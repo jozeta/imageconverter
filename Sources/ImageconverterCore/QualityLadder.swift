@@ -12,11 +12,16 @@ public enum QualityLadder {
     }
 
     /// Loads and applies the pipeline once, then encodes and decodes at each quality with the plain
-    /// quality mode (the configured compression mode is ignored). Empty for formats without a quality.
+    /// quality mode (the configured compression mode is ignored). Empty for formats without a quality, and for
+    /// items a condition copies or skips.
     public static func render(
         item: InputItem, pipeline: Pipeline, qualities: [Double] = [0.4, 0.6, 0.8, 0.95],
         maxPixels: Int = ImageLoader.defaultMaxPixels
     ) throws -> [Rung] {
+        // A copied or skipped item has no quality to choose.
+        let resolved = pipeline.resolved(forSource: item.source)
+        guard resolved.disposition == .process else { return [] }
+        let pipeline = resolved.pipeline
         guard pipeline.output.format.supportsQuality else { return [] }
         return try autoreleasepool {
             let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)

@@ -3,7 +3,8 @@ import Foundation
 /// Renders the rename template for one item. The batch and the preview both use it, so the
 /// preview's file name is always the name the batch would write.
 enum RenameRendering {
-    /// The base name (no extension) for the item at `index`, or nil when renaming is off.
+    /// The base name (no extension) for the item at `index`, or nil when renaming is off. `pipeline` is the
+    /// item's resolved pipeline (conditions can change its rename and format), and `index` skips skipped items.
     /// The counter is `counterStart + index`, saturating. The header and creation date are only
     /// read when the template uses them.
     static func baseName(for item: InputItem, index: Int, pipeline: Pipeline) -> String? {

@@ -24,10 +24,19 @@ public enum SizeEstimator {
     /// Runs the batch's load, apply, metadata and encode steps for `item`; nothing is written.
     /// PNG optimisation (seven encodes) is left to the batch so the estimate stays quick; the estimate
     /// is then the unoptimised size, which the batch never exceeds, and says so in `note`.
+    /// Conditions are resolved for `item` first: a copied original is its own size (no encode), and a skipped
+    /// item throws `.skippedByCondition`.
     public static func render(
-        item: InputItem, pipeline: Pipeline, maxPixels: Int = ImageLoader.defaultMaxPixels
+        item: InputItem, pipeline unresolved: Pipeline, maxPixels: Int = ImageLoader.defaultMaxPixels
     ) throws -> EncodedPreview {
-        try autoreleasepool {
+        let resolved = unresolved.resolved(forSource: item.source)
+        switch resolved.disposition {
+        case .skip: throw ConversionError.skippedByCondition
+        case .copyOriginal: return try copied(item, maxPixels: maxPixels)
+        case .process: break
+        }
+        let pipeline = resolved.pipeline
+        return try autoreleasepool {
             let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)
             var pipeline = pipeline
             var note: String?
@@ -44,5 +53,13 @@ public enum SizeEstimator {
             return EncodedPreview(bytes: data.count, original: result.source, encoded: encoded,
                                   quality: result.quality, note: result.note ?? note)
         }
+    }
+
+    /// The original on both sides, at its own file size.
+    private static func copied(_ item: InputItem, maxPixels: Int) throws -> EncodedPreview {
+        let loaded = try ImageLoader.load(item.source, maxPixels: maxPixels)
+        guard let bytes = BatchRunner.fileSize(item.source) else { throw ConversionError.unreadable }
+        return EncodedPreview(bytes: bytes, original: loaded.image, encoded: loaded.image, quality: nil,
+                              note: ConditionalStep.copiedNote)
     }
 }

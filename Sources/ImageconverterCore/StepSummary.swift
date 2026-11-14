@@ -13,6 +13,7 @@ extension ImageOperation {
         case .colorProfile(let profile): return profile.displayName
         case .adjust(let options): return options.summary
         case .watermark(let options): return options.summary
+        case .condition(let conditional): return conditional.summary
         }
     }
 
@@ -196,6 +197,48 @@ extension WatermarkOptions {
         let size = clampedSizePercent.formatted(.number.locale(Locale(identifier: "en_US_POSIX"))
             .precision(.fractionLength(0...2)).grouping(.never))
         return "\(name) · \(anchor.displayName) · \(size) %"
+    }
+}
+
+extension ConditionalStep {
+    /// One-line description for the pipeline list: `if longest edge > 2048 px → resize · else → skip`.
+    public var summary: String {
+        let joiner = match == .all ? " and " : " or "
+        var text = "if " + conditions.map(\.summary).joined(separator: joiner) + " → " + Self.summary(of: then)
+        if !otherwise.isEmpty { text += " · else → " + Self.summary(of: otherwise) }
+        return text
+    }
+
+    private static func summary(of actions: [ConditionalAction]) -> String {
+        guard !actions.isEmpty else { return "nothing" }
+        return actions.map { action in
+            switch action {
+            case .step(let step): return step.operation.kind.displayName.lowercased()
+            case .output(let settings): return "save as \(settings.format.displayName)"
+            case .metadata: return "metadata"
+            case .rename: return "rename"
+            case .copyOriginal: return "copy unchanged"
+            case .skip: return "skip"
+            }
+        }.joined(separator: ", ")
+    }
+}
+
+extension Condition {
+    /// `longest edge > 2048 px`, `has transparency`, `camera contains “iPhone”`.
+    public var summary: String {
+        switch self {
+        case .longestEdge(let comparison, let value): return "longest edge \(comparison.symbol) \(value) px"
+        case .width(let comparison, let value): return "width \(comparison.symbol) \(value) px"
+        case .height(let comparison, let value): return "height \(comparison.symbol) \(value) px"
+        case .fileSize(let comparison, let bytes): return "file size \(comparison.symbol) \(SizeFormat.bytes(bytes))"
+        case .format(.format(let format)): return "format is \(format.displayName)"
+        case .format(.type(let identifier)): return "type is \(identifier)"
+        case .hasTransparency(let wanted): return wanted ? "has transparency" : "no transparency"
+        case .orientation(let orientation): return orientation.rawValue
+        case .hasGPS(let wanted): return wanted ? "has location" : "no location"
+        case .camera(let text): return "camera contains “\(text)”"
+        }
     }
 }
 

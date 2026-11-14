@@ -22,9 +22,9 @@ public enum JobRunner {
     /// Runs `job` over `files` (from a watcher; each must lie in one of the job's folders) or, when nil, over
     /// everything in its folders that changed at least `stableFor` seconds before `now` and is readable (a file
     /// still being copied waits for the next run). Settled files (see `ProcessedLedger`) are skipped; the rest go
-    /// through `BatchRunner`. Then successes are recorded as done, failures count an attempt (after
-    /// `ProcessedLedger.maxAttempts` an unchanged file is given up on, which the report says once), written files
-    /// are recorded as outputs (never inputs), and the report file is written.
+    /// through `BatchRunner`. Then successes (copies and files a condition skipped included) are recorded as done,
+    /// failures count an attempt (after `ProcessedLedger.maxAttempts` an unchanged file is given up on, which the
+    /// report says once), written files are recorded as outputs (never inputs), and the report file is written.
     public static func run(
         _ job: Job,
         files: [URL]? = nil,
@@ -39,7 +39,8 @@ public enum JobRunner {
         func finish(_ batch: BatchReport, total: Int, selection: Selection, problem: String?) -> JobRunResult {
             var report = ProcessingReport(batch: batch, total: total, outputMode: job.output.kind.rawValue,
                                           jobName: job.name, startedAt: startedAt, finishedAt: now())
-            report.summary.skipped = selection.unchanged
+            // Unchanged files join those a condition skipped.
+            report.summary.skipped += selection.unchanged
             report.summary.total += selection.unchanged
             return JobRunResult(batch: batch, report: report, unchanged: selection.unchanged,
                                 waiting: selection.waiting, reportFile: nil, problem: problem)

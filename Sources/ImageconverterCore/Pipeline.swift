@@ -93,7 +93,7 @@ public enum ColorProfile: String, Codable, CaseIterable, Sendable {
 }
 
 public enum StepKind: String, Codable, CaseIterable, Sendable {
-    case resize, crop, rotateFlip, perspective, trim, canvas, colorProfile, adjust, watermark
+    case resize, crop, rotateFlip, perspective, trim, canvas, colorProfile, adjust, watermark, condition
 
     public var displayName: String {
         switch self {
@@ -106,6 +106,7 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .colorProfile: return "Color profile"
         case .adjust: return "Adjust"
         case .watermark: return "Watermark"
+        case .condition: return "Condition"
         }
     }
 
@@ -120,6 +121,7 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .colorProfile: return .colorProfile(.sRGB)
         case .adjust: return .adjust(AdjustOptions())
         case .watermark: return .watermark(WatermarkOptions())
+        case .condition: return .condition(ConditionalStep())
         }
     }
 }
@@ -134,6 +136,9 @@ public enum ImageOperation: Codable, Equatable, Sendable {
     case colorProfile(ColorProfile)
     case adjust(AdjustOptions)
     case watermark(WatermarkOptions)
+    /// If/then/else on the source file's facts; replaced by its chosen branch before anything runs
+    /// (`Pipeline.resolved(for:)`).
+    case condition(ConditionalStep)
 
     public var kind: StepKind {
         switch self {
@@ -146,6 +151,7 @@ public enum ImageOperation: Codable, Equatable, Sendable {
         case .colorProfile: return .colorProfile
         case .adjust: return .adjust
         case .watermark: return .watermark
+        case .condition: return .condition
         }
     }
 }
@@ -210,6 +216,8 @@ extension Pipeline {
         return try apply(to: image, assets: assets, textContext: textContext, notes: &notes)
     }
 
+    // One case per step kind keeps the dispatch in one place.
+    // swiftlint:disable cyclomatic_complexity
     /// Runs the enabled steps in order on `image`; steps that had nothing to do for a reason the user should
     /// know (e.g. auto perspective found no document) append a short note to `notes`. `textContext` fills a text
     /// watermark's tokens (nil: tokens are drawn as typed).
@@ -229,10 +237,14 @@ extension Pipeline {
             case .watermark(let options):
                 current = try ImageOps.watermark(current, options, asset: Self.asset(for: options, in: assets),
                                                  context: textContext)
+            case .condition:
+                // Resolved away before rendering; an unresolved one has no facts to test, so it does nothing.
+                continue
             }
         }
         return current
     }
+    // swiftlint:enable cyclomatic_complexity
 
     /// The token context for `source`, or nil when no enabled text watermark uses a token. `properties` is the
     /// header the load already read; the file's creation date is only read when a date token needs it.
@@ -313,7 +325,7 @@ extension Pipeline {
             return Geometry.perspectiveCrop(source: size, options: options)?.size ?? size
         case .canvas(let options):
             return Geometry.canvas(source: size, options: options).canvas
-        case .trim, .colorProfile, .adjust, .watermark:
+        case .trim, .colorProfile, .adjust, .watermark, .condition:
             // Trim only ever shrinks, by an amount that depends on the content: the input is an upper bound.
             // It scans in strips, so it needs no input-sized working copy.
             return size

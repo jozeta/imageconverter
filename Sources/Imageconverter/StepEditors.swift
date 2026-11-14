@@ -46,6 +46,11 @@ struct StepEditor: View {
             WatermarkEditor(options: Binding(
                 get: { if case .watermark(let opts) = operation { return opts } else { return WatermarkOptions() } },
                 set: { operation = .watermark($0) }))
+        case .condition:
+            // The condition editor comes with its own task; until then the step shows its summary only.
+            Text(operation.summary)
+                .font(LadaGlass.Typography.label)
+                .foregroundStyle(LadaGlass.Colors.muted)
         }
     }
 }

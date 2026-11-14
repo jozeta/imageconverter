@@ -90,7 +90,8 @@ struct PipelineSection: View {
 
     private var addMenu: some View {
         Menu("+ Add step") {
-            ForEach(StepKind.allCases, id: \.self) { kind in
+            // Conditions get their editor separately; they can't be added from here yet.
+            ForEach(StepKind.allCases.filter { $0 != .condition }, id: \.self) { kind in
                 // New steps start collapsed.
                 Button(kind.displayName) { _ = model.addStep(kind) }
             }

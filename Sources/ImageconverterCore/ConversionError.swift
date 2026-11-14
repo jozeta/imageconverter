@@ -18,6 +18,8 @@ public enum ConversionError: Error, Equatable, Sendable {
     case watermarkSVGUnsupported
     /// Maximum-size compression: even the lowest quality is larger than `limit` bytes.
     case sizeUnreachable(limit: Int, smallest: Int)
+    /// A condition skips this file, so there is nothing to estimate (never a batch failure).
+    case skippedByCondition
 
     /// A user-facing English explanation.
     public var reason: String {
@@ -44,6 +46,8 @@ public enum ConversionError: Error, Equatable, Sendable {
             return "SVG watermarks aren't supported on this version of macOS"
         case .sizeUnreachable(let limit, let smallest):
             return "Can't get under \(ByteSize.format(limit)) (smallest is \(ByteSize.format(smallest)))"
+        case .skippedByCondition:
+            return ConditionalStep.skippedReason
         }
     }
 }

@@ -117,6 +117,10 @@ public struct ProcessingReport: Equatable, Sendable {
             byName[failure.source, default: []].append(ReportEntry(
                 source: failure.source.path, status: .failed, inputBytes: failure.inputBytes, note: failure.reason))
         }
+        for skip in batch.skipped {
+            byName[skip.source, default: []].append(ReportEntry(
+                source: skip.source.path, status: .skipped, inputBytes: skip.inputBytes, note: skip.reason))
+        }
         var entries: [ReportEntry] = []
         var seen: Set<URL> = []
         for source in batch.order where seen.insert(source).inserted { entries += byName[source] ?? [] }
@@ -125,14 +129,17 @@ public struct ProcessingReport: Equatable, Sendable {
             entries = batch.entries.compactMap { written in byName[written.source]?.first { $0.status == .succeeded } }
                 + batch.failures.map { failure in ReportEntry(source: failure.source.path, status: .failed,
                                                         inputBytes: failure.inputBytes, note: failure.reason) }
+                + batch.skipped.map { ReportEntry(source: $0.source.path, status: .skipped, inputBytes: $0.inputBytes,
+                                                  note: $0.reason) }
         }
         let ratios = entries.compactMap(\.ratio)
-        let notRun = batch.cancelled ? max(0, total - batch.entries.count - batch.failures.count) : 0
+        let done = batch.entries.count + batch.failures.count + batch.skipped.count
+        let notRun = batch.cancelled ? max(0, total - done) : 0
         let times = entries.filter { $0.status == .succeeded }.map(\.duration)
         let summary = RunSummary(
             startedAt: startedAt, finishedAt: finishedAt, jobName: jobName, presetName: presetName,
             outputMode: outputMode, total: total, succeeded: batch.entries.count, failed: batch.failures.count,
-            cancelled: notRun, inputBytes: batch.inputBytes, outputBytes: batch.outputBytes,
+            skipped: batch.skipped.count, cancelled: notRun, inputBytes: batch.inputBytes, outputBytes: batch.outputBytes,
             averageDuration: times.isEmpty ? 0 : times.reduce(0, +) / Double(times.count),
             averageRatio: ratios.isEmpty ? nil : ratios.reduce(0, +) / Double(ratios.count))
         self.init(summary: summary, entries: entries)

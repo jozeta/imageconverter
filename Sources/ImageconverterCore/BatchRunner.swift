@@ -1,7 +1,7 @@
 import CoreGraphics
 import Foundation
 
-/// How far a batch has got. `completed` counts successes and failures.
+/// How far a batch has got. `completed` counts successes, failures and files skipped by a condition.
 public struct BatchProgress: Equatable, Sendable {
     public let completed: Int
     public let failed: Int
@@ -22,6 +22,19 @@ public struct BatchFailure: Equatable, Sendable {
     public let inputBytes: Int?
 
     public init(source: URL, reason: String, inputBytes: Int? = nil) {
+        self.source = source
+        self.reason = reason
+        self.inputBytes = inputBytes
+    }
+}
+
+/// A file a condition left alone: nothing was written for it, and it isn't a failure.
+public struct BatchSkip: Equatable, Sendable {
+    public let source: URL
+    public let reason: String
+    public let inputBytes: Int?
+
+    public init(source: URL, reason: String = ConditionalStep.skippedReason, inputBytes: Int? = nil) {
         self.source = source
         self.reason = reason
         self.inputBytes = inputBytes
@@ -66,8 +79,10 @@ public struct BatchReport: Equatable, Sendable {
     /// One entry per written file (same order as `written`).
     public var entries: [BatchResultEntry]
 
-    /// Every processed file's source, written or failed, in input order (so reports can interleave them).
+    /// Every processed file's source, written, failed or skipped, in input order (so reports can interleave them).
     public var order: [URL] = []
+    /// Files a condition skipped (in input order); always listed, even when the run was cancelled.
+    public var skipped: [BatchSkip] = []
 
     /// Source bytes of the written files whose size is known (files with an unknown size are left out of both totals).
     public var inputBytes: Int { entries.reduce(0) { $0 + ($1.inputBytes ?? 0) } }
@@ -111,8 +126,9 @@ public enum BatchRunner {
     /// Converts `items` in parallel (at most `concurrency` at a time, and while their combined pixel
     /// count stays within `memoryBudgetPixels`; a single oversized image still runs, alone). A file that fails is
     /// recorded and skipped; the rest carry on. `progress` is called once per finished item, in
-    /// completion order (not input order), from the collecting side of the batch; `completed`
-    /// (successes plus failures) increases monotonically. `BatchReport.cancelled` is false if
+    /// completion order (not input order), from the collecting side of the batch; `completed` (successes,
+    /// failures, and files a condition skips, which count at once) increases monotonically, and `total` is
+    /// `items.count`. Conditions are resolved per item before planning. `BatchReport.cancelled` is false if
     /// cancellation arrives after the last item was scheduled. Cancelling the calling task stops new files
     /// from starting; files already in flight stop between compression search encodes (nothing written,
     /// and the report is then `cancelled`) or finish their atomic commit, so no temp files remain.
@@ -126,13 +142,12 @@ public enum BatchRunner {
         trash: @escaping Trasher = systemTrash,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in }
     ) async -> BatchReport {
-        let baseNames = renderedBaseNames(items, pipeline: pipeline)
-        if baseNames == nil, pipeline.rename.isActive { return BatchReport(cancelled: true) }
-        let plans = OutputPlanner.plan(items, format: pipeline.output.format, mode: mode, baseNames: baseNames)
+        guard let run = planRun(items, pipeline: pipeline, mode: mode), !Task.isCancelled else { return BatchReport(cancelled: true) }
+        let (plans, jobs) = (run.plans, run.jobs)
         let total = plans.count
-        if Task.isCancelled { return BatchReport(cancelled: true) }
-        let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)
-        let missingAsset = assets.missingError(for: pipeline)
+        let assets = WatermarkAssets.load(for: run.assetPipeline, maxPixels: maxPixels)
+        let skippedCount = run.skipped.count
+        if skippedCount > 0 { progress(BatchProgress(completed: skippedCount, failed: 0, total: items.count)) }
         var window = WorkWindow(maxItems: max(1, concurrency), maxWeight: memoryBudgetPixels)
         var weights = [Int](repeating: 1, count: total)
         var outcomes = [Result<WrittenItem?, ConversionError>?](repeating: nil, count: total)
@@ -141,7 +156,7 @@ public enum BatchRunner {
 
         await withTaskGroup(of: (Int, Result<WrittenItem?, ConversionError>, Int?).self) { group in
             var next = 0
-            var completed = 0
+            var completed = skippedCount
             var failed = 0
 
             while true {
@@ -152,15 +167,14 @@ public enum BatchRunner {
                     }
                     let index = next
                     let plan = plans[index]
-                    let weight = weight(of: plan, pipeline: pipeline)
+                    let job = jobs[index]
+                    let weight = job.disposition == .process ? weight(of: plan, pipeline: job.pipeline) : 1
                     guard window.canStart(weight: weight) else { break }
                     weights[index] = weight
                     window.start(weight: weight)
                     next += 1
                     group.addTask {
-                        // A watermark image that can't be read fails every file, before any source is decoded.
-                        if let missingAsset { return (index, .failure(missingAsset), fileSize(plan.item.source)) }
-                        let outcome = convert(plan, pipeline: pipeline, assets: assets, maxPixels: maxPixels, trash: trash)
+                        let outcome = process(plan, job: job, assets: assets, maxPixels: maxPixels, trash: trash)
                         return (index, outcome.0, outcome.1)
                     }
                 }
@@ -176,11 +190,12 @@ public enum BatchRunner {
                 }
                 completed += 1
                 failed += result.isFailure ? 1 : 0
-                progress(BatchProgress(completed: completed, failed: failed, total: total))
+                progress(BatchProgress(completed: completed, failed: failed, total: items.count))
             }
         }
 
         return makeReport(plans: plans, outcomes: outcomes, inputSizes: inputSizes, cancelled: cancelled)
+            .insertingSkipped(run.skipped, inputOrder: items.map(\.source))
     }
 
     /// Peak pixels of one item, from a header-only read; unreadable files weigh 1 and fail later in `convert`.
@@ -188,20 +203,6 @@ public enum BatchRunner {
         max(1, ImageLoader.pixelSize(of: plan.item.source).map {
             pipeline.peakPixels(sourceWidth: $0.width, sourceHeight: $0.height)
         } ?? 1)
-    }
-
-    /// Renders the rename template for every item, serially in input order (the counter depends on
-    /// it). Nil when renaming is off, or when the task is cancelled part-way (nothing is written then).
-    /// The header and creation date are only read when the template uses them.
-    private static func renderedBaseNames(_ items: [InputItem], pipeline: Pipeline) -> [String]? {
-        guard pipeline.rename.isActive else { return nil }
-        var names: [String] = []
-        for (index, item) in items.enumerated() {
-            if Task.isCancelled { return nil }
-            guard let name = RenameRendering.baseName(for: item, index: index, pipeline: pipeline) else { return nil }
-            names.append(name)
-        }
-        return names
     }
 
     private static func makeReport(
@@ -228,7 +229,7 @@ public enum BatchRunner {
         return report
     }
 
-    private static func convert(
+    static func convert(
         _ plan: PlannedOutput, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int, trash: Trasher
     ) -> (Result<WrittenItem?, ConversionError>, Int?) {
         // Read on the worker, before overwrite mode replaces the source.

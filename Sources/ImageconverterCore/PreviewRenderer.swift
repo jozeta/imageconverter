@@ -16,6 +16,11 @@ public struct PreviewResult: @unchecked Sendable {
     public let outputURL: URL
     /// The source file's size on disk.
     public let sourceFileSize: Int?
+    /// What the batch would do with this item once its conditions are resolved; for a copy or a skip the
+    /// after image is the before image.
+    public let disposition: Disposition
+    /// "Skipped by a condition" / "Copied unchanged"; nil when the item is processed.
+    public let statusNote: String?
 }
 
 public enum PreviewOutcome: Sendable {
@@ -76,10 +81,14 @@ public actor PreviewRenderer {
     /// Renders the before and after of `item`. `outputName` is what `OutputPlanner` would name this
     /// file for `mode` (nil: new-folder mode with no folder yet, named as if a folder existed). It
     /// plans the one item alone, so the batch's collision numbers (`_2`) are not shown.
-    public func render(item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode? = nil) async
+    /// Conditions are resolved for this item first (from its header), so the preview shows its own branch.
+    public func render(item: InputItem, index: Int, pipeline unresolved: Pipeline, mode: OutputMode? = nil) async
         -> PreviewOutcome {
         let cancelled = PreviewOutcome.failed(reason: "Cancelled")
         if Task.isCancelled { return cancelled }
+        let resolved = unresolved.resolved(forSource: item.source)
+        let pipeline = resolved.pipeline
+        if resolved.disposition != .process { return unchanged(item: item, index: index, resolved: resolved, mode: mode) }
         let assets = watermarkAssets(for: pipeline)
         if let missing = assets.missingError(for: pipeline) { return .failed(reason: missing.reason) }
         let source: CGImage
@@ -114,15 +123,36 @@ public actor PreviewRenderer {
             before: before, after: after, source: item.source, sourceName: item.source.lastPathComponent,
             outputName: destination.lastPathComponent,
             sourceSize: (source.width, source.height), outputSize: (result.width, result.height),
-            outputURL: destination, sourceFileSize: fileSize))
+            outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: nil))
     }
 
-    private func outputDestination(for item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode?) -> URL {
+    /// A copied or skipped item: the source on both sides, nothing applied.
+    private func unchanged(item: InputItem, index: Int, resolved: ResolvedPipeline, mode: OutputMode?) -> PreviewOutcome {
+        let loaded: CachedSource
+        do { loaded = try sourceImages(for: item.source) } catch let error as ConversionError {
+            return .failed(reason: error.reason)
+        } catch {
+            return .failed(reason: ConversionError.unreadable.reason)
+        }
+        let destination = resolved.disposition == .copyOriginal
+            ? outputDestination(for: item, index: index, pipeline: resolved.pipeline, mode: mode, copy: true)
+            : item.source
+        let size = (loaded.image.width, loaded.image.height)
+        let fileSize = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        return .ready(PreviewResult(
+            before: loaded.display, after: loaded.display, source: item.source, sourceName: item.source.lastPathComponent,
+            outputName: resolved.disposition == .skip ? ConditionalStep.skippedReason : destination.lastPathComponent, sourceSize: size,
+            outputSize: size, outputURL: destination, sourceFileSize: fileSize, disposition: resolved.disposition,
+            statusNote: resolved.statusNote))
+    }
+
+    private func outputDestination(for item: InputItem, index: Int, pipeline: Pipeline, mode: OutputMode?,
+                                   copy: Bool = false) -> URL {
         let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline)
+        let target = copy ? OutputTarget.copyOfOriginal(item, baseName: base)
+            : OutputTarget(item: item, format: pipeline.output.format, baseName: base)
         let plan = OutputPlanner.plan(
-            [item], format: pipeline.output.format,
-            mode: mode ?? .newFolder(FileManager.default.temporaryDirectory),
-            baseNames: base.map { [$0] }, fileExists: { _ in false })
+            [target], mode: mode ?? .newFolder(FileManager.default.temporaryDirectory), fileExists: { _ in false })
         guard let destination = plan.first?.destination else { return item.source }
         // No mode yet: show the name in the source's own folder (planning there would call it `a_2`).
         if mode == nil { return item.source.deletingLastPathComponent().appendingPathComponent(destination.lastPathComponent) }

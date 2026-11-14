@@ -14,7 +14,7 @@ final class PipelineModelTests: XCTestCase {
         for kind in StepKind.allCases { XCTAssertEqual(kind.defaultOperation.kind, kind) }
         XCTAssertEqual(StepKind.allCases.map(\.displayName),
                        ["Resize", "Crop", "Rotate / flip", "Perspective", "Trim", "Canvas / padding",
-                         "Color profile", "Adjust", "Watermark"])
+                         "Color profile", "Adjust", "Watermark", "Condition"])
     }
 
     func testPipelineCodableRoundTrip() throws {

@@ -14,7 +14,8 @@ final class WatermarkModelTests: XCTestCase {
         XCTAssertEqual(defaults.sizePercent, 4)
         XCTAssertEqual(defaults.opacity, 0.65)
         XCTAssertEqual(defaults.marginPercent, 3)
-        XCTAssertEqual(StepKind.allCases.last, .watermark)
+        // Watermark is the last image step; only the condition step comes after it.
+        XCTAssertEqual(StepKind.allCases.suffix(2), [.watermark, .condition])
         XCTAssertEqual(StepKind.watermark.displayName, "Watermark")
         XCTAssertEqual(StepKind.watermark.defaultOperation, .watermark(WatermarkOptions()))
         XCTAssertEqual(ImageOperation.watermark(defaults).kind, .watermark)
