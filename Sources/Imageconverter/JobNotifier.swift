@@ -70,9 +70,13 @@ final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate, @unc
             MainActor.assumeIsolated {
                 NSApp.activate(ignoringOtherApps: true)
                 if kind == JobNotifier.runKind {
-                    for window in NSApp.windows where window.canBecomeMain && window.isVisible == false { window.deminiaturize(nil) }
-                    NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
-                    ExternalActions.shared.model?.reportRequest += 1
+                    // The main window itself (never Jobs, History or a panel): restored when minimised, reopened
+                    // when closed, the same way Finder services and links bring it forward.
+                    ExternalActions.shared.showWindow()
+                    // Once a reopened window has attached, so its sidebar sees the request.
+                    ExternalActions.shared.withModel { model, _ in
+                        DispatchQueue.main.async { model.reportRequest += 1 }
+                    }
                 }
             }
             completionHandler()
