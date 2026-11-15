@@ -213,19 +213,6 @@ public struct Pipeline: Codable, Equatable, Sendable {
     }
 }
 
-private struct LossyVariant: Decodable {
-    let variant: OutputVariant?
-    /// The label of an output that couldn't be read, when at least that could.
-    let name: String?
-
-    private enum Keys: String, CodingKey { case name }
-
-    init(from decoder: Decoder) throws {
-        variant = try? OutputVariant(from: decoder)
-        name = variant == nil ? (try? decoder.container(keyedBy: Keys.self).decode(String.self, forKey: .name)) : nil
-    }
-}
-
 private struct LossyStep: Decodable {
     let step: PipelineStep?
 

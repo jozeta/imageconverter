@@ -175,6 +175,20 @@ public struct OutputVariant: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// One element of a saved `extraOutputs` list: the output, or nil (with its label if readable) when it can't be read.
+struct LossyVariant: Decodable {
+    let variant: OutputVariant?
+    /// The label of an output that couldn't be read, when at least that could.
+    let name: String?
+
+    private enum Keys: String, CodingKey { case name }
+
+    init(from decoder: Decoder) throws {
+        variant = try? OutputVariant(from: decoder)
+        name = variant == nil ? (try? decoder.container(keyedBy: Keys.self).decode(String.self, forKey: .name)) : nil
+    }
+}
+
 /// Notes about a pipeline as it was read (e.g. extra outputs left out). Not saved, and never makes two pipelines
 /// unequal, so a loaded preset doesn't count as changed.
 public struct PipelineLoadNotes: Equatable, Sendable {
