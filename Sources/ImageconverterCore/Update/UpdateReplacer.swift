@@ -93,6 +93,16 @@ public enum UpdateReplacer {
         return "The previous version could not be moved to the Trash; it is still at \(old.path)."
     }
 
+    /// Removes hidden `.imageconverter-update-*.app` / `.imageconverter-old-*.app` siblings an interrupted install left
+    /// next to `installed` (best effort).
+    public static func removeLeftovers(beside installed: URL, using operations: UpdateFileOperations = SystemUpdateFileOperations()) {
+        let folder = installed.deletingLastPathComponent()
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
+        for name in names where (name.hasPrefix(stagingPrefix) || name.hasPrefix(oldPrefix)) && name.hasSuffix(".app") {
+            try? operations.remove(folder.appendingPathComponent(name))
+        }
+    }
+
     /// Removes a staged copy (best effort).
     public static func discard(_ staged: URL, using operations: UpdateFileOperations = SystemUpdateFileOperations()) {
         guard FileManager.default.fileExists(atPath: staged.path) else { return }

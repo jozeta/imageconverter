@@ -22,6 +22,16 @@ public enum UpdateSignature {
         var error: Unmanaged<CFError>?
         let status = SecStaticCodeCheckValidityWithErrors(code, flags, compiled, &error)
         error?.release()
-        guard status == errSecSuccess else { throw UpdateError.signatureRejected }
+        guard status == errSecSuccess else { throw self.error(forStatus: status) }
+    }
+
+    /// Statuses that mean the revocation or notarization lookup couldn't be made (offline), not that the app is bad.
+    public static let unavailableStatuses: Set<OSStatus> = [errSecNetworkFailure, errSecOCSPUnavailable,
+                                                             errSecOCSPStatusUnrecognized, errSecCRLServerDown]
+
+    /// `.signatureUnconfirmed` when the check couldn't reach Apple, else `.signatureRejected` (a revoked certificate
+    /// or notarization, a failed requirement and every other failure are refusals).
+    public static func error(forStatus status: OSStatus) -> UpdateError {
+        unavailableStatuses.contains(status) ? .signatureUnconfirmed : .signatureRejected
     }
 }

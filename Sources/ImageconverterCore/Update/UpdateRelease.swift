@@ -13,6 +13,7 @@ public enum UpdateError: Error, Equatable, Sendable {
     case downloadFailed(String)
     case badPackage(String)
     case signatureRejected
+    case signatureUnconfirmed
     case versionMismatch
     case installRefused(String)
     case installFailed(String)
@@ -30,6 +31,7 @@ public enum UpdateError: Error, Equatable, Sendable {
         case .downloadFailed(let reason): "The update could not be downloaded: \(reason)"
         case .badPackage(let reason): "The downloaded update is not a valid app: \(reason)"
         case .signatureRejected: "The downloaded update is not signed and notarized by the developer."
+        case .signatureUnconfirmed: "Couldn't confirm the update's signature right now. Try again when you're online."
         case .versionMismatch: "The downloaded app's version does not match the release."
         case .installRefused(let reason): reason
         case .installFailed(let reason): "The update could not be installed: \(reason)"

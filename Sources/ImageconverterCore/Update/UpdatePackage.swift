@@ -20,11 +20,21 @@ public enum UpdatePackage {
         public var maxUncompressedBytes: Int64
         /// Each `zipinfo` listing read is refused past this many bytes.
         public var maxListingBytes: Int
+        /// The unpack watchdog stops `ditto` once more than `maxUncompressedBytes + unpackMargin` bytes are in the
+        /// unpack folder (a zip can declare smaller sizes than it inflates to), or the volume has less than
+        /// `minFreeBytes` left; it looks every `pollInterval` seconds.
+        public var unpackMargin: Int64
+        public var minFreeBytes: Int64
+        public var pollInterval: TimeInterval
 
-        public init(maxEntries: Int, maxUncompressedBytes: Int64, maxListingBytes: Int) {
+        public init(maxEntries: Int, maxUncompressedBytes: Int64, maxListingBytes: Int, unpackMargin: Int64 = 64 << 20,
+                    minFreeBytes: Int64 = 2 << 30, pollInterval: TimeInterval = 0.25) {
             self.maxEntries = maxEntries
             self.maxUncompressedBytes = maxUncompressedBytes
             self.maxListingBytes = maxListingBytes
+            self.unpackMargin = unpackMargin
+            self.minFreeBytes = minFreeBytes
+            self.pollInterval = pollInterval
         }
 
         public static let standard = Limits(maxEntries: 20_000, maxUncompressedBytes: 1 << 30, maxListingBytes: 8 << 20)
@@ -37,15 +47,8 @@ public enum UpdatePackage {
         guard try sha256(of: zip) == expectedSHA256.lowercased() else { throw UpdateError.checksumMismatch }
         let listing = try listEntries(of: zip, limits: limits)
         if let problem = entryProblem(names: listing.names, symlinks: listing.symlinks) { throw UpdateError.badPackage(problem) }
+        try unpack(zip, into: folder, limits: limits)
         do {
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
-        } catch {
-            throw UpdateError.badPackage("its unpack folder could not be created")
-        }
-        do {
-            guard try runTool("/usr/bin/ditto", ["-x", "-k", "--noqtn", zip.path, folder.path]).status == 0 else {
-                throw UpdateError.badPackage("the zip could not be unpacked")
-            }
             let app = try locateApp(in: folder)
             try checkBundle(app, version: version, requirement: requirement)
             return app
@@ -53,6 +56,93 @@ public enum UpdatePackage {
             try? FileManager.default.removeItem(at: folder)
             throw error
         }
+    }
+
+    /// Unpacks `zip` with `ditto -x -k --noqtn` into `folder` (created here; it must not exist) under the watchdog
+    /// (`runWatched`), then checks the unpacked size again. Any failure deletes the folder.
+    public static func unpack(_ zip: URL, into folder: URL, limits: Limits = .standard,
+                              freeSpace: (URL) -> Int64? = availableCapacity) throws {
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        } catch {
+            throw UpdateError.badPackage("its unpack folder could not be created")
+        }
+        do {
+            let watch = Watch(maxBytes: limits.maxUncompressedBytes + limits.unpackMargin, minFreeBytes: limits.minFreeBytes,
+                              interval: limits.pollInterval)
+            let status = try runWatched("/usr/bin/ditto", ["-x", "-k", "--noqtn", zip.path, folder.path], folder: folder,
+                                        watch: watch, freeSpace: freeSpace)
+            guard status == 0 else { throw UpdateError.badPackage("the zip could not be unpacked") }
+        } catch {
+            try? FileManager.default.removeItem(at: folder)
+            throw error
+        }
+    }
+
+    /// What `runWatched` enforces.
+    public struct Watch: Equatable, Sendable {
+        public var maxBytes: Int64
+        public var minFreeBytes: Int64
+        public var interval: TimeInterval
+
+        public init(maxBytes: Int64, minFreeBytes: Int64, interval: TimeInterval) {
+            self.maxBytes = maxBytes
+            self.minFreeBytes = minFreeBytes
+            self.interval = interval
+        }
+    }
+
+    /// Runs a tool that writes into `folder` and stops it when the folder holds more than `watch.maxBytes` or the volume
+    /// has less than `watch.minFreeBytes` free (checked first, then every `watch.interval` seconds, then the size once
+    /// more at the end). Returns the tool's exit status.
+    public static func runWatched(_ path: String, _ arguments: [String], folder: URL, watch: Watch,
+                                  freeSpace: (URL) -> Int64?) throws -> Int32 {
+        let maxBytes = watch.maxBytes, minFreeBytes = watch.minFreeBytes, interval = watch.interval
+        let tooLarge = UpdateError.badPackage("it is too large when unpacked")
+        let lowSpace = UpdateError.badPackage("there isn't enough free disk space to unpack it")
+        if let free = freeSpace(folder), free < minFreeBytes { throw lowSpace }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { throw UpdateError.badPackage("\(URL(fileURLWithPath: path).lastPathComponent) could not run") }
+        var failure: UpdateError?
+        while process.isRunning {
+            Thread.sleep(forTimeInterval: interval)
+            if bytesWritten(in: folder) > maxBytes {
+                failure = tooLarge
+            } else if let free = freeSpace(folder), free < minFreeBytes {
+                failure = lowSpace
+            }
+            if failure != nil {
+                process.terminate()
+                break
+            }
+        }
+        process.waitUntilExit()
+        if let failure { throw failure }
+        if bytesWritten(in: folder) > maxBytes { throw tooLarge }
+        return process.terminationStatus
+    }
+
+    /// The bytes in the regular files under `folder` (links not followed).
+    static func bytesWritten(in folder: URL) -> Int64 {
+        let keys: [URLResourceKey] = [.isRegularFileKey, .fileSizeKey]
+        guard let enumerator = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: keys) else { return 0 }
+        var total: Int64 = 0
+        for case let url as URL in enumerator {
+            guard let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
+            total += Int64(values.fileSize ?? 0)
+        }
+        return total
+    }
+
+    /// Free space for important data on the volume holding `folder` (or its parent while it doesn't exist).
+    public static func availableCapacity(_ folder: URL) -> Int64? {
+        let existing = FileManager.default.fileExists(atPath: folder.path) ? folder : folder.deletingLastPathComponent()
+        return (try? existing.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
+            .volumeAvailableCapacityForImportantUsage
     }
 
     /// The checks on an unpacked (or staged) bundle: no link leading outside it, the release's version, and the code
