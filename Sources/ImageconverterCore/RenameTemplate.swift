@@ -338,6 +338,18 @@ public struct RenameTemplate: Equatable, Sendable {
     /// characters, no leading dots or edge separators, at most 200 characters and 240 bytes.
     /// Text with no visible character becomes empty.
     static func sanitize(_ text: String) -> String {
+        var result = trim(cleanScalars(text))
+        if result.count > maxLength { result = String(result.prefix(maxLength)) }
+        while result.utf8.count > maxBytes { result.removeLast() }
+        result = trim(result)
+        let visible = result.unicodeScalars.contains {
+            !$0.properties.isWhitespace && $0.properties.generalCategory != .format
+        }
+        return visible ? result : ""
+    }
+
+    /// `text` with `/` and `:` turned into `-` and control, bidi and zero-width characters removed (no trimming).
+    static func cleanScalars(_ text: String) -> String {
         var scalars = String.UnicodeScalarView()
         for scalar in text.unicodeScalars {
             if scalar == "/" || scalar == ":" {
@@ -346,14 +358,7 @@ public struct RenameTemplate: Equatable, Sendable {
                 scalars.append(scalar)
             }
         }
-        var result = trim(String(scalars))
-        if result.count > maxLength { result = String(result.prefix(maxLength)) }
-        while result.utf8.count > maxBytes { result.removeLast() }
-        result = trim(result)
-        let visible = result.unicodeScalars.contains {
-            !$0.properties.isWhitespace && $0.properties.generalCategory != .format
-        }
-        return visible ? result : ""
+        return String(scalars)
     }
 
     private static func trim(_ text: String) -> String {

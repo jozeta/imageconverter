@@ -174,18 +174,24 @@ public struct Pipeline: Codable, Equatable, Sendable {
     public var output: OutputSettings
     public var metadata: MetadataOptions
     public var rename: RenameOptions
+    /// More files written for each image besides `output` (at most `OutputVariant.maxCount`).
+    public var extraOutputs: [OutputVariant]
+    /// What decoding left out (not saved; never makes pipelines unequal).
+    public var loadNotes = PipelineLoadNotes()
 
     public init(schemaVersion: Int = 1, steps: [PipelineStep] = [], output: OutputSettings = OutputSettings(),
-                metadata: MetadataOptions = MetadataOptions(), rename: RenameOptions = RenameOptions()) {
+                metadata: MetadataOptions = MetadataOptions(), rename: RenameOptions = RenameOptions(),
+                extraOutputs: [OutputVariant] = []) {
         self.schemaVersion = schemaVersion
         self.steps = steps
         self.output = output
         self.metadata = metadata
         self.rename = rename
+        self.extraOutputs = extraOutputs
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, steps, output, metadata, rename
+        case schemaVersion, steps, output, metadata, rename, extraOutputs
     }
 
     /// Lenient: pipelines saved by older versions lack newer fields, which take their defaults.
@@ -197,6 +203,19 @@ public struct Pipeline: Codable, Equatable, Sendable {
         output = try container.decodeIfPresent(OutputSettings.self, forKey: .output) ?? OutputSettings()
         metadata = try container.decodeIfPresent(MetadataOptions.self, forKey: .metadata) ?? MetadataOptions()
         rename = try container.decodeIfPresent(RenameOptions.self, forKey: .rename) ?? RenameOptions()
+        // Element by element too; outputs that can't run (no suffix, a repeated one, too many) are left out.
+        let variants = (try? container.decodeIfPresent([LossyVariant].self, forKey: .extraOutputs)) ?? []
+        let (kept, notes) = OutputVariant.validated(variants.compactMap(\.variant))
+        extraOutputs = kept
+        loadNotes = PipelineLoadNotes(notes)
+    }
+}
+
+private struct LossyVariant: Decodable {
+    let variant: OutputVariant?
+
+    init(from decoder: Decoder) throws {
+        variant = try? OutputVariant(from: decoder)
     }
 }
 
