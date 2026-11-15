@@ -11,7 +11,7 @@ extension AppModel {
         let title: String, body: String
         if report.cancelled {
             title = "Run cancelled"
-            body = "Run cancelled · converted \(report.written.count)"
+            body = "Run cancelled · converted \(report.convertedCount)"
         } else if report.written.isEmpty {
             title = "Run finished"
             body = "No images converted · \(failed) failed"

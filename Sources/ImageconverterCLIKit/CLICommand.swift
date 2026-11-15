@@ -25,6 +25,8 @@ public struct ConvertOptions: Equatable {
     public var quality: Double?
     public var maxSizeBytes: Int?
     public var resizeLongEdge: Int?
+    /// `--variant` outputs; when given, they replace the preset's or file's extra outputs.
+    public var variants: [OutputVariant] = []
     public var stripGPS = false
     public var stripAll = false
     public var report: ReportFormat?

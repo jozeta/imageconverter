@@ -317,7 +317,7 @@ final class AppModel {
         let prefix = report.cancelled ? "Cancelled. " : ""
         let totals = runReport?.summary
         let saved = SizeFormat.savedPhrase(input: totals?.inputBytes ?? 0, output: totals?.outputBytes ?? 0).map { " · \($0)" } ?? ""
-        let summary = "\(RunCountsText.make(written: report.written.count, skipped: report.skipped.count, failed: failed))\(saved)"
+        let summary = "\(RunCountsText.make(written: report.convertedCount, skipped: report.skipped.count, failed: failed))\(saved)"
         toasts.show("\(prefix)\(summary)", type: failed > 0 ? .bad : (report.cancelled ? .info : .ok))
         runAfterRunAction(report, summary: summary)
     }

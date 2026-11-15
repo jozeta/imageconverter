@@ -94,6 +94,10 @@ enum CLIText {
       --quality 0-100                         Quality for lossy formats
       --max-size 500KB                        Largest file size (lowers quality as needed)
       --resize-long PX                        Longest edge in pixels
+      --variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"
+                                              An extra output per image (repeatable, up to 8; replaces the
+                                              preset's). Keys: name, format, quality, max-size, long, width,
+                                              height or percent, suffix (default _NAME), folder
       --strip-gps | --strip-all               Remove GPS data, or all metadata (ignores the preset's keep list)
       --report csv|json|text                  Print a full report to stdout
       --dry-run                               Show what would be written; change nothing

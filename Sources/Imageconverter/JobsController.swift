@@ -282,11 +282,11 @@ final class JobsController {
             if let problem = result.problem {
                 messenger?("Job \(job.name): \(problem)", true)
             } else {
-                messenger?("Job \(job.name): " + RunCountsText.make(written: batch.written.count, skipped: batch.skipped.count,
+                messenger?("Job \(job.name): " + RunCountsText.make(written: batch.convertedCount, skipped: batch.skipped.count,
                                                                     failed: batch.failures.count), !batch.failures.isEmpty)
             }
         } else if job.trigger != .manual {
-            notify(job, written: batch.written.count, skipped: batch.skipped.count, failed: batch.failures.count,
+            notify(job, written: batch.convertedCount, skipped: batch.skipped.count, failed: batch.failures.count,
                    problem: result.problem)
         }
     }

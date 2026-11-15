@@ -71,6 +71,8 @@ public enum CLIParser {
         "--preset", "--pipeline", "--out", "--suffix", "--format", "--quality", "--max-size", "--resize-long",
         "--report"
     ]
+    /// Value flags that may be given several times.
+    private static let repeatableFlags: Set<String> = ["--variant"]
     private static let switchFlags: Set<String> = [
         "--same-folder", "--overwrite", "--yes", "--strip-gps", "--strip-all", "--dry-run", "--quiet", "--json"
     ]
@@ -99,7 +101,7 @@ public enum CLIParser {
             if switchFlags.contains(name) {
                 guard value == nil else { throw CLIUsageError("'\(name)' takes no value.") }
                 apply(switch: name, to: &options)
-            } else if valueFlags.contains(name) {
+            } else if valueFlags.contains(name) || repeatableFlags.contains(name) {
                 if value == nil {
                     guard index < arguments.count, !arguments[index].hasPrefix("--") else {
                         throw CLIUsageError("'\(name)' needs a value.")
@@ -135,6 +137,8 @@ public enum CLIParser {
         }
     }
 
+    // One case per flag.
+    // swiftlint:disable:next cyclomatic_complexity
     private static func apply(value: String, for name: String, to options: inout ConvertOptions) throws {
         switch name {
         case "--preset": options.preset = value
@@ -145,6 +149,7 @@ public enum CLIParser {
         case "--quality": options.quality = try quality(value)
         case "--max-size": options.maxSizeBytes = try maxSize(value)
         case "--resize-long": options.resizeLongEdge = try longEdge(value)
+        case "--variant": options.variants.append(try variant(value, position: options.variants.count))
         default:
             guard let report = ReportFormat(rawValue: value.lowercased()) else {
                 throw CLIUsageError("--report must be csv, json or text.")
@@ -210,6 +215,7 @@ public enum CLIParser {
         }
         if options.suffix != nil && !options.sameFolder { throw CLIUsageError("--suffix only works with --same-folder.") }
         if options.confirmed && !options.overwrite { throw CLIUsageError("--yes only goes with --overwrite.") }
+        try validateVariants(options.variants)
         if options.json, let report = options.report, report != .json {
             throw CLIUsageError("--json prints the JSON report; drop --report or use --report json.")
         }
