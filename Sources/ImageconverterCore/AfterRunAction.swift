@@ -16,6 +16,18 @@ public enum AfterRunAction: String, CaseIterable, Sendable, Codable {
         }
     }
 
+    /// The notification for a finished run: "Run cancelled · converted N", "No images converted · N failed", or
+    /// "Run finished" with `summary` (`RunCountsText.runSummary`). Failed extra outputs are added to the first two;
+    /// the summary already names them.
+    public static func notification(for report: BatchReport, summary: String) -> (title: String, body: String) {
+        let extras = report.extraFailures.isEmpty ? "" : " · " + RunCountsText.extraFailures(report.extraFailures.count)
+        if report.cancelled { return ("Run cancelled", "Run cancelled · converted \(report.convertedCount)\(extras)") }
+        if report.written.isEmpty {
+            return ("Run finished", "No images converted · \(report.failures.count) failed\(extras)")
+        }
+        return ("Run finished", summary)
+    }
+
     /// Most files selected in Finder; with more, the folders that hold them are revealed instead.
     public static let maxRevealedFiles = 50
 

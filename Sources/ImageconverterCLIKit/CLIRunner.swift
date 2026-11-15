@@ -64,6 +64,7 @@ public enum CLIRunner {
             if summary.failed > 0 { line += ", \(summary.failed) failed" }
             if summary.skipped > 0 { line += ", \(summary.skipped) skipped" }
             if summary.unchanged > 0 { line += ", \(summary.unchanged) unchanged" }
+            if summary.extraFailureCount > 0 { line += ", " + RunCountsText.extraFailures(summary.extraFailureCount) }
             if let phrase = SizeFormat.savedPhrase(input: summary.inputBytes, output: summary.outputBytes),
                summary.succeeded > 0 { line += " (\(phrase))" }
             environment.out(line)
@@ -76,7 +77,10 @@ public enum CLIRunner {
             environment.err("Interrupted: \(report.summary.cancelled) files were not started.")
             return CLIExit.interrupted
         }
-        if problem != nil || report.summary.failed > 0 { return CLIExit.someFailed }
+        // A missing extra output is a file that wasn't written: exit 1 like a failed image.
+        if problem != nil || report.summary.failed > 0 || report.summary.extraFailureCount > 0 {
+            return CLIExit.someFailed
+        }
         return report.summary.total == 0 ? CLIExit.nothingToDo : CLIExit.success
     }
 

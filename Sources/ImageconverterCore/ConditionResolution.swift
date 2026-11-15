@@ -18,6 +18,8 @@ public struct ResolvedPipeline: Equatable, Sendable {
     public var finderTags: [String]
     /// "Add a note" templates, rendered per file into the report.
     public var noteTemplates: [String]
+    /// Labels of extra outputs the planner found no free name for (set by the batch's planning).
+    public var unplannedOutputs: [String] = []
 
     public init(pipeline: Pipeline, disposition: Disposition = .process, notes: [String] = [],
                 subfolder: String? = nil, finderTags: [String] = [], noteTemplates: [String] = []) {

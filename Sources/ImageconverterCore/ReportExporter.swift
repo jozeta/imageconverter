@@ -63,6 +63,7 @@ public enum ReportExporter {
         "\(summary.total) files: \(summary.succeeded) succeeded, \(summary.failed) failed, "
             + "\(summary.skipped) skipped, " + (summary.unchanged > 0 ? "\(summary.unchanged) unchanged, " : "")
             + "\(summary.cancelled) cancelled"
+            + (summary.extraFailureCount > 0 ? ", " + RunCountsText.extraFailures(summary.extraFailureCount) : "")
     }
 
     // MARK: JSON

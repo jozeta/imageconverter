@@ -72,6 +72,9 @@ public struct RunSummary: Codable, Equatable, Sendable, Identifiable {
     public var cancelled: Int
     public var inputBytes: Int
     public var outputBytes: Int
+    /// Extra outputs that weren't written for images that were (nil in runs saved before they existed).
+    public var extraFailures: Int?
+    public var extraFailureCount: Int { extraFailures ?? 0 }
 
     public var savedBytes: Int { inputBytes - outputBytes }
     public var totalDuration: Double { finishedAt.timeIntervalSince(startedAt) }
@@ -130,6 +133,13 @@ public struct ProcessingReport: Equatable, Sendable {
                 source: failure.source.path, status: .failed, inputBytes: failure.inputBytes,
                 duration: failure.duration, note: failure.reason))
         }
+        // An extra output that wasn't written is a failed row under its image (the error log and job reports list
+        // it); the image itself still counts as converted.
+        for failure in batch.extraFailures {
+            byName[failure.source, default: []].append(ReportEntry(
+                source: failure.source.path, destination: failure.destination?.path, status: .failed,
+                inputBytes: nil, note: failure.message, variant: failure.name))
+        }
         for skip in batch.skipped {
             byName[skip.source, default: []].append(ReportEntry(
                 source: skip.source.path, status: .skipped, inputBytes: skip.inputBytes, note: skip.reason))
@@ -138,16 +148,7 @@ public struct ProcessingReport: Equatable, Sendable {
         var seen: Set<URL> = []
         for source in batch.order where seen.insert(source).inserted { entries += byName[source] ?? [] }
         // A hand-built BatchReport has no order: keep written then failed.
-        if batch.order.isEmpty {
-            var listed: Set<URL> = []
-            entries = batch.entries.filter { listed.insert($0.source).inserted }
-                .flatMap { written in (byName[written.source] ?? []).filter { $0.status == .succeeded } }
-                + batch.failures.map { failure in ReportEntry(source: failure.source.path, status: .failed,
-                                                        inputBytes: failure.inputBytes, duration: failure.duration,
-                                                        note: failure.reason) }
-                + batch.skipped.map { ReportEntry(source: $0.source.path, status: .skipped, inputBytes: $0.inputBytes,
-                                                  note: $0.reason) }
-        }
+        if batch.order.isEmpty { entries = Self.unorderedEntries(batch, byName: byName) }
         // Counts and averages are per image: extra outputs are rows of their own, but not more images.
         let primaries = entries.filter { $0.variant == nil }
         let ratios = primaries.compactMap(\.ratio)
@@ -160,7 +161,23 @@ public struct ProcessingReport: Equatable, Sendable {
             skipped: batch.skipped.count, cancelled: notRun, inputBytes: batch.inputBytes, outputBytes: batch.outputBytes,
             averageDuration: times.isEmpty ? 0 : times.reduce(0, +) / Double(times.count),
             averageRatio: ratios.isEmpty ? nil : ratios.reduce(0, +) / Double(ratios.count))
-        self.init(summary: summary, entries: entries)
+        var counted = summary
+        counted.extraFailures = batch.extraFailures.isEmpty ? nil : batch.extraFailures.count
+        self.init(summary: counted, entries: entries)
+    }
+
+    /// The entries of a hand-built report without `order`: written (with their extra outputs), failed, skipped.
+    private static func unorderedEntries(_ batch: BatchReport, byName: [URL: [ReportEntry]]) -> [ReportEntry] {
+        var listed: Set<URL> = []
+        return batch.entries.filter { listed.insert($0.source).inserted }
+            .flatMap { written in
+                (byName[written.source] ?? []).filter { $0.status == .succeeded || $0.variant != nil }
+            }
+            + batch.failures.map { failure in ReportEntry(source: failure.source.path, status: .failed,
+                                                          inputBytes: failure.inputBytes, duration: failure.duration,
+                                                          note: failure.reason) }
+            + batch.skipped.map { ReportEntry(source: $0.source.path, status: .skipped, inputBytes: $0.inputBytes,
+                                              note: $0.reason) }
     }
 }
 

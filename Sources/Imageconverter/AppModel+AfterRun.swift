@@ -8,17 +8,7 @@ extension AppModel {
         let plan = afterRunSetting.plan(written: report.written, failed: failed, appIsActive: NSApp.isActive)
         if !plan.reveal.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(plan.reveal) }
         guard plan.notify else { return }
-        let title: String, body: String
-        if report.cancelled {
-            title = "Run cancelled"
-            body = "Run cancelled · converted \(report.convertedCount)"
-        } else if report.written.isEmpty {
-            title = "Run finished"
-            body = "No images converted · \(failed) failed"
-        } else {
-            title = "Run finished"
-            body = summary
-        }
+        let (title, body) = AfterRunAction.notification(for: report, summary: summary)
         JobNotifier.shared.post(title: title, body: body, kind: JobNotifier.runKind)
     }
 }

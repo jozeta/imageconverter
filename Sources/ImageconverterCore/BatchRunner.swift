@@ -27,8 +27,9 @@ struct WrittenItem {
     let outputBytes: Int
     var inputSize: (width: Int, height: Int)?
     var outputSize: (width: Int, height: Int)?
-    /// The extra outputs written after this one.
+    /// The extra outputs written after this one, and those that failed.
     var extras: [WrittenExtra] = []
+    var extraFailures: [BatchExtraFailure] = []
 }
 
 public enum BatchRunner {
@@ -122,6 +123,7 @@ public enum BatchRunner {
                     report.written.append(extra.url)
                     report.entries.append(extra.entry(source: plan.item.source, primary: item))
                 }
+                report.extraFailures += item.extraFailures
             case .failure(let error) where error.outputWasCommitted:
                 // Saved, only the Trash failed: a written file with a warning, so a job records the new file as an
                 // output and the original's version as done (it would otherwise rename its own output again).
@@ -172,10 +174,11 @@ public enum BatchRunner {
                                                          source: sourceDates) {
                     notes.append(failure)
                 }
-                let dates = setsDates ? sourceDates : nil
-                let (extras, extraNotes) = commitVariants(encoded.variants, planned: variants, item: plan.item,
-                                                          setsDates: setsDates, sourceDates: dates)
-                notes += extraNotes
+                let setDates: ((URL, Date?) -> String?)? = setsDates
+                    ? { setFileDates(of: $0, taken: $1, source: sourceDates) } : nil
+                let (extras, extraFailures) = commitVariants(encoded.variants, planned: variants, item: plan.item,
+                                                             trash: trash, setDates: setDates)
+                notes += extraFailures.map(\.message)
                 if plan.trashesSource {
                     do { try trash(plan.item.source) } catch {
                         // Saved, only the Trash failed: the warning leads the note.
@@ -187,6 +190,7 @@ public enum BatchRunner {
                 written.inputSize = inputSize
                 written.outputSize = ImageLoader.pixelSize(of: encoded.data)
                 written.extras = extras
+                written.extraFailures = extraFailures
                 return .success(written)
             } catch is CancellationError {
                 return .success(nil)

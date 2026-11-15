@@ -313,12 +313,10 @@ final class AppModel {
         if let finished = runReport { recordRun(finished) }
         progress = nil
         dropMissingItems()
-        let failed = report.failures.count
         let prefix = report.cancelled ? "Cancelled. " : ""
-        let totals = runReport?.summary
-        let saved = SizeFormat.savedPhrase(input: totals?.inputBytes ?? 0, output: totals?.outputBytes ?? 0).map { " · \($0)" } ?? ""
-        let summary = "\(RunCountsText.make(written: report.convertedCount, skipped: report.skipped.count, failed: failed))\(saved)"
-        toasts.show("\(prefix)\(summary)", type: failed > 0 ? .bad : (report.cancelled ? .info : .ok))
+        // Failed files or failed extra outputs make it a warning.
+        let (summary, hasProblems) = RunCountsText.runSummary(report)
+        toasts.show("\(prefix)\(summary)", type: hasProblems ? .bad : (report.cancelled ? .info : .ok))
         runAfterRunAction(report, summary: summary)
     }
 }

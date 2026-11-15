@@ -110,34 +110,38 @@ extension BatchRunner {
                            dateTaken: taken)
     }
 
-    /// Commits each encoded extra output to its planned place, in order. Returns the written ones and a note for
-    /// each one that failed (to encode or to save).
+    /// Commits each encoded extra output to its planned place, in order (through `FileCommitter` with the batch's
+    /// Trasher, though an extra never trashes anything). Returns the written ones and each one that failed (to
+    /// encode or to save).
+    /// `setDates` sets a written file's dates from the date taken (nil when the Metadata step doesn't set them) and
+    /// returns a note when that fails.
     static func commitVariants(_ encoded: [EncodedVariant], planned: [PlannedVariant], item: InputItem,
-                               setsDates: Bool, sourceDates: (created: Date?, modified: Date?)?)
-        -> (written: [WrittenExtra], notes: [String]) {
+                               trash: Trasher, setDates: ((URL, Date?) -> String?)?)
+        -> (written: [WrittenExtra], failures: [BatchExtraFailure]) {
         var written: [WrittenExtra] = []
-        var notes: [String] = []
+        var failures: [BatchExtraFailure] = []
+        func fail(_ reason: String, _ name: String, _ place: PlannedVariant) {
+            failures.append(BatchExtraFailure(source: item.source, name: name, destination: place.destination,
+                                              reason: reason))
+        }
         for (output, place) in zip(encoded, planned) {
             let name = output.variant.displayName
             do {
                 let data = try output.outcome.get()
-                try FileCommitter.commit(data.data, for: place.plan(for: item))
+                try FileCommitter.commit(data.data, for: place.plan(for: item), trash: trash)
                 var extra = WrittenExtra(url: place.destination, name: name, outputBytes: data.data.count)
                 extra.outputSize = ImageLoader.pixelSize(of: data.data)
                 var extraNotes = [data.note].compactMap { $0 }
-                if setsDates, let failure = setFileDates(of: place.destination, taken: data.dateTaken,
-                                                         source: sourceDates) {
-                    extraNotes.append(failure)
-                }
+                if let failure = setDates?(place.destination, data.dateTaken) { extraNotes.append(failure) }
                 extra.note = extraNotes.isEmpty ? nil : extraNotes.joined(separator: "; ")
                 written.append(extra)
             } catch let error as ConversionError {
-                notes.append(variantFailedNote(name, reason: error.reason))
+                fail(error.reason, name, place)
             } catch {
-                notes.append(variantFailedNote(name, reason: error.localizedDescription))
+                fail(error.localizedDescription, name, place)
             }
         }
-        return (written, notes)
+        return (written, failures)
     }
 }
 

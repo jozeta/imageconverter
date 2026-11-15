@@ -79,6 +79,26 @@ public struct BatchResultEntry: Equatable, Sendable {
     }
 }
 
+/// An extra output that wasn't written although its image was (couldn't be encoded, saved or named).
+public struct BatchExtraFailure: Equatable, Sendable {
+    public let source: URL
+    /// The output's label.
+    public let name: String
+    /// Where it was planned to go; nil when it found no free name.
+    public let destination: URL?
+    public let reason: String
+
+    public init(source: URL, name: String, destination: URL?, reason: String) {
+        self.source = source
+        self.name = name
+        self.destination = destination
+        self.reason = reason
+    }
+
+    /// "Extra output “Thumbnail” failed: …", as the report, the error log and the item's note say it.
+    public var message: String { BatchRunner.variantFailedNote(name, reason: reason) }
+}
+
 /// The outcome of a batch: all lists are in input order. A note is not a failure; its file was written.
 public struct BatchReport: Equatable, Sendable {
     public var written: [URL]
@@ -92,12 +112,19 @@ public struct BatchReport: Equatable, Sendable {
     public var order: [URL] = []
     /// Files a condition skipped (in input order); always listed, even when the run was cancelled.
     public var skipped: [BatchSkip] = []
+    /// Extra outputs that weren't written for images that were (in input order). Their images count as converted;
+    /// a job doesn't try them again.
+    public var extraFailures: [BatchExtraFailure] = []
 
     /// Source bytes of the converted images whose size is known (files with an unknown size are left out of both
     /// totals); each source counts once, however many outputs it has.
     public var inputBytes: Int { entries.filter { $0.variant == nil }.reduce(0) { $0 + ($1.inputBytes ?? 0) } }
     /// Output bytes of every file written from them (extra outputs included).
     public var outputBytes: Int { entries.filter { $0.inputBytes != nil }.reduce(0) { $0 + $1.outputBytes } }
+    /// Output bytes of the primary outputs only, for the "saved" phrase (an extra output isn't a saving or a loss).
+    public var primaryOutputBytes: Int {
+        entries.filter { $0.variant == nil && $0.inputBytes != nil }.reduce(0) { $0 + $1.outputBytes }
+    }
     /// Images converted (each source once; `written` also holds the extra outputs).
     public var convertedCount: Int { entries.filter { $0.variant == nil }.count }
 

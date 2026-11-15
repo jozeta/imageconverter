@@ -100,6 +100,7 @@ extension BatchRunner {
         let (plans, failures) = OutputPlanner.planVariants(targets, primaries: primaries, reservedSources: reserved)
         for (index, missing) in failures.enumerated() {
             jobs[index].notes += missing.map { noFreeNameNote($0.displayName) }
+            jobs[index].unplannedOutputs = missing.map(\.displayName)
         }
         return plans
     }
@@ -183,8 +184,16 @@ extension BatchRunner {
         if let missing = assets.missingError(for: job.pipeline) {
             return (.failure(missing), fileSize(plan.item.source))
         }
-        let (result, inputBytes) = convert(plan, pipeline: job.pipeline, assets: assets, maxPixels: maxPixels,
+        var (result, inputBytes) = convert(plan, pipeline: job.pipeline, assets: assets, maxPixels: maxPixels,
                                            trash: trash, options: options, variants: variants)
+        if !job.unplannedOutputs.isEmpty, case .success(var written?) = result {
+            // Named in the item's note already (`noFreeNameNote`); counted as failed extras too.
+            written.extraFailures += job.unplannedOutputs.map {
+                BatchExtraFailure(source: plan.item.source, name: $0, destination: nil,
+                                  reason: OutputPlanner.noFreeNameReason)
+            }
+            result = .success(written)
+        }
         let resolutionNotes = job.runNotes
         guard !resolutionNotes.isEmpty, case .success(var written?) = result else {
             return tagged((result, inputBytes), tags: job.finderTags)

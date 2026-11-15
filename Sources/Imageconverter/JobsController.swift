@@ -256,6 +256,7 @@ final class JobsController {
         let summary = result.report.summary
         let didWork = summary.succeeded + summary.failed + summary.skipped + summary.cancelled > 0
         let failures = result.batch.failures.map { (path: $0.source.path, reason: $0.reason) }
+            + result.batch.extraFailures.map { (path: $0.source.path, reason: $0.message) }
         let problem = result.problem.map { (path: job.inputs.first?.path ?? job.name, reason: "Job \(job.name): \($0)") }
         pendingWrites += 1
         // The controller lives as long as the app (`shared`): a strong capture is fine.
@@ -282,8 +283,10 @@ final class JobsController {
             if let problem = result.problem {
                 messenger?("Job \(job.name): \(problem)", true)
             } else {
+                let extras = batch.extraFailures.isEmpty ? "" : " · " + RunCountsText.extraFailures(batch.extraFailures.count)
                 messenger?("Job \(job.name): " + RunCountsText.make(written: batch.convertedCount, skipped: batch.skipped.count,
-                                                                    failed: batch.failures.count), !batch.failures.isEmpty)
+                                                                    failed: batch.failures.count) + extras,
+                           !batch.failures.isEmpty || !batch.extraFailures.isEmpty)
             }
         } else if job.trigger != .manual {
             notify(job, written: batch.convertedCount, skipped: batch.skipped.count, failed: batch.failures.count,
