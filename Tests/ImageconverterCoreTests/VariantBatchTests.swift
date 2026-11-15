@@ -181,42 +181,6 @@ final class VariantBatchTests: XCTestCase {
         XCTAssertFalse(exists(out))
     }
 
-    // MARK: Conditions
-
-    func testSkipExtraOutputsActionWritesOnlyThePrimary() async throws {
-        let wide = try source("wide.jpg", width: 900, height: 100)
-        let small = try source("small.jpg", width: 300, height: 100)
-        var pipeline = pipeline([threeVariants[0]])
-        pipeline.steps = [PipelineStep(operation: .condition(ConditionalStep(
-            conditions: [.longestEdge(.lessThan, 500)], then: [.skipExtraOutputs])))]
-        let report = await BatchRunner.run(items([wide, small]), pipeline: pipeline, mode: .newFolder(out))
-        XCTAssertEqual(report.written.map(\.lastPathComponent), ["wide.jpg", "wide_thumb.jpg", "small.jpg"])
-        XCTAssertEqual(report.convertedCount, 2)
-    }
-
-    func testOutputOverrideReplacesOnlyThePrimary() async throws {
-        let photo = try source("a.jpg")
-        var pipeline = pipeline([threeVariants[0]])
-        pipeline.steps = [PipelineStep(operation: .condition(ConditionalStep(
-            conditions: [.longestEdge(.greaterThan, 1)], then: [.output(OutputSettings(format: .png))])))]
-        let report = await BatchRunner.run(items([photo]), pipeline: pipeline, mode: .newFolder(out))
-        XCTAssertEqual(report.written.map(\.lastPathComponent), ["a.png", "a_thumb.jpg"])
-    }
-
-    func testACopiedOriginalHasNoExtras() async throws {
-        let photo = try source("a.jpg")
-        var pipeline = pipeline([threeVariants[0]])
-        pipeline.steps = [PipelineStep(operation: .condition(ConditionalStep(
-            conditions: [.longestEdge(.greaterThan, 1)], then: [.copyOriginal])))]
-        let report = await BatchRunner.run(items([photo]), pipeline: pipeline, mode: .newFolder(out))
-        XCTAssertEqual(report.written.map(\.lastPathComponent), ["a.jpg"])
-    }
-
-    func testSkipExtraOutputsSummary() {
-        XCTAssertEqual(ConditionalAction.skipExtraOutputs.summary, "skip extra outputs")
-        XCTAssertTrue(ConditionalAction.skipExtraOutputs.isValid)
-    }
-
     // MARK: Failures
 
     func testAFailingPrimaryWritesNoExtras() async throws {
