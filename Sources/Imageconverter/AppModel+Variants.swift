@@ -24,6 +24,13 @@ extension AppModel {
         return variant
     }
 
+    /// Says once what loading `pipeline` left out (extra outputs that couldn't be read or run).
+    func announceLoadNotes(_ pipeline: Pipeline) {
+        let notes = pipeline.loadNotes.notes
+        guard let first = notes.first else { return }
+        toasts.show(first, type: .info, description: notes.count > 1 ? notes.dropFirst().joined(separator: "\n") : nil)
+    }
+
     /// False (with a toast) while an extra output can't run.
     func variantsCanRun() -> Bool {
         guard hasVariantProblems else { return true }

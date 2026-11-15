@@ -76,7 +76,8 @@ public enum JobRunner {
         let batch = await BatchRunner.run(selection.items, pipeline: pipeline, mode: job.output, maxPixels: maxPixels,
                                           concurrency: concurrency, memoryBudgetPixels: memoryBudgetPixels,
                                           trash: trash, presets: library, progress: progress)
-        var problems: [String] = []
+        // Extra outputs the job's pipeline (or its preset's) couldn't load are named on every run that does work.
+        var problems = pipeline.loadNotes.notes.map { $0 + "." }
         let (gaveUp, ledgerProblem) = record(batch, selection: selection, loaded: ledger, store: store, id: job.id)
         if let ledgerProblem { problems.append(ledgerProblem) }
 

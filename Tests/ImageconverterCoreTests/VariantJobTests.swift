@@ -50,4 +50,19 @@ final class VariantJobTests: XCTestCase {
         XCTAssertEqual(second.batch.written, [])
         XCTAssertEqual(second.unchanged, 8)
     }
+
+    func testAJobNamesExtraOutputsItsPipelineLeftOut() async throws {
+        try TestImages.write(TestImages.make(width: 60, height: 30), to: input.appendingPathComponent("a.jpg"),
+                             type: .jpeg)
+        let json = #"{"output":{"format":"png"},"extraOutputs":[{"name":"Blank","nameSuffix":""}]}"#
+        let pipeline = try JSONDecoder().decode(Pipeline.self, from: Data(json.utf8))
+        let job = Job(name: "Old", pipeline: pipeline, inputs: [input], output: .sameFolder(suffix: "_new"),
+                      trigger: .watch)
+        let result = await run(job)
+        XCTAssertEqual(result.batch.convertedCount, 1)
+        XCTAssertTrue(result.problem?.contains("Extra output “Blank” was left out") == true, result.problem ?? "nil")
+        // An empty check (nothing to do) says nothing, so the history isn't filled with it.
+        let again = await run(job)
+        XCTAssertNil(again.problem)
+    }
 }

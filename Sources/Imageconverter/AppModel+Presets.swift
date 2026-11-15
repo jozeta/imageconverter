@@ -28,7 +28,7 @@ extension AppModel {
         if result == .done {
             refreshWatermarkBookmarks()
             // Extra outputs that couldn't be read were left out when the preset was loaded: say so once.
-            if let note = preset.pipeline.loadNotes.notes.first { toasts.show(note, type: .info) }
+            announceLoadNotes(preset.pipeline)
         }
         return result
     }

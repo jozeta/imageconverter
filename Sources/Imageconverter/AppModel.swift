@@ -130,6 +130,7 @@ final class AppModel {
             session = PresetSession(selected: preset, pipeline: saved)
         }
         refreshWatermarkBookmarks()
+        announceLoadNotes(saved)
         if !result.skipped.isEmpty {
             let count = result.skipped.count
             toasts.show("Skipped \(count) preset \(count == 1 ? "file" : "files")", type: .info,
