@@ -208,7 +208,8 @@ struct SidebarView: View {
                 model.run(settings: settings)
             }
             .buttonStyle(.lg(.primary))
-            .disabled(model.items.isEmpty || model.isAdding)
+            .disabled(model.items.isEmpty || model.isAdding || model.hasVariantProblems)
+            .help(model.hasVariantProblems ? "Fix the extra outputs in the Output panel first" : "")
             .accessibilityLabel("Run the conversion")
             // The last run's numbers stay here when the preview is hidden.
             if model.previewCollapsed, model.monitor.hasResults { PerformancePanel(model: model) }

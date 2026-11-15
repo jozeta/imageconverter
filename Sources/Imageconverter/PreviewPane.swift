@@ -186,7 +186,10 @@ struct PreviewPane: View {
                             .foregroundStyle(LadaGlass.Colors.warnText)
                             .lineLimit(2)
                     } else {
-                        cell(result?.outputName ?? "—")
+                        HStack(spacing: LadaGlass.Spacing.xs) {
+                            cell(result?.outputName ?? "—")
+                            if let extras = result?.extraOutputNames, !extras.isEmpty { extraOutputsChip(extras) }
+                        }
                     }
                 }
                 if let source {
@@ -250,6 +253,15 @@ struct PreviewPane: View {
 
     private func label(_ text: String) -> some View {
         Text(text).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+    }
+
+    /// "+2 outputs"; hovering lists them.
+    private func extraOutputsChip(_ names: [String]) -> some View {
+        let label = "+\(names.count) \(names.count == 1 ? "output" : "outputs")"
+        return LGChip(label)
+            .fixedSize()
+            .help(names.joined(separator: "\n"))
+            .accessibilityLabel("\(label): \(names.joined(separator: ", "))")
     }
 
     private func cell(_ text: String, muted: Bool = false) -> some View {

@@ -230,7 +230,7 @@ final class AppModel {
     }
 
     func run(settings: AppSettings) {
-        guard !isRunning, !isAdding, !items.isEmpty, confirmDiscardingInterruptedRun() else { return }
+        guard !isRunning, !isAdding, !items.isEmpty, variantsCanRun(), confirmDiscardingInterruptedRun() else { return }
         if settings.modeKind == .newFolder, !Self.isExistingDirectory(settings.outputFolder) {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false

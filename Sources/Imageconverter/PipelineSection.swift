@@ -303,6 +303,7 @@ struct OutputPanel: View {
                 .stepHelp(.output)
             OutputFormatControls(output: $model.pipeline.output)
                 .disabled(model.isRunning)
+            OutputVariantsSection(model: model)
             estimateLine
             saveToControls
             afterRunControls
@@ -316,10 +317,25 @@ struct OutputPanel: View {
     // MARK: Size estimate
 
     private var estimateLine: some View {
-        Text(estimateText)
-            .font(LadaGlass.Typography.label)
-            .foregroundStyle(LadaGlass.Colors.muted)
-            .accessibilityLabel(estimateText)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(estimateText)
+                .font(LadaGlass.Typography.label)
+                .foregroundStyle(LadaGlass.Colors.muted)
+                .accessibilityLabel(estimateText)
+            if let variants = variantEstimateText {
+                Text(variants)
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(variants)
+            }
+        }
+    }
+
+    /// "Primary 1.1 MB · Thumbnail 48 KB" under the estimate, once it is in.
+    private var variantEstimateText: String? {
+        guard !model.isEstimating, let estimate = model.sizeEstimate, let output = estimate.output else { return nil }
+        return SizeEstimator.variantLine(primary: output, variants: estimate.variants)
     }
 
     private var estimateText: String {
