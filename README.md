@@ -16,6 +16,7 @@ Started 2026-11-13. The full design is in
 
 - **No network access except the optional update check and download from github.com.** No telemetry, no uploads. Nothing goes online until you allow it: the first launch asks once whether to check for updates when the app starts, and **Check Now** in About imageconverter checks on demand. A check asks GitHub's release API for the latest release; like any web request it shows GitHub your IP address and standard HTTP headers (such as your preferred languages), and the app adds only `User-Agent: imageconverter/<version>`. The app's only network entitlement is outgoing connections (`network.client`, no server), the networking code is one file (`Sources/Imageconverter/Update/UpdateClient.swift`), and a test fails the build if networking APIs or web addresses appear anywhere else. See [Updates](#updates).
 - **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit); no third-party code.
+- **Apple's enlargement model.** The only other network activity: if you choose to download Apple's enlargement model (for [Enlarge with machine learning](#enlarge-with-machine-learning), macOS 26 and later), macOS downloads it from Apple. imageconverter itself sends nothing; the download starts only from **Download…** in the Resize step, after you agree, and batches, jobs, the command line, services, scripts and links never start it.
 - **Your files are untrusted input.** Images, SVG watermarks, preset and template files, `imageconverter://` links and AppleScript requests are all validated before use. Limits in force: images up to 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory) of decoded memory and 2 GB per file (first frame only); SVG files up to 1 MB, 20,000 elements, 64 levels deep; preset and template files up to 1 MB; links up to 16,384 characters. Help ▸ Privacy… shows these as built. See [SECURITY.md](SECURITY.md).
 - **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed. The panel's opt-in **Also look for faces and text (on this Mac)** switch (off by default, remembered) also checks the pixels with Vision on this Mac and lists "2 images show faces" or "1 image contains text", each with **Add a Redact step**, which adds a configured [Redact step](#hide-faces-and-text) without running anything (for text a Solid colour step; an existing step that already covers it is left alone, a filling one is widened). It uses the same detection and resolution as the Redact step; images it couldn't check are listed as "Couldn't check 2 images: …" rather than counted as clean, and the panel's explanation then says it also looked at the pixels. When no metadata is found the chip says "No private metadata found", so the panel can still be opened.
 - **Temporary files are deleted, not wiped.** Output is written to a hidden temporary file next to its destination and moved into place; on cancel, quit or a failed write the app deletes these files. On SSDs and APFS, deleting (or overwriting) a file does not reliably erase its old blocks, so the app does not claim to securely wipe anything.
@@ -96,7 +97,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
   - (available) **Resize**: a grouped mode picker. *Pixels*: max width, max height, fit inside a box,
     exact size (stretch, fit and pad, or fill and crop, which has the same **Focus** as Crop), longest edge,
     shortest edge, minimum size.
-    *Scale*: percentage (1 to 1000). *Print*: physical size in cm or inches at a DPI (leave one side empty
+    *Scale*: percentage (1 to 1000). *Machine learning* (macOS 26 and later): **Enlarge with machine learning**
+    2×, 3× or 4× with Apple's super-resolution model, see [Enlarge with machine learning](#enlarge-with-machine-learning).
+    *Print*: physical size in cm or inches at a DPI (leave one side empty
     to follow the aspect ratio; with both set the image fits inside). Every mode keeps the aspect ratio
     except Stretch. "Don't enlarge" is on by default and is hidden for the modes where it makes no sense
     (percentage, physical size, print sheet, minimum size, stretch). A **Presets** menu fills the editor, grouped:
@@ -749,6 +752,38 @@ results before you share them. Nothing is sent anywhere.
 | Style | Blur · Pixelate · Solid colour | Blur for faces; Solid colour when text is included |
 | Fill colour | any colour (opaque), with Solid colour | black |
 | Padding | 0…100 % of each box's size, per side | 15 % |
+
+### Enlarge with machine learning
+
+Needs **macOS 26 or later** (on older systems the mode isn't offered, and a preset that uses it fails those
+images with "Not enlarged: machine-learning enlargement needs macOS 26 or later.").
+
+1. Add a **Resize** step and choose **Mode ▸ Enlarge with machine learning**, then **2×**, **3×** or **4×**.
+2. The first time, the editor may say **"Apple's enlargement model isn't on this Mac yet."** Press **Download…**.
+   The app asks once: *"macOS will download Apple's enlargement model from Apple. imageconverter itself sends
+   nothing. Download now?"* Press **Download**: macOS fetches the model from Apple and the editor shows the
+   progress. Your answer is remembered (`mlEnlargeDownloadConsent`), but a download still only ever starts from
+   this button.
+3. Run the batch. Each image is cut into tiles of at most 1920 × 1920 px that overlap by at least 64 px, each tile
+   is enlarged 4× by Apple's model on this Mac, the tiles are blended with a linear feather across the overlaps (no
+   visible seams), and for 2× and 3× the result is brought down with Lanczos. Transparency is enlarged separately
+   with Lanczos, never by the model. The model works in 8 bits per channel in the image's own RGB colour space
+   (other colour models become sRGB); a 16-bit or floating-point image gets the note "ML enlarge works in 8 bits
+   per channel".
+
+Until the model is downloaded, images with this step **aren't enlarged**: they fail with "Not enlarged: Apple's
+enlargement model isn't downloaded. Open imageconverter and download it in the Resize step." The preview shows the
+same message. **Batches, jobs, the command line, Finder services, AppleScript and `imageconverter://` links never
+download the model.** A result over the decode limits (250 MP, 65,535 px on a side, or more working memory than
+the decode memory limit) is refused before any work, for example "Not enlarged: the result would be 384 MP
+(limit 250 MP)": a 4000 × 3000 photo at 4× (192 MP) fits, 6000 × 4000 at 4× (384 MP) doesn't.
+The memory scheduler counts the 4× tile, its model buffers and the whole output. "Don't enlarge" and Resampling
+don't apply to this mode. The model adds detail that wasn't in the photo, so check the results (faces and text
+especially). Nothing about your images leaves the Mac.
+
+| Option | Choices | Default |
+|--------|---------|---------|
+| Enlarge | 2× · 3× · 4× | 2× |
 
 ### Add a watermark
 

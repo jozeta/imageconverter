@@ -45,6 +45,9 @@ public enum ResizeMode: Codable, Equatable, Sendable {
     /// A print sheet of `short` × `long` at `dpi`; the image fits inside it turned the way round its own
     /// orientation needs (landscape into long × short, portrait into short × long).
     case printSheet(long: Double, short: Double, unit: PhysicalUnit, dpi: Double)
+    /// Enlarge 2×, 3× or 4× with Apple's super-resolution model (macOS 26 and later; `MLEnlarge`). A saved factor
+    /// outside 2...4 is brought into it.
+    case mlEnlarge(factor: Int)
 }
 
 public struct ResizeOptions: Codable, Equatable, Sendable {

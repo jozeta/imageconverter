@@ -170,6 +170,8 @@ struct PrivacyWindow: View {
                 Text(PrivacyStatement.offline).font(LadaGlass.Typography.body)
                 Text(PrivacyStatement.updates).font(LadaGlass.Typography.body)
                     .fixedSize(horizontal: false, vertical: true)
+                Text(PrivacyStatement.enlargeModel).font(LadaGlass.Typography.body)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(PrivacyStatement.frameworks).font(LadaGlass.Typography.body)
                 section("What the privacy scan looks for") {
                     ForEach(PrivacyStatement.scanLooks, id: \.self) { Text("• \($0)") }

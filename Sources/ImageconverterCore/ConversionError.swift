@@ -39,6 +39,11 @@ public enum ConversionError: Error, Equatable, Sendable {
     case skippedByCondition
     /// A Redact step couldn't look for what it hides (Vision failed): writing the image could leak it.
     case redactUnchecked(target: RedactTarget, reason: String)
+    /// ML enlarge can't run here: an older macOS, an unsupported Mac, or the model isn't downloaded (the batch,
+    /// jobs and the command line never download it).
+    case mlEnlargeUnavailable(MLEnlargeAvailability)
+    /// ML enlarge's result would break the decode limits; the value says which.
+    case mlEnlargeTooLarge(String)
 
     /// True when the new file was written and only trashing the original failed: the item is done (a resumed
     /// run mustn't convert it again).
@@ -94,6 +99,10 @@ public enum ConversionError: Error, Equatable, Sendable {
             return ConditionalStep.skippedReason
         case .redactUnchecked(let target, let reason):
             return "Not written: couldn't check for \(target.displayName.lowercased()) (\(reason))"
+        case .mlEnlargeUnavailable(let availability):
+            return availability.refusal
+        case .mlEnlargeTooLarge(let detail):
+            return "Not enlarged: \(detail)"
         }
     }
 }

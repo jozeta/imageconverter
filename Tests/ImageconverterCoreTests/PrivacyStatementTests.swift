@@ -11,7 +11,8 @@ final class PrivacyStatementTests: XCTestCase {
         "Charts": "Charts", "ImageIO": "ImageIO", "CoreGraphics": "Core Graphics", "CoreImage": "Core Image",
         "CoreText": "Core Text", "CoreServices": "Core Services", "Metal": "Metal", "Accelerate": "Accelerate",
         "Vision": "Vision", "UniformTypeIdentifiers": "UniformTypeIdentifiers", "UserNotifications": "UserNotifications",
-        "Security": "Security", "CryptoKit": "CryptoKit",
+        "Security": "Security", "CryptoKit": "CryptoKit", "VideoToolbox": "VideoToolbox", "CoreVideo": "Core Video",
+        "CoreMedia": "Core Media",
     ]
     /// Not frameworks to list: the C library, GCD, and this package's own modules.
     private static let ignored: Set<String> = ["Darwin", "Dispatch", "ImageconverterCore", "ImageconverterCLIKit",

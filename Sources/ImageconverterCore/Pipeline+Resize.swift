@@ -52,7 +52,9 @@ extension Pipeline {
     /// Pixels held at once by a Lanczos resize of an `input`-sized image: the input, vImage's copy of
     /// the part being scaled, the scaled buffer and its image copy, plus the canvas when padding.
     /// Other methods draw straight into the result, so the step's input and output cover them.
+    /// ML enlarge counts its tiles, the 4× model result and the output (`MLEnlarge.workingPixels`).
     static func resizeWorkingPixels(input: CGSize, options: ResizeOptions) -> Int {
+        if case .mlEnlarge(let factor) = options.mode { return MLEnlarge.workingPixels(input: input, factor: factor) }
         guard options.resampling == .lanczos else { return 0 }
         let source = pixels(input)
         switch Geometry.resizePlan(source: input, options: options) {
@@ -83,5 +85,11 @@ extension ResizeMode {
         case .physical, .printSheet: return true
         default: return false
         }
+    }
+
+    /// Enlarging with the super-resolution model (resampling doesn't apply).
+    public var isMLEnlarge: Bool {
+        if case .mlEnlarge = self { return true }
+        return false
     }
 }

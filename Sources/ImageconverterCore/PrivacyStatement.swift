@@ -5,6 +5,10 @@ import Foundation
 public enum PrivacyStatement {
     public static let offline = "No network access except the optional update check and download from github.com. "
         + "No telemetry, no uploads."
+    /// The one other network event, and it isn't the app's (Help ▸ Privacy, README, SECURITY.md).
+    public static let enlargeModel = "The only other network activity: if you choose to download Apple's enlargement "
+        + "model, macOS downloads it from Apple. It starts only from Download\u{2026} in the Resize step, after you agree; "
+        + "batches, jobs, the command line, services, scripts and links never start it."
     /// What the update check sends and when (Help ▸ Privacy, README).
     public static let updates = "Updates: nothing goes online until you allow it. Check Now in About imageconverter, or "
         + "\u{201C}Check for updates when the app starts\u{201D}, asks GitHub's release API for the latest version. Like any web "
@@ -16,7 +20,7 @@ public enum PrivacyStatement {
     public static let frameworkList = [
         "SwiftUI", "AppKit", "Foundation", "Observation", "Charts", "ImageIO", "Core Graphics", "Core Image",
         "Core Text", "Core Services", "Metal", "Accelerate", "Vision", "UniformTypeIdentifiers", "UserNotifications",
-        "Security", "CryptoKit",
+        "Security", "CryptoKit", "VideoToolbox", "Core Video", "Core Media",
     ]
     public static let frameworks = "Built only on Apple frameworks (" + frameworkList.joined(separator: ", ")
         + "); no third-party code."

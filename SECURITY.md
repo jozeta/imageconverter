@@ -22,7 +22,12 @@ connections (`network.client`, no server); the networking code is confined to
 `Sources/Imageconverter/Update/UpdateClient.swift`, and a test fails the build if networking APIs or web addresses
 appear anywhere else in the sources. That entitlement applies to the whole process, so the sandbox no longer stops
 the parsers (ImageIO, the SVG sanitiser and rasteriser) from reaching the network: the sanitiser's refusal of
-anything external and that test are now the barriers. The assets an attacker could want are your files and your private metadata (location, serial
+anything external and that test are now the barriers.
+The only other network activity: if you choose to download Apple's
+enlargement model (ML enlarge, macOS 26 and later), macOS downloads it from Apple. The app only asks VideoToolbox to
+start that download (`downloadConfigurationModel`), from one place (`Sources/Imageconverter/MLEnlargeDownload.swift`,
+the Resize editor's Download… button, after a consent alert; a test fails if the call appears anywhere else); batch,
+job, command-line, service, script and link runs never start it. The assets an attacker could want are your files and your private metadata (location, serial
 numbers, names), and the app's stability.
 
 Everything that comes from outside the app is untrusted:

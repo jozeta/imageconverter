@@ -192,4 +192,6 @@ struct BatchHooks: Sendable {
     var beforeEncode: (@Sendable (URL, Int) throws -> Void)?
     /// Answers the content conditions (tests inject an analyzer).
     var analysis: ImageAnalysisCache = .shared
+    /// The super-resolution model for ML enlarge (tests inject a fake, so no test runs the real one).
+    var enlarger: any SuperResolutionScaler = SystemSuperResolution.shared
 }

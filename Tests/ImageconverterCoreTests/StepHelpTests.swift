@@ -26,4 +26,8 @@ final class StepHelpTests: XCTestCase {
         XCTAssertEqual(StepHelpTopic.all.count, StepKind.allCases.count + 3)
         XCTAssertEqual(StepHelp.info(for: .resize).title, "Resize")
     }
+
+    func testResizeHelpExplainsMLEnlarge() {
+        XCTAssertTrue(StepHelp.info(for: .resize).howTo.contains { $0.contains("Enlarge with machine learning") })
+    }
 }

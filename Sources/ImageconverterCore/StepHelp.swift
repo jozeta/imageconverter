@@ -40,7 +40,9 @@ public enum StepHelp {
                     "Use Presets for ready-made sizes: print, web, devices, app assets, social media and screen resolutions.",
                     "\"Don't enlarge\" keeps small images as they are; it doesn't apply to Percentage, Minimum size or print sizes.",
                     "Resampling sets how pixels are scaled; Lanczos, the default, "
-                        + "is the sharpest. Set DPI only labels the print resolution."
+                        + "is the sharpest. Set DPI only labels the print resolution.",
+                    "Enlarge with machine learning (macOS 26+): 2×, 3× or 4× with Apple's model on this Mac. "
+                        + "Download it once from the editor; it adds detail, so check."
                 ],
                 tips: [
                     "Print sizes use their own DPI (presets use 300), and a print sheet turns to match each photo's orientation.",

@@ -21,7 +21,7 @@ extension ImageOperation {
     private static func summary(of options: ResizeOptions) -> String {
         var parts = [summary(of: options.mode)]
         if options.cropsToFill, options.focus != .default { parts.append(options.focus.displayName) }
-        if options.resampling != .lanczos { parts.append(options.resampling.displayName.lowercased()) }
+        if options.resampling != .lanczos, !options.mode.isMLEnlarge { parts.append(options.resampling.displayName.lowercased()) }
         // A physical size already names its DPI.
         if !options.mode.isPrintSize, let dpi = options.effectiveDPI { parts.append("\(number(dpi)) dpi") }
         return parts.joined(separator: " · ")
@@ -47,6 +47,8 @@ extension ImageOperation {
             return "\(side(width)) × \(side(height)) \(unit.displayName) at \(number(dpi)) dpi"
         case .printSheet(let long, let short, let unit, let dpi):
             return "print \(number(short)) × \(number(long)) \(unit.displayName) at \(number(dpi)) dpi"
+        case .mlEnlarge(let factor):
+            return "enlarge \(MLEnlarge.clampedFactor(factor))× with machine learning"
         }
     }
 

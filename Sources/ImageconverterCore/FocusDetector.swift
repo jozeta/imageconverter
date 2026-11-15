@@ -65,13 +65,17 @@ public struct FocusContext: Sendable {
     public let redactCache: RedactCache?
     /// `FocusCache.sourceKey(for:)` of the image being rendered; without it nothing is cached.
     public let sourceKey: String?
+    /// The super-resolution model for a Resize step's ML enlarge (tests inject a fake).
+    public let enlarger: any SuperResolutionScaler
 
     public init(detector: any VisionDetector = SystemVisionDetector(), cache: FocusCache? = nil,
-                redactCache: RedactCache? = nil, sourceKey: String? = nil) {
+                redactCache: RedactCache? = nil, sourceKey: String? = nil,
+                enlarger: any SuperResolutionScaler = SystemSuperResolution.shared) {
         self.detector = detector
         self.cache = cache
         self.redactCache = redactCache
         self.sourceKey = sourceKey
+        self.enlarger = enlarger
     }
 
     public static let system = FocusContext()

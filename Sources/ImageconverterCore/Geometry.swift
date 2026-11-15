@@ -50,7 +50,7 @@ public enum Geometry {
             // Only ever enlarges, so "don't enlarge" doesn't apply.
             guard factor > 1 else { return .unchanged }
             ratio = factor
-        case .percent, .physical, .printSheet:
+        case .percent, .physical, .printSheet, .mlEnlarge:
             // Explicit sizes: "don't enlarge" doesn't apply.
             ratio = factor
         default:
@@ -78,6 +78,8 @@ public enum Geometry {
             return max(dimension(wide) / srcW, dimension(high) / srcH)
         case .physical, .printSheet:
             return printFactor(mode, width: srcW, height: srcH)
+        case .mlEnlarge(let factor):
+            return Double(MLEnlarge.clampedFactor(factor))
         case .exactSize:
             return nil
         }

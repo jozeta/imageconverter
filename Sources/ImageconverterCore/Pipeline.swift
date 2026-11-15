@@ -236,6 +236,10 @@ extension Pipeline {
         for (index, step) in steps.enumerated() where step.isEnabled {
             switch step.operation {
             case .resize(let options):
+                if case .mlEnlarge(let factor) = options.mode {
+                    current = try MLEnlarge.enlarge(current, factor: factor, scaler: focus.enlarger, notes: &notes)
+                    continue
+                }
                 let rect = resizeFocus(options, in: current, step: index, context: focus, notes: &notes)
                 current = try ImageOps.resize(current, options, focus: rect)
             case .crop(let options):

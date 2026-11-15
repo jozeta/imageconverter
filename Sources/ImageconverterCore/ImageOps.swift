@@ -13,6 +13,10 @@ public enum ImageOps {
     /// options' anchor.
     public static func resize(_ image: CGImage, _ options: ResizeOptions, focus: CGRect? = nil) throws -> CGImage {
         let step = StepKind.resize.displayName
+        if case .mlEnlarge(let factor) = options.mode {
+            var notes: [String] = []
+            return try MLEnlarge.enlarge(image, factor: factor, scaler: SystemSuperResolution.shared, notes: &notes)
+        }
         let source = CGSize(width: image.width, height: image.height)
         switch Geometry.resizePlan(source: source, options: options) {
         case .unchanged:
