@@ -123,12 +123,12 @@ final class UpdateController {
 
     // MARK: Install
 
-    /// Install and Relaunch: download, check, replace, relaunch. Refused up front outside the app bundle or while
-    /// something runs; any failure leaves the installed app as it was and deletes the download.
+    /// Install and Relaunch: check that it can install at all (and get folder access) before downloading, then
+    /// download, check, replace, relaunch. Any failure leaves the installed app as it was and deletes the download.
     func install() {
         guard let release = offer, !isBusy else { return }
         do {
-            try UpdateInstaller.checkAllowed(isRunning: isRunning())
+            try UpdateInstaller.prepare(isRunning: isRunning)
         } catch {
             status = .failed(Self.message(error))
             return
@@ -150,18 +150,30 @@ final class UpdateController {
                 // Later while checking: the check itself can't be stopped, but nothing is installed.
                 try Task.checkCancellation()
                 status = .installing
-                try await UpdateInstaller.install(app, isRunning: isRunning)
+                let note = try await UpdateInstaller.install(app, version: release.version, isRunning: isRunning)
                 UpdateVerifier.remove(folder)
+                if let note { Self.show(note) }
                 UpdateInstaller.relaunch { message in self.status = .failed(message) }
-            } catch is CancellationError {
-                UpdateVerifier.remove(work)
-                status = .available(release.version)
             } catch {
                 UpdateVerifier.remove(work)
-                status = .failed(Self.message(error))
+                // Later (a cancel) is not an error, even when it interrupted the download check midway.
+                if error is CancellationError || Task.isCancelled {
+                    status = .available(release.version)
+                } else {
+                    status = .failed(Self.message(error))
+                }
             }
-            workFolder = nil
+            if workFolder == work { workFolder = nil }
         }
+    }
+
+    /// The update is in place but the old version couldn't be removed: said once, before the relaunch.
+    private static func show(_ note: String) {
+        let alert = NSAlert()
+        alert.messageText = "The update is installed"
+        alert.informativeText = note
+        alert.addButton(withTitle: "Relaunch")
+        alert.runModal()
     }
 
     private func progress(received: Int64, total: Int64) {

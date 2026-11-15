@@ -111,6 +111,19 @@ final class UpdatePackageTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: unpacked.appendingPathComponent("Contents/Info.plist").path))
     }
 
+    func testStagedCopyKeepsAValidSignature() throws {
+        // The installer copies the verified app beside the installed one and checks the copy again.
+        let unpacked = try prepare(try zip(try makeApp(in: try source(), links: ["Contents/Resources/inside": "../MacOS/imageconverter"])),
+                                   requirement: adHocRequirement)
+        let installed = try makeApp(in: try source("Applications"), version: "1.0.0")
+        let staged = try UpdateReplacer.stage(unpacked, beside: installed) {
+            try UpdatePackage.checkBundle($0, version: version, requirement: adHocRequirement)
+        }
+        XCTAssertThrowsError(try UpdatePackage.checkBundle(staged, version: version), "the real requirement still refuses it")
+        _ = try UpdateReplacer.swap(installed, with: staged, using: TempTrashOperations(trash: root))
+        XCTAssertNoThrow(try UpdatePackage.checkBundle(installed, version: version, requirement: adHocRequirement))
+    }
+
     func testAppModifiedAfterSigningIsRefused() throws {
         let app = try makeApp(in: try source())
         // Info.plist is bound into the signature; a trailing newline still parses but breaks the seal.
@@ -247,4 +260,15 @@ final class UpdatePackageTests: XCTestCase {
         try Data("abc".utf8).write(to: file)
         XCTAssertEqual(try UpdatePackage.sha256(of: file), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     }
+}
+
+/// The real operations, except that the "Trash" is a temp folder.
+private struct TempTrashOperations: UpdateFileOperations {
+    let trash: URL
+    private let system = SystemUpdateFileOperations()
+
+    func copy(_ source: URL, to destination: URL) throws { try system.copy(source, to: destination) }
+    func move(_ source: URL, to destination: URL) throws { try system.move(source, to: destination) }
+    func remove(_ url: URL) throws { try system.remove(url) }
+    func trash(_ url: URL) throws { try system.move(url, to: trash.appendingPathComponent(url.lastPathComponent)) }
 }

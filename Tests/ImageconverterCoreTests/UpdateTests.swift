@@ -155,4 +155,11 @@ final class UpdateTests: XCTestCase {
         XCTAssertEqual(UpdateSignature.flags.rawValue, kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode
                        | SecCSFlags.enforceRevocationChecks.rawValue)
     }
+
+    func testInstallLocationProblems() {
+        XCTAssertNil(UpdateInstallPlan.locationProblem(appPath: "/Applications/imageconverter.app", isReadOnlyVolume: false))
+        XCTAssertNotNil(UpdateInstallPlan.locationProblem(
+            appPath: "/private/var/folders/xy/abc/T/AppTranslocation/1234-5678/d/imageconverter.app", isReadOnlyVolume: false))
+        XCTAssertNotNil(UpdateInstallPlan.locationProblem(appPath: "/Volumes/imageconverter/imageconverter.app", isReadOnlyVolume: true))
+    }
 }
