@@ -147,6 +147,12 @@ public struct OutputVariant: Codable, Equatable, Sendable, Identifiable {
         return problems
     }
 
+    /// Why Run is refused for these outputs (the button is disabled and the menu command says this); nil when they
+    /// can all run.
+    public static func runBlocker(in variants: [OutputVariant]) -> String? {
+        problems(in: variants).isEmpty ? nil : "Fix the extra outputs in the Output panel first"
+    }
+
     /// The note for an output that couldn't be read at all.
     static func unreadableNote(_ name: String?) -> String {
         let label = name.map { String($0.prefix(maxNameLength)).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""

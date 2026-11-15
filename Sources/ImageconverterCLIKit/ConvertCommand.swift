@@ -15,7 +15,7 @@ enum ConvertCommand {
             return CLIExit.usage
         }
         let formats = [pipeline.output.format] + pipeline.extraOutputs.map(\.settings.format)
-        if let missing = formats.first(where: { !OutputFormat.available().contains($0) }) {
+        if let missing = formats.first(where: { !environment.writableFormats.contains($0) }) {
             environment.err("imageconverter: this Mac can't write \(missing.displayName).")
             return CLIExit.usage
         }

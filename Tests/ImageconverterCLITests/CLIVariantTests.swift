@@ -103,12 +103,13 @@ final class CLIVariantTests: XCTestCase {
         let err: String
     }
 
-    private func run(_ arguments: [String]) async -> Outcome {
+    private func run(_ arguments: [String], writable: [OutputFormat]? = nil) async -> Outcome {
         let out = Collected(), err = Collected()
-        let environment = CLIEnvironment(
+        var environment = CLIEnvironment(
             out: { out.add($0) }, err: { err.add($0) }, presetDirectory: root.appendingPathComponent("presets"),
             jobDirectory: root.appendingPathComponent("jobs"), trash: { try FileManager.default.removeItem(at: $0) },
             cancel: CancelToken())
+        if let writable { environment.writableFormats = writable }
         let code = await CLIRunner.main(arguments, environment: environment)
         return Outcome(code: code, out: out.text, err: err.text)
     }
@@ -129,6 +130,16 @@ final class CLIVariantTests: XCTestCase {
         let json = await run(["convert", source.path, "--out", outDir.path, "--dry-run", "--json",
                               "--variant", "name=thumb,long=16,suffix=_thumb"])
         XCTAssertTrue(json.out.contains(#""variant" : "thumb""#), json.out)
+    }
+
+    func testAVariantFormatThisMacCantWriteIsAUsageError() async throws {
+        let source = try writePNG("in.png")
+        let outDir = root.appendingPathComponent("out")
+        let result = await run(["convert", source.path, "--out", outDir.path, "--variant", "name=t,format=heic"],
+                               writable: [.jpeg, .png])
+        XCTAssertEqual(result.code, CLIExit.usage)
+        XCTAssertTrue(result.err.contains("this Mac can't write HEIC"), result.err)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: outDir.path))
     }
 
     func testARealRunWritesEveryOutput() async throws {

@@ -119,11 +119,20 @@ final class VariantBatchTests: XCTestCase {
 
     func testOverwriteWithANewFormatTrashesTheOriginalOnceAfterTheExtras() async throws {
         let photo = try source("a.jpg")
-        let (trash, trashed) = recordingTrash()
+        let (recording, trashed) = recordingTrash()
+        // When the original goes to the Trash, the main output and the extra output are already saved.
+        let thumb = root.appendingPathComponent("a_thumb.jpg"), primary = root.appendingPathComponent("a.png")
+        let savedFirst = LockedLog<Bool>()
+        let trash: Trasher = { url in
+            savedFirst.append(FileManager.default.fileExists(atPath: thumb.path)
+                              && FileManager.default.fileExists(atPath: primary.path))
+            try recording(url)
+        }
         let report = await BatchRunner.run(items([photo]), pipeline: pipeline([threeVariants[0]], format: .png),
                                            mode: .overwrite, trash: trash)
         XCTAssertEqual(report.failures, [])
         XCTAssertEqual(trashed.values, [photo])
+        XCTAssertEqual(savedFirst.values, [true])
         XCTAssertEqual(report.written.map(\.lastPathComponent), ["a.png", "a_thumb.jpg"])
         XCTAssertTrue(report.written.allSatisfy(exists))
         XCTAssertFalse(exists(photo))

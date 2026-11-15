@@ -62,6 +62,14 @@ final class OutputVariantTests: XCTestCase {
         XCTAssertTrue(OutputVariant.problems(in: [variant("_a"), variant("_b")]).isEmpty)
     }
 
+    func testRunIsRefusedWhileAnOutputHasAProblem() {
+        XCTAssertNil(OutputVariant.runBlocker(in: []))
+        XCTAssertNil(OutputVariant.runBlocker(in: [variant("_a"), variant("_b")]))
+        XCTAssertNotNil(OutputVariant.runBlocker(in: [variant("_a"), variant("_A")]))
+        XCTAssertNotNil(OutputVariant.runBlocker(in: [variant(" ")]))
+        XCTAssertNotNil(OutputVariant.runBlocker(in: (0...8).map { variant("_\($0)") }))
+    }
+
     func testDecodeDropsInvalidOutputsWithANote() throws {
         let json = """
         {"extraOutputs":[

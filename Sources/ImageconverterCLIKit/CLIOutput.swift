@@ -46,6 +46,8 @@ public struct CLIEnvironment: Sendable {
     public var cancel: CancelToken
     /// Pauses and resumes a `convert` run (nil in the tool itself; tests use it as a deterministic gate).
     public var control: BatchControl?
+    /// The formats this Mac can write (tests narrow it to check the refusal).
+    public var writableFormats: [OutputFormat] = OutputFormat.available()
 
     public init(out: @escaping @Sendable (String) -> Void, err: @escaping @Sendable (String) -> Void,
                 presetDirectory: URL = PresetStore.defaultDirectory,
