@@ -136,6 +136,13 @@ final class SmartCropPipelineTests: XCTestCase {
                        FocusOutcome(rect: nil, note: FocusResolution.subjectToCenterNote))
     }
 
+    func testFocusNotesStayOutOfTheEstimate() {
+        XCTAssertNil(FocusResolution.withoutFocusNotes(FocusResolution.facesToCenterNote))
+        XCTAssertEqual(FocusResolution.withoutFocusNotes("No document edges found; " + FocusResolution.subjectToCenterNote),
+                       "No document edges found")
+        XCTAssertNil(FocusResolution.withoutFocusNotes(nil))
+    }
+
     func testUnionDropsUnusableRects() {
         XCTAssertNil(FocusResolution.union([CGRect(x: CGFloat.nan, y: 0, width: 1, height: 1),
                                             CGRect(x: 2, y: 2, width: 1, height: 1), .zero]))

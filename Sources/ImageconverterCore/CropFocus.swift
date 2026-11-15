@@ -122,6 +122,21 @@ public enum FocusResolution {
     public static let facesToCenterNote = "No faces or subject found; cropped at the center"
     public static let subjectToCenterNote = "No subject found; cropped at the center"
 
+    /// Every fallback note; they belong in the report only (the preview shows the crop itself).
+    public static let notes: Set<String> = [facesToSubjectNote, facesToCenterNote, subjectToCenterNote]
+
+    /// An item's joined note ("a; b") without the focus fallback notes; nil when nothing is left.
+    public static func withoutFocusNotes(_ note: String?) -> String? {
+        guard var text = note else { return nil }
+        // The notes contain "; " themselves, so they are removed as whole texts, not split.
+        for focusNote in notes {
+            text = text.replacingOccurrences(of: "; " + focusNote, with: "")
+                .replacingOccurrences(of: focusNote + "; ", with: "")
+                .replacingOccurrences(of: focusNote, with: "")
+        }
+        return text.isEmpty ? nil : text
+    }
+
     /// Faces: the union of all faces, else the subject, else the centre. Subject: the union of the salient
     /// regions, else the centre. A fixed anchor detects nothing. The closures run only when needed; a detection
     /// that throws counts as nothing found (Vision never fails a run).

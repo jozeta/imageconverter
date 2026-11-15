@@ -71,7 +71,8 @@ public enum SizeEstimator {
                 // A lossless metadata-only copy: its pixels are the original's, so both views show the original.
                 let original = try ImageLoader.load(item.source, maxPixels: maxPixels).image
                 var preview = EncodedPreview(bytes: data.count, original: original, encoded: original, quality: nil,
-                                             note: result.note, privacy: PrivacyScanner.scan(data: data))
+                                             note: FocusResolution.withoutFocusNotes(result.note),
+                                             privacy: PrivacyScanner.scan(data: data))
                 preview.variants = estimates
                 return preview
             }
@@ -85,7 +86,7 @@ public enum SizeEstimator {
             let original = result.downsampled
                 ? try ImageLoader.load(item.source, maxPixels: maxPixels).image : decodedSource
             var preview = EncodedPreview(bytes: data.count, original: original, encoded: encoded,
-                                         quality: result.quality, note: result.note ?? note,
+                                         quality: result.quality, note: FocusResolution.withoutFocusNotes(result.note) ?? note,
                                          privacy: PrivacyScanner.scan(data: data))
             preview.variants = estimates
             return preview

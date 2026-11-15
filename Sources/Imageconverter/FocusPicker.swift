@@ -25,25 +25,20 @@ struct FocusPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            HStack(spacing: LadaGlass.Spacing.s) {
-                Text("Focus").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-                    .accessibilityHidden(true)
-                Picker("Focus", selection: Binding(
-                    get: { kind },
-                    set: { new in
-                        switch new {
-                        case .position: focus = .anchor(lastAnchor)
-                        case .subject: focus = .subject
-                        case .faces: focus = .faces
-                        }
-                    })) {
-                    ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accessibilityLabel("Focus")
-                .help("Position keeps the part at the anchor; Subject keeps what stands out; Faces keeps every face")
+            Picker("Focus", selection: Binding(
+                get: { kind },
+                set: { new in
+                    switch new {
+                    case .position: focus = .anchor(lastAnchor)
+                    case .subject: focus = .subject
+                    case .faces: focus = .faces
+                    }
+                })) {
+                ForEach(Kind.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
+            .pickerStyle(.segmented)
+            .accessibilityLabel("Focus")
+            .help("Position keeps the part at the anchor; Subject keeps what stands out; Faces keeps every face")
             if case .anchor(let anchor) = focus {
                 HStack(alignment: .top, spacing: LadaGlass.Spacing.s) {
                     Text("Anchor").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
