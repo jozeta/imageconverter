@@ -6,7 +6,8 @@
   remembered as app-scoped security-scoped bookmarks. Network: outgoing connections only (network.client), used
   solely by the optional update check and download from github.com (Sources/Imageconverter/Update/); no server
   entitlement, the app never listens.
-  The command-line helper (Contents/Helpers/imageconverter) is signed without these: it is not sandboxed.
+  The command-line helper (Contents/Helpers/imageconverter) and the update installer service
+  (Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc) are signed without these: they are not sandboxed.
 -->
 <plist version="1.0">
 <dict>
