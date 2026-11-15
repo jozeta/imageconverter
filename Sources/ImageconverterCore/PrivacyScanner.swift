@@ -328,7 +328,7 @@ public enum PrivacyScanner {
 }
 
 /// Bounds-checked reads from a TIFF block in its byte order.
-private struct TIFFReader {
+struct TIFFReader {
     let bytes: [UInt8]
     let little: Bool
 

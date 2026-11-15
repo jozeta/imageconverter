@@ -161,10 +161,11 @@ final class LosslessMetadataTests: XCTestCase {
         var options = stripGPS()
         options.removeThumbnail = true
         let (written, report) = try await run(url, metadata: options)
+        // The copy's EXIF thumbnail (IFD1) is cut off, so the copy stays lossless and carries no thumbnail.
+        XCTAssertEqual(report.notes.map(\.text), [LosslessMetadata.pixelsUntouchedNote])
         XCTAssertFalse(written.hasEmbeddedThumbnail)
-        // Either path is fine, but it must say which one it took.
-        let note = try XCTUnwrap(report.notes.first?.text)
-        XCTAssertTrue(note == LosslessMetadata.pixelsUntouchedNote || note.hasPrefix("Lossless edit couldn't"), note)
+        XCTAssertNil(PrivacyScanner.embeddedThumbnailSize(in: written.data))
+        XCTAssertEqual(try scanData(written.data), try scanData(Data(contentsOf: url)))
     }
 
     // MARK: Verification and fallback

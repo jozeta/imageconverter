@@ -526,14 +526,20 @@ The Metadata editor has five collapsible groups and a **Templates** menu:
 (the Metadata step is on, no image step is enabled after conditions are applied, the output format is the
 file's own format, and the compression mode is plain *Quality*), the image data is copied as it is with the new
 metadata instead of being decoded and re-encoded: a JPEG's compressed data stays byte for byte the same, and the
-file barely changes size. The quality slider, progressive JPEG and PNG optimisation aren't used then. The EXIF
+file barely changes size. The quality slider and progressive JPEG aren't used then. The EXIF
 orientation flag is kept instead of turning the pixels upright (viewers show the photo the same way). The report
-says "Metadata only, pixels untouched". The written file is read back and compared with what a re-encode would
-hold; if anything the options remove is still there (or a field that should be set or kept is missing), the
-image is re-encoded as before, with the note "Lossless edit couldn't remove …; re-encoded" (or "couldn't
-write …"). PNG, TIFF and other formats are always re-encoded ("Re-encoded: lossless metadata edit isn't
-available for this format"; PNG and TIFF re-encodes are lossless anyway): ImageIO keeps a PNG's EXIF chunk and
-a TIFF's own tags whatever metadata the copy is given. Target size, maximum size and Smart compression always
+says "Metadata only, pixels untouched". Like every other output, the copy carries no embedded thumbnail. A JPEG
+copy keeps only the parts a photo needs (JFIF, EXIF without its thumbnail, XMP, the colour profile, Adobe colour
+information, IPTC as the re-encode would write it, and the image data); Photoshop previews and other Photoshop
+resources, comments, other vendor blocks and anything after the image end are dropped, and a JPEG whose
+structure can't be read is re-encoded ("Lossless edit couldn't remove JPEG segments; re-encoded"). A HEIC with
+an embedded thumbnail, more than one image or depth, matte or gain-map data is re-encoded. The written file is
+read back and compared with what a re-encode would hold, values included; if anything the options remove is
+still there (or a field that should be set or kept is missing or different), the image is re-encoded as before,
+with the note "Lossless edit couldn't remove …; re-encoded" (or "couldn't write …"). PNG, TIFF, AVIF and other
+formats are always re-encoded ("Re-encoded: lossless metadata edit isn't available for this format"; PNG and
+TIFF re-encodes are lossless anyway): ImageIO keeps a PNG's EXIF chunk and a TIFF's own tags whatever metadata
+the copy is given. Photoshop (PSD) files can't be written, so they are always converted. Target size, maximum size and Smart compression always
 re-encode, since they ask for a smaller file. The same rule covers *Copy original unchanged* when the Metadata
 step's removals force a conversion, the Privacy panel's **Remove these**, jobs and the command line, and the
 size estimate shows the lossless file's real size. The quality comparison shows no ladder for such images.

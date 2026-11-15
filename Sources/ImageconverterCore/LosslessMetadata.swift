@@ -14,8 +14,10 @@ import ImageIO
 /// - the output format is the source's own format (by content, not extension);
 /// - the compression mode is plain quality (a target size, maximum size or smart mode asks for compression).
 ///
-/// The quality slider, TIFF compression, progressive JPEG and PNG optimisation are then ignored: the image data
-/// is the source's own. The EXIF orientation flag is kept instead of rotating pixels (the re-encode saves
+/// The quality slider and progressive JPEG are then ignored: the image data is the source's own (PNG and TIFF
+/// never take this path, see `supportedTypes`). A JPEG copy is rebuilt from an allowlist of segments
+/// (`JPEGSegments`), which drops its EXIF thumbnail too; a HEIC copy with a thumbnail, more images or auxiliary
+/// data is re-encoded. The EXIF orientation flag is kept instead of rotating pixels (the re-encode saves
 /// photos upright with orientation 1); viewers show the copy the same way.
 enum LosslessMetadata {
     /// The report note for a file written this way.
@@ -100,7 +102,15 @@ enum LosslessMetadata {
         guard CGImageDestinationCopyImageSource(destination, source, options as CFDictionary, nil) else {
             return .reencode(note: unsupportedNote)
         }
-        let written = data as Data
+        var written = data as Data
+        // A JPEG copy keeps segments ImageIO doesn't know (a Photoshop preview, the EXIF thumbnail, comments):
+        // rebuilt from an allowlist, with the re-encode's IPTC block, re-encoded when that isn't possible.
+        if type == OutputFormat.jpeg.utType.identifier {
+            guard let filtered = JPEGSegments.filtered(written, iptcFrom: reference) else {
+                return .reencode(note: notRemovedNote(["JPEG segments"]))
+            }
+            written = filtered
+        }
         let check = check(written, expected: properties, options: pipeline.metadata, reference: reference)
         guard check.left.isEmpty else { return .reencode(note: notRemovedNote(check.left)) }
         guard check.missing.isEmpty else { return .reencode(note: notWrittenNote(check.missing)) }
@@ -166,11 +176,12 @@ enum LosslessMetadata {
     ].map { $0 as String })
 
     /// How the copy compares with the re-encode of the same metadata (a tiny reference image, so fields ImageIO
-    /// derives count too), by field name. `left`: what the copy holds that the re-encode wouldn't (a field neither
-    /// asked for nor in the reference, an XMP tag or packet the re-encode drops, an embedded thumbnail the
-    /// options remove or that doesn't match the image). `missing`: what the re-encode writes that the copy lacks
-    /// or holds with another value (kept and set fields). Both empty: the copy is good.
-    static func check(_ written: Data, expected: [String: Any], options: MetadataOptions, reference referenceData: Data)
+    /// derives count too), by field name. `left`: what the copy holds that the re-encode wouldn't (an embedded
+    /// thumbnail, extra images or auxiliary data, a field neither asked for nor in the reference, an XMP tag or
+    /// packet the re-encode drops). `missing`: what the re-encode writes that the copy lacks or holds with another
+    /// value (kept and set fields; XMP values compared in full, nested items included). Both empty: the copy is
+    /// good. The JPEG segments outside ImageIO's property view are handled before, by `JPEGSegments`.
+    static func check(_ written: Data, expected: [String: Any], options _: MetadataOptions, reference referenceData: Data)
         -> (left: [String], missing: [String]) {
         let readOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let result = CGImageSourceCreateWithData(written as CFData, readOptions),
@@ -178,9 +189,14 @@ enum LosslessMetadata {
               let reference = CGImageSourceCreateWithData(referenceData as CFData, readOptions),
               let referenceProps = CGImageSourceCopyPropertiesAtIndex(reference, 0, nil) as? [String: Any]
         else { return ([], ["metadata"]) }
-        var (left, missing) = compare(resultProps, expected: expected, reference: referenceProps)
-        let resultTags = xmpTags(CGImageSourceCopyMetadataAtIndex(result, 0, nil))
-        let referenceTags = xmpTags(CGImageSourceCopyMetadataAtIndex(reference, 0, nil))
+        // Outputs never carry an embedded thumbnail, extra images or auxiliary data (depth, mattes, gain maps).
+        var left = containerLeftovers(written)
+        var (fieldsLeft, missing) = compare(resultProps, expected: expected, reference: referenceProps)
+        left += fieldsLeft
+        let resultValues = xmpValues(CGImageSourceCopyMetadataAtIndex(result, 0, nil))
+        let referenceValues = xmpValues(CGImageSourceCopyMetadataAtIndex(reference, 0, nil))
+        let resultTags = Set(resultValues.keys)
+        let referenceTags = Set(referenceValues.keys)
         var allowedTags = referenceTags.union(xmpTags((expected[MetadataOps.xmpPropertyKey] as? OutputXMP)?.metadata))
         // HEIC copies mirror the EXIF date taken into XMP under this name.
         if (referenceProps[kCGImagePropertyExifDictionary as String] as? [String: Any])?[
@@ -188,13 +204,9 @@ enum LosslessMetadata {
             allowedTags.insert("XMP photoshop:DateTimeOriginal")
         }
         left += resultTags.subtracting(allowedTags).sorted()
-        missing += referenceTags.subtracting(resultTags).sorted()
+        // Kept and set tags must hold the re-encode's value, nested items included.
+        missing += referenceTags.filter { resultValues[$0] != referenceValues[$0] }.sorted()
         if hasXMPPacket(written), !hasXMPPacket(referenceData) { left.append("XMP") }
-        if PrivacyScanner.embeddedThumbnailSize(in: written) != nil,
-           options.removeThumbnail || options.removeAll
-            || PrivacyScanner.scan(data: written).findings.contains(where: { $0.kind == .thumbnailMismatch }) {
-            left.append("Embedded thumbnail")
-        }
         return (left, missing)
     }
 
@@ -251,15 +263,66 @@ enum LosslessMetadata {
         return try? ImageEncoder.encode(image, properties: properties, settings: .faithful(format))
     }
 
-    /// Top-level XMP tags as "prefix:name", outside the mirror namespaces.
-    private static func xmpTags(_ metadata: CGImageMetadata?) -> Set<String> {
-        guard let metadata, let tags = CGImageMetadataCopyTags(metadata) as? [CGImageMetadataTag] else { return [] }
-        return Set(tags.compactMap { tag in
+    /// Top-level XMP tags as "XMP prefix:name", outside the mirror namespaces.
+    private static func xmpTags(_ metadata: CGImageMetadata?) -> Set<String> { Set(xmpValues(metadata).keys) }
+
+    /// Top-level XMP tags ("XMP prefix:name", outside the mirror namespaces) with their values written out,
+    /// arrays and structures included.
+    private static func xmpValues(_ metadata: CGImageMetadata?) -> [String: String] {
+        guard let metadata, let tags = CGImageMetadataCopyTags(metadata) as? [CGImageMetadataTag] else { return [:] }
+        var values: [String: String] = [:]
+        for tag in tags {
             guard let namespace = CGImageMetadataTagCopyNamespace(tag) as String?,
                   !mirrorNamespaces.contains(namespace),
                   let prefix = CGImageMetadataTagCopyPrefix(tag) as String?,
-                  let name = CGImageMetadataTagCopyName(tag) as String? else { return nil }
-            return "XMP \(prefix):\(name)"
-        })
+                  let name = CGImageMetadataTagCopyName(tag) as String? else { continue }
+            values["XMP \(prefix):\(name)"] = xmpValue(tag)
+        }
+        return values
+    }
+
+    private static func xmpValue(_ tag: CGImageMetadataTag) -> String {
+        switch CGImageMetadataTagCopyValue(tag) {
+        case let text as String: return text
+        case let items as [CGImageMetadataTag]: return "[" + items.map(xmpValue).joined(separator: ", ") + "]"
+        case let fields as [String: CGImageMetadataTag]:
+            return "{" + fields.sorted { $0.key < $1.key }.map { "\($0.key)=\(xmpValue($0.value))" }
+                .joined(separator: ", ") + "}"
+        case let other?: return "\(other)"
+        case nil: return ""
+        }
+    }
+
+    // MARK: Container
+
+    /// Auxiliary images a copy could carry over (depth, disparity, mattes, gain maps).
+    private static var auxiliaryTypes: [(CFString, String)] {
+        var types: [(CFString, String)] = [
+            (kCGImageAuxiliaryDataTypeDepth, "Depth data"), (kCGImageAuxiliaryDataTypeDisparity, "Disparity data"),
+            (kCGImageAuxiliaryDataTypePortraitEffectsMatte, "Portrait matte"),
+            (kCGImageAuxiliaryDataTypeSemanticSegmentationSkinMatte, "Skin matte"),
+            (kCGImageAuxiliaryDataTypeSemanticSegmentationHairMatte, "Hair matte"),
+            (kCGImageAuxiliaryDataTypeSemanticSegmentationTeethMatte, "Teeth matte"),
+            (kCGImageAuxiliaryDataTypeSemanticSegmentationGlassesMatte, "Glasses matte"),
+            (kCGImageAuxiliaryDataTypeSemanticSegmentationSkyMatte, "Sky matte"),
+            (kCGImageAuxiliaryDataTypeHDRGainMap, "HDR gain map"),
+        ]
+        if #available(macOS 15, *) { types.append((kCGImageAuxiliaryDataTypeISOGainMap, "HDR gain map")) }
+        return types
+    }
+
+    /// What a written file holds besides its one image: more images, an embedded thumbnail (HEIC lists it in the
+    /// container, a JPEG's EXIF holds one) and auxiliary data. 1.0 wrote none of these, nor does the re-encode.
+    static func containerLeftovers(_ data: Data) -> [String] {
+        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary)
+        else { return ["Unreadable file"] }
+        var found: [String] = []
+        if CGImageSourceGetCount(source) > 1 { found.append("Extra images") }
+        if PrivacyScanner.embeddedThumbnailSize(in: data) != nil { found.append("Embedded thumbnail") }
+        for (type, name) in auxiliaryTypes where !found.contains(name)
+            && CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, type) != nil {
+            found.append(name)
+        }
+        return found
     }
 }
