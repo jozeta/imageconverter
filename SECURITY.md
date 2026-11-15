@@ -71,9 +71,12 @@ answer and every download are untrusted:
   unpacked in total and 8 MB of `zipinfo` listing, names only inside one `imageconverter.app`, no absolute
   paths, `..` or writes through links (compared ignoring case and Unicode normalisation, as APFS does). It is
   unpacked with `ditto -x -k --noqtn` into a fresh folder under a watchdog: a zip can declare smaller sizes than
-  it inflates to (ditto writes what the stream holds), so the unpack folder is measured every 250 ms and ditto is
-  stopped once it holds more than 1 GB + 64 MB or the volume has less than 2 GB free; the size is checked again
-  afterwards. It must hold exactly one `imageconverter.app` with no link
+  it inflates to (ditto writes what the stream holds, resource forks from `._` entries included), so every 250 ms
+  the watchdog takes the larger of the folder's allocated size (all forks) and the free space the volume lost
+  since ditto started, and stops ditto (SIGTERM, SIGKILL after 2 s) once that is more than 1 GB + 64 MB or less
+  than 2 GB stays free; both are checked again afterwards. What ditto wrote must be what the listing named (ditto
+  reads the local headers, `zipinfo` the central directory): nothing outside the one `imageconverter.app`, no
+  file or link the listing doesn't name. It must hold exactly one `imageconverter.app` with no link
   resolving outside it and the release's version. The SHA-256 comes from the same release, so it guards
   against corruption, not a compromised release: that is the signature's job.
 - **The signature** is checked with `SecStaticCodeCheckValidityWithErrors` (all architectures, strict, nested
@@ -88,15 +91,17 @@ answer and every download are untrusted:
   - accepts connections only from a client meeting `anchor apple generic and identifier
     "io.github.jozeta.imageconverter" and certificate leaf[subject.OU] = "6W6TD6P8G3"`
     (`NSXPCConnection.setCodeSigningRequirement`). There is no runtime override; only a build made with
-    `SWIFT_FLAGS="-Xswiftc -DUPDATE_E2E"` (for the end-to-end test, never released) accepts the ad hoc test
-    identifier `io.github.jozeta.imageconverter.updatetest` instead;
+    `SWIFT_FLAGS="-Xswiftc -DUPDATE_E2E"` (for the end-to-end test) accepts the ad hoc test identifier
+    `io.github.jozeta.imageconverter.updatetest` instead. `release.sh` refuses that flag with a real identity or
+    `--notarize`, and refuses any non-ad-hoc build whose service binary names `.updatetest` (a cached test build);
   - has a two-call interface (`install(zipPath:expectedSHA256:version:)`, `cleanUp`) and trusts none of it: the
     app to replace is derived from the service's own location (`…/X.app/Contents/XPCServices/….xpc`), refused if
-    translocated or on a read-only volume; the zip must be a regular file (opened with `O_NOFOLLOW`) at exactly
+    translocated or on a read-only volume; the zip must be a regular file (opened with `O_NOFOLLOW_ANY`: no link anywhere in its path) at exactly
     `~/Library/Containers/<app id>/Data/tmp/imageconverter-update-<UUID>/imageconverter-<version>.zip`, at most
     200 MB, and is copied into the service's own temporary folder before anything else;
-  - redoes every check above on its copy (SHA-256, listing caps, watched unpack, layout, links, version,
-    signature), removes leftovers of an interrupted install, then swaps inside the app's folder: the verified app
+  - refuses a version at or below the installed app's own `CFBundleShortVersionString` (no downgrade or
+    reinstall, whatever the app asks), then redoes the package checks above on its copy (SHA-256, listing caps,
+    watched unpack, unpacked tree against the listing, layout, links, version, signature), removes leftovers of an interrupted install, then swaps inside the app's folder: the verified app
     is copied in as a hidden `.imageconverter-update-<uuid>.app` and checked again there, the old app renamed to
     `.imageconverter-old-<uuid>.app`, the copy renamed into place (the old one renamed back on failure), and only
     then is the old one trashed (or deleted). No step needs the Trash to undo;
@@ -106,10 +111,15 @@ answer and every download are untrusted:
   or read-only location. No folder access is asked for or kept: the service writes the app's folder with the
   user's own permissions, and refuses when the user can't.
 
-Known limits: the zip is unpacked before its signature can be checked; the listing caps and the watchdog bound
-what a compromised release can make the installer write (about 1 GB, never below 2 GB free). The service runs with
-the user's full permissions, so its narrow interface and the client requirement are what keep other processes
-from using it. A batch or job started between the app's last check and the swap keeps running from the old code.
+Known limits: the zip is unpacked before its signature can be checked. The watchdog bounds what a compromised
+release can make the installer write by the space actually used (about 1 GB plus what slips in between two 250 ms
+checks, and never below 2 GB free); other processes writing at the same time count against it too. The service
+runs with the user's full permissions. The client requirement keeps other programs out, but a compromised
+imageconverter process (for example through a crafted image) still meets it and chooses both the zip and its
+SHA-256: then only the service's own checks protect, above all the Developer ID + notarized requirement and the
+newer-version rule, so at worst a genuine newer release is installed. A quarantine mark that can't be removed after
+a good swap is logged, not reported as a failure. A batch or job started between the app's last check and the swap
+keeps running from the old code.
 
 **Privacy scan.** The app reads headers and metadata only and reports fields by name, never by value.
 Help ▸ Privacy… lists the limits in force.
