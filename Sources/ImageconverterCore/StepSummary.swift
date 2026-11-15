@@ -7,6 +7,7 @@ extension ImageOperation {
         case .resize(let options): return Self.summary(of: options)
         case .crop(let options): return Self.summary(of: options.mode) + " · " + options.focus.displayName
         case .rotateFlip(let options): return Self.summary(of: options)
+        case .redact(let options): return options.summary
         case .perspective(let options): return Self.summary(of: options)
         case .trim(let options): return Self.summary(of: options)
         case .canvas(let options): return Self.summary(of: options.mode)

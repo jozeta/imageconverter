@@ -13,6 +13,15 @@ final class PrivacyState {
     @ObservationIgnored var rows: (key: RowsKey, rows: [AppModel.PrivacyRow])?
     /// Bumped whenever `findings` or the item list change in a way a count would miss.
     @ObservationIgnored var revision = 0
+
+    /// The opt-in content check (faces and text, on this Mac); off by default, remembered.
+    var looksForContent: Bool = AppDefaults.store.bool(forKey: PrivacyState.looksForContentKey) {
+        didSet { AppDefaults.store.set(looksForContent, forKey: Self.looksForContentKey) }
+    }
+    /// What the content check found per image (absent until checked, or when the analysis failed).
+    var content: [URL: ContentFindings] = [:]
+    @ObservationIgnored var contentTask: Task<Void, Never>?
+    static let looksForContentKey = "privacyLooksForContent"
 }
 
 extension AppModel {
@@ -42,8 +51,53 @@ extension AppModel {
         .map(\.element)
     }
 
+    /// The most severe metadata finding; else what the content check found; else, once every image is scanned,
+    /// a neutral chip, so the panel (and its content check) can still be opened.
     var privacyChip: (text: String, severity: PrivacySeverity)? {
-        PrivacySummary.chip(Array(privacy.findings.values))
+        if let chip = PrivacySummary.chip(Array(privacy.findings.values)) { return chip }
+        if let first = privacyContentLines.first { return (first.text, .medium) }
+        guard !items.isEmpty, items.allSatisfy({ privacy.findings[$0.source] != nil }) else { return nil }
+        return ("No private metadata found", .low)
+    }
+
+    /// "2 images show faces", "1 image contains text" for the images in the batch (empty while the check is off).
+    var privacyContentLines: [(text: String, target: RedactTarget)] {
+        guard privacy.looksForContent else { return [] }
+        return ContentPrivacySummary.lines(items.compactMap { privacy.content[$0.source] })
+    }
+
+    /// Switches the content check on or off; on, it checks the images that have no result yet.
+    func setLooksForContent(_ isOn: Bool) {
+        privacy.looksForContent = isOn
+        if isOn { startContentScan() } else { privacy.contentTask?.cancel() }
+    }
+
+    /// Checks the batch's images for faces and text with the shared analysis cache (the conditions use it too, so
+    /// an image is analysed once), off the main actor, one image at a time.
+    func startContentScan() {
+        privacy.contentTask?.cancel()
+        guard privacy.looksForContent else { return }
+        let current = Set(items.map(\.source))
+        privacy.content = privacy.content.filter { current.contains($0.key) }
+        let todo = items.map(\.source).filter { privacy.content[$0] == nil }
+        guard !todo.isEmpty else { return }
+        privacy.contentTask = Task { [weak self] in
+            for url in todo {
+                if Task.isCancelled { return }
+                let found = await Task.detached(priority: .utility) {
+                    ContentFindings(ImageAnalysisCache.shared.analysis(of: url, needs: ContentFindings.needs))
+                }.value
+                guard let self, !Task.isCancelled else { return }
+                if let found, self.items.contains(where: { $0.source == url }) { self.privacy.content[url] = found }
+            }
+        }
+    }
+
+    /// Adds a Redact step for what the content check found (or widens the one there); never runs anything.
+    func addSuggestedRedaction(_ target: RedactTarget) {
+        guard !isRunning else { return }
+        SidebarMotion.perform { _ = pipeline.addRedaction(target) }
+        toasts.show("Redact step added; check the results before you share them", type: .ok)
     }
 
     /// Scans the images that have no result yet. Called through `items.didSet`, which fires once per appended item,
@@ -55,6 +109,7 @@ extension AppModel {
         Task { @MainActor [weak self] in
             self?.privacy.scanQueued = false
             self?.startPrivacyScan()
+            self?.startContentScan()
         }
     }
 

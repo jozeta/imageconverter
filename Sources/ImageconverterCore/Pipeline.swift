@@ -83,13 +83,14 @@ public enum ColorProfile: String, Codable, CaseIterable, Sendable {
 }
 
 public enum StepKind: String, Codable, CaseIterable, Sendable {
-    case resize, crop, rotateFlip, perspective, trim, canvas, colorProfile, adjust, watermark, condition
+    case resize, crop, rotateFlip, redact, perspective, trim, canvas, colorProfile, adjust, watermark, condition
 
     public var displayName: String {
         switch self {
         case .resize: return "Resize"
         case .crop: return "Crop"
         case .rotateFlip: return "Rotate / flip"
+        case .redact: return "Redact"
         case .perspective: return "Perspective"
         case .trim: return "Trim"
         case .canvas: return "Canvas / padding"
@@ -105,6 +106,7 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .resize: return .resize(ResizeOptions())
         case .crop: return .crop(CropOptions())
         case .rotateFlip: return .rotateFlip(RotateFlipOptions())
+        case .redact: return .redact(RedactOptions())
         case .perspective: return .perspective(PerspectiveOptions())
         case .trim: return .trim(TrimOptions())
         case .canvas: return .canvas(CanvasOptions())
@@ -120,6 +122,8 @@ public enum ImageOperation: Codable, Equatable, Sendable {
     case resize(ResizeOptions)
     case crop(CropOptions)
     case rotateFlip(RotateFlipOptions)
+    /// Blurs, pixelates or fills the faces and/or text Vision finds in the image as it arrives at the step.
+    case redact(RedactOptions)
     case perspective(PerspectiveOptions)
     case trim(TrimOptions)
     case canvas(CanvasOptions)
@@ -135,6 +139,7 @@ public enum ImageOperation: Codable, Equatable, Sendable {
         case .resize: return .resize
         case .crop: return .crop
         case .rotateFlip: return .rotateFlip
+        case .redact: return .redact
         case .perspective: return .perspective
         case .trim: return .trim
         case .canvas: return .canvas
@@ -237,6 +242,9 @@ extension Pipeline {
                 let rect = cropFocus(options, in: current, step: index, context: focus, notes: &notes)
                 current = try ImageOps.crop(current, options, focus: rect)
             case .rotateFlip(let options): current = try ImageOps.rotateFlip(current, options)
+            case .redact(let options):
+                let rects = redactRects(options, in: current, step: index, context: focus, notes: &notes)
+                current = try ImageOps.redact(current, options, rects: rects)
             case .perspective(let options): current = try Perspective.apply(options, to: current, notes: &notes)
             case .trim(let options): current = try Trim.apply(options, to: current)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
@@ -333,7 +341,7 @@ extension Pipeline {
             return Geometry.perspectiveCrop(source: size, options: options)?.size ?? size
         case .canvas(let options):
             return Geometry.canvas(source: size, options: options).canvas
-        case .trim, .colorProfile, .adjust, .watermark, .condition:
+        case .trim, .redact, .colorProfile, .adjust, .watermark, .condition:
             // Trim only ever shrinks, by an amount that depends on the content: the input is an upper bound.
             // It scans in strips, so it needs no input-sized working copy.
             return size

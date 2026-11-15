@@ -158,7 +158,7 @@ final class AppModel {
 
     func addStep(_ kind: StepKind) -> PipelineStep {
         let step = PipelineStep(operation: Self.newOperation(kind))
-        pipeline.steps.append(step)
+        pipeline.add(step)
         return step
     }
 

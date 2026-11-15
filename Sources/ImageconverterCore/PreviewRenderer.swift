@@ -66,6 +66,8 @@ public actor PreviewRenderer {
     private let detector: any VisionDetector
     /// Detected crop focus per file version and step input, so editing doesn't run Vision again.
     let focusCache = FocusCache()
+    /// Redact detections per file version and step input.
+    let redactCache = RedactCache()
     /// How many times a source was decoded (for tests).
     private(set) var decodeCount = 0
     /// How many times the watermark images were loaded (for tests).
@@ -114,7 +116,8 @@ public actor PreviewRenderer {
         do {
             // Synchronous and not interruptible; cancellation is only seen before and after it.
             let context = pipeline.watermarkTextContext(source: item.source, properties: properties)
-            let focus = FocusContext(detector: detector, cache: focusCache, sourceKey: FocusCache.sourceKey(for: item.source))
+            let focus = FocusContext(detector: detector, cache: focusCache, redactCache: redactCache,
+                                     sourceKey: FocusCache.sourceKey(for: item.source))
             result = try pipeline.apply(to: source, assets: assets, textContext: context, focus: focus)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)

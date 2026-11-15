@@ -72,6 +72,23 @@ public enum StepHelp {
                     "Mirror flips left to right, Flip vertically flips top to bottom."
                 ],
                 tips: ["Photos are already turned upright from their camera orientation before the pipeline starts."])
+        case .step(.redact):
+            return StepHelpInfo(
+                title: "Redact",
+                summary: "Hides faces, text or both: Vision finds them on this Mac, and the step blurs, pixelates "
+                    + "or covers them with a solid colour.",
+                howTo: [
+                    "Choose what to hide: Faces, Text, or Faces and text.",
+                    "Style: Blur (the default), Pixelate, or Solid colour with a colour you pick.",
+                    "Padding (default 15 %) grows each box on every side by that share of its size, so hair, "
+                        + "chins and letter edges are covered too.",
+                    "It looks at the image as it arrives at the step, so put it after Crop and Rotate."
+                ],
+                tips: [
+                    "Best effort: Vision can miss a face or some text, so check the results before you share them.",
+                    "The report says per file what was hidden, such as \"Redacted 2 faces, 1 text area\".",
+                    "If image analysis couldn't run, nothing is hidden and the report marks the file as a warning."
+                ])
         case .step(.perspective):
             return StepHelpInfo(
                 title: "Perspective",

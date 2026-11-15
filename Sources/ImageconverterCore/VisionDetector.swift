@@ -3,7 +3,7 @@ import Foundation
 import Vision
 
 /// What Vision finds in an image, as rectangles normalised to 0...1 with a top-left origin (y down), so they
-/// fit the image at any size. Smart crop uses it; the Redact step can share it. Tests inject their own.
+/// fit the image at any size. Smart crop and the Redact step use it. Tests inject their own.
 public protocol VisionDetector: Sendable {
     /// Every face's bounding box.
     func faceRects(in image: CGImage) throws -> [CGRect]
@@ -64,8 +64,9 @@ public struct SystemVisionDetector: VisionDetector {
             .map { Self.topLeft($0.boundingBox) }
     }
 
+    /// Read from a copy of up to `Redaction.textMaxLongSide` pixels: small text needs more than faces do.
     public func textRects(in image: CGImage) throws -> [CGRect] {
-        guard let input = VisionInput.prepared(image) else { return [] }
+        guard let input = VisionInput.prepared(image, maxSide: Redaction.textMaxLongSide) else { return [] }
         let request = SystemImageAnalyzer.textRequest()
         try VNImageRequestHandler(cgImage: input, options: [:]).perform([request])
         return SystemImageAnalyzer.textBoxes(request.results ?? []).map(Self.topLeft)

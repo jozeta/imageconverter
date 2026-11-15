@@ -88,7 +88,7 @@ extension ReportExporter {
             dimensions += (dimensions.isEmpty ? "" : " \u{2192} ") + "\(width)\u{00D7}\(height)"
         }
         let cells: [(String, String)] = [
-            ("path", name), ("status \(entry.status.rawValue)", entry.status.rawValue),
+            ("path", name), entry.isWarning ? ("status warning", "warning") : ("status \(entry.status.rawValue)", entry.status.rawValue),
             ("num", entry.inputBytes.map(SizeFormat.bytes) ?? ""), ("num", entry.outputBytes.map(SizeFormat.bytes) ?? ""),
             ("num", change), ("num", dimensions), ("num", entry.duration > 0 ? seconds(entry.duration) : ""),
             ("note", entry.note ?? "")
@@ -115,6 +115,6 @@ extension ReportExporter {
     table{border-collapse:collapse;width:100%}th,td{text-align:left;padding:6px 8px;\
     border-bottom:1px solid var(--line);vertical-align:top}th{color:var(--muted);font-weight:500}\
     .path,.note{word-break:break-all}.num{white-space:nowrap;font-variant-numeric:tabular-nums}\
-    .succeeded{color:var(--ok)}.failed{color:var(--bad)}.skipped,.cancelled{color:var(--warn)}
+    .succeeded{color:var(--ok)}.failed{color:var(--bad)}.skipped,.cancelled,.warning{color:var(--warn)}
     """
 }

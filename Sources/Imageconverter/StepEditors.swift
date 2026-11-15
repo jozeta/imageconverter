@@ -21,6 +21,10 @@ struct StepEditor: View {
             RotateFlipEditor(options: Binding(
                 get: { if case .rotateFlip(let opts) = operation { return opts } else { return RotateFlipOptions() } },
                 set: { operation = .rotateFlip($0) }))
+        case .redact:
+            RedactEditor(options: Binding(
+                get: { if case .redact(let opts) = operation { return opts } else { return RedactOptions() } },
+                set: { operation = .redact($0) }))
         case .canvas:
             CanvasEditor(options: Binding(
                 get: { if case .canvas(let opts) = operation { return opts } else { return CanvasOptions() } },
