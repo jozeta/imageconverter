@@ -56,6 +56,9 @@ holder=$(sed -n 's/^Copyright (c) [0-9, -]* //p' LICENSE | head -n 1)
 # The command-line tool finds the app's container by this identifier; both must agree.
 grep -q "bundleIdentifier = \"$BUNDLE_ID\"" Sources/ImageconverterCLIKit/CLIDataDirectory.swift \
     || die "BUNDLE_ID ($BUNDLE_ID) differs from CLIDataDirectory.bundleIdentifier."
+# Updates accept only a downloaded app with this identifier (UpdatePolicy.codeRequirement).
+grep -q "bundleIdentifier = \"$BUNDLE_ID\"" Sources/ImageconverterCore/Update/UpdatePolicy.swift \
+    || die "BUNDLE_ID ($BUNDLE_ID) differs from UpdatePolicy.bundleIdentifier."
 
 echo "==> imageconverter $version (build $build), identity: $([ "$identity" = "-" ] && echo "ad hoc" || echo "$identity")"
 

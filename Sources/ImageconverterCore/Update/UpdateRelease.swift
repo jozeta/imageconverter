@@ -9,7 +9,12 @@ public enum UpdateError: Error, Equatable, Sendable {
     case checksumMismatch
     case downloadTooLarge
     case disallowedURL
+    case downloadFailed(String)
+    case badPackage(String)
+    case signatureRejected
+    case versionMismatch
     case installRefused(String)
+    case installFailed(String)
 
     public var message: String {
         switch self {
@@ -20,7 +25,12 @@ public enum UpdateError: Error, Equatable, Sendable {
         case .checksumMismatch: "The downloaded update does not match its checksum."
         case .downloadTooLarge: "The update download is too large."
         case .disallowedURL: "The update points to an address that is not allowed."
+        case .downloadFailed(let reason): "The update could not be downloaded: \(reason)"
+        case .badPackage(let reason): "The downloaded update is not a valid app: \(reason)"
+        case .signatureRejected: "The downloaded update is not signed and notarized by the developer."
+        case .versionMismatch: "The downloaded app's version does not match the release."
         case .installRefused(let reason): reason
+        case .installFailed(let reason): "The update could not be installed: \(reason)"
         }
     }
 }

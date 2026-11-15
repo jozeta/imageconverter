@@ -10,10 +10,30 @@ public enum UpdatePolicy {
     public static let maxChecksumBytes = 1024
     public static let maxNotesCharacters = 20_000
 
+    /// The only host the release check talks to (the request URL itself is in the app's update client).
+    public static let apiHost = "api.github.com"
+    /// The released app's bundle identifier and the developer's team (must equal `release.sh`'s `BUNDLE_ID`).
+    public static let bundleIdentifier = "io.github.jozeta.imageconverter"
+    public static let teamIdentifier = "6W6TD6P8G3"
+    /// The code requirement a downloaded app must meet: Developer ID signed by this team and notarized.
+    public static let codeRequirement = "anchor apple generic and identifier \"\(bundleIdentifier)\" "
+        + "and certificate leaf[subject.OU] = \"\(teamIdentifier)\" and notarized"
+    /// The bundle's folder name inside the release zip and next to the running app.
+    public static let appBundleName = "imageconverter.app"
+
+    /// The release check's URL (and any redirect of it): `https` on `apiHost`, no credentials, standard port.
+    public static func allowedAPIURL(_ url: URL) -> Bool {
+        isPlainHTTPS(url, hosts: [apiHost])
+    }
+
     /// True for `https` on an allowed host, without credentials or a non-standard port.
     public static func allowedHost(_ url: URL) -> Bool {
+        isPlainHTTPS(url, hosts: allowedHosts)
+    }
+
+    private static func isPlainHTTPS(_ url: URL, hosts: Set<String>) -> Bool {
         guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(),
-              allowedHosts.contains(host), url.user == nil, url.password == nil else { return false }
+              hosts.contains(host), url.user == nil, url.password == nil else { return false }
         if let port = url.port, port != 443 { return false }
         return true
     }

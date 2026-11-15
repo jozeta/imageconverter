@@ -3,6 +3,10 @@ import XCTest
 import ImageconverterCore
 
 final class CLIDataDirectoryTests: XCTestCase {
+    func testSameBundleIdentifierAsTheUpdateCheck() {
+        XCTAssertEqual(CLIDataDirectory.bundleIdentifier, UpdatePolicy.bundleIdentifier)
+    }
+
     private let home = URL(fileURLWithPath: "/Users/someone", isDirectory: true)
     private let container = "/Users/someone/Library/Containers/io.github.jozeta.imageconverter/Data/Library/"
         + "Application Support/imageconverter"

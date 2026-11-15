@@ -1,3 +1,4 @@
+import Security
 import XCTest
 @testable import ImageconverterCore
 
@@ -140,5 +141,17 @@ final class UpdateTests: XCTestCase {
         XCTAssertEqual(UpdateInstallPlan.shouldCheckOnLaunch(answer: nil), .ask)
         XCTAssertEqual(UpdateInstallPlan.shouldCheckOnLaunch(answer: true), .check)
         XCTAssertEqual(UpdateInstallPlan.shouldCheckOnLaunch(answer: false), .skip)
+    }
+
+    func testAPIURLRuleAndRequirement() {
+        XCTAssertTrue(UpdatePolicy.allowedAPIURL(URL(string: "https://api.github.com/repos/a/b/releases/latest")!))
+        for bad in ["http://api.github.com/x", "https://github.com/x", "https://api.github.com:8443/x",
+                    "https://user@api.github.com/x", "https://api.github.com.evil.test/x"] {
+            XCTAssertFalse(UpdatePolicy.allowedAPIURL(URL(string: bad)!), bad)
+        }
+        XCTAssertFalse(UpdatePolicy.allowedHost(URL(string: "https://api.github.com/x")!), "API host is not a download host")
+        XCTAssertEqual(UpdatePolicy.codeRequirement, "anchor apple generic and identifier \"io.github.jozeta.imageconverter\" "
+            + "and certificate leaf[subject.OU] = \"6W6TD6P8G3\" and notarized")
+        XCTAssertEqual(UpdateSignature.flags.rawValue, kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
     }
 }
