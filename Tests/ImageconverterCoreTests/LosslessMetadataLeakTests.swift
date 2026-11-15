@@ -144,6 +144,26 @@ final class LosslessMetadataLeakTests: XCTestCase {
         XCTAssertTrue(anonymous.contains("CITYMARK"))
     }
 
+    /// A JFIF APP0 carrying a 4 x 4 RGB thumbnail: its bytes never reach the output.
+    func testJFIFThumbnailNeverSurvives() async throws {
+        var bytes = [UInt8](try HeaderFixtures.jpeg(TestImages.noise(width: 160, height: 120), properties: gpsProps,
+                                                     xmp: nil))
+        if bytes[3] == 0xE0 { bytes.removeSubrange(2..<(4 + (Int(bytes[4]) << 8 | Int(bytes[5])))) }
+        let rgb = Array("JFIFTHUMBSECRET!".utf8) + [UInt8](repeating: 0x80, count: 4 * 4 * 3 - 16)
+        let app0 = Array("JFIF".utf8) + [0, 1, 2, 0] + Bytes.be16(72) + Bytes.be16(72) + [4, 4] + rgb
+        bytes.insert(contentsOf: Bytes.segment(0xE0, app0), at: 2)
+        let url = root.appendingPathComponent("jfif.jpg")
+        try Data(bytes).write(to: url)
+        let cases: [(String, MetadataOptions)] = [
+            ("no-op", MetadataOptions(isEnabled: true, removeLocation: false)), ("location", options { _ in }),
+            ("remove thumbnail", options { $0.removeThumbnail = true }), ("remove all", options { $0.removeAll = true }),
+        ]
+        for (name, metadata) in cases {
+            let (written, note) = try await run(url, metadata: metadata)
+            XCTAssertFalse(written.contains("JFIFTHUMBSECRET"), "\(name) [\(note)]")
+        }
+    }
+
     // MARK: Thumbnails
 
     func testImageIOThumbnailIsDroppedAndTheCopyStaysLossless() async throws {

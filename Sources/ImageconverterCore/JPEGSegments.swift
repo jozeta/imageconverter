@@ -4,8 +4,9 @@ import Foundation
 /// the EXIF, XMP and IPTC it knows about but passes other segments through (a Photoshop preview in APP13, the
 /// EXIF thumbnail, comments, vendor APPn blocks, MPF images after the end), so the written bytes are rebuilt from
 /// an allowlist:
-/// - APP0 `JFIF` (not `JFXX`, which holds a thumbnail), APP1 `Exif` with its thumbnail (IFD1) cut off, APP1 XMP
-///   and extended XMP, APP2 `ICC_PROFILE`, APP14 `Adobe` (colour transform), APP13 `Photoshop 3.0` reduced to
+/// - APP0 `JFIF` rewritten to its 14-byte header with a 0 x 0 thumbnail (a shorter one gives nil; `JFXX` is
+///   dropped), APP1 `Exif` with its thumbnail (IFD1) cut off, APP1 XMP (not extended XMP, which the check
+///   can't see into), APP2 `ICC_PROFILE`, APP14 `Adobe` (colour transform), APP13 `Photoshop 3.0` reduced to
 ///   its IPTC-NAA resource (0x0404), dropped when nothing is left;
 /// - the structural markers: DQT, DHT, DAC, DRI, DNL, SOFn and SOS with its entropy-coded data copied as is
 ///   (restart markers included), so the scan data stays byte-identical;
@@ -120,20 +121,24 @@ enum JPEGSegments {
     }
 
     private static let xmpPrefix = Array("http://ns.adobe.com/xap/1.0/\0".utf8)
-    private static let extendedXMPPrefix = Array("http://ns.adobe.com/xmp/extension/\0".utf8)
+    private static let jfifPrefix = Array("JFIF\0".utf8)
     private static let exifPrefix = Array("Exif\0\0".utf8)
     private static let photoshopPrefix = Array("Photoshop 3.0\0".utf8)
 
     /// The APPn segments kept as they are, by the prefix of their payload.
     private static let keptAPP: [UInt8: [[UInt8]]] = [
-        0xE0: [Array("JFIF\0".utf8)], 0xE1: [xmpPrefix, extendedXMPPrefix], 0xE2: [Array("ICC_PROFILE\0".utf8)],
-        0xEE: [Array("Adobe".utf8)],
+        0xE1: [xmpPrefix], 0xE2: [Array("ICC_PROFILE\0".utf8)], 0xEE: [Array("Adobe".utf8)],
     ]
 
     /// DHT, DAC, the frame headers (not the reserved JPG 0xC8), DQT, DNL, DRI, SOS.
     private static let structural: Set<UInt8> = Set(Array(0xC0...0xC7) + Array(0xC9...0xCF) + Array(0xDA...0xDD))
 
     private static func disposition(marker: UInt8, payload: [UInt8]) -> Disposition {
+        if marker == 0xE0, payload.starts(with: jfifPrefix) {
+            // Identifier, version, units and densities, then a 0 x 0 thumbnail: its pixels are dropped.
+            guard payload.count >= 14 else { return .invalid }
+            return .replace(Array(payload[..<12]) + [0, 0])
+        }
         if marker == 0xE1, payload.starts(with: exifPrefix) {
             guard let tiff = withoutThumbnail(Array(payload[exifPrefix.count...])) else { return .invalid }
             return .replace(exifPrefix + tiff)

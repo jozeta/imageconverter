@@ -75,12 +75,34 @@ final class JPEGSegmentsTests: XCTestCase {
 
     func testAllowlistedSegmentsAreKept() throws {
         let xmp = Self.segment(0xE1, Array("http://ns.adobe.com/xap/1.0/\0<x:xmpmeta/>".utf8))
-        let extended = Self.segment(0xE1, Array("http://ns.adobe.com/xmp/extension/\0EXT".utf8))
         let icc = Self.segment(0xE2, Array("ICC_PROFILE\0".utf8) + [1, 1, 0, 0])
         let adobe = Self.segment(0xEE, Array("Adobe".utf8) + [0, 100, 0, 0, 0, 0, 1])
         let dri = Self.segment(0xDD, Self.be16(4))
-        let source = Self.jpeg(Self.jfif + xmp + extended + icc + adobe + dri)
+        let source = Self.jpeg(Self.jfif + xmp + icc + adobe + dri)
         XCTAssertEqual(JPEGSegments.filtered(source), source)
+    }
+
+    /// Extended XMP is dropped: the check can't see inside it (ImageIO's copy doesn't write it).
+    func testExtendedXMPIsDropped() throws {
+        let extended = Self.segment(0xE1, Array("http://ns.adobe.com/xmp/extension/\0EXTSECRET".utf8))
+        XCTAssertEqual(JPEGSegments.filtered(Self.jpeg(Self.jfif + extended)), Self.jpeg(Self.jfif))
+    }
+
+    /// A JFIF APP0 is rewritten to the 14-byte header with a 0 x 0 thumbnail; its thumbnail pixels are dropped.
+    func testJFIFThumbnailIsDropped() throws {
+        let header = Array("JFIF".utf8) + [0, 1, 2, 1, 0, 72, 0, 72]
+        let thumbnail = Array("JFIFTHUMB!".utf8) + [UInt8](repeating: 0x80, count: 4 * 4 * 3 - 10)
+        let source = Self.jpeg(Self.segment(0xE0, header + [4, 4] + thumbnail))
+        let filtered = try XCTUnwrap(JPEGSegments.filtered(source))
+        let app0 = Self.segment(0xE0, header + [0, 0])
+        XCTAssertEqual(app0.count, 18, "length field 16")
+        XCTAssertEqual(Array(app0[2...3]), [0, 16])
+        XCTAssertEqual(filtered, Self.jpeg(app0))
+        XCTAssertNil(filtered.range(of: Data("JFIFTHUMB".utf8)))
+    }
+
+    func testShortJFIFGivesNil() {
+        XCTAssertNil(JPEGSegments.filtered(Self.jpeg(Self.segment(0xE0, Array("JFIF".utf8) + [0, 1, 2, 1]))))
     }
 
     func testBytesAfterTheEndOfImageAreDropped() throws {

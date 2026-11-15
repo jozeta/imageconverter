@@ -529,7 +529,7 @@ metadata instead of being decoded and re-encoded: a JPEG's compressed data stays
 file barely changes size. The quality slider and progressive JPEG aren't used then. The EXIF
 orientation flag is kept instead of turning the pixels upright (viewers show the photo the same way). The report
 says "Metadata only, pixels untouched". Like every other output, the copy carries no embedded thumbnail. A JPEG
-copy keeps only the parts a photo needs (JFIF, EXIF without its thumbnail, XMP, the colour profile, Adobe colour
+copy keeps only the parts a photo needs (the JFIF header without its thumbnail, EXIF without its thumbnail, XMP, the colour profile, Adobe colour
 information, IPTC as the re-encode would write it, and the image data); Photoshop previews and other Photoshop
 resources, comments, other vendor blocks and anything after the image end are dropped, and a JPEG whose
 structure can't be read is re-encoded ("Lossless edit couldn't remove JPEG segments; re-encoded"). A HEIC with
