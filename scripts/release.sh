@@ -9,7 +9,9 @@
 #   SIGN_IDENTITY   codesign identity (default "-": ad hoc, for local testing; nothing is notarized)
 #   NOTARY_PROFILE  notarytool keychain profile (`xcrun notarytool store-credentials`); needed for --notarize
 #   SWIFT_FLAGS     extra `swift build` arguments, split on spaces (e.g. "-Xswiftc -DUPDATE_E2E" for the update
-#                   end-to-end test build, whose installer service accepts the ad hoc ...updatetest app; never release one)
+#                   end-to-end test build, whose installer service accepts the ad hoc ...updatetest app). UPDATE_E2E is
+#                   refused with a real identity or --notarize, and a non-ad-hoc build whose service mentions
+#                   ".updatetest" (a cached test build) is refused too.
 #
 # Results: dist/imageconverter.app and
 #   dist/imageconverter-<version>.zip              signed with a Developer ID, notarized and stapled (--notarize)
@@ -40,6 +42,10 @@ for argument in "$@"; do
 done
 
 identity="${SIGN_IDENTITY:--}"
+# The end-to-end test switch relaxes who may use the installer service; it must never reach a release.
+if [[ "${SWIFT_FLAGS:-}" == *UPDATE_E2E* ]] && { [ "$identity" != "-" ] || [ "$notarize" = true ]; }; then
+    die "SWIFT_FLAGS has UPDATE_E2E (the update end-to-end test build); it is only allowed for ad hoc builds without --notarize."
+fi
 if [ "$notarize" = true ]; then
     [ "$identity" != "-" ] || die "--notarize needs a Developer ID identity in SIGN_IDENTITY (ad hoc signatures can't be notarized)."
     [ -n "${NOTARY_PROFILE:-}" ] || die "--notarize needs NOTARY_PROFILE (a keychain profile made with 'xcrun notarytool store-credentials')."
@@ -101,6 +107,12 @@ else
 fi
 [ -x "$bin/$EXECUTABLE" ] && [ -x "$bin/imageconverter-cli" ] && [ -x "$bin/imageconverter-installer" ] \
     || die "built products not found in $bin."
+if [ "$identity" != "-" ]; then
+    # Also catches a cached UPDATE_E2E build that SWIFT_FLAGS no longer mentions.
+    strings "$bin/imageconverter-installer" > "$work/installer-strings.txt"
+    grep -q 'imageconverter\.updatetest' "$work/installer-strings.txt" \
+        && die "the installer service was built with UPDATE_E2E (it accepts the test app); rebuild without it."
+fi
 
 # --- Assemble -------------------------------------------------------------------------------------------------
 app="$work/$APP_NAME.app"
@@ -169,6 +181,10 @@ codesign -d --entitlements - --xml "$app" 2>/dev/null > "$work/entitlements.plis
 [ "$(/usr/libexec/PlistBuddy -c "Print :com.apple.security.network.client" "$work/entitlements.plist" 2>/dev/null)" = "true" ] \
     || die "the signed app has no network client entitlement (needed for the update check)."
 grep -q "com.apple.security.network.server" "$work/entitlements.plist" && die "the signed app has a network server entitlement."
+# Exactly these four entitlements, nothing else (no temporary exceptions).
+entitlement_keys=$(plutil -p "$work/entitlements.plist" | sed -n 's/^  "\(.*\)" => .*/\1/p' | sort | tr '\n' ' ')
+[ "$entitlement_keys" = "com.apple.security.app-sandbox com.apple.security.files.bookmarks.app-scope com.apple.security.files.user-selected.read-write com.apple.security.network.client " ] \
+    || die "the signed app's entitlements are not exactly the expected four: $entitlement_keys"
 cli_entitlements=$(codesign -d --entitlements - --xml "$contents/Helpers/imageconverter" 2>/dev/null || true)
 grep -q "app-sandbox" <<< "$cli_entitlements" && die "the command-line helper must not be sandboxed."
 [ -d "$xpc" ] || die "the installer service is missing."
