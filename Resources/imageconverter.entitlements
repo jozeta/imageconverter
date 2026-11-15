@@ -3,8 +3,11 @@
 <!--
   Entitlements of imageconverter.app (scripts/release.sh signs the app with these and checks them).
   App Sandbox on; only files and folders the user drops or picks can be read and written, and they are
-  remembered as app-scoped security-scoped bookmarks. No network entitlement: the app makes no requests.
-  The command-line helper (Contents/Helpers/imageconverter) is signed without these: it is not sandboxed.
+  remembered as app-scoped security-scoped bookmarks. Network: outgoing connections only (network.client), used
+  solely by the optional update check and download from github.com (Sources/Imageconverter/Update/); no server
+  entitlement, the app never listens.
+  The command-line helper (Contents/Helpers/imageconverter) and the update installer service
+  (Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc) are signed without these: they are not sandboxed.
 -->
 <plist version="1.0">
 <dict>
@@ -13,6 +16,8 @@
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
 	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>
 </plist>

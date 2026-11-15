@@ -3,12 +3,20 @@ import Foundation
 /// The privacy statement and the limits in force, in one place so the Privacy window, the README and the tests
 /// agree with the code that enforces them.
 public enum PrivacyStatement {
-    public static let offline = "Works entirely offline. No network access, no telemetry, no uploads."
+    public static let offline = "No network access except the optional update check and download from github.com. "
+        + "No telemetry, no uploads."
+    /// What the update check sends and when (Help ▸ Privacy, README).
+    public static let updates = "Updates: nothing goes online until you allow it. Check Now in About imageconverter, or "
+        + "\u{201C}Check for updates when the app starts\u{201D}, asks GitHub's release API for the latest version. Like any web "
+        + "request, it shows GitHub your IP address and standard HTTP headers (such as your preferred languages); the app adds "
+        + "only \u{201C}imageconverter/<version>\u{201D} as the user agent, and nothing about you or your images. A download is "
+        + "installed only when its checksum matches and the app is signed with the developer's Developer ID and notarized."
     /// Every Apple framework the sources import (besides the standard library and the app's own modules);
     /// `PrivacyStatementTests` fails when a source imports one that is not listed.
     public static let frameworkList = [
         "SwiftUI", "AppKit", "Foundation", "Observation", "Charts", "ImageIO", "Core Graphics", "Core Image",
         "Core Text", "Core Services", "Metal", "Accelerate", "Vision", "UniformTypeIdentifiers", "UserNotifications",
+        "Security", "CryptoKit",
     ]
     public static let frameworks = "Built only on Apple frameworks (" + frameworkList.joined(separator: ", ")
         + "); no third-party code."
@@ -40,6 +48,8 @@ public enum PrivacyStatement {
             Limit(name: "Preset and template files", value: bytes(StoredFile.maxFileSize)),
             Limit(name: "imageconverter:// link length", value: "\(number(URLAction.maxURLLength)) characters"),
             Limit(name: "Files per link or script", value: number(ExternalRequests.maxFiles)),
+            Limit(name: "Update check answer", value: bytes(UpdatePolicy.maxResponseBytes)),
+            Limit(name: "Update download", value: bytes(UpdatePolicy.maxZipBytes)),
         ]
     }
 }
