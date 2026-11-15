@@ -16,9 +16,10 @@ Only the latest version on the `main` branch receives security fixes.
 
 ## Threat model
 
-imageconverter runs on your Mac, offline, on files you give it. It has **no network access** (no network
-entitlement, no telemetry, no updater, no uploads), and a test fails the build if networking APIs appear in
-the sources. The assets an attacker could want are your files and your private metadata (location, serial
+imageconverter runs on your Mac on files you give it. It has **no network access except the optional update
+check and download from github.com** (no telemetry, no uploads). Its only network entitlement is outgoing
+connections (`network.client`, no server); the networking code is confined to `Sources/Imageconverter/Update/`,
+and a test fails the build if networking APIs or web addresses appear anywhere else in the sources. The assets an attacker could want are your files and your private metadata (location, serial
 numbers, names), and the app's stability.
 
 Everything that comes from outside the app is untrusted:
@@ -50,6 +51,33 @@ stops for one bad file.
 **Temporary files** (`.imageconverter-<UUID>.tmp`) are removed when a run is cancelled, when the app
 quits and at the start of a run. They are deleted, not securely wiped: on SSDs and APFS, overwriting does
 not reliably overwrite old blocks, so the app does not claim to.
+
+**Updates** (opt-in: asked once at the first launch; Check Now in About works on demand). The GitHub API
+answer and every download are untrusted:
+
+- **The release check** goes only to `api.github.com` over HTTPS, in an ephemeral session (no cookies, cache or
+  stored credentials), sending only `User-Agent: imageconverter/<version>`. The answer is capped at 1 MB while
+  it streams and parsed strictly: tag `v` + `x.y.z` and newer than the running app (no downgrade or
+  reinstall), no draft or prerelease, assets named exactly `imageconverter-<x.y.z>.zip` and `.zip.sha256`,
+  asset URLs `https` on `github.com`, `objects.githubusercontent.com` or `release-assets.githubusercontent.com`.
+  Release notes are shown as plain text, never rendered as Markdown or HTML.
+- **Downloads** must stay on those hosts on every redirect and in the final response; the checksum file is
+  capped at 1 KB and the zip at 200 MB, counted while it arrives (a declared length is not trusted alone).
+- **The zip** must match its SHA-256; its entry names are checked before unpacking (only inside one
+  `imageconverter.app`, no absolute paths, `..` or writes through links), it is unpacked with `ditto` into a
+  fresh folder in the app's temporary directory, and must hold exactly one `imageconverter.app` with no link
+  resolving outside it and the release's version. The SHA-256 comes from the same release, so it guards
+  against corruption, not a compromised release: that is the signature's job.
+- **The signature** is checked with `SecStaticCodeCheckValidityWithErrors` (all architectures, strict, nested
+  code) against `anchor apple generic and identifier "io.github.jozeta.imageconverter" and
+  certificate leaf[subject.OU] = "6W6TD6P8G3" and notarized`. Anything that fails is refused, its folder
+  deleted and the installed app left untouched.
+- **Installing** is refused outside the packaged app and while a batch or job runs. The sandboxed app needs
+  the folder holding it, asked for once with an open panel and kept as a folder grant. The old app goes to the
+  Trash and the new one takes its path; if that move fails, the old app is moved back.
+
+Known limits: the zip is unpacked before its signature can be checked, so a compromised release could still
+fill disk space in the temporary folder (it is deleted afterwards).
 
 **Privacy scan.** The app reads headers and metadata only and reports fields by name, never by value.
 Help ▸ Privacy… lists the limits in force.

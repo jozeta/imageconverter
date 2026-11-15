@@ -3,19 +3,19 @@
 A native macOS app for **batch image processing**. Drop in a pile of images or folders, build a
 pipeline once (resize, crop, watermark, clean metadata, rename, convert) and run it over all of
 them. It reads every image format your Mac can decode and writes the common ones. Everything happens
-on your Mac: no uploads, no network access at all.
+on your Mac: no uploads, and no network access except the optional update check and download from github.com.
 
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 1.1.0 · **Status:** released — signed and notarized, sandboxed, works fully offline.
+**Version:** 1.1.0 · **Status:** released — signed and notarized, sandboxed, works offline (only the optional update check goes online).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
 ## Privacy
 
-- **Works entirely offline.** No network access, no telemetry, no uploads. The app has no network entitlement, and a test fails the build if networking APIs appear in the sources.
-- **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications); no third-party code.
+- **No network access except the optional update check and download from github.com.** No telemetry, no uploads. Nothing goes online until you allow it: the first launch asks once whether to check for updates when the app starts, and **Check Now** in About imageconverter checks on demand. A check asks GitHub's release API for the latest release and sends nothing but `User-Agent: imageconverter/<version>`. The app's only network entitlement is outgoing connections (`network.client`, no server), the networking code lives in one folder (`Sources/Imageconverter/Update/`), and a test fails the build if networking APIs or web addresses appear anywhere else. See [Updates](#updates).
+- **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit); no third-party code.
 - **Your files are untrusted input.** Images, SVG watermarks, preset and template files, `imageconverter://` links and AppleScript requests are all validated before use. Limits in force: images up to 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory) of decoded memory and 2 GB per file (first frame only); SVG files up to 1 MB, 20,000 elements, 64 levels deep; preset and template files up to 1 MB; links up to 16,384 characters. Help ▸ Privacy… shows these as built. See [SECURITY.md](SECURITY.md).
 - **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed.
 - **Temporary files are deleted, not wiped.** Output is written to a hidden temporary file next to its destination and moved into place; on cancel, quit or a failed write the app deletes these files. On SSDs and APFS, deleting (or overwriting) a file does not reliably erase its old blocks, so the app does not claim to securely wipe anything.
@@ -150,6 +150,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
   size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and the batch as a filmstrip, grid or list; pinch to zoom in sync in every comparison mode (side by side, split, difference, single), with a checkerboard behind transparent images and a quality ladder to choose the output quality. Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
   half-written files, and name collisions resolved with `_2`, `_3`, …
+- **Updates**: Check Now in About imageconverter (and, if you allow it, a check at every launch) finds a newer
+  GitHub release; **Install and Relaunch** downloads it, checks its checksum, Developer ID signature and
+  notarization, swaps it in (the old app goes to the Trash) and relaunches (see [Updates](#updates)).
 
 ## Screenshots
 
@@ -181,7 +184,7 @@ Generated with `scripts/screenshots.sh` from synthetic sample images (nothing pe
     <td width="50%"><img src="docs/screenshots/history.png" alt="History window" width="400"><br>History: every run, with per-file sizes and savings</td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/screenshots/about.png" alt="About window" width="400"><br>About: version and the offline statement</td>
+    <td width="50%"><img src="docs/screenshots/about.png" alt="About window" width="400"><br>About: version, updates and the privacy statement</td>
   </tr>
 </table>
 
@@ -239,9 +242,9 @@ copyright year from the last commit (holder from `LICENSE`). Only a signed and v
 | `--notarize` | off | Submit to Apple's notary service, wait, staple, and write `dist/imageconverter-<version>.zip`. Refused with an ad hoc identity or without `NOTARY_PROFILE`. When the submission isn't `Accepted`, prints the notary log and fails. |
 
 Both executables get the hardened runtime. The app is signed with `Resources/imageconverter.entitlements`:
-App Sandbox, user-selected read/write files and app-scoped bookmarks, no network. The script checks the
-signature (`codesign --verify --strict --deep`), that the sandbox entitlement is there and that no network
-entitlement is. The command-line helper is signed **without** the sandbox: you run it from Terminal with your
+App Sandbox, user-selected read/write files and app-scoped bookmarks, and outgoing network connections only
+(`network.client`, for the update check). The script checks the signature (`codesign --verify --strict --deep`),
+that the sandbox and network client entitlements are there and that no network server entitlement is. The command-line helper is signed **without** the sandbox: you run it from Terminal with your
 own permissions on whatever paths you name. A real identity without `--notarize` gives
 `…-not-notarized.zip`. Every zip gets a `.sha256` file next to it. Credentials stay in the keychain.
 
@@ -255,6 +258,7 @@ The output settings are in the Output row of the sidebar (there is no Settings w
 | When finished | Nothing · Reveal in Finder · Notify me · Reveal and notify (the "When finished" dropdown under Save to). Applies to every run of the main window, including runs started from Finder Services, AppleScript and links; jobs have their own notifications. Reveal selects the written files in Finder (up to 50; with more it opens their folders). Notify posts "Run finished" with the counts and space saved, only when imageconverter is not the frontmost app. The first time you pick a notify choice macOS asks for permission; if notifications are off, a note says where to turn them on. Not stored in presets | Nothing |
 | Extra outputs | Up to 8 more files per image, added with **+ Add output** under the Output format controls. Each has a name (its label in the report), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case; `/` and `:` become `-`) and an optional **subfolder** (rename tokens allowed, under the main output's folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
 | Output folder | Any folder (used by "New folder") | asked on first run |
+| Check for updates when the app starts | Checkbox in About imageconverter. Set by the question at the first launch (**Yes** / **No**); until you answer, nothing goes online. UserDefaults key `updateCheckOnLaunch` (absent until answered). See [Updates](#updates) | off until answered |
 | Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
 
 Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
@@ -987,6 +991,22 @@ The packaged app runs in the App Sandbox: it can only open and write files and f
 - Jobs keep their own folder bookmarks (see [Process a folder automatically](#process-a-folder-automatically)).
 
 Outside the sandbox (`swift run`) nothing is asked; bookmarks are still made, so the same settings work in the packaged app. For screenshots, DEBUG builds accept `-debugSimulateSandbox` (ask as if sandboxed) and `-debugShowFolderAccess` (open the Folder Access window).
+
+## Updates
+
+imageconverter can update itself from its GitHub releases. Nothing goes online until you allow it.
+
+- **First launch:** a sheet asks *"Check for updates automatically?"* **Yes** checks now and at every launch; **No** never checks on its own. You are asked once; the answer is the checkbox below.
+- **App menu ▸ About imageconverter** has **Check Now**, the checkbox **Check for updates when the app starts** and a status line: *Checking…*, *You're up to date (1.1.0)*, *Version 1.2.0 is available* or what went wrong. Check Now always works. A check at launch stays silent when you're up to date or the check fails.
+- **When a newer version is found**, a sheet shows its release notes (as plain text) with **Install and Relaunch** and **Later**. Install downloads the release's zip and checksum, checks them, puts the new app in place of the old one (the old one goes to the Trash) and opens it.
+
+What is accepted, and when installing is refused:
+
+- Only GitHub's latest release of `jozeta/imageconverter`, tagged `v` + `x.y.z`, newer than the running version (never a downgrade or reinstall), not a draft or prerelease, with the assets `imageconverter-<x.y.z>.zip` and `imageconverter-<x.y.z>.zip.sha256`. The API answer may be at most 1 MB.
+- Downloads only over HTTPS from `github.com`, `objects.githubusercontent.com` or `release-assets.githubusercontent.com`, also after redirects; the zip at most 200 MB, the checksum file at most 1 KB. No cookies, cache or stored credentials are used.
+- The zip must match its SHA-256 and hold exactly one `imageconverter.app` with no link pointing outside it. The app must be signed with the developer's Developer ID (team `6W6TD6P8G3`, identifier `io.github.jozeta.imageconverter`), notarized, and have the release's version. Anything else is refused, the download deleted, and the installed app left alone.
+- Installing is refused while a batch or a job runs (*"Finish the running batch or job first."*), and in a build that isn't the packaged app (`swift run`: *"Updates install only in the released app."*; Check Now still works there). The sandboxed app needs access to the folder that holds it (usually Applications): the first time, an open panel already showing that folder asks for it (*"… to install the update"*); the answer is remembered with the other allowed folders. If you can't write to that folder, the update isn't installed and you can download it from the release page instead.
+- If moving the new app into place fails after the old one went to the Trash, the old one is put back.
 
 ## Command line and Shortcuts
 
