@@ -152,6 +152,7 @@ final class UpdateTests: XCTestCase {
         XCTAssertFalse(UpdatePolicy.allowedHost(URL(string: "https://api.github.com/x")!), "API host is not a download host")
         XCTAssertEqual(UpdatePolicy.codeRequirement, "anchor apple generic and identifier \"io.github.jozeta.imageconverter\" "
             + "and certificate leaf[subject.OU] = \"6W6TD6P8G3\" and notarized")
-        XCTAssertEqual(UpdateSignature.flags.rawValue, kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+        XCTAssertEqual(UpdateSignature.flags.rawValue, kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode
+                       | SecCSFlags.enforceRevocationChecks.rawValue)
     }
 }

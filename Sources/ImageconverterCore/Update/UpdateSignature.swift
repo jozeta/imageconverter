@@ -3,9 +3,11 @@ import Security
 
 /// The code-signature check of a downloaded app (Security framework, offline apart from what the `notarized`
 /// requirement itself looks up): the whole bundle, every architecture and nested code, strictly, against
-/// `requirement` (by default Developer ID of this team, this bundle identifier, notarized).
+/// `requirement` (by default Developer ID of this team, this bundle identifier, notarized). Revocation checks are
+/// enforced, so a revoked Developer ID certificate is refused (the system may ask Apple's revocation service).
 public enum UpdateSignature {
-    public static let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode)
+    public static let flags = SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate | kSecCSCheckNestedCode
+                                                   | SecCSFlags.enforceRevocationChecks.rawValue)
 
     /// Throws `UpdateError.signatureRejected` unless `bundle` is validly signed and meets `requirement`.
     public static func check(_ bundle: URL, requirement: String = UpdatePolicy.codeRequirement) throws {

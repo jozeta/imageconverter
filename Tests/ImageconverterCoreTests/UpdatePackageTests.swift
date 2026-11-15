@@ -187,6 +187,54 @@ final class UpdatePackageTests: XCTestCase {
         XCTAssertNil(UpdatePackage.entryProblem(names: valid + [link], symlinks: [link]))
     }
 
+    func testLinkCheckIgnoresCaseAndNormalisation() {
+        let valid = ["imageconverter.app/", "imageconverter.app/Contents/"]
+        // APFS: `contents` and `Contents` are the same folder, and so are NFC and NFD spellings.
+        XCTAssertNotNil(UpdatePackage.entryProblem(names: valid + ["imageconverter.app/contents", "imageconverter.app/Contents/x"],
+                                                   symlinks: ["imageconverter.app/contents"]))
+        let nfc = "imageconverter.app/Caf\u{E9}"
+        let nfd = "imageconverter.app/Cafe\u{301}"
+        XCTAssertNotNil(UpdatePackage.entryProblem(names: valid + [nfc, nfd + "/x"], symlinks: [nfc]))
+        XCTAssertNotNil(UpdatePackage.entryProblem(names: valid + [nfd, nfc + "/x"], symlinks: [nfd]))
+        XCTAssertNotNil(UpdatePackage.entryProblem(names: valid + [nfd, "imageconverter.app/CAF\u{C9}/x"], symlinks: [nfd]))
+    }
+
+    func testZipLimitsDefaults() {
+        XCTAssertEqual(UpdatePackage.Limits.standard.maxEntries, 20_000)
+        XCTAssertEqual(UpdatePackage.Limits.standard.maxUncompressedBytes, 1 << 30)
+        XCTAssertEqual(UpdatePackage.Limits.standard.maxListingBytes, 8 << 20)
+    }
+
+    func testZipOverTheLimitsIsRefusedBeforeUnpacking() throws {
+        let app = try makeApp(in: try source(), sign: false)
+        // Two MB of zeros compress to almost nothing: a small zip that inflates far beyond its size.
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("Contents/Resources"), withIntermediateDirectories: true)
+        try Data(count: 2 << 20).write(to: app.appendingPathComponent("Contents/Resources/zeros"))
+        XCTAssertEqual(try tool("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", UpdatePolicy.bundleIdentifier,
+                                                      app.path]), 0)
+        let archive = try zip(app)
+        let entries = try UpdatePackage.listEntries(of: archive).names.count
+        let cases: [(UpdatePackage.Limits, String)] = [
+            (UpdatePackage.Limits(maxEntries: entries - 1, maxUncompressedBytes: 1 << 30, maxListingBytes: 8 << 20), "entries"),
+            (UpdatePackage.Limits(maxEntries: 20_000, maxUncompressedBytes: 1 << 20, maxListingBytes: 8 << 20), "unpacked"),
+            (UpdatePackage.Limits(maxEntries: 20_000, maxUncompressedBytes: 1 << 30, maxListingBytes: 200), "listing"),
+        ]
+        for (limits, word) in cases {
+            XCTAssertThrowsError(try UpdatePackage.prepare(zip: archive, expectedSHA256: UpdatePackage.sha256(of: archive),
+                                                           version: version, into: unpackFolder, requirement: adHocRequirement,
+                                                           limits: limits)) { error in
+                guard case .badPackage(let reason)? = error as? UpdateError else { return XCTFail("\(error)") }
+                XCTAssertTrue(reason.contains(word), reason)
+            }
+            XCTAssertFalse(FileManager.default.fileExists(atPath: unpackFolder.path), "nothing unpacked")
+        }
+        let listing = try UpdatePackage.listEntries(of: archive)
+        XCTAssertGreaterThan(listing.uncompressedBytes, 2 << 20)
+        XCTAssertGreaterThan(try UpdatePackage.prepare(zip: archive, expectedSHA256: UpdatePackage.sha256(of: archive),
+                                                       version: version, into: unpackFolder, requirement: adHocRequirement)
+            .path.count, 0, "within the standard limits it unpacks")
+    }
+
     func testZipListingOfARealZip() throws {
         let app = try makeApp(in: try source(), sign: false, links: ["Contents/my link": "MacOS/imageconverter"])
         let listing = try UpdatePackage.listEntries(of: try zip(app))
