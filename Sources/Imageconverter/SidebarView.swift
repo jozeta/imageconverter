@@ -237,6 +237,7 @@ struct SidebarView: View {
             }
             .font(LadaGlass.Typography.body)
             .accessibilityLabel("Report")
+            .onChange(of: model.reportRequest) { _, _ in showReport = true }
             .sheet(isPresented: $showErrorLog) { ErrorLogView() }
         }
     }

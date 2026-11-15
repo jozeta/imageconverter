@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 @preconcurrency import UserNotifications
 
@@ -5,6 +6,12 @@ import Foundation
 /// a refusal (or no answer) just means no notifications, never a blocked job.
 @MainActor
 final class JobNotifier {
+    /// The app's one notifier (jobs and manual runs).
+    static let shared = JobNotifier(defaults: AppDefaults.store)
+    /// `userInfo["kind"]` values, read by `NotificationRouter`.
+    nonisolated static let kindKey = "kind"
+    nonisolated static let runKind = "run"
+    nonisolated static let jobKind = "job"
     private let defaults: UserDefaults
     private static let askedKey = "jobNotificationsAsked"
 
@@ -30,17 +37,45 @@ final class JobNotifier {
     }
 
     /// Posts when allowed; silently does nothing otherwise.
-    func post(title: String, body: String) {
+    func post(title: String, body: String, kind: String = JobNotifier.jobKind) {
         guard let center else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
+        content.userInfo = [Self.kindKey: kind]
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         center.getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
                 return
             }
             center.add(request) { _ in }
+        }
+    }
+}
+
+/// Clicks on notifications: a manual run's brings the main window forward with its report open; a job's just
+/// brings the app forward. Set once at launch.
+final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    static let shared = NotificationRouter()
+
+    @MainActor static func install() {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        UNUserNotificationCenter.current().delegate = shared
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let kind = response.notification.request.content.userInfo[JobNotifier.kindKey] as? String
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                NSApp.activate(ignoringOtherApps: true)
+                if kind == JobNotifier.runKind {
+                    for window in NSApp.windows where window.canBecomeMain && window.isVisible == false { window.deminiaturize(nil) }
+                    NSApp.windows.first(where: { $0.canBecomeMain })?.makeKeyAndOrderFront(nil)
+                    ExternalActions.shared.model?.reportRequest += 1
+                }
+            }
+            completionHandler()
         }
     }
 }

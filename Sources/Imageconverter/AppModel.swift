@@ -95,7 +95,7 @@ final class AppModel {
     }()
     @ObservationIgnored var thumbnailsLoading: Set<URL> = []
     @ObservationIgnored var thumbnailsFailed: Set<URL> = []
-    @ObservationIgnored let defaults: UserDefaults
+    @ObservationIgnored private let defaults: UserDefaults
     /// History saves still being written (`recordRun`); the quit waits for them.
     @ObservationIgnored var pendingHistoryWrites = 0
     @ObservationIgnored var exampleSource: (url: URL, info: RenameSource)?
@@ -106,7 +106,10 @@ final class AppModel {
     static let previewCollapsedKey = "previewCollapsed"
     static let pipelineCollapsedKey = "pipelineCollapsed"
     static let lowMemoryModeKey = "lowMemoryMode"
-    @ObservationIgnored lazy var afterRunNotifier = JobNotifier(defaults: defaults)
+    /// The "When finished" setting, mirrored from `AppSettings` by the main window.
+    @ObservationIgnored var afterRunSetting: AfterRunAction = .nothing
+    /// Bumped when a run notification is clicked; the sidebar opens the report.
+    var reportRequest = 0
 
     init(defaults: UserDefaults = .standard,
          presetStore: PresetStore = PresetStore(directory: PresetStore.defaultDirectory)) {
@@ -316,7 +319,7 @@ final class AppModel {
         let saved = SizeFormat.savedPhrase(input: totals?.inputBytes ?? 0, output: totals?.outputBytes ?? 0).map { " · \($0)" } ?? ""
         let summary = "\(RunCountsText.make(written: report.written.count, skipped: report.skipped.count, failed: failed))\(saved)"
         toasts.show("\(prefix)\(summary)", type: failed > 0 ? .bad : (report.cancelled ? .info : .ok))
-        runAfterRunAction(written: report.written, summary: summary)
+        runAfterRunAction(report, summary: summary)
     }
 }
 

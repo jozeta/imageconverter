@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Watching and schedules start with the app, not with the Jobs window.
         MainActor.assumeIsolated {
+            NotificationRouter.install()
             JobsController.shared.start()
             MenuBarMode.shared.install(controller: JobsController.shared)
         }

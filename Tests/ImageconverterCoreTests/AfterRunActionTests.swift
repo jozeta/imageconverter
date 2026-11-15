@@ -42,6 +42,13 @@ final class AfterRunActionTests: XCTestCase {
         XCTAssertFalse(front.notify)
     }
 
+    func testAllFailedNotifiesInBackgroundOnly() {
+        XCTAssertTrue(AfterRunAction.notify.plan(written: [], failed: 3, appIsActive: false).notify)
+        XCTAssertFalse(AfterRunAction.notify.plan(written: [], failed: 3, appIsActive: true).notify)
+        XCTAssertFalse(AfterRunAction.nothing.plan(written: [], failed: 3, appIsActive: false).notify)
+        XCTAssertTrue(AfterRunAction.revealAndNotify.plan(written: [], failed: 3, appIsActive: false).reveal.isEmpty)
+    }
+
     func testNothingWrittenDoesNothing() {
         let plan = AfterRunAction.revealAndNotify.plan(written: [], appIsActive: false)
         XCTAssertTrue(plan.reveal.isEmpty)

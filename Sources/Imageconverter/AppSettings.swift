@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import ImageconverterCore
@@ -18,7 +19,8 @@ final class AppSettings {
 
     /// Where the "When finished" choice is stored (`AppModel` reads it when a run ends).
     static let afterRunKey = "afterRunAction"
-    @ObservationIgnored private let notifier: JobNotifier
+    @ObservationIgnored private let notifier = JobNotifier.shared
+    @ObservationIgnored private var activeObserver: NSObjectProtocol?
 
     /// What happens when a run finishes. Applies to every run, not to a preset.
     var afterRun: AfterRunAction {
@@ -58,13 +60,20 @@ final class AppSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
-        notifier = JobNotifier(defaults: defaults)
         afterRun = defaults.string(forKey: Self.afterRunKey).flatMap(AfterRunAction.init(rawValue:)) ?? .nothing
         modeKind = defaults.string(forKey: Key.modeKind).flatMap(OutputModeKind.init(rawValue:)) ?? .newFolder
         outputFolder = defaults.string(forKey: Key.folder).map { URL(fileURLWithPath: $0, isDirectory: true) }
         sameFolderSuffix = defaults.string(forKey: Key.suffix) ?? OutputPlanner.defaultSuffix
         restoreOutputAccess()
         if afterRun.notifies { Task { await refreshNotificationsDenied() } }
+        // The hint goes away once notifications are allowed in System Settings.
+        activeObserver = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                                                                object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self, self.afterRun.notifies else { return }
+                Task { await self.refreshNotificationsDenied() }
+            }
+        }
     }
 
     private func askForNotifications() {

@@ -35,6 +35,7 @@ struct ImageconverterApp: App {
                 .environment(model)
                 .environment(watermarkTemplates)
                 .environment(metadataTemplates)
+                .onChange(of: settings.afterRun, initial: true) { _, value in model.afterRunSetting = value }
                 .onChange(of: PreviewRequest(model: model, mode: settings.outputMode), initial: true) { _, request in
                     model.schedulePreview(mode: request.mode)
                     model.scheduleEstimate()

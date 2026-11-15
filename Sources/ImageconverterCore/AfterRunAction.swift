@@ -21,9 +21,11 @@ public enum AfterRunAction: String, CaseIterable, Sendable, Codable {
 
     /// What to do for a run that wrote `written`: the URLs to select in Finder (the files, or their unique folders
     /// in first-seen order when there are more than `maxRevealedFiles`) and whether to post a notification (only
-    /// when the app isn't frontmost, since the result is on screen otherwise). A run that wrote nothing does neither.
-    public func plan(written: [URL], appIsActive: Bool) -> (reveal: [URL], notify: Bool) {
-        guard !written.isEmpty else { return ([], false) }
+    /// when the app isn't frontmost, since the result is on screen otherwise). A run that wrote nothing never reveals,
+    /// and notifies only when files failed.
+    public func plan(written: [URL], failed: Int = 0, appIsActive: Bool) -> (reveal: [URL], notify: Bool) {
+        // Nothing written: no Finder window, but a backgrounded user still hears that files failed.
+        guard !written.isEmpty else { return ([], notifies && failed > 0 && !appIsActive) }
         var reveal: [URL] = []
         if revealsInFinder {
             if written.count <= Self.maxRevealedFiles {

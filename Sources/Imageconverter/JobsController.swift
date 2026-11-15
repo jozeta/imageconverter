@@ -85,7 +85,7 @@ final class JobsController {
         self.defaults = defaults
         self.history = history
         self.errorLog = errorLog
-        notifier = JobNotifier(defaults: defaults)
+        notifier = JobNotifier.shared
         pausedAll = defaults.bool(forKey: Self.pausedKey)
         keepInMenuBar = defaults.bool(forKey: Self.menuBarKey)
     }

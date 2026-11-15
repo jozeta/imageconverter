@@ -3,10 +3,22 @@ import ImageconverterCore
 
 extension AppModel {
     /// The "When finished" setting: select the outputs in Finder and/or post a notification (background only).
-    func runAfterRunAction(written: [URL], summary: String) {
-        let action = defaults.string(forKey: AppSettings.afterRunKey).flatMap(AfterRunAction.init(rawValue:)) ?? .nothing
-        let plan = action.plan(written: written, appIsActive: NSApp.isActive)
+    func runAfterRunAction(_ report: BatchReport, summary: String) {
+        let failed = report.failures.count
+        let plan = afterRunSetting.plan(written: report.written, failed: failed, appIsActive: NSApp.isActive)
         if !plan.reveal.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(plan.reveal) }
-        if plan.notify { afterRunNotifier.post(title: "Run finished", body: summary) }
+        guard plan.notify else { return }
+        let title: String, body: String
+        if report.cancelled {
+            title = "Run cancelled"
+            body = "Run cancelled · converted \(report.written.count)"
+        } else if report.written.isEmpty {
+            title = "Run finished"
+            body = "No images converted · \(failed) failed"
+        } else {
+            title = "Run finished"
+            body = summary
+        }
+        JobNotifier.shared.post(title: title, body: body, kind: JobNotifier.runKind)
     }
 }
