@@ -7,9 +7,10 @@ public enum PrivacyStatement {
         + "No telemetry, no uploads."
     /// What the update check sends and when (Help ▸ Privacy, README).
     public static let updates = "Updates: nothing goes online until you allow it. Check Now in About imageconverter, or "
-        + "\u{201C}Check for updates when the app starts\u{201D}, asks GitHub's release API for the latest version, sending only "
-        + "\u{201C}imageconverter/<version>\u{201D} as the user agent. A download is installed only when its checksum matches "
-        + "and the app is signed with the developer's Developer ID and notarized."
+        + "\u{201C}Check for updates when the app starts\u{201D}, asks GitHub's release API for the latest version. Like any web "
+        + "request, it shows GitHub your IP address and standard HTTP headers (such as your preferred languages); the app adds "
+        + "only \u{201C}imageconverter/<version>\u{201D} as the user agent, and nothing about you or your images. A download is "
+        + "installed only when its checksum matches and the app is signed with the developer's Developer ID and notarized."
     /// Every Apple framework the sources import (besides the standard library and the app's own modules);
     /// `PrivacyStatementTests` fails when a source imports one that is not listed.
     public static let frameworkList = [

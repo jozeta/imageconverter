@@ -1,9 +1,9 @@
 import XCTest
 
-/// Policy: the app talks to the network only for the optional update check and download, and only from the
-/// files directly in `Sources/Imageconverter/Update/` (no third-party requests). This scans every Swift file
+/// Policy: the app talks to the network only for the optional update check and download, and only from
+/// `Sources/Imageconverter/Update/UpdateClient.swift` (no third-party requests). This scans every Swift file
 /// under `Sources/` for networking APIs and web URLs, outside comments, and fails on any elsewhere. The only
-/// URL strings allowed outside that folder are XML/XMP namespace names and SVG DTD identifiers: they name a
+/// URL strings allowed outside that file are XML/XMP namespace names and SVG DTD identifiers: they name a
 /// vocabulary and are never fetched (`SVGSanitizer` refuses anything external); inside it, also the GitHub
 /// API. Links in docs (README etc.) are not under `Sources/` and are fine.
 final class NoNetworkTests: XCTestCase {
@@ -14,8 +14,8 @@ final class NoNetworkTests: XCTestCase {
     static let forbiddenPatterns = [#"\bimport\s+(Network|WebKit)\b"#, #"\bsocket\s*\("#, #"\bCFHTTPMessage"#]
     static let allowedURLPrefixes = ["http://www.w3.org/", "http://ns.adobe.com/", "http://ns.apple.com/",
                                      "http://purl.org/dc/", "http://iptc.org/std/"]
-    /// The one folder (relative to `Sources/`, files directly in it) where the update client may use `URLSession`.
-    static let networkFolder = "Imageconverter/Update/"
+    /// The one file (relative to `Sources/`) that may use `URLSession`: the update client.
+    static let networkFile = "Imageconverter/Update/UpdateClient.swift"
     /// What the update client may name besides the namespaces: the release API.
     static let networkURLPrefixes = ["https://api.github.com/"]
     /// The networking APIs the update client uses; everything else in the lists stays forbidden there too.
@@ -66,7 +66,7 @@ final class NoNetworkTests: XCTestCase {
         ])
     }
 
-    func testNetworkingIsAllowedOnlyInTheUpdateFolder() {
+    func testNetworkingIsAllowedOnlyInTheUpdateClient() {
         let code = """
         let session = URLSession(configuration: .ephemeral)
         var request = URLRequest(url: URL(string: "https://api.github.com/repos/a/b/releases/latest")!)
@@ -74,11 +74,13 @@ final class NoNetworkTests: XCTestCase {
         XCTAssertEqual(Self.problems(file: "Imageconverter/Update/UpdateClient.swift", code: code), [])
         let elsewhere = ["URL https://api.github.com/repos/a/b/releases/latest", "API URLSession", "API URLRequest"]
         for file in ["Imageconverter/AppModel.swift", "ImageconverterCore/Update/UpdatePolicy.swift",
+                     "Imageconverter/Update/UpdateController.swift", "Imageconverter/Update/UpdateInstaller.swift",
+                     "Imageconverter/Update/UpdateClient.swift.bak", "Imageconverter/UpdateClient.swift",
                      "ImageconverterCLIKit/Update/Check.swift", "Imageconverter/UpdateHelpers/Client.swift",
                      "Imageconverter/Update/Sub/Client.swift", "Imageconverter/Updates/Client.swift"] {
             XCTAssertEqual(Self.problems(file: file, code: code), elsewhere, file)
         }
-        // Inside the folder, other hosts and other networking APIs still fail.
+        // Inside the client, other hosts and other networking APIs still fail.
         let other = """
         import Network
         let url = "https://example.com/x"
@@ -88,10 +90,9 @@ final class NoNetworkTests: XCTestCase {
                        ["URL https://example.com/x", "API NWConnection", "API import Network"])
     }
 
-    /// `violations(in:)` with the update folder's exceptions applied for `file` (a path relative to `Sources/`).
+    /// `violations(in:)` with the update client's exceptions applied for `file` (a path relative to `Sources/`).
     static func problems(file: String, code: String) -> [String] {
-        let isNetworkFile = file.hasPrefix(networkFolder) && !file.dropFirst(networkFolder.count).contains("/")
-        guard isNetworkFile else { return violations(in: code) }
+        guard file == networkFile else { return violations(in: code) }
         return violations(in: code, extraURLPrefixes: networkURLPrefixes, allowedAPIs: networkAPIs)
     }
 

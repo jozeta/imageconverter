@@ -85,9 +85,9 @@ struct UpdateLaunchQuestion: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
             Text("Check for updates automatically?").font(LadaGlass.Typography.body.weight(.semibold))
-            Text("imageconverter can ask github.com for a newer version each time it starts. The request carries only "
-                 + "the app's version; nothing about you or your images. Check Now in About imageconverter always works, "
-                 + "and you can change this there.")
+            Text("imageconverter can ask github.com for a newer version each time it starts. Like any web request, it "
+                 + "shows GitHub your IP address and standard HTTP headers; the app adds only its version, nothing "
+                 + "about you or your images. Check Now in About imageconverter always works, and you can change this there.")
                 .font(LadaGlass.Typography.body)
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
