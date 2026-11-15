@@ -3,7 +3,8 @@ import Foundation
 /// The fixed rules for what an update download may be. Pure: no networking here.
 public enum UpdatePolicy {
     /// Hosts a download URL may point at (also checked after redirects).
-    public static let allowedHosts: Set<String> = ["github.com", "objects.githubusercontent.com"]
+    public static let allowedHosts: Set<String> = ["github.com", "objects.githubusercontent.com",
+                                                    "release-assets.githubusercontent.com"]
     public static let maxResponseBytes = 1_000_000
     public static let maxZipBytes = 200 * 1024 * 1024
     public static let maxChecksumBytes = 1024

@@ -100,6 +100,7 @@ final class UpdateTests: XCTestCase {
     func testAllowedHosts() {
         XCTAssertTrue(UpdatePolicy.allowedHost(URL(string: "https://github.com/a/b")!))
         XCTAssertTrue(UpdatePolicy.allowedHost(URL(string: "https://objects.githubusercontent.com/x")!))
+        XCTAssertTrue(UpdatePolicy.allowedHost(URL(string: "https://release-assets.githubusercontent.com/x")!))
         XCTAssertFalse(UpdatePolicy.allowedHost(URL(string: "https://api.github.com/x")!))
         XCTAssertFalse(UpdatePolicy.allowedHost(URL(string: "http://objects.githubusercontent.com/x")!))
     }
