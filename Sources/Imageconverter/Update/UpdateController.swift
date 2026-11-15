@@ -77,7 +77,8 @@ final class UpdateController {
     func launch() {
         guard !launched else { return }
         launched = true
-        UpdateVerifier.removeStaleFolders()
+        // A download left by an interrupted update: let the installer service clear its own leftovers too.
+        if UpdateVerifier.removeStaleFolders() { UpdateInstaller.cleanUp() }
         switch UpdateInstallPlan.shouldCheckOnLaunch(answer: launchAnswer) {
         case .ask: showsLaunchQuestion = true
         case .check: check(reporting: false)
@@ -123,8 +124,9 @@ final class UpdateController {
 
     // MARK: Install
 
-    /// Install and Relaunch: check that it can install at all (and get folder access) before downloading, then
-    /// download, check, replace, relaunch. Any failure leaves the installed app as it was and deletes the download.
+    /// Install and Relaunch: check that it can install at all before downloading, then download, check the checksum,
+    /// hand the zip to the installer service, relaunch. Any failure leaves the installed app as it was and deletes the
+    /// download.
     func install() {
         guard let release = offer, !isBusy else { return }
         do {
@@ -145,14 +147,13 @@ final class UpdateController {
                 }
                 try Task.checkCancellation()
                 status = .verifying
-                let app = try await UpdateVerifier.verify(zip: download.zip, sha256: download.sha256, version: release.version,
-                                                          in: folder)
-                // Later while checking: the check itself can't be stopped, but nothing is installed.
+                try await UpdateVerifier.checkChecksum(of: download.zip, expected: download.sha256)
+                // Later while checking: nothing is installed.
                 try Task.checkCancellation()
                 status = .installing
-                let note = try await UpdateInstaller.install(app, version: release.version, isRunning: isRunning)
+                try await UpdateInstaller.install(zip: download.zip, sha256: download.sha256, version: release.version,
+                                                  isRunning: isRunning)
                 UpdateVerifier.remove(folder)
-                if let note { Self.show(note) }
                 UpdateInstaller.relaunch { message in self.status = .failed(message) }
             } catch {
                 UpdateVerifier.remove(work)
@@ -165,15 +166,6 @@ final class UpdateController {
             }
             if workFolder == work { workFolder = nil }
         }
-    }
-
-    /// The update is in place but the old version couldn't be removed: said once, before the relaunch.
-    private static func show(_ note: String) {
-        let alert = NSAlert()
-        alert.messageText = "The update is installed"
-        alert.informativeText = note
-        alert.addButton(withTitle: "Relaunch")
-        alert.runModal()
     }
 
     private func progress(received: Int64, total: Int64) {

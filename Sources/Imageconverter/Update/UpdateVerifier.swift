@@ -1,10 +1,10 @@
 import Foundation
 import ImageconverterCore
 
-/// The update's working folder and its checks. Every download gets a fresh folder in the app's temporary
-/// directory (`imageconverter-update-<uuid>`); `UpdatePackage.prepare` unpacks into `unpacked/` there and checks
-/// the checksum, the zip's entries, the layout, links, version and code signature. Folders are deleted on any
-/// failure, on Later, after installing, and stale ones at launch.
+/// The app's download folder: every download gets a fresh folder in the app's temporary directory
+/// (`imageconverter-update-<uuid>`, the name the installer service expects). The app checks the zip's SHA-256 for fast
+/// feedback; unpacking and every other check happen in the installer service. Folders are deleted on failure, on
+/// Later, after installing, and stale ones at launch.
 enum UpdateVerifier {
     static let folderPrefix = "imageconverter-update-"
 
@@ -18,12 +18,10 @@ enum UpdateVerifier {
         return folder
     }
 
-    /// Unpacks and checks off the main actor; returns the new app inside `work`.
-    static func verify(zip: URL, sha256: String, version: AppVersion, in work: URL) async throws -> URL {
-        try await Task.detached(priority: .userInitiated) {
-            try UpdatePackage.prepare(zip: zip, expectedSHA256: sha256, version: version,
-                                      into: work.appendingPathComponent("unpacked", isDirectory: true))
-        }.value
+    /// Throws `.checksumMismatch` unless the zip's SHA-256 is `expected` (off the main actor).
+    static func checkChecksum(of zip: URL, expected: String) async throws {
+        let actual = try await Task.detached(priority: .userInitiated) { try UpdatePackage.sha256(of: zip) }.value
+        guard actual == expected.lowercased() else { throw UpdateError.checksumMismatch }
     }
 
     static func remove(_ folder: URL?) {
@@ -31,12 +29,13 @@ enum UpdateVerifier {
         try? FileManager.default.removeItem(at: folder)
     }
 
-    /// Folders left by an earlier launch that quit or crashed mid-update.
-    static func removeStaleFolders() {
+    /// Removes folders left by an earlier launch that quit or crashed mid-update; true when there were any.
+    @discardableResult
+    static func removeStaleFolders() -> Bool {
         let temp = FileManager.default.temporaryDirectory
         let names = (try? FileManager.default.contentsOfDirectory(atPath: temp.path)) ?? []
-        for name in names where name.hasPrefix(folderPrefix) {
-            try? FileManager.default.removeItem(at: temp.appendingPathComponent(name))
-        }
+        let stale = names.filter { $0.hasPrefix(folderPrefix) }
+        for name in stale { try? FileManager.default.removeItem(at: temp.appendingPathComponent(name)) }
+        return !stale.isEmpty
     }
 }

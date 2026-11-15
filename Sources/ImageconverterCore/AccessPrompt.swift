@@ -57,23 +57,6 @@ public enum AccessPrompt {
         }
     }
 
-    /// One folder (installing an update: the folder holding the app), with the same rules as `run`: nothing is asked
-    /// when `covered` contains it; an answer that doesn't contain it is asked again (at most `maxTries` times).
-    /// True when it is covered or was allowed.
-    public static func askForFolder(_ folder: URL, purpose: AccessNeeds.Purpose, covered: [URL], caseSensitive: Bool? = nil,
-                                    ask: (AccessNeeds.Need, Bool) -> URL?, accept: (URL) -> Void) -> Bool {
-        if covered.contains(where: { AccessNeeds.isCovered(folder, by: $0, caseSensitive: caseSensitive) }) { return true }
-        let need = AccessNeeds.Need(folder: folder.standardizedFileURL, purpose: purpose)
-        for attempt in 0..<maxTries {
-            guard let chosen = ask(need, attempt > 0) else { return false }
-            if AccessNeeds.isCovered(folder, by: chosen, caseSensitive: caseSensitive) {
-                accept(chosen)
-                return true
-            }
-        }
-        return false
-    }
-
     /// The folders (standardised paths) of `sources` whose first file can't be read: one check per folder, so a
     /// batch of 100 000 files costs a few hundred calls. Run it off the main actor.
     public static func unreadableFolders(of sources: [URL],

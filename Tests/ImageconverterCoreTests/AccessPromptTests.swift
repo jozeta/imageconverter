@@ -8,33 +8,6 @@ final class AccessPromptTests: XCTestCase {
 
     private func sources(_ folders: URL...) -> [URL] { folders.map { $0.appendingPathComponent("a.jpg") } }
 
-    func testAskForOneFolder() {
-        let apps = URL(fileURLWithPath: "/Volumes/T/Applications", isDirectory: true)
-        var asked = 0
-        XCTAssertTrue(AccessPrompt.askForFolder(apps, purpose: .installUpdate, covered: [URL(fileURLWithPath: "/Volumes/T")],
-                                                caseSensitive: true, ask: { _, _ in asked += 1; return nil }, accept: { _ in }))
-        XCTAssertEqual(asked, 0, "covered: nothing asked")
-
-        var again: [Bool] = []
-        var accepted: [URL] = []
-        var answers = [other, apps]
-        XCTAssertTrue(AccessPrompt.askForFolder(apps, purpose: .installUpdate, covered: [], caseSensitive: true,
-                                                ask: { need, isAgain in
-                                                    XCTAssertEqual(need.purpose, .installUpdate)
-                                                    again.append(isAgain)
-                                                    return answers.removeFirst()
-                                                }, accept: { accepted.append($0) }))
-        XCTAssertEqual(again, [false, true])
-        XCTAssertEqual(accepted, [apps], "an unrelated folder is not remembered")
-
-        XCTAssertFalse(AccessPrompt.askForFolder(apps, purpose: .installUpdate, covered: [], caseSensitive: true,
-                                                 ask: { _, _ in nil }, accept: { _ in XCTFail("cancelled") }))
-        asked = 0
-        XCTAssertFalse(AccessPrompt.askForFolder(apps, purpose: .installUpdate, covered: [], caseSensitive: true,
-                                                 ask: { _, _ in asked += 1; return self.other }, accept: { _ in }))
-        XCTAssertEqual(asked, AccessPrompt.maxTries)
-    }
-
     func testNothingAskedWhenCovered() {
         var asked = 0
         let outcome = AccessPrompt.run(sources: sources(photos, trip), mode: .overwrite, covered: [photos],

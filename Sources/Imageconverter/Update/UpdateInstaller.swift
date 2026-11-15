@@ -1,26 +1,28 @@
 import AppKit
 import ImageconverterCore
 
-/// Puts a checked new app in place of the running one and relaunches. `prepare` runs before anything is downloaded:
-/// refused outside the released app bundle, while a batch or job runs (`UpdateInstallPlan`), from a translocated or
-/// read-only location, or when the folder holding the app can't be written (in the sandbox it is asked for once with
-/// a pre-filled open panel and kept as a folder grant, `AccessStore`). `install` stages the verified app beside the
-/// installed one and checks the staged copy again, asks "is anything running?" once more, then swaps
-/// (`UpdateReplacer`: the old app goes to the Trash only after the new one is in place).
+/// Hands a downloaded update to the installer XPC service inside the bundle and relaunches. The service is not
+/// sandboxed (files the sandboxed app unpacks would be quarantined and couldn't be opened): it re-checks everything
+/// and swaps the app (see `InstallerService`). `prepare` runs before anything is downloaded: refused outside the
+/// released app bundle (or without the service), while a batch or job runs, and from a translocated or read-only
+/// location. "Nothing running" is checked again right before the service is called.
 @MainActor
 enum UpdateInstaller {
     static var installedApp: URL { Bundle.main.bundleURL }
     static var isBundle: Bool { installedApp.pathExtension == "app" }
+    static var serviceURL: URL {
+        installedApp.appendingPathComponent("Contents/XPCServices/\(UpdateInstallerService.bundleName)", isDirectory: true)
+    }
 
     /// Throws `UpdateError.installRefused` when it may not install now.
     static func checkAllowed(isRunning: Bool) throws {
-        if case .refused(let reason) = UpdateInstallPlan.canInstall(isBundle: isBundle, isRunning: isRunning) {
+        let hasService = FileManager.default.fileExists(atPath: serviceURL.path)
+        if case .refused(let reason) = UpdateInstallPlan.canInstall(isBundle: isBundle && hasService, isRunning: isRunning) {
             throw UpdateError.installRefused(reason)
         }
     }
 
-    /// Everything that can be decided before downloading: may install, a location that can be changed, folder access
-    /// and write permission. `isRunning` is asked before and again after the access question.
+    /// Everything the app can decide before downloading.
     static func prepare(isRunning: () -> Bool) throws {
         try checkAllowed(isRunning: isRunning())
         let installed = installedApp
@@ -28,35 +30,46 @@ enum UpdateInstaller {
         if let problem = UpdateInstallPlan.locationProblem(appPath: installed.path, isReadOnlyVolume: readOnly) {
             throw UpdateError.installRefused(problem)
         }
-        let folder = installed.deletingLastPathComponent()
-        guard AccessStore.shared.ensureAccess(toFolder: folder, purpose: .installUpdate) else {
-            throw UpdateError.installRefused("Not installed: imageconverter needs access to \u{201C}\(folder.lastPathComponent)\u{201D} "
-                + "to replace the app.")
-        }
-        guard FileManager.default.isWritableFile(atPath: folder.path) else {
-            throw UpdateError.installRefused("Not installed: you can't change \u{201C}\(folder.lastPathComponent)\u{201D}. "
-                + "Download the update from the release page and install it by hand.")
-        }
-        try checkAllowed(isRunning: isRunning())
     }
 
-    /// Replaces the installed app with `verified` (of `version`). Returns a note when the old version couldn't be
-    /// removed afterwards.
-    static func install(_ verified: URL, version: AppVersion, isRunning: () -> Bool) async throws -> String? {
+    /// Asks the service to install `zip` (in the app's container). Throws with the service's message on refusal.
+    static func install(zip: URL, sha256: String, version: AppVersion, isRunning: () -> Bool) async throws {
         try checkAllowed(isRunning: isRunning())
-        let installed = installedApp
-        let staged = try await Task.detached(priority: .userInitiated) {
-            try UpdateReplacer.stage(verified, beside: installed) { try UpdatePackage.checkBundle($0, version: version) }
-        }.value
-        do {
-            try checkAllowed(isRunning: isRunning())
-        } catch {
-            UpdateReplacer.discard(staged)
-            throw error
+        let message = try await callService { service, reply in
+            service.install(zipPath: zip.path, expectedSHA256: sha256, version: version.description, reply: reply)
         }
-        return try await Task.detached(priority: .userInitiated) {
-            try UpdateReplacer.swap(installed, with: staged)
-        }.value
+        if let message { throw UpdateError.installRefused(message) }
+    }
+
+    /// Removes what an interrupted install left (the service's folders, hidden siblings next to the app). Best effort.
+    static func cleanUp() {
+        guard isBundle, FileManager.default.fileExists(atPath: serviceURL.path) else { return }
+        Task { _ = try? await callService { service, reply in service.cleanUp { reply(nil) } } }
+    }
+
+    /// One call to the service; the reply or the connection error ends it (exactly once).
+    private static func callService(_ body: @escaping (UpdateInstallerProtocol, @escaping (String?) -> Void) -> Void)
+        async throws -> String? {
+        let connection = NSXPCConnection(serviceName: UpdateInstallerService.name)
+        connection.remoteObjectInterface = NSXPCInterface(with: UpdateInstallerProtocol.self)
+        connection.resume()
+        defer { connection.invalidate() }
+        return try await withCheckedThrowingContinuation { continuation in
+            let once = Once()
+            let proxy = connection.remoteObjectProxyWithErrorHandler { error in
+                if once.claim() {
+                    continuation.resume(throwing: UpdateError.installFailed("the installer could not be reached "
+                        + "(\(error.localizedDescription))."))
+                }
+            }
+            guard let service = proxy as? UpdateInstallerProtocol else {
+                if once.claim() { continuation.resume(throwing: UpdateError.installFailed("the installer could not be reached.")) }
+                return
+            }
+            body(service) { message in
+                if once.claim() { continuation.resume(returning: message) }
+            }
+        }
     }
 
     /// Opens the app now at the installed path as a new instance, then quits this one. Nothing runs (installing
@@ -74,5 +87,19 @@ enum UpdateInstaller {
                 }
             }
         }
+    }
+}
+
+/// True for the first caller only (a reply and a connection error can race).
+private final class Once: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if claimed { return false }
+        claimed = true
+        return true
     }
 }
