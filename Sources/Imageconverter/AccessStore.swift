@@ -224,6 +224,18 @@ final class AccessStore {
                                       accept: { self.remember($0) })
     }
 
+    /// Installing an update: asks for `folder` (the one holding the app) unless an allowed folder covers it, and
+    /// remembers the answer like any folder grant. Always true outside the sandbox.
+    func ensureAccess(toFolder folder: URL, purpose: AccessNeeds.Purpose) -> Bool {
+        guard Sandbox.isActive else { return true }
+        activate()
+        let allowed = AccessPrompt.askForFolder(folder, purpose: purpose, covered: covered,
+                                                ask: { need, again in self.ask(for: need, again: again) },
+                                                accept: { self.remember($0) })
+        if allowed { touch(covering: [folder]) }
+        return allowed
+    }
+
     /// The folders a run touches, for `touch`.
     private static func folders(sources: [URL], mode: OutputMode) -> [URL] {
         if case .newFolder(let output) = mode { return [output] }
@@ -245,6 +257,7 @@ final class AccessStore {
         case .replaceOriginals: return "replace the originals"
         case .saveToOutputFolder: return "save the converted images"
         case .readOriginals: return "read the images"
+        case .installUpdate: return "install the update"
         }
     }
 

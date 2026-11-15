@@ -186,6 +186,7 @@ private struct MainWindowContent: View {
         .clipped()
         .windowDropTarget(model: model)
         .interruptedRunSheet(model: model)
+        .updateSheets(UpdateController.shared, blocked: model.showsInterruptedRun && model.interruptedRun != nil)
         .background(WindowAccessor {
             sizer.attach($0)
             ExternalActions.shared.attachWindow($0)
@@ -197,6 +198,8 @@ private struct MainWindowContent: View {
                 openWindow(id: Self.windowID)
             }
             model.checkInterruptedRunOnce()
+            UpdateController.shared.isRunning = { [model] in model.isRunning || JobsController.shared.hasActiveRuns }
+            UpdateController.shared.launch()
             #if DEBUG
             applyDebugArguments()
             #endif

@@ -1,7 +1,8 @@
 import SwiftUI
 import ImageconverterCore
 
-/// App menu ▸ About imageconverter: version, one line on what the app is, and the privacy summary.
+/// App menu ▸ About imageconverter: version, updates (Check Now, check when the app starts), one line on what the
+/// app is, and the privacy summary.
 struct AboutView: View {
     static let windowID = "about"
     @Environment(\.openWindow) private var openWindow
@@ -17,6 +18,7 @@ struct AboutView: View {
                 .font(LadaGlass.Typography.body)
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .textSelection(.enabled)
+            AboutUpdateSection(updates: UpdateController.shared)
             Text("Batch image processing for the Mac: resize, crop, rotate, watermark, metadata, rename and convert whole folders.")
                 .multilineTextAlignment(.center)
             Text(PrivacyStatement.offline + " " + PrivacyStatement.frameworks)
@@ -35,6 +37,7 @@ struct AboutView: View {
         .frame(width: 360)
         .lgBackdrop()
         .lgCompact()
+        .aboutUpdateSheet(UpdateController.shared)
     }
 }
 

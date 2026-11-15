@@ -30,6 +30,8 @@ public enum AccessNeeds {
         case saveToOutputFolder
         /// New-folder mode: a source that can't be read now (its folder isn't covered either).
         case readOriginals
+        /// Installing an update: the folder holding the app (the old app goes to the Trash, the new one in).
+        case installUpdate
     }
 
     public struct Need: Equatable, Sendable {

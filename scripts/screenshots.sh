@@ -62,6 +62,7 @@ shot() {
     defaults write "$suite" currentPipeline -data "$(xxd -p "$shots/pipelines/$pipeline.json" | tr -d '\n')"
     defaults write "$suite" outputModeKind newFolder
     defaults write "$suite" outputFolder "$work/Out"
+    defaults write "$suite" updateCheckOnLaunch -bool false    # no first-launch question, never online
     local pair
     for pair in ${settings[@]+"${settings[@]}"}; do defaults write "$suite" "${pair%%=*}" "${pair#*=}"; done
     "$binary" -debugDefaultsSuite "$suite" "${args[@]}" >/dev/null 2>&1 &
@@ -110,6 +111,7 @@ if wanted history; then
     defaults write "$suite" currentPipeline -data "$(xxd -p "$shots/pipelines/watermark.json" | tr -d '\n')"
     defaults write "$suite" outputModeKind newFolder
     defaults write "$suite" outputFolder "$work/Out"
+    defaults write "$suite" updateCheckOnLaunch -bool false    # no first-launch question, never online
     "$binary" -debugDefaultsSuite "$suite" -debugAutoRun "${files[@]}" >/dev/null 2>&1 &
     pid=$!; sleep 12; kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; pid=""
     shot history main -- -debugShowHistory -- History

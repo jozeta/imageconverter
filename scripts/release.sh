@@ -128,10 +128,13 @@ codesign -d --entitlements - --xml "$app" 2>/dev/null > "$work/entitlements.plis
 # PlistBuddy, not plutil -extract: the key's dots would be read as a key path.
 [ "$(/usr/libexec/PlistBuddy -c "Print :com.apple.security.app-sandbox" "$work/entitlements.plist" 2>/dev/null)" = "true" ] \
     || die "the signed app has no App Sandbox entitlement."
-grep -q "com.apple.security.network" "$work/entitlements.plist" && die "the signed app has a network entitlement."
+# Network: client only (the update check and download), never a server entitlement.
+[ "$(/usr/libexec/PlistBuddy -c "Print :com.apple.security.network.client" "$work/entitlements.plist" 2>/dev/null)" = "true" ] \
+    || die "the signed app has no network client entitlement (needed for the update check)."
+grep -q "com.apple.security.network.server" "$work/entitlements.plist" && die "the signed app has a network server entitlement."
 codesign -d --entitlements - --xml "$contents/Helpers/imageconverter" 2>/dev/null | grep -q "app-sandbox" \
     && die "the command-line helper must not be sandboxed."
-echo "==> signed and verified: sandbox on, no network entitlement"
+echo "==> signed and verified: sandbox on, network client only (no server)"
 
 # --- Zip (and notarize) ---------------------------------------------------------------------------------------
 if [ "$notarize" = true ]; then
