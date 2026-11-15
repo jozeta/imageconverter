@@ -111,8 +111,9 @@ public struct BatchReport: Equatable, Sendable {
 /// What one item encodes to, before it is committed.
 struct EncodedItem {
     let data: Data
-    /// The upright image as decoded (smaller than the file when the decode hint applied, see `downsampled`).
-    let source: CGImage
+    /// The upright image as decoded (smaller than the file when the decode hint applied, see `downsampled`);
+    /// nil for a lossless metadata-only copy, which never decodes (`LosslessMetadata`).
+    let source: CGImage?
     /// True when `source` was decoded below full size (`Pipeline.decodeHint`).
     let downsampled: Bool
     /// The quality the compression mode chose; nil for formats without one.
@@ -349,11 +350,27 @@ public enum BatchRunner {
     }
 
     /// Load, apply, metadata and encode for one file: everything the batch does before it commits.
-    /// The size estimate shares it so the estimate can't drift from what is written.
+    /// The size estimate shares it so the estimate can't drift from what is written. A pipeline that only
+    /// changes metadata copies the image data untouched instead (`LosslessMetadata`), or says in the note why
+    /// it was re-encoded after all.
     static func encodeItem(
         _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int,
         options: ItemRunOptions = ItemRunOptions()
     ) throws -> EncodedItem {
+        var losslessNote: String?
+        if LosslessMetadata.applies(to: pipeline) {
+            options.stage(.decoding)
+            switch try LosslessMetadata.write(url, pipeline: pipeline, maxPixels: maxPixels) {
+            case .written(let data, let properties)?:
+                options.stage(.encoding)
+                try options.beforeEncode?(url, options.attempt)
+                let taken = pipeline.metadata.setFileDates ? MetadataDates.dateTaken(in: properties) : nil
+                return EncodedItem(data: data, source: nil, downsampled: false, quality: nil,
+                                   note: LosslessMetadata.pixelsUntouchedNote, dateTaken: taken)
+            case .reencode(let note)?: losslessNote = note
+            case nil: break
+            }
+        }
         let prepared = try prepare(url, pipeline: pipeline, assets: assets, maxPixels: maxPixels, options: options)
         let properties = prepared.properties
         let stepNotes = prepared.notes
@@ -363,7 +380,7 @@ public enum BatchRunner {
         let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
             ? MetadataDates.dateTaken(in: properties) : nil
         // Step notes (e.g. "No document edges found") come first, then the encoder's.
-        let notes = stepNotes + [result.note].compactMap { $0 }
+        let notes = stepNotes + [losslessNote, result.note].compactMap { $0 }
         return EncodedItem(data: result.data, source: prepared.source, downsampled: prepared.downsampled,
                            quality: result.quality,
                            note: notes.isEmpty ? nil : notes.joined(separator: "; "), dateTaken: taken)

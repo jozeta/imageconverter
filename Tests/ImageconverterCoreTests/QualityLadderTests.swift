@@ -36,6 +36,9 @@ final class QualityLadderTests: XCTestCase {
         pipeline.metadata.title = "Ladder title"
         XCTAssertTrue(pipeline.metadata.isActive)
         let item = try item("c.jpg")
+        // Metadata alone is written losslessly, at no quality: no ladder.
+        XCTAssertEqual(try QualityLadder.render(item: item, pipeline: pipeline, qualities: [0.8]).count, 0)
+        pipeline.steps = [PipelineStep(operation: .rotateFlip(RotateFlipOptions()))]
         let rungs = try QualityLadder.render(item: item, pipeline: pipeline, qualities: [0.8])
         let out = dir.appendingPathComponent("out", isDirectory: true)
         let report = await BatchRunner.run([item], pipeline: pipeline, mode: .newFolder(out))

@@ -166,7 +166,8 @@ public enum StepHelp {
                 ],
                 tips: [
                     "Removals are a floor: a condition's branches can add more, but never bring back what is removed here.",
-                    "The colour profile is always kept and photos are saved upright, so the picture still looks right."
+                    "The colour profile is always kept and re-encoded photos are saved upright, so the picture still looks right.",
+                    "Metadata only (no image steps, same format): JPEG and HEIC are copied without re-encoding; the quality is not used."
                 ])
         case .rename:
             return StepHelpInfo(

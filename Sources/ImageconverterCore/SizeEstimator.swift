@@ -53,6 +53,12 @@ public enum SizeEstimator {
             }
             let result = try BatchRunner.encodeItem(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
             let data = result.data
+            guard let decodedSource = result.source else {
+                // A lossless metadata-only copy: its pixels are the original's, so both views show the original.
+                let original = try ImageLoader.load(item.source, maxPixels: maxPixels).image
+                return EncodedPreview(bytes: data.count, original: original, encoded: original, quality: nil,
+                                      note: result.note, privacy: PrivacyScanner.scan(data: data))
+            }
             // The app encoded this itself, so no file-size heuristic; the hard limits still apply.
             guard let source = CGImageSourceCreateWithData(data as CFData, nil),
                   (try? DecodeLimits.standard.check(source, fileBytes: nil)) != nil,
@@ -61,7 +67,7 @@ public enum SizeEstimator {
             }
             // The comparison views want the full-size original; decode it only when the render didn't.
             let original = result.downsampled
-                ? try ImageLoader.load(item.source, maxPixels: maxPixels).image : result.source
+                ? try ImageLoader.load(item.source, maxPixels: maxPixels).image : decodedSource
             return EncodedPreview(bytes: data.count, original: original, encoded: encoded,
                                   quality: result.quality, note: result.note ?? note,
                                   privacy: PrivacyScanner.scan(data: data))

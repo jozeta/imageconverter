@@ -4,6 +4,8 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Metadata-only edits no longer re-encode JPEG and HEIC files. When an image's resolved pipeline changes only metadata (Metadata step on, no enabled image step after conditions, the output format is the file's own, compression mode Quality), the image data is copied untouched with the new metadata (`CGImageDestinationCopyImageSource`): a JPEG's scan data stays byte-identical, the quality slider is not used, and the EXIF orientation flag is kept instead of rotating pixels. The report says "Metadata only, pixels untouched". The written file is read back and compared with a re-encode of the same metadata; anything the options remove that survived, or a kept or set field that is missing, falls back to the re-encode with the note "Lossless edit couldn't remove …; re-encoded" (or "couldn't write …"). PNG, TIFF and other formats are re-encoded with the note "Re-encoded: lossless metadata edit isn't available for this format". Applies to the batch, "Copy original unchanged" converted to remove metadata, the Privacy panel's Remove these, jobs and the command line; the size estimate uses the same path, and the quality ladder is empty for such images (Core `LosslessMetadata`).
+
 ## 1.0.0 (2026-11-14)
 
 First release: a signed and notarized, sandboxed app with the command-line tool inside.

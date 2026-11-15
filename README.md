@@ -500,7 +500,8 @@ The Metadata editor has five collapsible groups and a **Templates** menu:
 <img src="docs/metadata-editor.png" alt="Metadata editor with all groups open" width="400">
 
 - **Remove**: all metadata (with a **Keep** checklist: copyright, author, date taken, camera details,
-  location; orientation is always applied to the pixels and the color profile is never stripped, so those two
+  location; orientation is always applied to the pixels (or kept as the EXIF flag in a lossless metadata-only
+  copy, see below) and the color profile is never stripped, so those two
   are shown ticked and locked), or individually location (GPS), camera details, author, the embedded thumbnail,
   IPTC and XMP.
 - **Describe**: title, artist, copyright, description and keywords. Keywords are tokens (Return or a comma
@@ -519,6 +520,22 @@ The Metadata editor has five collapsible groups and a **Templates** menu:
   fields it sets replace yours, custom fields merge), *Save as template...* stores the current settings under a
   name, *Delete* removes a saved one. Three built-ins: Privacy, Web (keep copyright) and Remove everything.
   Templates are files in `~/Library/Application Support/imageconverter/metadata-templates/`.
+
+**Metadata-only edits are lossless for JPEG and HEIC.** When an image's pipeline changes nothing but metadata
+(the Metadata step is on, no image step is enabled after conditions are applied, the output format is the
+file's own format, and the compression mode is plain *Quality*), the image data is copied as it is with the new
+metadata instead of being decoded and re-encoded: a JPEG's compressed data stays byte for byte the same, and the
+file barely changes size. The quality slider, progressive JPEG and PNG optimisation aren't used then. The EXIF
+orientation flag is kept instead of turning the pixels upright (viewers show the photo the same way). The report
+says "Metadata only, pixels untouched". The written file is read back and compared with what a re-encode would
+hold; if anything the options remove is still there (or a field that should be set or kept is missing), the
+image is re-encoded as before, with the note "Lossless edit couldn't remove …; re-encoded" (or "couldn't
+write …"). PNG, TIFF and other formats are always re-encoded ("Re-encoded: lossless metadata edit isn't
+available for this format"; PNG and TIFF re-encodes are lossless anyway): ImageIO keeps a PNG's EXIF chunk and
+a TIFF's own tags whatever metadata the copy is given. Target size, maximum size and Smart compression always
+re-encode, since they ask for a smaller file. The same rule covers *Copy original unchanged* when the Metadata
+step's removals force a conversion, the Privacy panel's **Remove these**, jobs and the command line, and the
+size estimate shows the lossless file's real size. The quality comparison shows no ladder for such images.
 
 Limits of ImageIO: the XMP packet can only be left out completely for JPEG and TIFF; PNG, HEIC and GIF keep
 EXIF and IPTC inside XMP, so "Remove XMP" removes only the XMP-only fields there. Setting a title replaces
