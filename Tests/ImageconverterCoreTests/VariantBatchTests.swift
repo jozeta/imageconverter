@@ -252,6 +252,7 @@ final class VariantBatchTests: XCTestCase {
         XCTAssertEqual(report.entries.map { ($0.destination as NSString?)?.lastPathComponent },
                        ["a.jpg", "a_thumb.jpg", "b.jpg", "b_thumb.jpg"])
         XCTAssertEqual(report.summary.succeeded, 2)
+        XCTAssertEqual(report.entries.map(\.name), ["a.jpg", "a.jpg + Thumbnail", "b.jpg", "b.jpg + Thumbnail"])
         XCTAssertEqual(report.summary.inputBytes, (BatchRunner.fileSize(first) ?? 0) + (BatchRunner.fileSize(second) ?? 0))
         XCTAssertEqual(report.summary.outputBytes, batch.entries.reduce(0) { $0 + $1.outputBytes })
         let csv = ReportExporter.csv(report)

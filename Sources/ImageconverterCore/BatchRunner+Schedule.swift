@@ -29,7 +29,11 @@ extension BatchRunner {
               !Task.isCancelled
         else { return BatchReport(cancelled: true) }
         // Temp files never collide with planned names, so this can wait until every destination folder is known.
-        let folders = StaleTempFiles.folders(for: plan.plans)
+        // Extra outputs' own folders (their subfolders) count too.
+        let extras = zip(plan.plans, plan.variants).flatMap { primary, variants in
+            variants.map { $0.plan(for: primary.item) }
+        }
+        let folders = StaleTempFiles.folders(for: plan.plans + extras)
         StaleTempFiles.remove(in: folders)
 
         announce(plan, items: items, events: events, writer: writer)

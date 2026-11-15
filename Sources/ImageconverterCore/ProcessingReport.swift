@@ -47,7 +47,11 @@ public struct ReportEntry: Codable, Equatable, Sendable {
         return Double(outputBytes) / Double(inputBytes)
     }
 
-    public var name: String { (source as NSString).lastPathComponent }
+    /// The source's file name; an extra output's row adds its label (`a.jpg + Thumbnail`).
+    public var name: String {
+        let file = (source as NSString).lastPathComponent
+        return variant.map { "\(file) + \($0)" } ?? file
+    }
 }
 
 /// Totals for one run.
