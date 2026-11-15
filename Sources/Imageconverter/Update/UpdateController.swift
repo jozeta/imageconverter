@@ -143,9 +143,12 @@ final class UpdateController {
                 let download = try await UpdateClient.download(release, into: folder) { received, total in
                     Task { @MainActor in self.progress(received: received, total: total) }
                 }
+                try Task.checkCancellation()
                 status = .verifying
                 let app = try await UpdateVerifier.verify(zip: download.zip, sha256: download.sha256, version: release.version,
                                                           in: folder)
+                // Later while checking: the check itself can't be stopped, but nothing is installed.
+                try Task.checkCancellation()
                 status = .installing
                 try await UpdateInstaller.install(app, isRunning: isRunning)
                 UpdateVerifier.remove(folder)
