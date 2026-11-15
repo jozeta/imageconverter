@@ -199,7 +199,9 @@ public enum StepHelp {
                 tips: [
                     "Overwriting with the same name and format replaces the file. When the name or "
                         + "format changes, the original goes to the Trash after the new file is saved.",
-                    "Output is always the last stage, after every step and after Metadata and Rename."
+                    "Output is always the last stage, after every step and after Metadata and Rename.",
+                    "+ Add output writes more files per image (a thumbnail, a web copy), each with its own "
+                        + "format, size and suffix; always new files next to the main one."
                 ])
         }
     }

@@ -280,6 +280,15 @@ final class VariantBatchTests: XCTestCase {
                                     1_000_000 + 4_000_000)
     }
 
+    func testPreviewListsTheExtraOutputs() async throws {
+        let photo = try source("a.jpg")
+        let outcome = await PreviewRenderer().render(item: items([photo])[0], index: 0, pipeline: pipeline(threeVariants),
+                                                     mode: .newFolder(out))
+        guard case .ready(let result) = outcome else { return XCTFail("no preview") }
+        XCTAssertEqual(result.outputName, "a.jpg")
+        XCTAssertEqual(result.extraOutputNames, ["Thumbnail: a_thumb.jpg", "Half: a_half.png", "Tall: small/a-tall.heic"])
+    }
+
     // MARK: Lossless copies
 
     func testAMetadataOnlyVariantInTheSourceFormatIsCopiedLosslessly() async throws {

@@ -77,6 +77,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
   RAW, JPEG 2000, ICNS and more. Animated and multi-page files are read using their first frame.
 - **Writes** JPEG, PNG, HEIC and TIFF, plus GIF, BMP and JPEG 2000 where macOS supports them, with
   quality and compression options.
+- **Several outputs per image**: besides the main output, up to 8 extra outputs (for example a thumbnail and
+  a web-sized copy), each with its own format, quality, size, name suffix and subfolder, written in the same
+  run from one decode (see [Write several outputs per image](#write-several-outputs-per-image)).
 - **Pipeline** of steps, applied in order to every image. Steps can be switched off and reordered:
   - (available) **Resize**: a grouped mode picker. *Pixels*: max width, max height, fit inside a box,
     exact size (stretch, fit and pad, or fill and crop), longest edge, shortest edge, minimum size.
@@ -242,6 +245,7 @@ The output settings are in the Output row of the sidebar (there is no Settings w
 |---------|---------|---------|
 | Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
 | When finished | Nothing · Reveal in Finder · Notify me · Reveal and notify (the "When finished" dropdown under Save to). Applies to every run of the main window, including runs started from Finder Services, AppleScript and links; jobs have their own notifications. Reveal selects the written files in Finder (up to 50; with more it opens their folders). Notify posts "Run finished" with the counts and space saved, only when imageconverter is not the frontmost app. The first time you pick a notify choice macOS asks for permission; if notifications are off, a note says where to turn them on. Not stored in presets | Nothing |
+| Extra outputs | Up to 8 more files per image, added with **+ Add output** under the Output format controls. Each has a name (its label in the report), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case; `/` and `:` become `-`) and an optional **subfolder** (rename tokens allowed, under the main output's folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
 
@@ -493,6 +497,40 @@ Your pipeline is kept between launches.
    files are left.
 5. When it ends, a notice shows the result. Files that could not be converted are listed in the
    sidebar (name and reason) until the next run.
+
+### Write several outputs per image
+
+One run can write more than one file for every image, for example the full-size JPEG plus a thumbnail and a
+web-sized HEIC:
+
+1. Set up the pipeline and the main output as usual.
+2. Under the Output format controls press **+ Add output**. A *Thumbnail* row appears (JPEG, 70 %, longest edge
+   400 px, suffix `_thumb`); open it to change its name, format, compression, size, suffix and subfolder. Add more
+   with **+ Add output** (up to 8); the bin removes one.
+3. The size line under Output lists every file for the selected image: "Primary 1.1 MB · Thumbnail 48 KB · Web
+   620 KB". In the preview table the Result name has a "+2 outputs" chip; hover it to see each file's name.
+4. Run as usual. Every image is loaded and processed once; each extra output is then resized (if it says so) and
+   encoded with its own settings, as `<name><suffix>.<ext>` next to the main output (in its subfolder, if set). The
+   Rename step's name is the base name for all of them.
+
+Rules worth knowing:
+
+- Extra outputs are always new files. In *Same folder* and *Overwrite* modes they go into the original's folder;
+  they never replace or trash anything, and a name that is taken (by any file, another image's original or
+  another output) gets `_2`, `_3`, … In overwrite mode only the main output replaces the original (once); when it
+  has a new name or format, the original goes to the Trash after the extra outputs are saved.
+- If the main output fails, no extra output is written for that image. If one extra output fails, the report notes
+  it ("Extra output “Thumbnail” failed: …") and the image and its other outputs are still written.
+- Conditions: *Set output* changes only the main output; the action **Skip extra outputs** (Output & files) writes
+  only the main output for the images that match. An image copied unchanged (*Copy original unchanged*) gets no
+  extra outputs.
+- A metadata-only extra output in the image's own format (no resize, Quality compression) is copied losslessly,
+  like the main output.
+- Reports list each extra output as its own row under its image (the CSV's `output` column names it); counts such
+  as "24 converted" are images, while the output size and Reveal in Finder include every file written. Jobs record
+  every output, so none of them is processed again as a new input.
+- A saved pipeline or preset with an extra output that can't run (no suffix, a repeated suffix, more than 8) loads
+  without it and says so.
 
 ### Metadata step
 
@@ -962,6 +1000,7 @@ Convert options (options override the preset or pipeline file):
 | `--quality 0-100` | Quality for lossy formats |
 | `--max-size 500KB` | Largest file size (KB and MB are decimal) |
 | `--resize-long PX` | Scale so the longest edge is PX pixels |
+| `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"` | An extra output per image (repeatable, up to 8; replaces the preset's or file's extra outputs). Keys: `name`, `format`, `quality` (0–100), `max-size` (500KB), one of `long`, `width`, `height` (pixels, shrink only) or `percent` (1–1000), `suffix` (default `_` + name; must differ between outputs) and `folder` (a subfolder). A format this Mac can't write is a usage error. `--dry-run` lists every output |
 | `--strip-gps`, `--strip-all` | Remove the location (GPS and place names), or all metadata (the preset's "keep when removing all" list is ignored) |
 | `--report csv\|json\|text` | Print a full report on stdout |
 | `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked; with `--overwrite`, each destination is marked "replace" or, when the name or format changes, "replace (original to Trash)"); writes nothing; honours `--report`/`--json` |

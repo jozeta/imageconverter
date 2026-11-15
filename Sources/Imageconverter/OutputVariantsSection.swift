@@ -93,24 +93,27 @@ private struct VariantRow: View {
             .contentShape(Rectangle())
         } content: {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-                TextField("Name", text: $variant.name)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Extra output name")
+                labelled("Name") {
+                    TextField("Thumbnail", text: $variant.name)
+                        .textFieldStyle(.roundedBorder)
+                        .accessibilityLabel("Extra output name")
+                }
                 OutputFormatControls(output: $variant.settings)
                 VariantSizeControls(resize: $variant.resize)
                 suffixField
-                TextField("Subfolder (optional)", text: subfolderBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .help("Folder under the main output's folder; rename tokens allowed, e.g. thumbs/{date:yyyy}")
-                    .accessibilityLabel("Extra output subfolder")
+                labelled("Subfolder") {
+                    TextField("none", text: subfolderBinding)
+                        .textFieldStyle(.roundedBorder)
+                        .help("Folder under the main output's folder; rename tokens allowed, e.g. thumbs/{date:yyyy}")
+                        .accessibilityLabel("Extra output subfolder")
+                }
             }
         }
     }
 
     private var suffixField: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-            HStack(spacing: LadaGlass.Spacing.xs) {
-                Text("Suffix").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            labelled("Suffix") {
                 TextField("_thumb", text: $variant.nameSuffix)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityLabel("Extra output name suffix")
@@ -126,6 +129,14 @@ private struct VariantRow: View {
                     .font(LadaGlass.Typography.label)
                     .foregroundStyle(LadaGlass.Colors.muted)
             }
+        }
+    }
+
+    private func labelled<Field: View>(_ title: String, @ViewBuilder field: () -> Field) -> some View {
+        HStack(spacing: LadaGlass.Spacing.xs) {
+            Text(title).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                .frame(width: 64, alignment: .leading)
+            field()
         }
     }
 
