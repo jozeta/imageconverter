@@ -247,6 +247,7 @@ struct SidebarView: View {
         var parts = ["\(summary.succeeded) written"]
         if summary.skipped > 0 { parts.append("\(summary.skipped) skipped by \(summary.skipped == 1 ? "a condition" : "conditions")") }
         if summary.failed > 0 { parts.append("\(summary.failed) failed") }
+        if summary.extraFailureCount > 0 { parts.append(RunCountsText.extraFailures(summary.extraFailureCount)) }
         let notes = report.entries.filter { $0.status == .succeeded && $0.note != nil }.count
         if notes > 0 { parts.append("\(notes) \(notes == 1 ? "note" : "notes")") }
         return "Report · " + parts.joined(separator: ", ")
