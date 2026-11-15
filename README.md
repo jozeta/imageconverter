@@ -518,19 +518,30 @@ Rules worth knowing:
 - Extra outputs are always new files. In *Same folder* and *Overwrite* modes they go into the original's folder;
   they never replace or trash anything, and a name that is taken (by any file, another image's original or
   another output) gets `_2`, `_3`, … In overwrite mode only the main output replaces the original (once); when it
-  has a new name or format, the original goes to the Trash after the extra outputs are saved.
-- If the main output fails, no extra output is written for that image. If one extra output fails, the report notes
-  it ("Extra output “Thumbnail” failed: …") and the image and its other outputs are still written.
+  has a new name or format, the original goes to the Trash after the extra outputs are saved. An extra output's
+  subfolder is used in every mode, overwrite included (under the original's folder there), unlike a condition's
+  *Save into subfolder*, which overwrite mode ignores.
+- An extra output's subfolder may use rename tokens, but they describe the main output: `thumbs/{width}` gets the
+  main output's width and `{format}` its format.
+- If the main output fails, no extra output is written for that image. If an extra output fails (it can't be
+  encoded or saved, or no free name is left), the image and its other outputs are still written, and the run says
+  so: the report has a failed row for it under its image ("Extra output “Thumbnail” failed: …"), the end-of-run
+  notice and the *When finished* notification add "· 2 extra outputs failed" (and the notice turns red), the error
+  log gets a line per failed output, the history and exported reports count them, and the command line exits 1.
 - Conditions: *Set output* changes only the main output; the action **Skip extra outputs** (Output & files) writes
   only the main output for the images that match. An image copied unchanged (*Copy original unchanged*) gets no
-  extra outputs.
+  extra outputs. *Apply a saved preset* takes the preset's steps, output, metadata and rename, but not its extra
+  outputs: the extra outputs are always the pipeline's own.
 - A metadata-only extra output in the image's own format (no resize, Quality compression) is copied losslessly,
   like the main output.
 - Reports list each extra output as its own row under its image (the CSV's `output` column names it); counts such
-  as "24 converted" are images, while the output size and Reveal in Finder include every file written. Jobs record
-  every output, so none of them is processed again as a new input.
-- A saved pipeline or preset with an extra output that can't run (no suffix, a repeated suffix, more than 8) loads
-  without it and says so.
+  as "24 converted" are images, while Reveal in Finder includes every file written. The "saved" figure compares the
+  main outputs with their originals; the report's output total includes every file. Jobs record every output, so
+  none of them is processed again as a new input.
+- A saved pipeline, preset or job with an extra output that can't be read or run (settings this version doesn't
+  know, no suffix, a repeated suffix, more than 8) loads without it and says so: a notice when the app starts or
+  the preset is chosen, the job's status line and error log on its next run that converts files, a warning on the
+  command line.
 
 ### Metadata step
 
@@ -820,6 +831,10 @@ Good to know:
   run in progress finishes). Switching one job off does the same for that job.
 - Every run that processed files is kept in the run history; failures also go to the error log
   (`~/Library/Application Support/imageconverter/logs/errors.log`).
+- A failed image is tried again on later runs (up to 3 times), but a failed **extra output** isn't: its image counts
+  as done, because trying again would write the main output a second time (as `name_2`). The report, the error log
+  and the history name each failed extra output; to make it, fix the cause and use **Process All Files Again…**, or
+  convert those images in the main window.
 
 ## Reports and history
 
