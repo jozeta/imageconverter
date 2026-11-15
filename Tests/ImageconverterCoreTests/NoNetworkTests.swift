@@ -76,6 +76,7 @@ final class NoNetworkTests: XCTestCase {
         for file in ["Imageconverter/AppModel.swift", "ImageconverterCore/Update/UpdatePolicy.swift",
                      "Imageconverter/Update/UpdateController.swift", "Imageconverter/Update/UpdateInstaller.swift",
                      "Imageconverter/Update/UpdateClient.swift.bak", "Imageconverter/UpdateClient.swift",
+                     "ImageconverterInstaller/main.swift", "ImageconverterInstallerKit/InstallerService.swift",
                      "ImageconverterCLIKit/Update/Check.swift", "Imageconverter/UpdateHelpers/Client.swift",
                      "Imageconverter/Update/Sub/Client.swift", "Imageconverter/Updates/Client.swift"] {
             XCTAssertEqual(Self.problems(file: file, code: code), elsewhere, file)

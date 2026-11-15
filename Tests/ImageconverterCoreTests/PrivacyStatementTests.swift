@@ -14,7 +14,8 @@ final class PrivacyStatementTests: XCTestCase {
         "Security": "Security", "CryptoKit": "CryptoKit",
     ]
     /// Not frameworks to list: the C library, GCD, and this package's own modules.
-    private static let ignored: Set<String> = ["Darwin", "Dispatch", "ImageconverterCore", "ImageconverterCLIKit"]
+    private static let ignored: Set<String> = ["Darwin", "Dispatch", "ImageconverterCore", "ImageconverterCLIKit",
+                                               "ImageconverterInstallerKit"]
 
     func testEveryImportedFrameworkIsListedInTheStatement() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
