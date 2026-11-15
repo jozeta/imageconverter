@@ -3,7 +3,7 @@ import Foundation
 /// Facts about the app shared by the app and the command-line tool.
 public enum AppInfo {
     /// Keep equal to the `VERSION` file; `AppInfoTests` fails when they differ.
-    public static let compiledVersion = "1.0.0"
+    public static let compiledVersion = "1.1.0"
 
     /// The version shown to the user: the bundle's `CFBundleShortVersionString` when the app is
     /// packaged, else `compiledVersion` (a `swift run` build or the command-line tool).

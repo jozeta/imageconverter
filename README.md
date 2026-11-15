@@ -8,7 +8,7 @@ on your Mac: no uploads, no network access at all.
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 1.0.0 · **Status:** first release — signed and notarized, sandboxed, works fully offline.
+**Version:** 1.1.0 · **Status:** released — signed and notarized, sandboxed, works fully offline.
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -28,6 +28,14 @@ Started 2026-11-13. The full design is in
 </table>
 
 ## What's new
+
+### 1.1.0 (2026-11-15)
+
+- **Extra outputs**: up to 8 more files per image in one run (**+ Add output** under the Output format), each with its own format, compression, size, name suffix and optional subfolder, written beside the main output as new files. The size line lists every output, the preview shows a "+N outputs" chip, reports have a row per output, and failed extra outputs are shown in the end-of-run notice, notification and error log. Command line: `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"`.
+- **Lossless metadata edits**: when only metadata changes and the format stays the same, JPEG and HEIC image data is copied untouched instead of re-encoded ("Metadata only, pixels untouched"). The copy keeps only known-safe JPEG segments (no Photoshop previews, comments or embedded thumbnails) and is checked after writing; anything doubtful is re-encoded with a note.
+- **When finished**: reveal the outputs in Finder and/or get a notification when a run ends; clicking the notification opens the Report.
+
+Older versions: see [CHANGELOG.md](CHANGELOG.md).
 
 ### 1.0.0 (2026-11-14)
 
