@@ -21,6 +21,8 @@ public struct PreviewResult: @unchecked Sendable {
     public let disposition: Disposition
     /// "Skipped by a condition" / "Copied unchanged" / "Converted instead of copied…"; nil when simply processed.
     public let statusNote: String?
+    /// The extra outputs' file names as planned with it (`Thumbnail: thumbs/a_thumb.jpg`), in order.
+    public var extraOutputNames: [String] = []
 }
 
 public enum PreviewOutcome: Sendable {
@@ -119,11 +121,13 @@ public actor PreviewRenderer {
         }
         let (destination, outputName) = outputDestination(for: item, index: index, resolved: resolved, mode: mode)
         let fileSize = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-        return .ready(PreviewResult(
+        var ready = PreviewResult(
             before: before, after: after, source: item.source, sourceName: item.source.lastPathComponent,
             outputName: outputName,
             sourceSize: (source.width, source.height), outputSize: (result.width, result.height),
-            outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: resolved.statusNote))
+            outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: resolved.statusNote)
+        ready.extraOutputNames = extraOutputNames(for: item, index: index, resolved: resolved, primary: destination)
+        return .ready(ready)
     }
 
     /// A copied or skipped item: the source on both sides, nothing applied.
@@ -167,6 +171,28 @@ public actor PreviewRenderer {
             return (folder.appendingPathComponent(destination.lastPathComponent), name)
         }
         return (destination, name)
+    }
+
+    /// The item's extra outputs, named as the batch would name them next to `primary` (planned alone, so no
+    /// collision numbers), with the folder below the primary output's one: `Thumbnail: thumbs/a_thumb.jpg`.
+    private func extraOutputNames(for item: InputItem, index: Int, resolved: ResolvedPipeline,
+                                  primary: URL) -> [String] {
+        let variants = OutputVariant.validated(resolved.pipeline.extraOutputs).kept
+        guard !variants.isEmpty else { return [] }
+        var job = resolved
+        job.pipeline.extraOutputs = variants
+        let base = RenameRendering.baseName(for: item, index: index, pipeline: resolved.pipeline)
+        let target = VariantTarget(variants: variants, baseName: base,
+                                   subfolders: RenameRendering.variantFolders(for: item, index: index, job: job))
+        let plan = PlannedOutput(item: item, destination: primary, replacesSource: false, trashesSource: false)
+        let planned = OutputPlanner.planVariants([target], primaries: [plan], fileExists: { _ in false }).plans.first ?? []
+        let folder = primary.deletingLastPathComponent().standardizedFileURL.path
+        return planned.map { variant in
+            let path = variant.destination.standardizedFileURL.path
+            let shown = path.hasPrefix(folder + "/") ? String(path.dropFirst(folder.count + 1))
+                : variant.destination.lastPathComponent
+            return "\(variant.variant.displayName): \(shown)"
+        }
     }
 
     private func sourceImages(for url: URL) throws -> CachedSource {

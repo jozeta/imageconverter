@@ -50,6 +50,16 @@ enum RenameRendering {
         return (SubfolderTemplate.render(folder, context), notes.map { $0.renderText(context) }.filter { !$0.isEmpty })
     }
 
+    /// The rendered subfolder of each of the item's extra outputs (empty for none); nothing is read when no extra
+    /// output has one. Tokens describe the primary output (its size and format).
+    static func variantFolders(for item: InputItem, index: Int, job: ResolvedPipeline) -> [[String]] {
+        let parts = job.pipeline.extraOutputs.map { $0.effectiveSubfolder.map(SubfolderTemplate.parts) ?? [] }
+        guard parts.contains(where: { !$0.isEmpty }) else { return parts.map { _ in [] } }
+        let context = context(for: item, index: index, pipeline: job.pipeline, isCopy: false,
+                              templates: parts.flatMap { $0 })
+        return parts.map { SubfolderTemplate.render($0, context) }
+    }
+
     /// A copy keeps the source's own extension (lower-cased) and format name.
     static func describeCopy(of source: URL, in context: inout RenameContext) {
         let ext = source.pathExtension.lowercased()

@@ -32,7 +32,7 @@ public enum QualityLadder {
     /// Loads and applies the pipeline once, then encodes at each quality with the plain quality mode (the
     /// configured compression mode is ignored) and keeps the encoded bytes plus a crop of `region` (unit
     /// coordinates, origin top left) of each decode. Full-size decodes are dropped right away. Empty for formats
-    /// without a quality, and for items a condition copies or skips.
+    /// without a quality, for items a condition copies or skips, and for metadata-only edits written losslessly.
     public static func render(
         item: InputItem, pipeline: Pipeline, qualities: [Double] = [0.4, 0.6, 0.8, 0.95],
         region: CGRect = unitRegion, maxSide: Int = 1024,
@@ -43,7 +43,9 @@ public enum QualityLadder {
         let resolved = pipeline.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         guard resolved.disposition == .process else { return [] }
         let pipeline = resolved.pipeline
-        guard pipeline.output.format.supportsQuality else { return [] }
+        // A metadata-only edit copies the image data: the quality isn't used.
+        guard pipeline.output.format.supportsQuality, !LosslessMetadata.wouldCopy(item.source, pipeline: pipeline)
+        else { return [] }
         if let pixels = ImageLoader.pixelCount(of: item.source), pixels > maxComparePixels { throw LadderError.tooLarge }
         return try autoreleasepool {
             let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)

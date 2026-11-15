@@ -35,6 +35,7 @@ struct ImageconverterApp: App {
                 .environment(model)
                 .environment(watermarkTemplates)
                 .environment(metadataTemplates)
+                .onChange(of: settings.afterRun, initial: true) { _, value in model.afterRunSetting = value }
                 .onChange(of: PreviewRequest(model: model, mode: settings.outputMode), initial: true) { _, request in
                     model.schedulePreview(mode: request.mode)
                     model.scheduleEstimate()
@@ -69,7 +70,7 @@ struct ImageconverterApp: App {
                     .disabled(model.isRunning)
                 Button("Run") { model.run(settings: settings) }
                     .keyboardShortcut("r", modifiers: .command)
-                    .disabled(model.items.isEmpty || model.isRunning || model.isAdding)
+                    .disabled(model.items.isEmpty || model.isRunning || model.isAdding || model.hasVariantProblems)
                 Button("Cancel Run") { model.cancel() }
                     .keyboardShortcut(".", modifiers: .command)
                     .disabled(!model.isRunning)

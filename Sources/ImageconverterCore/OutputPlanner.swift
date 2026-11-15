@@ -203,7 +203,7 @@ public enum OutputPlanner {
     /// `base` with the folder names added; `base` itself if the result would lie outside it. Checked on resolved
     /// paths, one folder at a time: an existing folder that is a symbolic link is followed as a write would be, so a
     /// link to somewhere else can't take the output out of `base`.
-    private static func within(_ base: URL, _ folders: [String]) -> URL {
+    static func within(_ base: URL, _ folders: [String]) -> URL {
         guard !folders.isEmpty else { return base }
         let root = base.resolvingSymlinksInPath().standardizedFileURL.path
         let prefix = root.hasSuffix("/") ? root : root + "/"
@@ -221,7 +221,7 @@ public enum OutputPlanner {
     }
 
     /// Paths as the volume compares them (symlinks resolved, case ignored only where the volume ignores it).
-    private static func key(_ url: URL) -> String {
+    static func key(_ url: URL) -> String {
         FileIdentity.pathKey(url)
     }
 

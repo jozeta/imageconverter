@@ -103,7 +103,8 @@ final class MetadataFloorTests: XCTestCase {
         let written = try XCTUnwrap(report.written.first)
         XCTAssertEqual(written.lastPathComponent, "located.jpg")
         XCTAssertFalse(try hasGPS(written))
-        XCTAssertEqual(report.notes.first?.text, ConditionalStep.convertedForPrivacyNote)
+        XCTAssertEqual(report.notes.first?.text,
+                       ConditionalStep.convertedForPrivacyNote + "; " + LosslessMetadata.pixelsUntouchedNote)
     }
 
     func testCopyOfPNGIsConvertedLosslessly() throws {
@@ -179,6 +180,7 @@ final class MetadataFloorTests: XCTestCase {
         let run = Pipeline(output: OutputSettings(format: .jpeg), metadata: options)
         let report = await BatchRunner.run([InputItem(source: source, relativeDirectory: "")], pipeline: run,
                                            mode: .newFolder(root.appendingPathComponent("out")))
-        XCTAssertEqual(report.notes.first?.text, MetadataOptions.invalidDateNote)
+        XCTAssertEqual(report.notes.first?.text,
+                       MetadataOptions.invalidDateNote + "; " + LosslessMetadata.pixelsUntouchedNote)
     }
 }

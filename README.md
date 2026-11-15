@@ -77,6 +77,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
   RAW, JPEG 2000, ICNS and more. Animated and multi-page files are read using their first frame.
 - **Writes** JPEG, PNG, HEIC and TIFF, plus GIF, BMP and JPEG 2000 where macOS supports them, with
   quality and compression options.
+- **Several outputs per image**: besides the main output, up to 8 extra outputs (for example a thumbnail and
+  a web-sized copy), each with its own format, quality, size, name suffix and subfolder, written in the same
+  run from one decode (see [Write several outputs per image](#write-several-outputs-per-image)).
 - **Pipeline** of steps, applied in order to every image. Steps can be switched off and reordered:
   - (available) **Resize**: a grouped mode picker. *Pixels*: max width, max height, fit inside a box,
     exact size (stretch, fit and pad, or fill and crop), longest edge, shortest edge, minimum size.
@@ -241,6 +244,8 @@ The output settings are in the Output row of the sidebar (there is no Settings w
 | Setting | Options | Default |
 |---------|---------|---------|
 | Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
+| When finished | Nothing · Reveal in Finder · Notify me · Reveal and notify (the "When finished" dropdown under Save to). Applies to every run of the main window, including runs started from Finder Services, AppleScript and links; jobs have their own notifications. Reveal selects the written files in Finder (up to 50; with more it opens their folders). Notify posts "Run finished" with the counts and space saved, only when imageconverter is not the frontmost app. The first time you pick a notify choice macOS asks for permission; if notifications are off, a note says where to turn them on. Not stored in presets | Nothing |
+| Extra outputs | Up to 8 more files per image, added with **+ Add output** under the Output format controls. Each has a name (its label in the report), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case; `/` and `:` become `-`) and an optional **subfolder** (rename tokens allowed, under the main output's folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
 
@@ -493,6 +498,51 @@ Your pipeline is kept between launches.
 5. When it ends, a notice shows the result. Files that could not be converted are listed in the
    sidebar (name and reason) until the next run.
 
+### Write several outputs per image
+
+One run can write more than one file for every image, for example the full-size JPEG plus a thumbnail and a
+web-sized HEIC:
+
+1. Set up the pipeline and the main output as usual.
+2. Under the Output format controls press **+ Add output**. A *Thumbnail* row appears (JPEG, 70 %, longest edge
+   400 px, suffix `_thumb`); open it to change its name, format, compression, size, suffix and subfolder. Add more
+   with **+ Add output** (up to 8); the bin removes one.
+3. The size line under Output lists every file for the selected image: "Primary 1.1 MB · Thumbnail 48 KB · Web
+   620 KB". In the preview table the Result name has a "+2 outputs" chip; hover it to see each file's name.
+4. Run as usual. Every image is loaded and processed once; each extra output is then resized (if it says so) and
+   encoded with its own settings, as `<name><suffix>.<ext>` next to the main output (in its subfolder, if set). The
+   Rename step's name is the base name for all of them.
+
+Rules worth knowing:
+
+- Extra outputs are always new files. In *Same folder* and *Overwrite* modes they go into the original's folder;
+  they never replace or trash anything, and a name that is taken (by any file, another image's original or
+  another output) gets `_2`, `_3`, … In overwrite mode only the main output replaces the original (once); when it
+  has a new name or format, the original goes to the Trash after the extra outputs are saved. An extra output's
+  subfolder is used in every mode, overwrite included (under the original's folder there), unlike a condition's
+  *Save into subfolder*, which overwrite mode ignores.
+- An extra output's subfolder may use rename tokens, but they describe the main output: `thumbs/{width}` gets the
+  main output's width and `{format}` its format.
+- If the main output fails, no extra output is written for that image. If an extra output fails (it can't be
+  encoded or saved, or no free name is left), the image and its other outputs are still written, and the run says
+  so: the report has a failed row for it under its image ("Extra output “Thumbnail” failed: …"), the end-of-run
+  notice and the *When finished* notification add "· 2 extra outputs failed" (and the notice turns red), the error
+  log gets a line per failed output, the history and exported reports count them, and the command line exits 1.
+- Conditions: *Set output* changes only the main output; the action **Skip extra outputs** (Output & files) writes
+  only the main output for the images that match. An image copied unchanged (*Copy original unchanged*) gets no
+  extra outputs. *Apply a saved preset* takes the preset's steps, output, metadata and rename, but not its extra
+  outputs: the extra outputs are always the pipeline's own.
+- A metadata-only extra output in the image's own format (no resize, Quality compression) is copied losslessly,
+  like the main output.
+- Reports list each extra output as its own row under its image (the CSV's `output` column names it); counts such
+  as "24 converted" are images, while Reveal in Finder includes every file written. The "saved" figure compares the
+  main outputs with their originals; the report's output total includes every file. Jobs record every output, so
+  none of them is processed again as a new input.
+- A saved pipeline, preset or job with an extra output that can't be read or run (settings this version doesn't
+  know, no suffix, a repeated suffix, more than 8) loads without it and says so: a notice when the app starts or
+  the preset is chosen, the job's status line and error log on its next run that converts files, a warning on the
+  command line.
+
 ### Metadata step
 
 The Metadata editor has five collapsible groups and a **Templates** menu:
@@ -500,7 +550,8 @@ The Metadata editor has five collapsible groups and a **Templates** menu:
 <img src="docs/metadata-editor.png" alt="Metadata editor with all groups open" width="400">
 
 - **Remove**: all metadata (with a **Keep** checklist: copyright, author, date taken, camera details,
-  location; orientation is always applied to the pixels and the color profile is never stripped, so those two
+  location; orientation is always applied to the pixels (or kept as the EXIF flag in a lossless metadata-only
+  copy, see below) and the color profile is never stripped, so those two
   are shown ticked and locked), or individually location (GPS), camera details, author, the embedded thumbnail,
   IPTC and XMP.
 - **Describe**: title, artist, copyright, description and keywords. Keywords are tokens (Return or a comma
@@ -519,6 +570,28 @@ The Metadata editor has five collapsible groups and a **Templates** menu:
   fields it sets replace yours, custom fields merge), *Save as template...* stores the current settings under a
   name, *Delete* removes a saved one. Three built-ins: Privacy, Web (keep copyright) and Remove everything.
   Templates are files in `~/Library/Application Support/imageconverter/metadata-templates/`.
+
+**Metadata-only edits are lossless for JPEG and HEIC.** When an image's pipeline changes nothing but metadata
+(the Metadata step is on, no image step is enabled after conditions are applied, the output format is the
+file's own format, and the compression mode is plain *Quality*), the image data is copied as it is with the new
+metadata instead of being decoded and re-encoded: a JPEG's compressed data stays byte for byte the same, and the
+file barely changes size. The quality slider and progressive JPEG aren't used then. The EXIF
+orientation flag is kept instead of turning the pixels upright (viewers show the photo the same way). The report
+says "Metadata only, pixels untouched". Like every other output, the copy carries no embedded thumbnail. A JPEG
+copy keeps only the parts a photo needs (the JFIF header without its thumbnail, EXIF without its thumbnail, XMP, the colour profile, Adobe colour
+information, IPTC as the re-encode would write it, and the image data); Photoshop previews and other Photoshop
+resources, comments, other vendor blocks and anything after the image end are dropped, and a JPEG whose
+structure can't be read is re-encoded ("Lossless edit couldn't remove JPEG segments; re-encoded"). A HEIC with
+an embedded thumbnail, more than one image or depth, matte or gain-map data is re-encoded. The written file is
+read back and compared with what a re-encode would hold, values included; if anything the options remove is
+still there (or a field that should be set or kept is missing or different), the image is re-encoded as before,
+with the note "Lossless edit couldn't remove …; re-encoded" (or "couldn't write …"). PNG, TIFF, AVIF and other
+formats are always re-encoded ("Re-encoded: lossless metadata edit isn't available for this format"; PNG and
+TIFF re-encodes are lossless anyway): ImageIO keeps a PNG's EXIF chunk and a TIFF's own tags whatever metadata
+the copy is given. Photoshop (PSD) files can't be written, so they are always converted. Target size, maximum size and Smart compression always
+re-encode, since they ask for a smaller file. The same rule covers *Copy original unchanged* when the Metadata
+step's removals force a conversion, the Privacy panel's **Remove these**, jobs and the command line, and the
+size estimate shows the lossless file's real size. The quality comparison shows no ladder for such images.
 
 Limits of ImageIO: the XMP packet can only be left out completely for JPEG and TIFF; PNG, HEIC and GIF keep
 EXIF and IPTC inside XMP, so "Remove XMP" removes only the XMP-only fields there. Setting a title replaces
@@ -758,6 +831,10 @@ Good to know:
   run in progress finishes). Switching one job off does the same for that job.
 - Every run that processed files is kept in the run history; failures also go to the error log
   (`~/Library/Application Support/imageconverter/logs/errors.log`).
+- A failed image is tried again on later runs (up to 3 times), but a failed **extra output** isn't: its image counts
+  as done, because trying again would write the main output a second time (as `name_2`). The report, the error log
+  and the history name each failed extra output; to make it, fix the cause and use **Process All Files Again…**, or
+  convert those images in the main window.
 
 ## Reports and history
 
@@ -938,6 +1015,7 @@ Convert options (options override the preset or pipeline file):
 | `--quality 0-100` | Quality for lossy formats |
 | `--max-size 500KB` | Largest file size (KB and MB are decimal) |
 | `--resize-long PX` | Scale so the longest edge is PX pixels |
+| `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"` | An extra output per image (repeatable, up to 8; replaces the preset's or file's extra outputs). Keys: `name`, `format`, `quality` (0–100), `max-size` (500KB), one of `long`, `width`, `height` (pixels, shrink only) or `percent` (1–1000), `suffix` (default `_` + name; must differ between outputs) and `folder` (a subfolder). A format this Mac can't write is a usage error. `--dry-run` lists every output |
 | `--strip-gps`, `--strip-all` | Remove the location (GPS and place names), or all metadata (the preset's "keep when removing all" list is ignored) |
 | `--report csv\|json\|text` | Print a full report on stdout |
 | `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked; with `--overwrite`, each destination is marked "replace" or, when the name or format changes, "replace (original to Trash)"); writes nothing; honours `--report`/`--json` |

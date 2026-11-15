@@ -32,6 +32,7 @@ extension ConditionalAction {
         case .addKeywords(let keywords):
             return "add keywords " + MetadataFields.normalizedKeywords(keywords).joined(separator: ", ")
         case .stop: return "stop checking conditions"
+        case .skipExtraOutputs: return "skip extra outputs"
         case .note(let text): return "note “\(text.count > 30 ? String(text.prefix(30)) + "…" : text)”"
         }
     }

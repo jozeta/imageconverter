@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 @preconcurrency import UserNotifications
 
@@ -5,6 +6,12 @@ import Foundation
 /// a refusal (or no answer) just means no notifications, never a blocked job.
 @MainActor
 final class JobNotifier {
+    /// The app's one notifier (jobs and manual runs).
+    static let shared = JobNotifier(defaults: AppDefaults.store)
+    /// `userInfo["kind"]` values, read by `NotificationRouter`.
+    nonisolated static let kindKey = "kind"
+    nonisolated static let runKind = "run"
+    nonisolated static let jobKind = "job"
     private let defaults: UserDefaults
     private static let askedKey = "jobNotificationsAsked"
 
@@ -17,24 +24,62 @@ final class JobNotifier {
         Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
     }
 
-    func requestPermissionIfNeeded() {
-        guard !defaults.bool(forKey: Self.askedKey), let center else { return }
+    func requestPermissionIfNeeded(completion: (@Sendable () -> Void)? = nil) {
+        guard !defaults.bool(forKey: Self.askedKey), let center else { completion?(); return }
         defaults.set(true, forKey: Self.askedKey)
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in completion?() }
+    }
+
+    /// True when the user has refused notifications for the app (or turned them off in System Settings).
+    func isDenied() async -> Bool {
+        guard let center else { return false }
+        return await center.notificationSettings().authorizationStatus == .denied
     }
 
     /// Posts when allowed; silently does nothing otherwise.
-    func post(title: String, body: String) {
+    func post(title: String, body: String, kind: String = JobNotifier.jobKind) {
         guard let center else { return }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
+        content.userInfo = [Self.kindKey: kind]
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         center.getNotificationSettings { settings in
             guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
                 return
             }
             center.add(request) { _ in }
+        }
+    }
+}
+
+/// Clicks on notifications: a manual run's brings the main window forward with its report open; a job's just
+/// brings the app forward. Set once at launch.
+final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate, @unchecked Sendable {
+    static let shared = NotificationRouter()
+
+    @MainActor static func install() {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        UNUserNotificationCenter.current().delegate = shared
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let kind = response.notification.request.content.userInfo[JobNotifier.kindKey] as? String
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                NSApp.activate(ignoringOtherApps: true)
+                if kind == JobNotifier.runKind {
+                    // The main window itself (never Jobs, History or a panel): restored when minimised, reopened
+                    // when closed, the same way Finder services and links bring it forward.
+                    ExternalActions.shared.showWindow()
+                    // Once a reopened window has attached, so its sidebar sees the request.
+                    ExternalActions.shared.withModel { model, _ in
+                        DispatchQueue.main.async { model.reportRequest += 1 }
+                    }
+                }
+            }
+            completionHandler()
         }
     }
 }

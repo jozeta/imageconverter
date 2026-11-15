@@ -27,6 +27,8 @@ public enum ConditionalAction: Codable, Equatable, Sendable {
     case stop
     /// A line in the report for this file (rename tokens allowed).
     case note(String)
+    /// Writes only the primary output for this image: the pipeline's extra outputs are left out.
+    case skipExtraOutputs
 
     public static let maxNoteLength = 200
 
@@ -46,7 +48,7 @@ public enum ConditionalAction: Codable, Equatable, Sendable {
             return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.count <= Self.maxNoteLength
         case .preset(let link):
             return link.name.count <= PresetStore.maxNameLength
-        case .output, .metadata, .rename, .copyOriginal, .skip, .stop:
+        case .output, .metadata, .rename, .copyOriginal, .skip, .stop, .skipExtraOutputs:
             return true
         }
     }

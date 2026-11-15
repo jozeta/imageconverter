@@ -242,3 +242,25 @@ Agents couldn't do this: the prompt was left open on the screen during Task 5, s
 - [ ] **Report.** Open Last Report. Expected: the CSV is next to the outputs, with paths relative to its folder.
 - [ ] **Other runs.** Run a job while a big batch runs in the main window. Expected: the window stays responsive, and
   a file busy in one run is listed as *Busy in another run* in the other.
+
+## 12. Feature round 1.1 (lossless edits, When finished, extra outputs)
+
+- [ ] **Lossless edit.** A pipeline with only Metadata (remove location), JPEG output, on a JPEG from a camera or
+  phone. Expected: the report says *Metadata only, pixels untouched*; the Privacy panel on the output shows no
+  location and no embedded thumbnail; Preview shows the image unchanged and correctly rotated.
+- [ ] **iPhone HEIC.** The same on an iPhone HEIC. Expected: usually re-encoded with a note (thumbnail or depth data),
+  never an error.
+- [ ] **When finished: Reveal.** Set *When finished* to reveal outputs, run a batch. Expected: Finder opens with the
+  written files selected (extra outputs included).
+- [ ] **When finished: Notify.** Set it to notify, start a batch, switch to another app. Expected: one notification
+  with the count; clicking it brings the main window forward with the Report open. A cancelled run says *Run
+  cancelled · converted N*; a run where every file fails says *No images converted · N failed*.
+- [ ] **Notifications denied.** Deny notifications in System Settings, come back to the app. Expected: the hint
+  under *When finished* appears without restarting.
+- [ ] **Extra outputs.** In the Output panel, *+ Add output* twice (e.g. a 400 px JPEG thumbnail and a PNG).
+  Expected: the size line lists each output, the preview table shows *+2 outputs* with the list on hover, and a run
+  writes `<name>_thumb.jpg` etc. beside the main output.
+- [ ] **Suffix errors.** Clear one extra output's suffix, then give two the same suffix. Expected: an inline error
+  each time and Run disabled until fixed.
+- [ ] **Overwrite with extras.** Overwrite mode plus one extra output and a format change. Expected: the original
+  goes to the Trash once, the main output and the extra sit in the source folder, nothing else is trashed.

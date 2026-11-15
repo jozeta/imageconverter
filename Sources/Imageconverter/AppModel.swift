@@ -106,6 +106,10 @@ final class AppModel {
     static let previewCollapsedKey = "previewCollapsed"
     static let pipelineCollapsedKey = "pipelineCollapsed"
     static let lowMemoryModeKey = "lowMemoryMode"
+    /// The "When finished" setting, mirrored from `AppSettings` by the main window.
+    @ObservationIgnored var afterRunSetting: AfterRunAction = .nothing
+    /// Bumped when a run notification is clicked; the sidebar opens the report.
+    var reportRequest = 0
 
     init(defaults: UserDefaults = .standard,
          presetStore: PresetStore = PresetStore(directory: PresetStore.defaultDirectory)) {
@@ -126,6 +130,7 @@ final class AppModel {
             session = PresetSession(selected: preset, pipeline: saved)
         }
         refreshWatermarkBookmarks()
+        announceLoadNotes(saved)
         if !result.skipped.isEmpty {
             let count = result.skipped.count
             toasts.show("Skipped \(count) preset \(count == 1 ? "file" : "files")", type: .info,
@@ -226,7 +231,7 @@ final class AppModel {
     }
 
     func run(settings: AppSettings) {
-        guard !isRunning, !isAdding, !items.isEmpty, confirmDiscardingInterruptedRun() else { return }
+        guard !isRunning, !isAdding, !items.isEmpty, variantsCanRun(), confirmDiscardingInterruptedRun() else { return }
         if settings.modeKind == .newFolder, !Self.isExistingDirectory(settings.outputFolder) {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false
@@ -309,14 +314,12 @@ final class AppModel {
         if let finished = runReport { recordRun(finished) }
         progress = nil
         dropMissingItems()
-        let failed = report.failures.count
         let prefix = report.cancelled ? "Cancelled. " : ""
-        let totals = runReport?.summary
-        let saved = SizeFormat.savedPhrase(input: totals?.inputBytes ?? 0, output: totals?.outputBytes ?? 0).map { " · \($0)" } ?? ""
-        toasts.show("\(prefix)\(RunCountsText.make(written: report.written.count, skipped: report.skipped.count, failed: failed))\(saved)",
-                    type: failed > 0 ? .bad : (report.cancelled ? .info : .ok))
+        // Failed files or failed extra outputs make it a warning.
+        let (summary, hasProblems) = RunCountsText.runSummary(report)
+        toasts.show("\(prefix)\(summary)", type: hasProblems ? .bad : (report.cancelled ? .info : .ok))
+        runAfterRunAction(report, summary: summary)
     }
-
 }
 
 /// What `startRun` did.

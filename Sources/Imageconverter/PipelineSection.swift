@@ -303,8 +303,10 @@ struct OutputPanel: View {
                 .stepHelp(.output)
             OutputFormatControls(output: $model.pipeline.output)
                 .disabled(model.isRunning)
+            OutputVariantsSection(model: model)
             estimateLine
             saveToControls
+            afterRunControls
         }
         .padding(.horizontal, LadaGlass.Spacing.m)
         .padding(.vertical, LadaGlass.Spacing.s)
@@ -315,10 +317,25 @@ struct OutputPanel: View {
     // MARK: Size estimate
 
     private var estimateLine: some View {
-        Text(estimateText)
-            .font(LadaGlass.Typography.label)
-            .foregroundStyle(LadaGlass.Colors.muted)
-            .accessibilityLabel(estimateText)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(estimateText)
+                .font(LadaGlass.Typography.label)
+                .foregroundStyle(LadaGlass.Colors.muted)
+                .accessibilityLabel(estimateText)
+            if let variants = variantEstimateText {
+                Text(variants)
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel(variants)
+            }
+        }
+    }
+
+    /// "Primary 1.1 MB · Thumbnail 48 KB" under the estimate, once it is in.
+    private var variantEstimateText: String? {
+        guard !model.isEstimating, let estimate = model.sizeEstimate, let output = estimate.output else { return nil }
+        return SizeEstimator.variantLine(primary: output, variants: estimate.variants)
     }
 
     private var estimateText: String {
@@ -343,5 +360,23 @@ struct OutputPanel: View {
         @Bindable var settings = settings
         return SaveToControl(kind: $settings.modeKind, folder: $settings.outputFolder, suffix: $settings.sameFolderSuffix)
             .disabled(model.isRunning)
+    }
+
+    // MARK: When finished
+
+    private var afterRunControls: some View {
+        @Bindable var settings = settings
+        return VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
+            Picker("When finished", selection: $settings.afterRun) {
+                ForEach(AfterRunAction.allCases, id: \.self) { Text($0.label).tag($0) }
+            }
+            .accessibilityLabel("When finished")
+            if settings.afterRun.notifies && settings.notificationsDenied {
+                Text("Notifications are off for imageconverter. Turn them on in System Settings ▸ Notifications.")
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }

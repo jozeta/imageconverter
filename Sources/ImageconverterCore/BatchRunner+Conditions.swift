@@ -12,6 +12,8 @@ public struct PlannedFile: Equatable, Sendable {
     public var replacesSource = false
     /// Overwrite mode: the result has a new name or format, and the original goes to the Trash once it is saved.
     public var trashesSource = false
+    /// The item's extra outputs, each a new file.
+    public var variants: [PlannedVariant] = []
 }
 
 extension BatchRunner {
@@ -21,6 +23,8 @@ extension BatchRunner {
         let plans: [PlannedOutput]
         /// The resolved pipeline of each plan.
         let jobs: [ResolvedPipeline]
+        /// The extra outputs of each plan (empty for copies, skipped extras and refused plans).
+        var variants: [[PlannedVariant]] = []
         /// Sources a condition skipped or another run holds, in input order, with the reason for each.
         let skipped: [URL]
         let skipReasons: [String]
@@ -68,10 +72,42 @@ extension BatchRunner {
         guard let reasons = skipReasons(skippedIndices, items: items, resolved: resolved, busy: busyIndices) else {
             return nil
         }
-        return RunPlan(plans: OutputPlanner.plan(targets, mode: mode, reservedSources: skipped), jobs: jobs,
-                       skipped: skipped, skipReasons: reasons, busyIndices: busyIndices, planIndices: active,
-                       skippedIndices: skippedIndices,
-                       assetPipeline: assetPipeline(pipeline, resolved: jobs))
+        let primaries = OutputPlanner.plan(targets, mode: mode, reservedSources: skipped)
+        guard let variants = plannedVariants(active.map { items[$0] }, jobs: &jobs, baseNames: baseNames,
+                                             primaries: primaries, reserved: skipped) else { return nil }
+        var run = RunPlan(plans: primaries, jobs: jobs, skipped: skipped, skipReasons: reasons,
+                          busyIndices: busyIndices, planIndices: active, skippedIndices: skippedIndices,
+                          assetPipeline: assetPipeline(pipeline, resolved: jobs))
+        run.variants = variants
+        return run
+    }
+
+    /// Each plan's extra outputs, named like its primary output (`OutputPlanner.planVariants`). Outputs that
+    /// can't run or found no free name are left out with a note on the item. Nil when cancelled part-way.
+    private static func plannedVariants(_ items: [InputItem], jobs: inout [ResolvedPipeline], baseNames: [String?],
+                                        primaries: [PlannedOutput], reserved: [URL]) -> [[PlannedVariant]]? {
+        guard jobs.contains(where: { !$0.pipeline.extraOutputs.isEmpty }) else { return jobs.map { _ in [] } }
+        var targets: [VariantTarget] = []
+        for (index, item) in items.enumerated() {
+            if Task.isCancelled { return nil }
+            let (kept, notes) = OutputVariant.validated(jobs[index].pipeline.extraOutputs)
+            jobs[index].pipeline.extraOutputs = kept
+            jobs[index].notes += notes
+            targets.append(VariantTarget(variants: kept, baseName: baseNames[index],
+                                         subfolders: RenameRendering.variantFolders(for: item, index: index,
+                                                                                    job: jobs[index])))
+        }
+        let (plans, failures) = OutputPlanner.planVariants(targets, primaries: primaries, reservedSources: reserved)
+        for (index, missing) in failures.enumerated() {
+            jobs[index].notes += missing.map { noFreeNameNote($0.displayName) }
+            jobs[index].unplannedOutputs = missing.map(\.displayName)
+        }
+        return plans
+    }
+
+    /// The note when an extra output found no free name (it isn't written; the item is).
+    static func noFreeNameNote(_ name: String) -> String {
+        "Extra output “\(name)” not written: \(OutputPlanner.noFreeNameReason.lowercased())"
     }
 
     /// The report note when a "Save into subfolder" action meets overwrite mode.
@@ -114,20 +150,22 @@ extension BatchRunner {
         let items = InputItem.unique(items)
         guard let run = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, presets: presets)
         else { return nil }
-        var byPlan: [URL: (PlannedOutput, Disposition)] = [:]
-        for (plan, job) in zip(run.plans, run.jobs) { byPlan[plan.item.source] = (plan, job.disposition) }
+        var byPlan: [URL: PlannedFile] = [:]
+        for (index, (plan, job)) in zip(run.plans, run.jobs).enumerated() {
+            byPlan[plan.item.source] = PlannedFile(
+                source: plan.item.source, destination: plan.destination, disposition: job.disposition,
+                replacesSource: plan.replacesSource, trashesSource: plan.trashesSource,
+                variants: index < run.variants.count ? run.variants[index] : [])
+        }
         return items.map { item in
-            if let (plan, disposition) = byPlan[item.source] {
-                return PlannedFile(source: item.source, destination: plan.destination, disposition: disposition,
-                                   replacesSource: plan.replacesSource, trashesSource: plan.trashesSource)
-            }
+            if let file = byPlan[item.source] { return file }
             return PlannedFile(source: item.source, destination: nil, disposition: .skip)
         }
     }
 
     /// Runs one planned item: a copy of the original, or the full load, apply, encode and commit.
     static func process(_ plan: PlannedOutput, job: ResolvedPipeline, assets: WatermarkAssets, maxPixels: Int,
-                        trash: Trasher, options: ItemRunOptions = ItemRunOptions())
+                        trash: Trasher, options: ItemRunOptions = ItemRunOptions(), variants: [PlannedVariant] = [])
         -> (Result<WrittenItem?, ConversionError>, Int?) {
         // Refused by the planner (a second plan for one original, or no free name): fail before anything is read
         // or written.
@@ -146,8 +184,16 @@ extension BatchRunner {
         if let missing = assets.missingError(for: job.pipeline) {
             return (.failure(missing), fileSize(plan.item.source))
         }
-        let (result, inputBytes) = convert(plan, pipeline: job.pipeline, assets: assets, maxPixels: maxPixels,
-                                           trash: trash, options: options)
+        var (result, inputBytes) = convert(plan, pipeline: job.pipeline, assets: assets, maxPixels: maxPixels,
+                                           trash: trash, options: options, variants: variants)
+        if !job.unplannedOutputs.isEmpty, case .success(var written?) = result {
+            // Named in the item's note already (`noFreeNameNote`); counted as failed extras too.
+            written.extraFailures += job.unplannedOutputs.map {
+                BatchExtraFailure(source: plan.item.source, name: $0, destination: nil,
+                                  reason: OutputPlanner.noFreeNameReason)
+            }
+            result = .success(written)
+        }
         let resolutionNotes = job.runNotes
         guard !resolutionNotes.isEmpty, case .success(var written?) = result else {
             return tagged((result, inputBytes), tags: job.finderTags)
@@ -161,7 +207,8 @@ extension BatchRunner {
     private static func tagged(_ outcome: (Result<WrittenItem?, ConversionError>, Int?), tags: [String])
         -> (Result<WrittenItem?, ConversionError>, Int?) {
         guard !tags.isEmpty, case .success(var written?) = outcome.0 else { return outcome }
-        if !FinderTags.add(tags, to: written.url) {
+        let tagged = [written.url] + written.extras.map(\.url)
+        if !tagged.allSatisfy({ FinderTags.add(tags, to: $0) }) {
             written.note = ([written.note].compactMap { $0 } + [FinderTags.failedNote]).joined(separator: "; ")
         }
         return (.success(written), outcome.1)

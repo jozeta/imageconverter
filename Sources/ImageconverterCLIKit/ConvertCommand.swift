@@ -14,9 +14,13 @@ enum ConvertCommand {
             environment.err("imageconverter: \(error)")
             return CLIExit.usage
         }
-        guard OutputFormat.available().contains(pipeline.output.format) else {
-            environment.err("imageconverter: this Mac can't write \(pipeline.output.format.displayName).")
+        let formats = [pipeline.output.format] + pipeline.extraOutputs.map(\.settings.format)
+        if let missing = formats.first(where: { !environment.writableFormats.contains($0) }) {
+            environment.err("imageconverter: this Mac can't write \(missing.displayName).")
             return CLIExit.usage
+        }
+        for note in pipeline.loadNotes.notes {
+            environment.err("imageconverter: warning: \(ReportExporter.printable(note))")
         }
 
         warnAboutIgnoredFlags(options, format: pipeline.output.format, environment: environment)
@@ -107,6 +111,7 @@ enum ConvertCommand {
         if let quality = options.quality { pipeline.output.quality = quality }
         if let bytes = options.maxSizeBytes { pipeline.output.compression = .maxSize(bytes: bytes) }
         if let edge = options.resizeLongEdge { setLongestEdge(edge, in: &pipeline) }
+        if !options.variants.isEmpty { pipeline.extraOutputs = options.variants }
         if options.stripGPS || options.stripAll {
             pipeline.metadata.isEnabled = true
             pipeline.metadata.isIncluded = true
@@ -149,26 +154,17 @@ enum ConvertCommand {
                                    presets: PresetLibrary.folder(environment.presetDirectory))
         }
         guard let planned else { return CLIExit.interrupted }
-        let entries = planned.map { file -> ReportEntry in
-            switch file.disposition {
-            case .skip:
-                return ReportEntry(source: file.source.path, status: .skipped, inputBytes: nil,
-                                   note: ConditionalStep.skippedReason)
-            case .copyOriginal:
-                // A copy in place is left as it is (nothing replaced); a renamed copy moves the original.
-                let moved = file.trashesSource ? overwriteNote(file) : nil
-                let note = ([ConditionalStep.copiedNote] + [moved].compactMap { $0 }).joined(separator: "; ")
-                return ReportEntry(source: file.source.path, destination: file.destination?.path, status: .succeeded,
-                                   inputBytes: nil, note: note)
-            case .process:
-                return ReportEntry(source: file.source.path, destination: file.destination?.path, status: .succeeded,
-                                   inputBytes: nil, note: overwriteNote(file))
+        let entries = planned.flatMap { file -> [ReportEntry] in
+            [entry(for: file)] + file.variants.map { variant in
+                ReportEntry(source: file.source.path, destination: variant.destination.path, status: .succeeded,
+                            inputBytes: nil, variant: variant.variant.displayName)
             }
         }
+        let images = entries.filter { $0.variant == nil }
         let summary = RunSummary(
-            startedAt: started, finishedAt: Date(), outputMode: mode.kind.rawValue, total: entries.count,
-            succeeded: entries.filter { $0.status == .succeeded }.count, failed: 0,
-            skipped: entries.filter { $0.status == .skipped }.count, inputBytes: 0, outputBytes: 0)
+            startedAt: started, finishedAt: Date(), outputMode: mode.kind.rawValue, total: images.count,
+            succeeded: images.filter { $0.status == .succeeded }.count, failed: 0,
+            skipped: images.filter { $0.status == .skipped }.count, inputBytes: 0, outputBytes: 0)
         var report = ProcessingReport(summary: summary, entries: entries)
         add(missing: missing, to: &report)
         environment.err("Dry run: nothing is written.")
@@ -179,12 +175,34 @@ enum ConvertCommand {
             for entry in entries {
                 let target = entry.destination.map { " -> " + ReportExporter.printable($0) } ?? ""
                 let note = entry.note.map { " (\(ReportExporter.printable($0)))" } ?? ""
-                environment.out(ReportExporter.printable(entry.source) + target + note)
+                let lead = entry.variant.map { "  + \(ReportExporter.printable($0)):" }
+                    ?? ReportExporter.printable(entry.source)
+                environment.out(lead + target + note)
             }
-            environment.out("\(report.summary.succeeded) of \(report.summary.total) files would be written.")
+            let extras = entries.count - images.count
+            let more = extras > 0 ? " (and \(extras) extra \(extras == 1 ? "output" : "outputs"))" : ""
+            environment.out("\(report.summary.succeeded) of \(report.summary.total) files would be written\(more).")
         }
         if report.summary.failed > 0 { return CLIExit.someFailed }
         return report.summary.total == 0 ? CLIExit.nothingToDo : CLIExit.success
+    }
+
+    /// The dry run's line for an item's primary output.
+    private static func entry(for file: PlannedFile) -> ReportEntry {
+        switch file.disposition {
+        case .skip:
+            return ReportEntry(source: file.source.path, status: .skipped, inputBytes: nil,
+                               note: ConditionalStep.skippedReason)
+        case .copyOriginal:
+            // A copy in place is left as it is (nothing replaced); a renamed copy moves the original.
+            let moved = file.trashesSource ? overwriteNote(file) : nil
+            let note = ([ConditionalStep.copiedNote] + [moved].compactMap { $0 }).joined(separator: "; ")
+            return ReportEntry(source: file.source.path, destination: file.destination?.path, status: .succeeded,
+                               inputBytes: nil, note: note)
+        case .process:
+            return ReportEntry(source: file.source.path, destination: file.destination?.path, status: .succeeded,
+                               inputBytes: nil, note: overwriteNote(file))
+        }
     }
 
     /// What overwrite mode does to the original: "replace" in place, or "replace (original to Trash)" when the

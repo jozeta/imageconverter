@@ -208,7 +208,8 @@ struct SidebarView: View {
                 model.run(settings: settings)
             }
             .buttonStyle(.lg(.primary))
-            .disabled(model.items.isEmpty || model.isAdding)
+            .disabled(model.items.isEmpty || model.isAdding || model.hasVariantProblems)
+            .help(model.hasVariantProblems ? "Fix the extra outputs in the Output panel first" : "")
             .accessibilityLabel("Run the conversion")
             // The last run's numbers stay here when the preview is hidden.
             if model.previewCollapsed, model.monitor.hasResults { PerformancePanel(model: model) }
@@ -237,6 +238,7 @@ struct SidebarView: View {
             }
             .font(LadaGlass.Typography.body)
             .accessibilityLabel("Report")
+            .onChange(of: model.reportRequest) { _, _ in showReport = true }
             .sheet(isPresented: $showErrorLog) { ErrorLogView() }
         }
     }
@@ -245,6 +247,7 @@ struct SidebarView: View {
         var parts = ["\(summary.succeeded) written"]
         if summary.skipped > 0 { parts.append("\(summary.skipped) skipped by \(summary.skipped == 1 ? "a condition" : "conditions")") }
         if summary.failed > 0 { parts.append("\(summary.failed) failed") }
+        if summary.extraFailureCount > 0 { parts.append(RunCountsText.extraFailures(summary.extraFailureCount)) }
         let notes = report.entries.filter { $0.status == .succeeded && $0.note != nil }.count
         if notes > 0 { parts.append("\(notes) \(notes == 1 ? "note" : "notes")") }
         return "Report · " + parts.joined(separator: ", ")

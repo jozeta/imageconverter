@@ -11,6 +11,8 @@ struct SizeEstimate {
     /// The quality a searching compression mode chose.
     let quality: Double?
     let note: String?
+    /// The extra outputs' estimates, in order.
+    var variants: [VariantEstimate] = []
 }
 
 /// What the background render returned: the original's file size, the encode, or why there is none.
@@ -84,7 +86,8 @@ extension AppModel {
             estimateFailure = outcome.failure
             sizeEstimate = SizeEstimate(
                 item: item.source, original: outcome.original, output: outcome.preview?.bytes, full: outcome.preview,
-                quality: outcome.preview?.quality, note: outcome.preview?.note)
+                quality: outcome.preview?.quality, note: outcome.preview?.note,
+                variants: outcome.preview?.variants ?? [])
         }
     }
 }

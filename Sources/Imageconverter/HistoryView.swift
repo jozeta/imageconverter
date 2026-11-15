@@ -159,6 +159,7 @@ struct HistoryView: View {
     static func subtitle(_ summary: RunSummary) -> String {
         var parts = [summary.jobName.map { "Job \($0)" } ?? summary.presetName ?? "Manual run", "\(summary.succeeded) written"]
         if summary.failed > 0 { parts.append("\(summary.failed) failed") }
+        if summary.extraFailureCount > 0 { parts.append(RunCountsText.extraFailures(summary.extraFailureCount)) }
         if summary.succeeded > 0, summary.savedBytes != 0 {
             parts.append(summary.savedBytes > 0 ? "saved \(SizeFormat.bytes(summary.savedBytes))"
                          : "grew \(SizeFormat.bytes(-summary.savedBytes))")

@@ -5,7 +5,7 @@ import Foundation
 public enum ReportExporter {
     public static let csvColumns = ["source", "destination", "status", "input bytes", "output bytes", "saving %",
                                     "note", "duration s", "input width", "input height", "output width",
-                                    "output height"]
+                                    "output height", "output"]
 
     public static func data(_ report: ProcessingReport, format: ReportFormat) -> Data {
         switch format {
@@ -18,7 +18,8 @@ public enum ReportExporter {
 
     // MARK: CSV
 
-    /// One row per file, then a `TOTAL` row in the same columns (status holds the counts).
+    /// One row per file (an extra output is its own row, named in the `output` column), then a `TOTAL` row in the
+    /// same columns (status holds the counts).
     public static func csv(_ report: ProcessingReport) -> String {
         var rows = [csvColumns.map { quoted($0) }]
         for entry in report.entries {
@@ -29,7 +30,8 @@ public enum ReportExporter {
                 quoted(entry.ratio.map(savingPercent) ?? ""), quoted(guarded(entry.note ?? "")),
                 quoted(entry.duration > 0 ? String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), entry.duration) : ""),
                 quoted(entry.inputWidth.map(String.init) ?? ""), quoted(entry.inputHeight.map(String.init) ?? ""),
-                quoted(entry.outputWidth.map(String.init) ?? ""), quoted(entry.outputHeight.map(String.init) ?? "")
+                quoted(entry.outputWidth.map(String.init) ?? ""), quoted(entry.outputHeight.map(String.init) ?? ""),
+                quoted(guarded(entry.variant ?? ""))
             ])
         }
         let summary = report.summary
@@ -37,7 +39,7 @@ public enum ReportExporter {
             quoted("TOTAL"), quoted(""), quoted(counts(summary)), quoted(String(summary.inputBytes)),
             quoted(String(summary.outputBytes)), quoted(summary.overallRatio.map(savingPercent) ?? ""), quoted(""),
             quoted(String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), summary.totalDuration)),
-            quoted(""), quoted(""), quoted(""), quoted("")
+            quoted(""), quoted(""), quoted(""), quoted(""), quoted("")
         ])
         return rows.map { $0.joined(separator: ",") }.joined(separator: "\r\n") + "\r\n"
     }
@@ -61,6 +63,7 @@ public enum ReportExporter {
         "\(summary.total) files: \(summary.succeeded) succeeded, \(summary.failed) failed, "
             + "\(summary.skipped) skipped, " + (summary.unchanged > 0 ? "\(summary.unchanged) unchanged, " : "")
             + "\(summary.cancelled) cancelled"
+            + (summary.extraFailureCount > 0 ? ", " + RunCountsText.extraFailures(summary.extraFailureCount) : "")
     }
 
     // MARK: JSON
@@ -98,6 +101,7 @@ public enum ReportExporter {
         lines.append("")
         for entry in report.entries {
             var line = "\(entry.status.rawValue): \(printable(entry.source))"
+            if let variant = entry.variant { line = "  + \(printable(variant)): \(printable(entry.source))" }
             if let destination = entry.destination { line += " \u{2192} \(printable(destination))" }
             if let input = entry.inputBytes, let output = entry.outputBytes {
                 line += " (\(SizeFormat.bytes(input)) \u{2192} \(SizeFormat.bytes(output))"

@@ -1,0 +1,88 @@
+import Foundation
+
+/// Where one extra output of an item goes.
+public struct PlannedVariant: Equatable, Sendable {
+    public let variant: OutputVariant
+    public let destination: URL
+
+    /// The commit plan: always a new file, never replacing or trashing anything.
+    func plan(for item: InputItem) -> PlannedOutput {
+        PlannedOutput(item: item, destination: destination, replacesSource: false, trashesSource: false)
+    }
+}
+
+/// One item's extra outputs to plan.
+public struct VariantTarget: Equatable, Sendable {
+    public let variants: [OutputVariant]
+    /// The rendered base name (nil keeps the source's name), as the primary output's.
+    public let baseName: String?
+    /// Each variant's own folder names (outermost first), under the primary output's folder.
+    public let subfolders: [[String]]
+
+    public init(variants: [OutputVariant], baseName: String? = nil, subfolders: [[String]]? = nil) {
+        self.variants = variants
+        self.baseName = baseName
+        self.subfolders = subfolders?.count == variants.count ? subfolders ?? [] : variants.map { _ in [] }
+    }
+}
+
+extension OutputPlanner {
+    /// Plans every item's extra outputs, after its primary output was planned (`primaries`, the same order as
+    /// `targets`). Each goes into the primary output's folder (in overwrite mode that is the source's own folder),
+    /// under its own subfolder if it has one, as `<base name><suffix>.<ext>`: always a new file. A name is taken
+    /// when any item's source, a reserved source, a primary output, an earlier extra output or an existing file
+    /// has it (`_2`, `_3`, ...), so an extra output never replaces anything. Items whose primary plan was refused
+    /// get none, and an output with no free name is left out (`failures` lists it).
+    public static func planVariants(
+        _ targets: [VariantTarget], primaries: [PlannedOutput], reservedSources: [URL] = [],
+        fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+    ) -> (plans: [[PlannedVariant]], failures: [[OutputVariant]]) {
+        var claimed = Set(primaries.map { key($0.item.source) })
+        claimed.formUnion(reservedSources.map(key))
+        claimed.formUnion(primaries.filter { !$0.isRefused }.map { key($0.destination) })
+        var plans: [[PlannedVariant]] = []
+        var failures: [[OutputVariant]] = []
+        for (target, primary) in zip(targets, primaries) {
+            guard !primary.isRefused else {
+                plans.append([])
+                failures.append([])
+                continue
+            }
+            let base = primary.destination.deletingLastPathComponent()
+            let sourceName = primary.item.source.deletingPathExtension().lastPathComponent
+            var planned: [PlannedVariant] = []
+            var missing: [OutputVariant] = []
+            for (variant, folders) in zip(target.variants, target.subfolders) {
+                let suffix = variant.cleanSuffix
+                guard !suffix.isEmpty else {
+                    missing.append(variant)
+                    continue
+                }
+                let directory = within(base, Array(folders.filter(SubfolderTemplate.isSafeName)
+                    .prefix(SubfolderTemplate.maxDepth)))
+                let name = fitted(target.baseName ?? sourceName, suffix: suffix)
+                let dotExt = ".\(variant.settings.format.fileExtensions[0])"
+                let candidate = (1...maxNameAttempts).lazy.map { number -> URL in
+                    let stem = number == 1 ? "\(name)\(suffix)" : "\(name)\(suffix)_\(number)"
+                    return directory.appendingPathComponent("\(stem)\(dotExt)")
+                }.first { !claimed.contains(key($0)) && !fileExists($0) }
+                guard let candidate else {
+                    missing.append(variant)
+                    continue
+                }
+                claimed.insert(key(candidate))
+                planned.append(PlannedVariant(variant: variant, destination: candidate))
+            }
+            plans.append(planned)
+            failures.append(missing)
+        }
+        return (plans, failures)
+    }
+
+    /// `name` shortened (by characters) so `name + suffix` stays within the name limit in UTF-8 bytes.
+    static func fitted(_ name: String, suffix: String) -> String {
+        var name = name
+        while !name.isEmpty, name.utf8.count + suffix.utf8.count > RenameTemplate.maxBytes { name.removeLast() }
+        return name
+    }
+}

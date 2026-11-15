@@ -249,6 +249,13 @@ public enum PrivacyScanner {
         return abs(thumbAspect - imageAspect) / imageAspect > aspectTolerance + rounding
     }
 
+    /// The size of the thumbnail embedded in `data` (EXIF IFD1 or a container's thumbnail), nil when it has none.
+    static func embeddedThumbnailSize(in data: Data) -> (width: Int, height: Int)? {
+        let options = [kCGImageSourceShouldCache: false] as CFDictionary
+        guard let source = CGImageSourceCreateWithData(data as CFData, options) else { return nil }
+        return embeddedThumbnailSize(source: source, head: { data.prefix(headBytes) })
+    }
+
     private static func embeddedThumbnailSize(source: CGImageSource, head: () -> Data?) -> (width: Int, height: Int)? {
         if let info = (CGImageSourceCopyProperties(source, nil) as? [String: Any])
             .flatMap({ $0[kCGImagePropertyFileContentsDictionary as String] as? [String: Any] })
@@ -321,7 +328,7 @@ public enum PrivacyScanner {
 }
 
 /// Bounds-checked reads from a TIFF block in its byte order.
-private struct TIFFReader {
+struct TIFFReader {
     let bytes: [UInt8]
     let little: Bool
 

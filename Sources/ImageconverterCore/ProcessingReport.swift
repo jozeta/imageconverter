@@ -21,10 +21,12 @@ public struct ReportEntry: Codable, Equatable, Sendable {
     public var outputHeight: Int?
     /// A note on a written file, or the reason a file failed.
     public var note: String?
+    /// The extra output's label; nil for the primary output (and for failed or skipped files).
+    public var variant: String?
 
     public init(source: String, destination: String? = nil, status: ReportStatus, inputBytes: Int?,
                 outputBytes: Int? = nil, duration: Double = 0, inputWidth: Int? = nil, inputHeight: Int? = nil,
-                outputWidth: Int? = nil, outputHeight: Int? = nil, note: String? = nil) {
+                outputWidth: Int? = nil, outputHeight: Int? = nil, note: String? = nil, variant: String? = nil) {
         self.source = source
         self.destination = destination
         self.status = status
@@ -36,6 +38,7 @@ public struct ReportEntry: Codable, Equatable, Sendable {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.note = note
+        self.variant = variant
     }
 
     /// Output size divided by input size; nil unless the file was written from a non-empty source.
@@ -44,7 +47,11 @@ public struct ReportEntry: Codable, Equatable, Sendable {
         return Double(outputBytes) / Double(inputBytes)
     }
 
-    public var name: String { (source as NSString).lastPathComponent }
+    /// The source's file name; an extra output's row adds its label (`a.jpg + Thumbnail`).
+    public var name: String {
+        let file = (source as NSString).lastPathComponent
+        return variant.map { "\(file) + \($0)" } ?? file
+    }
 }
 
 /// Totals for one run.
@@ -65,6 +72,9 @@ public struct RunSummary: Codable, Equatable, Sendable, Identifiable {
     public var cancelled: Int
     public var inputBytes: Int
     public var outputBytes: Int
+    /// Extra outputs that weren't written for images that were (nil in runs saved before they existed).
+    public var extraFailures: Int?
+    public var extraFailureCount: Int { extraFailures ?? 0 }
 
     public var savedBytes: Int { inputBytes - outputBytes }
     public var totalDuration: Double { finishedAt.timeIntervalSince(startedAt) }
@@ -116,12 +126,19 @@ public struct ProcessingReport: Equatable, Sendable {
                 source: entry.source.path, destination: entry.destination.path, status: .succeeded,
                 inputBytes: entry.inputBytes, outputBytes: entry.outputBytes, duration: entry.duration,
                 inputWidth: entry.inputWidth, inputHeight: entry.inputHeight, outputWidth: entry.outputWidth,
-                outputHeight: entry.outputHeight, note: entry.note))
+                outputHeight: entry.outputHeight, note: entry.note, variant: entry.variant))
         }
         for failure in batch.failures {
             byName[failure.source, default: []].append(ReportEntry(
                 source: failure.source.path, status: .failed, inputBytes: failure.inputBytes,
                 duration: failure.duration, note: failure.reason))
+        }
+        // An extra output that wasn't written is a failed row under its image (the error log and job reports list
+        // it); the image itself still counts as converted.
+        for failure in batch.extraFailures {
+            byName[failure.source, default: []].append(ReportEntry(
+                source: failure.source.path, destination: failure.destination?.path, status: .failed,
+                inputBytes: nil, note: failure.message, variant: failure.name))
         }
         for skip in batch.skipped {
             byName[skip.source, default: []].append(ReportEntry(
@@ -131,25 +148,36 @@ public struct ProcessingReport: Equatable, Sendable {
         var seen: Set<URL> = []
         for source in batch.order where seen.insert(source).inserted { entries += byName[source] ?? [] }
         // A hand-built BatchReport has no order: keep written then failed.
-        if batch.order.isEmpty {
-            entries = batch.entries.compactMap { written in byName[written.source]?.first { $0.status == .succeeded } }
-                + batch.failures.map { failure in ReportEntry(source: failure.source.path, status: .failed,
-                                                        inputBytes: failure.inputBytes, duration: failure.duration,
-                                                        note: failure.reason) }
-                + batch.skipped.map { ReportEntry(source: $0.source.path, status: .skipped, inputBytes: $0.inputBytes,
-                                                  note: $0.reason) }
-        }
-        let ratios = entries.compactMap(\.ratio)
-        let done = batch.entries.count + batch.failures.count + batch.skipped.count
+        if batch.order.isEmpty { entries = Self.unorderedEntries(batch, byName: byName) }
+        // Counts and averages are per image: extra outputs are rows of their own, but not more images.
+        let primaries = entries.filter { $0.variant == nil }
+        let ratios = primaries.compactMap(\.ratio)
+        let done = batch.convertedCount + batch.failures.count + batch.skipped.count
         let notRun = batch.cancelled ? max(0, total - done) : 0
-        let times = entries.filter { $0.status == .succeeded }.map(\.duration)
+        let times = primaries.filter { $0.status == .succeeded }.map(\.duration)
         let summary = RunSummary(
             startedAt: startedAt, finishedAt: finishedAt, jobName: jobName, presetName: presetName,
-            outputMode: outputMode, total: total, succeeded: batch.entries.count, failed: batch.failures.count,
+            outputMode: outputMode, total: total, succeeded: batch.convertedCount, failed: batch.failures.count,
             skipped: batch.skipped.count, cancelled: notRun, inputBytes: batch.inputBytes, outputBytes: batch.outputBytes,
             averageDuration: times.isEmpty ? 0 : times.reduce(0, +) / Double(times.count),
             averageRatio: ratios.isEmpty ? nil : ratios.reduce(0, +) / Double(ratios.count))
-        self.init(summary: summary, entries: entries)
+        var counted = summary
+        counted.extraFailures = batch.extraFailures.isEmpty ? nil : batch.extraFailures.count
+        self.init(summary: counted, entries: entries)
+    }
+
+    /// The entries of a hand-built report without `order`: written (with their extra outputs), failed, skipped.
+    private static func unorderedEntries(_ batch: BatchReport, byName: [URL: [ReportEntry]]) -> [ReportEntry] {
+        var listed: Set<URL> = []
+        return batch.entries.filter { listed.insert($0.source).inserted }
+            .flatMap { written in
+                (byName[written.source] ?? []).filter { $0.status == .succeeded || $0.variant != nil }
+            }
+            + batch.failures.map { failure in ReportEntry(source: failure.source.path, status: .failed,
+                                                          inputBytes: failure.inputBytes, duration: failure.duration,
+                                                          note: failure.reason) }
+            + batch.skipped.map { ReportEntry(source: $0.source.path, status: .skipped, inputBytes: $0.inputBytes,
+                                              note: $0.reason) }
     }
 }
 

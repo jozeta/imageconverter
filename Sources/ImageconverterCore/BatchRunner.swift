@@ -2,117 +2,12 @@ import CoreGraphics
 import Foundation
 import ImageIO
 
-/// How far a batch has got. `completed` counts successes, failures and files skipped by a condition.
-public struct BatchProgress: Equatable, Sendable {
-    public let completed: Int
-    public let failed: Int
-    public let total: Int
-
-    public init(completed: Int, failed: Int, total: Int) {
-        self.completed = completed
-        self.failed = failed
-        self.total = total
-    }
-}
-
-/// A file that was skipped, and why.
-public struct BatchFailure: Equatable, Sendable {
-    public let source: URL
-    public let reason: String
-    /// Size of the source file, read on the worker before it was touched; nil if it couldn't be read.
-    public let inputBytes: Int?
-    /// Seconds the worker spent on the file (0 when unknown); set by the runner after the fact.
-    public var duration: Double = 0
-
-    public init(source: URL, reason: String, inputBytes: Int? = nil) {
-        self.source = source
-        self.reason = reason
-        self.inputBytes = inputBytes
-    }
-}
-
-/// A file a condition left alone: nothing was written for it, and it isn't a failure.
-public struct BatchSkip: Equatable, Sendable {
-    public let source: URL
-    public let reason: String
-    public let inputBytes: Int?
-
-    public init(source: URL, reason: String = ConditionalStep.skippedReason, inputBytes: Int? = nil) {
-        self.source = source
-        self.reason = reason
-        self.inputBytes = inputBytes
-    }
-}
-
-/// Something worth telling about a file that was written (e.g. a target size it couldn't reach).
-public struct BatchNote: Equatable, Sendable {
-    public let source: URL
-    public let text: String
-
-    public init(source: URL, text: String) {
-        self.source = source
-        self.text = text
-    }
-}
-
-/// One written file with its byte counts.
-public struct BatchResultEntry: Equatable, Sendable {
-    public let source: URL
-    public let destination: URL
-    /// Nil when the source size couldn't be read.
-    public let inputBytes: Int?
-    public let outputBytes: Int
-    public let note: String?
-    /// Seconds the worker spent on the file, and the pixel sizes read before and after (set by the runner).
-    public var duration: Double = 0
-    public var inputWidth: Int?
-    public var inputHeight: Int?
-    public var outputWidth: Int?
-    public var outputHeight: Int?
-
-    public init(source: URL, destination: URL, inputBytes: Int?, outputBytes: Int, note: String? = nil) {
-        self.source = source
-        self.destination = destination
-        self.inputBytes = inputBytes
-        self.outputBytes = outputBytes
-        self.note = note
-    }
-}
-
-/// The outcome of a batch: all lists are in input order. A note is not a failure; its file was written.
-public struct BatchReport: Equatable, Sendable {
-    public var written: [URL]
-    public var failures: [BatchFailure]
-    public var notes: [BatchNote]
-    public var cancelled: Bool
-    /// One entry per written file (same order as `written`).
-    public var entries: [BatchResultEntry]
-
-    /// Every processed file's source, written, failed or skipped, in input order (so reports can interleave them).
-    public var order: [URL] = []
-    /// Files a condition skipped (in input order); always listed, even when the run was cancelled.
-    public var skipped: [BatchSkip] = []
-
-    /// Source bytes of the written files whose size is known (files with an unknown size are left out of both totals).
-    public var inputBytes: Int { entries.reduce(0) { $0 + ($1.inputBytes ?? 0) } }
-    /// Output bytes of the same files.
-    public var outputBytes: Int { entries.filter { $0.inputBytes != nil }.reduce(0) { $0 + $1.outputBytes } }
-
-    public init(written: [URL] = [], failures: [BatchFailure] = [], notes: [BatchNote] = [], cancelled: Bool = false,
-                entries: [BatchResultEntry] = []) {
-        self.written = written
-        self.failures = failures
-        self.notes = notes
-        self.cancelled = cancelled
-        self.entries = entries
-    }
-}
-
 /// What one item encodes to, before it is committed.
 struct EncodedItem {
     let data: Data
-    /// The upright image as decoded (smaller than the file when the decode hint applied, see `downsampled`).
-    let source: CGImage
+    /// The upright image as decoded (smaller than the file when the decode hint applied, see `downsampled`);
+    /// nil for a lossless metadata-only copy, which never decodes (`LosslessMetadata`).
+    let source: CGImage?
     /// True when `source` was decoded below full size (`Pipeline.decodeHint`).
     let downsampled: Bool
     /// The quality the compression mode chose; nil for formats without one.
@@ -120,6 +15,8 @@ struct EncodedItem {
     let note: String?
     /// The date taken as written, when the Metadata step sets file dates (nil: none written).
     var dateTaken: Date?
+    /// The extra outputs, encoded from the same processed image, in order.
+    var variants: [EncodedVariant] = []
 }
 
 /// A written file and its note, if any.
@@ -130,6 +27,9 @@ struct WrittenItem {
     let outputBytes: Int
     var inputSize: (width: Int, height: Int)?
     var outputSize: (width: Int, height: Int)?
+    /// The extra outputs written after this one, and those that failed.
+    var extras: [WrittenExtra] = []
+    var extraFailures: [BatchExtraFailure] = []
 }
 
 public enum BatchRunner {
@@ -184,9 +84,11 @@ public enum BatchRunner {
         if let hint = pipeline.decodeHint(sourceWidth: size.width, sourceHeight: size.height),
            decodesAtReducedSize(plan.item.source) {
             let decoded = hint.decodedSize(sourceWidth: size.width, sourceHeight: size.height)
-            return max(1, hint.pipeline.peakPixels(sourceWidth: decoded.width, sourceHeight: decoded.height))
+            var hinted = hint.pipeline
+            hinted.extraOutputs = pipeline.extraOutputs
+            return max(1, hinted.peakPixelsWithVariants(sourceWidth: decoded.width, sourceHeight: decoded.height))
         }
-        return max(1, pipeline.peakPixels(sourceWidth: size.width, sourceHeight: size.height))
+        return max(1, pipeline.peakPixelsWithVariants(sourceWidth: size.width, sourceHeight: size.height))
     }
 
     /// Formats ImageIO decodes at reduced size (shared with the decode limits' memory check).
@@ -217,6 +119,11 @@ public enum BatchRunner {
                 (entry.inputWidth, entry.inputHeight) = (item.inputSize?.width, item.inputSize?.height)
                 (entry.outputWidth, entry.outputHeight) = (item.outputSize?.width, item.outputSize?.height)
                 report.entries.append(entry)
+                for extra in item.extras {
+                    report.written.append(extra.url)
+                    report.entries.append(extra.entry(source: plan.item.source, primary: item))
+                }
+                report.extraFailures += item.extraFailures
             case .failure(let error) where error.outputWasCommitted:
                 // Saved, only the Trash failed: a written file with a warning, so a job records the new file as an
                 // output and the original's version as done (it would otherwise rename its own output again).
@@ -241,9 +148,12 @@ public enum BatchRunner {
         return report
     }
 
+    /// Encodes the item and its extra outputs (`variants`, planned with it), then commits the primary output and,
+    /// only once it is in place, each extra output (a new file each). In overwrite mode the original goes to the
+    /// Trash last, after the extra outputs; if that fails, everything stays written and the item has a warning.
     static func convert(
         _ plan: PlannedOutput, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int, trash: Trasher,
-        options: ItemRunOptions = ItemRunOptions()
+        options: ItemRunOptions = ItemRunOptions(), variants: [PlannedVariant] = []
     ) -> (Result<WrittenItem?, ConversionError>, Int?) {
         // Read on the worker, before overwrite mode replaces the source.
         let inputBytes = fileSize(plan.item.source)
@@ -251,21 +161,36 @@ public enum BatchRunner {
         return (autoreleasepool { () -> Result<WrittenItem?, ConversionError> in
             do {
                 let encoded = try encodeItem(plan.item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
-                                             options: options)
+                                             options: options, variants: variants.map(\.variant))
                 let setsDates = pipeline.metadata.isActive && pipeline.metadata.setFileDates
                 // Read before the commit: overwrite mode replaces or trashes the source.
                 let sourceDates = setsDates ? fileDates(plan.item.source) : nil
                 options.stage(.writing)
-                try FileCommitter.commit(encoded.data, for: plan, trash: trash)
+                let primary = PlannedOutput(item: plan.item, destination: plan.destination,
+                                            replacesSource: plan.replacesSource, trashesSource: false)
+                try FileCommitter.commit(encoded.data, for: primary, trash: trash)
                 var notes = [encoded.note].compactMap { $0 }
                 if setsDates, let failure = setFileDates(of: plan.destination, taken: encoded.dateTaken,
                                                          source: sourceDates) {
                     notes.append(failure)
                 }
+                let setDates: ((URL, Date?) -> String?)? = setsDates
+                    ? { setFileDates(of: $0, taken: $1, source: sourceDates) } : nil
+                let (extras, extraFailures) = commitVariants(encoded.variants, planned: variants, item: plan.item,
+                                                             trash: trash, setDates: setDates)
+                notes += extraFailures.map(\.message)
+                if plan.trashesSource {
+                    do { try trash(plan.item.source) } catch {
+                        // Saved, only the Trash failed: the warning leads the note.
+                        notes.insert(FileCommitter.trashFailurePrefix + error.localizedDescription, at: 0)
+                    }
+                }
                 var written = WrittenItem(url: plan.destination, note: notes.isEmpty ? nil : notes.joined(separator: "; "),
                                           inputBytes: inputBytes, outputBytes: encoded.data.count)
                 written.inputSize = inputSize
                 written.outputSize = ImageLoader.pixelSize(of: encoded.data)
+                written.extras = extras
+                written.extraFailures = extraFailures
                 return .success(written)
             } catch is CancellationError {
                 return .success(nil)
@@ -277,7 +202,7 @@ public enum BatchRunner {
         }, inputBytes)
     }
 
-    private static func fileDates(_ url: URL) -> (created: Date?, modified: Date?)? {
+    static func fileDates(_ url: URL) -> (created: Date?, modified: Date?)? {
         guard let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]) else {
             return nil
         }
@@ -286,8 +211,8 @@ public enum BatchRunner {
 
     /// Sets the written file's creation and modification dates to the date taken, or to the source's own
     /// dates when there is none. Returns a note for the report when that fails (the file itself is fine).
-    private static func setFileDates(of url: URL, taken: Date?,
-                                     source: (created: Date?, modified: Date?)?) -> String? {
+    static func setFileDates(of url: URL, taken: Date?,
+                             source: (created: Date?, modified: Date?)?) -> String? {
         var attributes: [FileAttributeKey: Any] = [:]
         if let taken {
             attributes = [.creationDate: taken, .modificationDate: taken]
@@ -319,6 +244,17 @@ public enum BatchRunner {
         let properties: [String: Any]
         /// Step notes (e.g. "No document edges found").
         let notes: [String]
+        /// What the output properties are made from, so an extra output can make its own (its format's DPI keys).
+        var sourceProperties: [String: Any] = [:]
+        var sourceMetadata: CGImageMetadata?
+        var sourceWidth = 0
+        var sourceHeight = 0
+
+        /// The metadata properties `pipeline` writes for this item.
+        func properties(for pipeline: Pipeline) -> [String: Any] {
+            pipeline.outputProperties(from: sourceProperties, metadata: sourceMetadata, sourceWidth: sourceWidth,
+                                      sourceHeight: sourceHeight)
+        }
     }
 
     /// Shared by the batch, the size estimate and the quality ladder so none of them can drift: all of them
@@ -344,17 +280,51 @@ public enum BatchRunner {
         let height = hint != nil ? fullSize?.height ?? loaded.image.height : loaded.image.height
         let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
                                                    sourceWidth: width, sourceHeight: height)
-        return PreparedItem(source: loaded.image, downsampled: hint != nil, image: image, properties: properties,
-                            notes: stepNotes)
+        var prepared = PreparedItem(source: loaded.image, downsampled: hint != nil, image: image,
+                                    properties: properties, notes: stepNotes)
+        prepared.sourceProperties = loaded.properties
+        prepared.sourceMetadata = loaded.metadata
+        (prepared.sourceWidth, prepared.sourceHeight) = (width, height)
+        return prepared
     }
 
     /// Load, apply, metadata and encode for one file: everything the batch does before it commits.
-    /// The size estimate shares it so the estimate can't drift from what is written.
+    /// The size estimate shares it so the estimate can't drift from what is written. A pipeline that only
+    /// changes metadata copies the image data untouched instead (`LosslessMetadata`), or says in the note why
+    /// it was re-encoded after all.
+    /// `variants` are encoded after the primary output from the same processed image (`encodeVariants`).
     static func encodeItem(
         _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int,
-        options: ItemRunOptions = ItemRunOptions()
+        options: ItemRunOptions = ItemRunOptions(), variants: [OutputVariant] = []
     ) throws -> EncodedItem {
-        let prepared = try prepare(url, pipeline: pipeline, assets: assets, maxPixels: maxPixels, options: options)
+        let preparation = ItemPreparation {
+            try prepare(url, pipeline: pipeline, assets: assets, maxPixels: maxPixels, options: options)
+        }
+        var encoded = try encodePrimary(url, pipeline: pipeline, maxPixels: maxPixels, options: options,
+                                        preparation: preparation)
+        encoded.variants = try encodeVariants(variants, url: url, pipeline: pipeline, maxPixels: maxPixels,
+                                              preparation: preparation)
+        return encoded
+    }
+
+    private static func encodePrimary(
+        _ url: URL, pipeline: Pipeline, maxPixels: Int, options: ItemRunOptions, preparation: ItemPreparation
+    ) throws -> EncodedItem {
+        var losslessNote: String?
+        if LosslessMetadata.applies(to: pipeline) {
+            options.stage(.decoding)
+            switch try LosslessMetadata.write(url, pipeline: pipeline, maxPixels: maxPixels) {
+            case .written(let data, let properties)?:
+                options.stage(.encoding)
+                try options.beforeEncode?(url, options.attempt)
+                let taken = pipeline.metadata.setFileDates ? MetadataDates.dateTaken(in: properties) : nil
+                return EncodedItem(data: data, source: nil, downsampled: false, quality: nil,
+                                   note: LosslessMetadata.pixelsUntouchedNote, dateTaken: taken)
+            case .reencode(let note)?: losslessNote = note
+            case nil: break
+            }
+        }
+        let prepared = try preparation.get()
         let properties = prepared.properties
         let stepNotes = prepared.notes
         options.stage(.encoding)
@@ -363,7 +333,7 @@ public enum BatchRunner {
         let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
             ? MetadataDates.dateTaken(in: properties) : nil
         // Step notes (e.g. "No document edges found") come first, then the encoder's.
-        let notes = stepNotes + [result.note].compactMap { $0 }
+        let notes = stepNotes + [losslessNote, result.note].compactMap { $0 }
         return EncodedItem(data: result.data, source: prepared.source, downsampled: prepared.downsampled,
                            quality: result.quality,
                            note: notes.isEmpty ? nil : notes.joined(separator: "; "), dateTaken: taken)

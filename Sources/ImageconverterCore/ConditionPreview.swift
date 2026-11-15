@@ -22,6 +22,23 @@ public enum RunCountsText {
         if failed > 0 { parts.append("\(failed) failed") }
         return parts.joined(separator: " · ")
     }
+
+    /// "1 extra output failed", "3 extra outputs failed".
+    public static func extraFailures(_ count: Int) -> String {
+        "\(count) extra \(count == 1 ? "output" : "outputs") failed"
+    }
+
+    /// The end-of-run line for the toast and the notification: the counts, then the failed extra outputs, then
+    /// the saving of the primary outputs against their sources ("Converted 20 images · 2 extra outputs failed ·
+    /// saved 31 MB (62 %)"). `hasProblems` is true when files or extra outputs failed.
+    public static func runSummary(_ report: BatchReport) -> (text: String, hasProblems: Bool) {
+        var text = make(written: report.convertedCount, skipped: report.skipped.count, failed: report.failures.count)
+        if !report.extraFailures.isEmpty { text += " · " + extraFailures(report.extraFailures.count) }
+        if let saved = SizeFormat.savedPhrase(input: report.inputBytes, output: report.primaryOutputBytes) {
+            text += " · \(saved)"
+        }
+        return (text, !report.failures.isEmpty || !report.extraFailures.isEmpty)
+    }
 }
 
 /// What the preview needs to know about the conditions for one selected item.

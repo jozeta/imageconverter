@@ -25,7 +25,11 @@ extension AppModel {
         }
         guard let preset = allPresets.first(where: { $0.id == id }) else { return .done }
         let result = session.select(preset, force: force)
-        if result == .done { refreshWatermarkBookmarks() }
+        if result == .done {
+            refreshWatermarkBookmarks()
+            // Extra outputs that couldn't be read were left out when the preset was loaded: say so once.
+            announceLoadNotes(preset.pipeline)
+        }
         return result
     }
 
