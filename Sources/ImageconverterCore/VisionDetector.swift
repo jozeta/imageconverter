@@ -44,6 +44,12 @@ public enum VisionInput {
     }
 }
 
+/// The working copy for Vision couldn't be made: a detection that can't look must say so, never report nothing
+/// found (the Redact step would then write the image unredacted).
+public struct VisionInputError: LocalizedError {
+    public var errorDescription: String? { "the image couldn't be prepared for Vision" }
+}
+
 /// Vision on this Mac (APIs available since macOS 10.15, so nothing here needs a newer SDK).
 public struct SystemVisionDetector: VisionDetector {
     /// How many salient regions make up the subject.
@@ -56,7 +62,7 @@ public struct SystemVisionDetector: VisionDetector {
     }
 
     public func faceRects(in image: CGImage, maxSide: Int) throws -> [CGRect] {
-        guard let input = VisionInput.prepared(image, maxSide: maxSide) else { return [] }
+        guard let input = VisionInput.prepared(image, maxSide: maxSide) else { throw VisionInputError() }
         let request = VNDetectFaceRectanglesRequest()
         try VNImageRequestHandler(cgImage: input, options: [:]).perform([request])
         return (request.results ?? []).map { Self.topLeft($0.boundingBox) }
@@ -64,7 +70,7 @@ public struct SystemVisionDetector: VisionDetector {
 
     /// Attention-based and objectness-based saliency together; the most confident boxes of both.
     public func subjectRects(in image: CGImage) throws -> [CGRect] {
-        guard let input = VisionInput.prepared(image) else { return [] }
+        guard let input = VisionInput.prepared(image) else { throw VisionInputError() }
         let attention = VNGenerateAttentionBasedSaliencyImageRequest()
         let objectness = VNGenerateObjectnessBasedSaliencyImageRequest()
         try VNImageRequestHandler(cgImage: input, options: [:]).perform([attention, objectness])
@@ -77,11 +83,13 @@ public struct SystemVisionDetector: VisionDetector {
 
     /// Read from a copy of up to `Redaction.textMaxLongSide` pixels: small text needs more than faces do.
     public func textRects(in image: CGImage) throws -> [CGRect] {
-        guard let input = VisionInput.prepared(image, maxSide: Redaction.textMaxLongSide) else { return [] }
+        guard let input = VisionInput.prepared(image, maxSide: Redaction.textMaxLongSide) else {
+            throw VisionInputError()
+        }
         let request = SystemImageAnalyzer.textRequest()
         let rectangles = VNDetectTextRectanglesRequest()
         try VNImageRequestHandler(cgImage: input, options: [:]).perform([request, rectangles])
-        return TextBoxes.merged(recognized: SystemImageAnalyzer.textBoxes(request.results ?? []).map(Self.topLeft),
+        return TextBoxes.combined(recognized: SystemImageAnalyzer.textBoxes(request.results ?? []).map(Self.topLeft),
                                 rectangles: (rectangles.results ?? []).map { Self.topLeft($0.boundingBox) })
     }
 

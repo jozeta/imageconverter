@@ -212,13 +212,21 @@ public enum Redaction {
     }
 }
 
-/// Text boxes from two detectors together: every recognised line, plus each text rectangle that isn't mostly the
-/// same area as one of them (stylised or handwritten text that recognition drops).
+/// Text boxes from two detectors together. Every box is redacted: recognised lines and text rectangles alike (a
+/// rectangle can be larger than the line inside it, and stylised or handwritten text has only a rectangle). Overlaps
+/// matter only for the report's count.
 public enum TextBoxes {
-    public static func merged(recognized: [CGRect], rectangles: [CGRect]) -> [CGRect] {
-        recognized + rectangles.filter { box in
-            !recognized.contains { overlap(box, $0) >= 0.5 }
-        }
+    /// Every recognised line, then every text rectangle; nothing dropped.
+    public static func combined(recognized: [CGRect], rectangles: [CGRect]) -> [CGRect] {
+        recognized + rectangles
+    }
+
+    /// How many text areas `boxes` are for the report: a box overlapping one already counted by at least half of
+    /// the smaller box's area is the same area.
+    public static func distinctCount(_ boxes: [CGRect]) -> Int {
+        var counted: [CGRect] = []
+        for box in boxes where !counted.contains(where: { overlap(box, $0) >= 0.5 }) { counted.append(box) }
+        return counted.count
     }
 
     /// Intersection over the smaller box's area (0 when they don't meet).

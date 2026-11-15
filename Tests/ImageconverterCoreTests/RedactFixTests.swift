@@ -212,12 +212,33 @@ final class RedactDetectionQualityTests: XCTestCase {
         XCTAssertEqual(detector.faceSides, [2048])
     }
 
-    func testTextBoxesAreMergedWithoutDoubles() {
+    func testEveryTextBoxIsKeptAndOnlyTheCountIsDeduplicated() {
         let line = CGRect(x: 0.1, y: 0.1, width: 0.5, height: 0.1)
         let sameLine = CGRect(x: 0.11, y: 0.1, width: 0.48, height: 0.1)
         let handwriting = CGRect(x: 0.2, y: 0.6, width: 0.3, height: 0.2)
-        XCTAssertEqual(TextBoxes.merged(recognized: [line], rectangles: [sameLine, handwriting]), [line, handwriting])
-        XCTAssertEqual(TextBoxes.merged(recognized: [], rectangles: [handwriting]), [handwriting])
+        XCTAssertEqual(TextBoxes.combined(recognized: [line], rectangles: [sameLine, handwriting]),
+                       [line, sameLine, handwriting])
+        XCTAssertEqual(TextBoxes.distinctCount([line, sameLine, handwriting]), 2)
+        XCTAssertEqual(TextBoxes.distinctCount([]), 0)
+    }
+
+    func testAWideTextRectangleAroundASmallerLineIsRedactedWhole() throws {
+        let line = CGRect(x: 0.2, y: 0.4, width: 0.3, height: 0.1)
+        let rectangle = CGRect(x: 0.1, y: 0.35, width: 0.7, height: 0.2)
+        let detector = FakeVisionDetector(text: TextBoxes.combined(recognized: [line], rectangles: [rectangle]))
+        let fill = RedactOptions(target: .text, style: .fill, fillColor: RGBAColor(red: 0, green: 1, blue: 0, alpha: 1),
+                                 padding: 0)
+        var notes: [String] = []
+        let out = try Pipeline(steps: [PipelineStep(operation: .redact(fill))])
+            .apply(to: TestImages.make(width: 100, height: 100), focus: FocusContext(detector: detector), notes: &notes)
+        for row in 35..<55 {
+            for col in 10..<80 {
+                let pixel = TestImages.pixel(of: out, x: col, y: row)
+                if !(pixel.green > 250 && pixel.red < 5) { return XCTFail("(\(col), \(row)) not redacted") }
+            }
+        }
+        XCTAssertGreaterThan(TestImages.pixel(of: out, x: 90, y: 45).red, 150, "outside the rectangle untouched")
+        XCTAssertEqual(notes, ["Redacted 1 text area"])
     }
 
     func testContentCheckReportsFailuresAndUsesTheRedactResolution() throws {

@@ -73,7 +73,7 @@ extension Pipeline {
         if let failure = found.failure { throw ConversionError.redactUnchecked(target: options.target, reason: failure) }
         let size = CGSize(width: image.width, height: image.height)
         let rects = Redaction.pixelRects(found.faces + found.text, padding: options.clampedPadding, in: size)
-        let note = Redaction.note(faces: found.faces.count, text: found.text.count)
+        let note = Redaction.note(faces: found.faces.count, text: TextBoxes.distinctCount(found.text))
         if !notes.contains(note) { notes.append(note) }
         return rects
     }
