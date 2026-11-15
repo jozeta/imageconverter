@@ -25,7 +25,7 @@ extension BatchRunner {
         // A normal finish and a cancel both end here; only a crash or a forced quit leaves the journal.
         defer { writer?.remove() }
         guard let plan = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, busy: busy,
-                                           presets: presets),
+                                           presets: presets, analysis: hooks.analysis),
               !Task.isCancelled
         else { return BatchReport(cancelled: true) }
         // Temp files never collide with planned names, so this can wait until every destination folder is known.

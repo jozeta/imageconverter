@@ -45,8 +45,9 @@ enum RenameRendering {
         let folder = job.subfolder.map(SubfolderTemplate.parts) ?? []
         let notes = job.noteTemplates.map(RenameTemplate.init)
         guard !folder.isEmpty || !notes.isEmpty else { return ([], []) }
-        let context = context(for: item, index: index, pipeline: job.pipeline, isCopy: job.disposition == .copyOriginal,
+        var context = context(for: item, index: index, pipeline: job.pipeline, isCopy: job.disposition == .copyOriginal,
                               templates: folder + notes)
+        context.labels = job.labels
         return (SubfolderTemplate.render(folder, context), notes.map { $0.renderText(context) }.filter { !$0.isEmpty })
     }
 

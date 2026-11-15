@@ -148,7 +148,8 @@ public enum StepHelp {
             return StepHelpInfo(
                 title: "If ... then ... else",
                 summary: "Treats images differently depending on what they are, e.g. "
-                    + "name, date taken, camera, size, format, orientation or whether they have a location.",
+                    + "name, date taken, camera, size, format, orientation, whether they have a location, "
+                    + "or what they show (analysed on this Mac).",
                 howTo: [
                     "Add up to 10 tests and choose whether all or any of them must match; tick Not to turn a test around.",
                     "Tests look at the original file, before any steps run, not at the image part-way through the pipeline.",
@@ -158,7 +159,9 @@ public enum StepHelp {
                 ],
                 tips: [
                     "With several conditions, later output, metadata and rename settings win, and Skip beats Copy.",
-                    "Copy original keeps the file byte for byte, unless the Metadata step removes something; then it is converted instead."
+                    "Copy original keeps the file byte for byte, unless the Metadata step removes something; then it is converted instead.",
+                    "Content tests (Shows, faces, text) are best effort, on a small copy; "
+                        + "{labels} puts what an image shows into tags or keywords."
                 ])
         case .metadata:
             return StepHelpInfo(

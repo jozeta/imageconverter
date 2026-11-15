@@ -7,9 +7,16 @@ struct FileActionEditor: View {
     @Environment(AppModel.self) private var model: AppModel?
 
     /// The example the subfolder and note editors render (a typical camera file).
-    private static let sample = RenameContext(
-        name: "IMG_0042", ext: "jpg", format: "JPEG", folder: "Photos", date: Date(), make: "Apple",
-        model: "iPhone 15 Pro", lens: nil, iso: 100, width: 4032, height: 3024, counter: 1)
+    private static let sample: RenameContext = {
+        var context = RenameContext(
+            name: "IMG_0042", ext: "jpg", format: "JPEG", folder: "Photos", date: Date(), make: "Apple",
+            model: "iPhone 15 Pro", lens: nil, iso: 100, width: 4032, height: 3024, counter: 1)
+        context.labels = ["dog", "grass"]
+        return context
+    }()
+
+    /// The rename tokens, plus `{labels}` (what the image shows), which only conditions offer.
+    private static let tokens = RenameTemplate.tokenExamples + [LabelToken.token]
 
     var body: some View {
         switch action {
@@ -17,18 +24,20 @@ struct FileActionEditor: View {
         case .finderTags(let tags):
             ListTextField(values: tags, prompt: "tags, e.g. Portraits, Red", parse: FinderTags.parse,
                           label: "Finder tags, separated by commas") { action = .finderTags($0) }
-            caption("Added to the written file's own tags (on this Mac). Up to \(FinderTags.maxTags).")
+            caption("Added to the written file's own tags (on this Mac). Up to \(FinderTags.maxTags). "
+                    + "{labels} adds one tag per label the image shows.")
         case .preset(let link): presetPicker(link)
         case .addKeywords(let keywords):
             ListTextField(values: keywords, prompt: "keywords, e.g. travel, family", parse: FinderTags.parse,
                           label: "Keywords, separated by commas") { action = .addKeywords($0) }
-            caption("Added to the file's keywords. What the Metadata step removes stays removed.")
+            caption("Added to the file's keywords; {labels} adds one keyword per label the image shows. "
+                    + "What the Metadata step removes stays removed.")
         case .note(let text):
             TextField("Note", text: Binding(get: { text }, set: { action = .note(String($0.prefix(ConditionalAction.maxNoteLength))) }),
                       prompt: Text("note, e.g. Needs retouching: {name}"))
                 .textFieldStyle(.roundedBorder)
                 .accessibilityLabel("Note for the report; rename tokens like {name} are filled in")
-            caption("Shown in the report for this file. Tokens such as {name}, {camera} or {date} are filled in.")
+            caption("Shown in the report for this file. Tokens such as {name}, {camera}, {date} or {labels} are filled in.")
         default:
             EmptyView()
         }
@@ -42,7 +51,7 @@ struct FileActionEditor: View {
                 .textFieldStyle(.roundedBorder)
                 .accessibilityLabel("Subfolder; slashes make nested folders, rename tokens are filled in")
             Menu("Insert token") {
-                ForEach(RenameTemplate.tokenExamples, id: \.self) { token in
+                ForEach(Self.tokens, id: \.self) { token in
                     Button(token) { action = .subfolder(template + token) }
                 }
             }

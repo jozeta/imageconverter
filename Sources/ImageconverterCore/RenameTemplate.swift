@@ -19,6 +19,9 @@ public struct RenameContext: Sendable {
     public var aperture: Double?
     /// Shutter time in seconds.
     public var exposureTime: Double?
+    /// What `{labels}` gives (the image's classification labels); nil where the token isn't offered (file names),
+    /// so it stays literal there.
+    public var labels: [String]?
 
     public init(
         name: String, ext: String, format: String, folder: String, date: Date?,
@@ -160,6 +163,13 @@ public struct RenameTemplate: Equatable, Sendable {
     /// True when the pattern uses a date or time (and so the file's creation date as a fallback).
     public var needsDate: Bool { uses(["date", "time", "datetime"]) }
 
+    /// Known only where the context offers it (condition subfolders and notes).
+    static let labelsToken = "labels"
+
+    private static func isKnown(_ name: String, _ context: RenameContext) -> Bool {
+        knownTokens.contains(name) || (name == labelsToken && context.labels != nil)
+    }
+
     /// Token names outside the supported list, in order of appearance. They render literally.
     public var unknownTokens: [String] {
         parts.compactMap { part in
@@ -191,7 +201,7 @@ public struct RenameTemplate: Equatable, Sendable {
             switch part {
             case .literal(let text): out += text
             case let .token(name, arg, raw):
-                out += Self.knownTokens.contains(name) ? Self.value(of: name, arg: arg, context: context) : raw
+                out += Self.isKnown(name, context) ? Self.value(of: name, arg: arg, context: context) : raw
             }
         }
         // As for names: no control, bidi, zero-width or other format characters (metadata could spoof the report).
@@ -218,7 +228,7 @@ public struct RenameTemplate: Equatable, Sendable {
                 out += text
                 lastIsLiteral = !text.isEmpty || lastIsLiteral
             case let .token(name, arg, raw):
-                let value = Self.knownTokens.contains(name)
+                let value = Self.isKnown(name, context)
                     ? Self.sanitize(Self.value(of: name, arg: arg, context: context)) : raw
                 if value.isEmpty {
                     if lastIsLiteral, let last = out.last, Self.separators.contains(last) {
@@ -263,6 +273,10 @@ public struct RenameTemplate: Equatable, Sendable {
         case "height": return String(context.height)
         case "format": return context.format
         case "folder": return context.folder
+        case labelsToken:
+            // Model output: each label cleaned like metadata text, at most 10.
+            return (context.labels ?? []).prefix(ImageAnalysis.maxTokenLabels).map { MetadataFields.sanitized($0) }
+                .filter { !$0.isEmpty }.joined(separator: ", ")
         default: return exposureValue(of: name, context: context)
         }
     }

@@ -6,6 +6,7 @@ import XCTest
 final class FakeVisionDetector: VisionDetector, @unchecked Sendable {
     let faces: [CGRect]
     let subject: [CGRect]
+    let text: [CGRect]
     let error: Error?
     private let lock = NSLock()
     struct Call {
@@ -16,9 +17,10 @@ final class FakeVisionDetector: VisionDetector, @unchecked Sendable {
 
     private var calls: [Call] = []
 
-    init(faces: [CGRect] = [], subject: [CGRect] = [], error: Error? = nil) {
+    init(faces: [CGRect] = [], subject: [CGRect] = [], text: [CGRect] = [], error: Error? = nil) {
         self.faces = faces
         self.subject = subject
+        self.text = text
         self.error = error
     }
 
@@ -33,6 +35,11 @@ final class FakeVisionDetector: VisionDetector, @unchecked Sendable {
         calls.append(Call(kind: kind, width: image.width, height: image.height))
         lock.unlock()
         if let error { throw error }
+    }
+
+    func textRects(in image: CGImage) throws -> [CGRect] {
+        try record("text", image)
+        return text
     }
 
     func faceRects(in image: CGImage) throws -> [CGRect] {

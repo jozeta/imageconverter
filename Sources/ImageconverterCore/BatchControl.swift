@@ -190,4 +190,6 @@ struct BatchHooks: Sendable {
     /// Called on the worker just before an item is encoded, with its source and attempt (1, or 2 on the retry);
     /// throwing fails that attempt.
     var beforeEncode: (@Sendable (URL, Int) throws -> Void)?
+    /// Answers the content conditions (tests inject an analyzer).
+    var analysis: ImageAnalysisCache = .shared
 }

@@ -20,6 +20,8 @@ public struct ResolvedPipeline: Equatable, Sendable {
     public var noteTemplates: [String]
     /// Labels of extra outputs the planner found no free name for (set by the batch's planning).
     public var unplannedOutputs: [String] = []
+    /// What `{labels}` gives in the subfolder and note templates (empty when no template uses it).
+    public var labels: [String] = []
 
     public init(pipeline: Pipeline, disposition: Disposition = .process, notes: [String] = [],
                 subfolder: String? = nil, finderTags: [String] = [], noteTemplates: [String] = []) {
@@ -62,6 +64,7 @@ extension Pipeline {
         steps.reduce(into: FactNeeds()) { needs, step in
             guard step.isEnabled, case .condition(let conditional) = step.operation else { return }
             for condition in conditional.conditions { needs.formUnion(condition.needs) }
+            if (conditional.then + conditional.otherwise).contains(where: \.usesLabels) { needs.insert(.labels) }
         }
     }
 
@@ -74,9 +77,12 @@ extension Pipeline {
     /// copy whose metadata would have to change is converted instead, in the source's own format at the best
     /// quality, with a note. "Apply preset" reads presets from `presets`. A copied original ignores added keywords
     /// and a preset's image steps, with a note; a name pattern stopped for taking too long counts as no match,
-    /// with a note.
+    /// with a note. Content checks whose image analysis failed don't match, with a note
+    /// (`ImageAnalysis.unavailableNote`); so do macOS 15 checks on an older system (`needsNewerSystemNote`).
+    /// `{labels}` in tags and keywords becomes one entry per label.
     public func resolved(for facts: ItemFacts?, presets: PresetLibrary = .standard) -> ResolvedPipeline {
-        var state = Resolution(pipeline: self, floor: metadata, presets: presets)
+        var state = Resolution(pipeline: self, floor: metadata, presets: presets,
+                               labels: facts?.analysis.tokenLabels ?? [])
         state.pipeline.steps = []
         for step in steps {
             guard case .condition(let conditional) = step.operation else {
@@ -91,7 +97,7 @@ extension Pipeline {
         }
         var result = state.pipeline
         var disposition = state.disposition
-        var notes = state.notes
+        var notes = state.notes + analysisNotes(facts)
         // Extra outputs are made from the processed image: a copy (or a skip) has none, nor has an image whose
         // branch said so.
         if state.skipExtras || disposition != .process { result.extraOutputs = [] }
@@ -111,16 +117,28 @@ extension Pipeline {
                 .filter(\.0).map(\.1)
             if !ignored.isEmpty { notes.append(ConditionalStep.ignoredForCopyPrefix + ignored.joined(separator: ", ")) }
         }
-        return ResolvedPipeline(pipeline: result, disposition: disposition, notes: notes, subfolder: state.subfolder,
-                                finderTags: FinderTags.normalized(state.tags), noteTemplates: state.noteTemplates)
+        var resolved = ResolvedPipeline(pipeline: result, disposition: disposition, notes: notes,
+                                        subfolder: state.subfolder, finderTags: FinderTags.normalized(state.tags),
+                                        noteTemplates: state.noteTemplates)
+        resolved.labels = state.labels
+        return resolved
+    }
+
+    /// Why content checks couldn't be answered for `facts` (the analysis failed, or needs macOS 15).
+    private func analysisNotes(_ facts: ItemFacts?) -> [String] {
+        guard let facts, !conditionFactNeeds.isDisjoint(with: .analysis) else { return [] }
+        if let failure = facts.analysis.failure { return [ImageAnalysis.unavailableNote(failure)] }
+        return facts.analysis.needsNewerSystem ? [ImageAnalysis.needsNewerSystemNote] : []
     }
 
     /// Resolves for the file at `url`, reading its facts only when there are conditions (and only what they
-    /// need: the transparency scan, XMP, frame count), with the transparency scan only within `maxPixels`.
+    /// need: the transparency scan, XMP, frame count, image analysis from `analysis`), with the transparency scan
+    /// and the analysis only within `maxPixels`.
     public func resolved(forSource url: URL, maxPixels: Int = ImageLoader.defaultMaxPixels,
-                         presets: PresetLibrary = .standard) -> ResolvedPipeline {
+                         presets: PresetLibrary = .standard, analysis: ImageAnalysisCache = .shared) -> ResolvedPipeline {
         guard hasConditions else { return ResolvedPipeline(pipeline: withoutConditions) }
-        return resolved(for: ItemFacts.read(url, needs: conditionFactNeeds, maxPixels: maxPixels), presets: presets)
+        let facts = ItemFacts.read(url, needs: conditionFactNeeds, maxPixels: maxPixels, analysis: analysis)
+        return resolved(for: facts, presets: presets)
     }
 
     /// This pipeline without its (disabled) condition steps, so a resolved pipeline never holds one.
@@ -139,6 +157,8 @@ private struct Resolution {
     var pipeline: Pipeline
     let floor: MetadataOptions
     let presets: PresetLibrary
+    /// What `{labels}` gives for this image.
+    let labels: [String]
     var disposition = Disposition.process
     var notes: [String] = []
     var subfolder: String?
@@ -150,10 +170,11 @@ private struct Resolution {
     var addedKeywords = false
     var addedPresetSteps = false
 
-    init(pipeline: Pipeline, floor: MetadataOptions, presets: PresetLibrary) {
+    init(pipeline: Pipeline, floor: MetadataOptions, presets: PresetLibrary, labels: [String]) {
         self.pipeline = pipeline
         self.floor = floor
         self.presets = presets
+        self.labels = labels
     }
 
     // One case per action.
@@ -170,7 +191,7 @@ private struct Resolution {
         case .copyOriginal: if disposition == .process { disposition = .copyOriginal }
         case .skip: disposition = .skip
         case .subfolder(let template): subfolder = template
-        case .finderTags(let new): tags += new
+        case .finderTags(let new): tags += LabelToken.expand(new, labels: labels)
         case .preset(let link): applyPreset(link)
         case .addKeywords(let keywords): addKeywords(keywords)
         case .stop: stopped = true
@@ -220,7 +241,8 @@ private struct Resolution {
             options.keywordsMode = .add
             pipeline.metadata = options.withRemovals(from: floor)
         }
-        pipeline.metadata.keywords = MetadataFields.normalizedKeywords((pipeline.metadata.keywords ?? []) + keywords)
+        let added = LabelToken.expand(keywords, labels: labels)
+        pipeline.metadata.keywords = MetadataFields.normalizedKeywords((pipeline.metadata.keywords ?? []) + added)
         addedKeywords = true
     }
 }

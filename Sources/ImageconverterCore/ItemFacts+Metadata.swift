@@ -17,7 +17,20 @@ public struct FactNeeds: OptionSet, Hashable, Sendable {
     /// Counts frames or pages (ImageIO may walk an animated file for it).
     public static let frames = FactNeeds(rawValue: 1 << 2)
 
+    /// The header facts' extras (what `ItemFacts.read` reads by default); never the image analysis.
     public static let all: FactNeeds = [.alphaScan, .xmp, .frames]
+
+    // On-device image analysis (`ImageAnalysisCache`): a ≤ 1024 px decode and Vision, only when asked for.
+    /// Classification labels ("Shows", `{labels}`).
+    public static let labels = FactNeeds(rawValue: 1 << 3)
+    /// The number of faces.
+    public static let faces = FactNeeds(rawValue: 1 << 4)
+    /// Whether there is text.
+    public static let text = FactNeeds(rawValue: 1 << 5)
+    /// The aesthetics score and the screenshot-or-document flag (macOS 15+).
+    public static let aesthetics = FactNeeds(rawValue: 1 << 6)
+
+    public static let analysis: FactNeeds = [.labels, .faces, .text, .aesthetics]
 }
 
 extension ItemFacts {

@@ -138,7 +138,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     at least / at most). Image: longest edge, width, height, megapixels, aspect ratio, orientation, file size,
     format (a writable format or any file type, e.g. camera RAW), transparency (checked on a small
     thumbnail), bit depth, color space, embedded color profile, DPI, rotated by EXIF orientation, animated or
-    multi-page, location, camera. Each branch (up to 20 actions) can add image steps (not another condition)
+    multi-page, location, camera. Content (analysed on this Mac with Vision, best effort): **Shows** (any or all of
+    chosen labels, e.g. dog, beach, food), **Face count**, **Contains text**, and on macOS 15 or later **Aesthetics
+    score** and **Screenshot or document**. Each branch (up to 20 actions) can add image steps (not another condition)
     or **apply a saved preset**'s steps and settings, change the output format and settings, metadata or rename
     for that image, **save into a subfolder** (rename tokens, e.g. `{date:yyyy}/{date:MM}`), add **Finder
     tags**, add **keywords**, **copy the original** unchanged (same bytes and extension, nothing decoded; in
@@ -757,6 +759,23 @@ versions read a Subject or Faces crop as a centred one.
      Gray, CMYK or another; RGB without a profile counts as sRGB), **Color profile** (has an embedded one), **DPI** (a file
      without one counts as 72), **Rotated (EXIF)** (its EXIF orientation turns or mirrors it) and **Animated / pages**
      (more than one frame or page).
+   - **Content (analysed on this Mac)**: what the picture shows, found by Apple's Vision framework on this Mac (nothing
+     is sent anywhere), on a copy at most 1024 px on the long side. Best effort: check the results on a few images first.
+     - **Shows**: **any of** / **all of** the labels you pick with **Choose Labels…** (a searchable list of the about
+       1,300 things Vision's classifier knows, such as dog, beach, food, document; saved by their identifiers), with
+       **Confidence at least** 0.05 … 1 (default **0.3**; higher finds fewer images, with fewer mistakes).
+     - **Face count**: is more than, is less than, is at least or is at most a number of faces (0 when none are found).
+     - **Contains text**: contains text / contains no text (fast text recognition; only whether there is any).
+     - **Aesthetics score** (macOS 15 or later): Vision's overall rating from −1 (poor) to 1 (excellent), compared with
+       a number.
+     - **Screenshot or document** (macOS 15 or later): Vision rates the image a screenshot, document, receipt or
+       similar rather than a photo.
+
+     The analysis runs only when a condition (or `{labels}`) needs it, once per file version: the preview, the size
+     estimate and the batch share it. On macOS 14 the last two never match (with **Not** either) and the report says
+     once per run "Aesthetics and screenshot checks need macOS 15 or later; they don't match on this Mac"; the kind menu
+     marks them "(needs macOS 15 or later)". If Vision can't analyse an image, its content checks don't match and the
+     report says "Image analysis unavailable: …" for that file; the file is still processed.
 
    Tick **Not** to turn a check around: "name does not start with “IMG”", "has no date taken", "is not 16-bit". A
    check on a value the file doesn't have (no date taken, no ISO, no camera) is false either way, so "date taken is not
@@ -776,11 +795,18 @@ versions read a Subject or Faces crop as a centred one.
      or `{camera}`; inside the output folder, or inside the image's own folder when saving next to the originals; each
      folder name is made safe like a file name, `..` and empty names are dropped, at most 5 levels; ignored with a note
      when overwriting originals; name clashes are numbered per folder), **Add Finder tags…** (comma-separated; added to the
-     written file's own tags on this Mac; never to an original that overwrite mode leaves untouched, which the report
+     written file's own tags on this Mac; `{labels}` adds one tag per label; never to an original that overwrite mode leaves untouched, which the report
      notes) and **Copy original unchanged** (the file is copied as it is, nothing is decoded; added keywords and a
      preset's image steps are then ignored, with the note "Ignored for a copied original: …").
    - **Metadata**: **Set metadata…** and **Add keywords…** (comma-separated; added to the file's keywords, or to the ones
-     the Metadata step sets; turns that step on with nothing removed when it was off).
+     the Metadata step sets; turns that step on with nothing removed when it was off; `{labels}` adds one keyword per
+     label, and `ai-{labels}` gives `ai-dog`, `ai-grass`, …).
+
+   **`{labels}`**: in a subfolder, a note, Finder tags and keywords, `{labels}` is what the image shows: the labels
+   Vision gives with a confidence of 0.3 or more, as words (`musical instrument`), most confident first, at most 10. In
+   a subfolder or note they are joined with commas (`dog, grass`) and made safe like any other token (a subfolder name
+   can never gain a `/`); in tags and keywords each label is its own entry, cleaned like other tags and keywords. An
+   image with no labels gets none (the entry is left out). File names don't offer it.
    - **Flow**: **Skip file** (nothing is written; the file counts as *skipped by a condition*, not failed, and takes no
      counter number), **Stop checking later conditions** (later If … then … else steps are not checked for this image;
      the other actions in the branch still apply) and **Add a note to the report…** (a line in the report for this file;
@@ -816,6 +842,10 @@ Examples (one step each):
 | Metadata field: ISO is more than 3200 | Add keywords › `high ISO`, Add Finder tags › `Check` | (nothing) |
 | **Not** Metadata field: copyright is present | Set metadata… › Copyright, Add a note › `No copyright: {name}` | (nothing) |
 | Animated / pages | Copy original unchanged, Stop checking later conditions | (nothing) |
+| Shows any of dog, cat | Save into subfolder › `Pets`, Add keywords › `{labels}` | (nothing) |
+| Face count is at least 1 | Set metadata… › Remove location (GPS) | (nothing) |
+| Contains text | Add Finder tags › `Has text` | (nothing) |
+| Screenshot or document (macOS 15) | Set output… › PNG | (nothing) |
 
 (More how-tos once the features exist: build and save a preset.)
 

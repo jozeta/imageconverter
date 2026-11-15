@@ -50,6 +50,8 @@ public struct ItemFacts: Equatable, Sendable {
     public var frameCount = 1
     /// "Now" for "within the last N days"; nil is the current time (tests set it).
     public var now: Date?
+    /// On-device image analysis; only what a condition or `{labels}` needs is filled in.
+    public var analysis = ImageAnalysis()
 
     public init(width: Int, height: Int, fileSize: Int = 0, format: OutputFormat? = nil, sourceType: String = "",
                 hasAlpha: Bool = false, hasGPS: Bool = false, make: String? = nil, model: String? = nil) {
@@ -76,9 +78,10 @@ public struct ItemFacts: Equatable, Sendable {
     /// Reads the facts of `url` that `needs` asks for beyond the header (the transparency scan, the XMP packet,
     /// the frame count); nil when it isn't a readable image. An image that breaks the decode limits
     /// (`DecodeLimits`, pixel limit `maxPixels`) is never scanned (ImageIO would decode all of it for the
-    /// thumbnail): the header decides, and the batch's own guard fails the file later.
-    public static func read(_ url: URL, needs: FactNeeds = .all,
-                            maxPixels: Int = ImageLoader.defaultMaxPixels) -> ItemFacts? {
+    /// thumbnail): the header decides, and the batch's own guard fails the file later. The analysis parts of
+    /// `needs` come from `analysis` (a ≤ 1024 px decode within the same limits, cached per file version).
+    public static func read(_ url: URL, needs: FactNeeds = .all, maxPixels: Int = ImageLoader.defaultMaxPixels,
+                            analysis: ImageAnalysisCache = .shared) -> ItemFacts? {
         let options = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, options),
               let header = ImageHeader.read(source) else { return nil }
@@ -111,6 +114,9 @@ public struct ItemFacts: Equatable, Sendable {
         let xmp = needs.contains(.xmp) ? CGImageSourceCopyMetadataAtIndex(source, 0, nil) : nil
         facts.readMetadata(properties, xmp: xmp)
         if needs.contains(.frames) { facts.frameCount = max(1, CGImageSourceGetCount(source)) }
+        if !needs.isDisjoint(with: .analysis) {
+            facts.analysis = analysis.analysis(of: url, needs: needs, maxPixels: maxPixels)
+        }
         return facts
     }
 

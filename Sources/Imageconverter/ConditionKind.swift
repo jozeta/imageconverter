@@ -7,9 +7,10 @@ enum ConditionKind: String, CaseIterable {
     case metadataField, camera, location
     case longestEdge, width, height, megapixels, aspectRatio, orientation, fileSize, format, transparency
     case bitDepth, colorSpace, colorProfile, dpi, rotated, animated
+    case shows, faceCount, containsText, aesthetics, utility
 
     enum Group: CaseIterable {
-        case nameAndLocation, dates, metadata, image
+        case nameAndLocation, dates, metadata, image, content
 
         var title: String {
             switch self {
@@ -17,6 +18,7 @@ enum ConditionKind: String, CaseIterable {
             case .dates: return "Dates"
             case .metadata: return "Metadata"
             case .image: return "Image"
+            case .content: return "Content (analysed on this Mac)"
             }
         }
 
@@ -28,6 +30,7 @@ enum ConditionKind: String, CaseIterable {
             case .image:
                 return [.longestEdge, .width, .height, .megapixels, .aspectRatio, .orientation, .fileSize, .format,
                         .transparency, .bitDepth, .colorSpace, .colorProfile, .dpi, .rotated, .animated]
+            case .content: return [.shows, .faceCount, .containsText, .aesthetics, .utility]
             }
         }
     }
@@ -66,7 +69,27 @@ enum ConditionKind: String, CaseIterable {
         case .dpi: return .dpi
         case .isRotated: return .rotated
         case .isAnimated: return .animated
+        default: return contentKind(check)
+        }
+    }
+
+    private static func contentKind(_ check: ConditionCheck) -> ConditionKind {
+        switch check {
+        case .shows: return .shows
+        case .faceCount: return .faceCount
+        case .containsText: return .containsText
+        case .aesthetics: return .aesthetics
+        case .isUtility: return .utility
         default: return .longestEdge
+        }
+    }
+
+    /// Why the kind can't be used on this Mac (shown in the picker and under the controls); nil when it can.
+    var unavailableReason: String? {
+        switch self {
+        case .aesthetics, .utility:
+            return SystemImageAnalyzer.systemSupportsAesthetics ? nil : "Needs macOS 15 or later"
+        default: return nil
         }
     }
 
@@ -102,6 +125,17 @@ enum ConditionKind: String, CaseIterable {
         case .dpi: return "DPI"
         case .rotated: return "Rotated (EXIF)"
         case .animated: return "Animated / pages"
+        default: return contentName
+        }
+    }
+
+    private var contentName: String {
+        switch self {
+        case .shows: return "Shows"
+        case .faceCount: return "Face count"
+        case .containsText: return "Contains text"
+        case .aesthetics: return "Aesthetics score"
+        case .utility: return "Screenshot or document"
         default: return ""
         }
     }
@@ -138,6 +172,11 @@ enum ConditionKind: String, CaseIterable {
         case .dpi: return .dpi(.atLeast, 300)
         case .rotated: return .isRotated
         case .animated: return .isAnimated
+        case .shows: return .shows(LabelMatch(["dog", "cat"]))
+        case .faceCount: return .faceCount(.atLeast, 1)
+        case .containsText: return .containsText(true)
+        case .aesthetics: return .aesthetics(.atLeast, 0.2)
+        case .utility: return .isUtility
         default: return .longestEdge(.greaterThan, 2048)
         }
     }

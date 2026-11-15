@@ -9,6 +9,8 @@ public protocol VisionDetector: Sendable {
     func faceRects(in image: CGImage) throws -> [CGRect]
     /// The most salient regions, most confident first.
     func subjectRects(in image: CGImage) throws -> [CGRect]
+    /// Every line or block of text Vision reads (fast recognition), with a letter or digit in it.
+    func textRects(in image: CGImage) throws -> [CGRect]
 }
 
 /// The working copy Vision looks at: an image is shrunk to `maxLongSide` first, so a 100 MP photo costs about
@@ -60,6 +62,13 @@ public struct SystemVisionDetector: VisionDetector {
         return objects.sorted { $0.confidence > $1.confidence }
             .prefix(Self.maxSubjectRegions)
             .map { Self.topLeft($0.boundingBox) }
+    }
+
+    public func textRects(in image: CGImage) throws -> [CGRect] {
+        guard let input = VisionInput.prepared(image) else { return [] }
+        let request = SystemImageAnalyzer.textRequest()
+        try VNImageRequestHandler(cgImage: input, options: [:]).perform([request])
+        return SystemImageAnalyzer.textBoxes(request.results ?? []).map(Self.topLeft)
     }
 
     /// Vision's normalised boxes have a bottom-left origin.

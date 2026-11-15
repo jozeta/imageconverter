@@ -82,7 +82,10 @@ private struct ConditionRow: View {
                     set: { if $0 != kind { condition.check = $0.converted(from: condition.check) } })) {
                     ForEach(ConditionKind.Group.allCases, id: \.self) { group in
                         Section(group.title) {
-                            ForEach(group.kinds, id: \.self) { Text($0.displayName).tag($0) }
+                            ForEach(group.kinds, id: \.self) { kind in
+                                Text(kind.displayName + (kind.unavailableReason.map { " (\($0.lowercased()))" } ?? ""))
+                                    .tag(kind)
+                            }
                         }
                     }
                 }
