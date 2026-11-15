@@ -67,7 +67,8 @@ struct PrivacyPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
             Text("Privacy scan").font(LadaGlass.Typography.subtitle)
-            Text("Found in the files' metadata and headers. Nothing leaves your Mac, and the originals are not changed.")
+            Text(model.privacy.looksForContent ? ContentPrivacySummary.headerWithContent
+                                               : ContentPrivacySummary.headerMetadataOnly)
                 .font(LadaGlass.Typography.label)
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -114,15 +115,18 @@ private struct PrivacyContentSection: View {
                 // Two rows, so neither the finding nor the button is cut off in the narrow panel.
                 VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
                     HStack(spacing: LadaGlass.Spacing.s) {
-                        LGChip("Medium", status: .warn)
+                        LGChip(line.target == nil ? "Unchecked" : "Medium", status: .warn)
                         Text(line.text).font(LadaGlass.Typography.label)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Button("Add a Redact step") { model.addSuggestedRedaction(line.target) }
-                        .buttonStyle(.lg(.secondary))
-                        .controlSize(.small)
-                        .disabled(model.isRunning)
-                        .help("Adds a Redact step for \(line.target.displayName.lowercased()); nothing runs until you press Run")
-                        .accessibilityLabel("Add a Redact step for \(line.text)")
+                    if let target = line.target {
+                        Button("Add a Redact step") { model.addSuggestedRedaction(target) }
+                            .buttonStyle(.lg(.secondary))
+                            .controlSize(.small)
+                            .disabled(model.isRunning)
+                            .help("Adds a Redact step for \(target.displayName.lowercased()); nothing runs until you press Run")
+                            .accessibilityLabel("Add a Redact step for \(line.text)")
+                    }
                 }
             }
         }

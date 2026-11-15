@@ -13,7 +13,8 @@ final class NoNetworkTests: XCTestCase {
     /// What isn't a single identifier: network modules, POSIX sockets and the CFHTTPMessage function family.
     static let forbiddenPatterns = [#"\bimport\s+(Network|WebKit)\b"#, #"\bsocket\s*\("#, #"\bCFHTTPMessage"#]
     static let allowedURLPrefixes = ["http://www.w3.org/", "http://ns.adobe.com/", "http://ns.apple.com/",
-                                     "http://purl.org/dc/", "http://iptc.org/std/"]
+                                     "http://purl.org/dc/", "http://iptc.org/std/",
+                                     "http://www.metadataworkinggroup.com/schemas/", "http://ns.microsoft.com/photo/"]
     /// The one file (relative to `Sources/`) that may use `URLSession`: the update client.
     static let networkFile = "Imageconverter/Update/UpdateClient.swift"
     /// What the update client may name besides the namespaces: the release API.

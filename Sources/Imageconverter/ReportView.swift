@@ -113,17 +113,17 @@ struct ReportView: View {
         let id: Int
         let entry: ReportEntry
         var name: String { entry.name }
-        var status: String { entry.isWarning ? "warning" : entry.status.rawValue }
+        var status: String { entry.warning ? "warning" : entry.status.rawValue }
         var input: Int { entry.inputBytes ?? -1 }
         var output: Int { entry.outputBytes ?? -1 }
         var ratio: Double { entry.ratio ?? .infinity }
         var duration: Double { entry.duration }
         var note: String { entry.note ?? "" }
 
-        /// Red for a failure, amber for a warning (`ReportEntry.isWarning`), else `normal`.
+        /// Red for a failure, amber for a warning (`ReportEntry.warning`), else `normal`.
         func tint(_ normal: Color) -> Color {
             if entry.status == .failed { return LadaGlass.Colors.badText }
-            return entry.isWarning ? LadaGlass.Colors.warnText : normal
+            return entry.warning ? LadaGlass.Colors.warnText : normal
         }
     }
 

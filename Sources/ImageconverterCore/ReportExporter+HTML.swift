@@ -88,7 +88,7 @@ extension ReportExporter {
             dimensions += (dimensions.isEmpty ? "" : " \u{2192} ") + "\(width)\u{00D7}\(height)"
         }
         let cells: [(String, String)] = [
-            ("path", name), entry.isWarning ? ("status warning", "warning") : ("status \(entry.status.rawValue)", entry.status.rawValue),
+            ("path", name), entry.warning ? ("status warning", "warning") : ("status \(entry.status.rawValue)", entry.status.rawValue),
             ("num", entry.inputBytes.map(SizeFormat.bytes) ?? ""), ("num", entry.outputBytes.map(SizeFormat.bytes) ?? ""),
             ("num", change), ("num", dimensions), ("num", entry.duration > 0 ? seconds(entry.duration) : ""),
             ("note", entry.note ?? "")

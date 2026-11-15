@@ -47,6 +47,21 @@ final class FakeVisionDetector: VisionDetector, @unchecked Sendable {
         return faces
     }
 
+    /// The `maxSide` each face detection asked for (`faceRects(in:maxSide:)`).
+    private var sides: [Int] = []
+    var faceSides: [Int] {
+        lock.lock()
+        defer { lock.unlock() }
+        return sides
+    }
+
+    func faceRects(in image: CGImage, maxSide: Int) throws -> [CGRect] {
+        lock.lock()
+        sides.append(maxSide)
+        lock.unlock()
+        return try faceRects(in: image)
+    }
+
     func subjectRects(in image: CGImage) throws -> [CGRect] {
         try record("subject", image)
         return subject

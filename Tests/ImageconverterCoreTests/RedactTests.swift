@@ -52,14 +52,10 @@ final class RedactGeometryTests: XCTestCase {
     }
 
     func testNotes() {
-        XCTAssertEqual(Redaction.note(faces: 2, text: 1, failure: nil), "Redacted 2 faces, 1 text area")
-        XCTAssertEqual(Redaction.note(faces: 1, text: 0, failure: nil), "Redacted 1 face")
-        XCTAssertEqual(Redaction.note(faces: 0, text: 3, failure: nil), "Redacted 3 text areas")
-        XCTAssertEqual(Redaction.note(faces: 0, text: 0, failure: nil), "Redact: nothing found")
-        XCTAssertEqual(Redaction.note(faces: 0, text: 0, failure: "Vision broke"),
-                       "Image analysis unavailable: Vision broke; nothing was redacted")
-        XCTAssertEqual(Redaction.note(faces: 0, text: 2, failure: "Vision broke"),
-                       "Image analysis unavailable: Vision broke; only redacted 2 text areas")
+        XCTAssertEqual(Redaction.note(faces: 2, text: 1), "Redacted 2 faces, 1 text area")
+        XCTAssertEqual(Redaction.note(faces: 1, text: 0), "Redacted 1 face")
+        XCTAssertEqual(Redaction.note(faces: 0, text: 3), "Redacted 3 text areas")
+        XCTAssertEqual(Redaction.note(faces: 0, text: 0), "Redact: nothing found")
     }
 
     func testTargets() {
@@ -163,8 +159,8 @@ final class RedactRenderTests: XCTestCase {
 
 final class RedactModelTests: XCTestCase {
     func testOptionsRoundTripAndDecodeLeniently() throws {
-        let options = RedactOptions(target: .both, style: .fill, fillColor: RGBAColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 1),
-                                    padding: 25)
+        let options = RedactOptions(target: .both, style: .pixelate,
+                                    fillColor: RGBAColor(red: 0.2, green: 0.3, blue: 0.4, alpha: 1), padding: 25)
         let data = try JSONEncoder().encode(options)
         XCTAssertEqual(try JSONDecoder().decode(RedactOptions.self, from: data), options)
         XCTAssertEqual(try JSONDecoder().decode(RedactOptions.self, from: Data("{}".utf8)), RedactOptions())
@@ -212,40 +208,8 @@ final class RedactModelTests: XCTestCase {
 
         let id = pipeline.addRedaction(.faces)
         XCTAssertEqual(pipeline.steps[2].id, id)
-        // A second suggestion widens the same step instead of adding one.
-        XCTAssertEqual(pipeline.addRedaction(.text), id)
+        // Faces again: already covered.
+        XCTAssertEqual(pipeline.addRedaction(.faces), id)
         XCTAssertEqual(pipeline.steps.count, 5)
-        XCTAssertEqual(pipeline.steps[2].operation, .redact(RedactOptions(target: .both)))
     }
-
-    func testContentFindingsWording() {
-        XCTAssertNil(ContentFindings(ImageAnalysis(failure: "x")))
-        let faces = ContentFindings(ImageAnalysis(faceCount: 2, hasText: false))
-        XCTAssertEqual(faces, ContentFindings(faceCount: 2, hasText: false))
-        let all = [ContentFindings(faceCount: 1), ContentFindings(faceCount: 3, hasText: true), ContentFindings()]
-        let lines = ContentPrivacySummary.lines(all)
-        XCTAssertEqual(lines.map(\.text), ["2 images show faces", "1 image contains text"])
-        XCTAssertEqual(lines.map(\.target), [.faces, .text])
-        XCTAssertEqual(ContentPrivacySummary.lines([ContentFindings(faceCount: 1)]).map(\.text), ["1 image shows faces"])
-        XCTAssertTrue(ContentPrivacySummary.lines([ContentFindings()]).isEmpty)
-        XCTAssertEqual(ContentPrivacySummary.line(ContentFindings(faceCount: 1, hasText: true)), "faces, text")
-    }
-
-    func testContentCheckUsesTheSharedAnalysisOnce() throws {
-        let dir = try TestImages.tempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("a.png")
-        try TestImages.write(TestImages.make(width: 50, height: 50), to: url, type: .png)
-        let analyzer = CountingAnalyzer(result: ImageAnalysis(faceCount: 1, hasText: true))
-        let cache = ImageAnalysisCache(analyzer: analyzer)
-        XCTAssertEqual(ContentFindings(cache.analysis(of: url, needs: ContentFindings.needs)),
-                       ContentFindings(faceCount: 1, hasText: true))
-        _ = cache.analysis(of: url, needs: [.faces])
-        XCTAssertEqual(cache.analysisCount, 1)
-    }
-}
-
-private struct CountingAnalyzer: ImageAnalyzer {
-    let result: ImageAnalysis
-    func analyze(_ image: CGImage, needs: FactNeeds) throws -> ImageAnalysis { result }
 }

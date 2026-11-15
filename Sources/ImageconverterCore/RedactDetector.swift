@@ -56,8 +56,9 @@ public final class RedactCache: @unchecked Sendable {
 
 extension Pipeline {
     /// A Redact step's padded pixel rects in `image` (the image as it arrives at the step), with its report note.
+    /// Throws `redactUnchecked` when a detection the step needs failed: fail closed, never write it unchecked.
     func redactRects(_ options: RedactOptions, in image: CGImage, step: Int, context: FocusContext,
-                     notes: inout [String]) -> [CGRect] {
+                     notes: inout [String]) throws -> [CGRect] {
         let detect = { Redaction.detect(options.target, in: image, detector: context.detector) }
         let found: RedactDetections
         let before = steps.prefix(step).filter(\.isEnabled).map(\.operation)
@@ -69,9 +70,10 @@ extension Pipeline {
         } else {
             found = detect()
         }
+        if let failure = found.failure { throw ConversionError.redactUnchecked(target: options.target, reason: failure) }
         let size = CGSize(width: image.width, height: image.height)
         let rects = Redaction.pixelRects(found.faces + found.text, padding: options.clampedPadding, in: size)
-        let note = Redaction.note(faces: found.faces.count, text: found.text.count, failure: found.failure)
+        let note = Redaction.note(faces: found.faces.count, text: found.text.count)
         if !notes.contains(note) { notes.append(note) }
         return rects
     }
@@ -79,11 +81,12 @@ extension Pipeline {
 
 extension Pipeline {
     /// Where a new Redact step goes: right after the last Crop, Rotate / flip or Perspective step (so it sees the
-    /// final framing, and comes before a Watermark it shouldn't blur), else first.
+    /// final framing), else first; but always before the first Watermark (which it mustn't hide).
     public var redactInsertionIndex: Int {
         let framing: Set<StepKind> = [.crop, .rotateFlip, .perspective]
-        guard let last = steps.lastIndex(where: { framing.contains($0.operation.kind) }) else { return 0 }
-        return last + 1
+        let afterFraming = steps.lastIndex(where: { framing.contains($0.operation.kind) }).map { $0 + 1 } ?? 0
+        let watermark = steps.firstIndex { $0.operation.kind == .watermark } ?? steps.count
+        return min(afterFraming, watermark)
     }
 
     /// Adds a new step where it belongs: Redact at `redactInsertionIndex`, every other kind at the end.
@@ -95,18 +98,25 @@ extension Pipeline {
         }
     }
 
-    /// Adds a Redact step for `target` (privacy panel suggestion): an enabled Redact step already there is
-    /// widened to cover `target` too; else a new one is inserted at `redactInsertionIndex`. Returns its id.
+    /// Adds a Redact step for `target` (privacy panel suggestion), never running anything. An enabled Redact step
+    /// that already hides `target` (text only with a solid colour) is left as it is; one that fills is widened to
+    /// cover `target` too, as is a blurring one asked to add faces. Otherwise a new step (text: solid colour) is
+    /// inserted after the existing one, or at `redactInsertionIndex`. Returns the id of the step that covers it.
     @discardableResult
     public mutating func addRedaction(_ target: RedactTarget) -> PipelineStep.ID {
-        if let index = steps.firstIndex(where: { $0.operation.kind == .redact && $0.isEnabled }),
-           case .redact(var options) = steps[index].operation {
-            options.target = options.target.adding(target)
-            steps[index].operation = .redact(options)
-            return steps[index].id
+        let existing = steps.indices.filter { steps[$0].isEnabled && steps[$0].operation.kind == .redact }
+        for index in existing {
+            guard case .redact(var options) = steps[index].operation else { continue }
+            let textSafe = !target.includesText || options.style == .fill
+            if options.target.adding(target) == options.target, textSafe { return steps[index].id }
+            if textSafe {
+                options.target = options.target.adding(target)
+                steps[index].operation = .redact(options)
+                return steps[index].id
+            }
         }
         let step = PipelineStep(operation: .redact(RedactOptions(target: target)))
-        steps.insert(step, at: redactInsertionIndex)
+        steps.insert(step, at: existing.last.map { $0 + 1 } ?? redactInsertionIndex)
         return step.id
     }
 }

@@ -181,9 +181,10 @@ extension BatchRunner {
             options.stage(.writing)
             // Overwrite mode leaves the original as it is: an untouched original is never tagged.
             guard !plan.replacesSource || job.finderTags.isEmpty else {
-                return copyOriginal(plan, trash: trash, notes: job.notes + [FinderTags.untouchedNote])
+                return flagged(copyOriginal(plan, trash: trash, notes: job.notes + [FinderTags.untouchedNote]),
+                               job.warning)
             }
-            return tagged(copyOriginal(plan, trash: trash, notes: job.notes), tags: job.finderTags)
+            return flagged(tagged(copyOriginal(plan, trash: trash, notes: job.notes), tags: job.finderTags), job.warning)
         }
         // A watermark image that can't be read fails every file using it, before its source is decoded.
         if let missing = assets.missingError(for: job.pipeline) {
@@ -201,11 +202,19 @@ extension BatchRunner {
         }
         let resolutionNotes = job.runNotes
         guard !resolutionNotes.isEmpty, case .success(var written?) = result else {
-            return tagged((result, inputBytes), tags: job.finderTags)
+            return flagged(tagged((result, inputBytes), tags: job.finderTags), job.warning)
         }
         // How the item was resolved comes first, then the step and encoder notes.
         written.note = (resolutionNotes + [written.note].compactMap { $0 }).joined(separator: "; ")
-        return tagged((.success(written), inputBytes), tags: job.finderTags)
+        return flagged(tagged((.success(written), inputBytes), tags: job.finderTags), job.warning)
+    }
+
+    /// Marks a written item as a warning when its resolution said so (`ResolvedPipeline.warning`).
+    private static func flagged(_ outcome: (Result<WrittenItem?, ConversionError>, Int?), _ warning: Bool)
+        -> (Result<WrittenItem?, ConversionError>, Int?) {
+        guard warning, case .success(var written?) = outcome.0 else { return outcome }
+        written.warning = true
+        return (.success(written), outcome.1)
     }
 
     /// Adds the Finder tags to a written file; a failure is a note, not a failed file.

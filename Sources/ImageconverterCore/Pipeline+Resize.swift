@@ -32,10 +32,21 @@ extension Pipeline {
 
     /// The metadata written with the output: the metadata options applied to `source` (and its XMP view
     /// `metadata`, see `MetadataOps.output`), then the DPI.
+    /// With an enabled Redact step that hides faces, face and person regions are left out of the XMP.
     public func outputProperties(from source: [String: Any], metadata sourceXMP: CGImageMetadata? = nil,
                                  sourceWidth: Int, sourceHeight: Int) -> [String: Any] {
-        MetadataOps.setDPI(outputDPI(sourceWidth: sourceWidth, sourceHeight: sourceHeight), format: output.format,
-                           in: MetadataOps.output(metadata, properties: source, metadata: sourceXMP))
+        outputPropertiesNoting(from: source, metadata: sourceXMP, sourceWidth: sourceWidth,
+                               sourceHeight: sourceHeight).properties
+    }
+
+    /// `outputProperties` and whether face regions were removed from them (for the report note).
+    func outputPropertiesNoting(from source: [String: Any], metadata sourceXMP: CGImageMetadata?,
+                                sourceWidth: Int, sourceHeight: Int) -> (properties: [String: Any], removedFaces: Bool) {
+        var properties = MetadataOps.output(metadata, properties: source, metadata: sourceXMP)
+        var removed = false
+        if redactsFaces { (properties, removed) = MetadataOps.removingFaceRegions(from: properties) }
+        return (MetadataOps.setDPI(outputDPI(sourceWidth: sourceWidth, sourceHeight: sourceHeight),
+                                   format: output.format, in: properties), removed)
     }
 
     /// Pixels held at once by a Lanczos resize of an `input`-sized image: the input, vImage's copy of

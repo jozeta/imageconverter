@@ -30,6 +30,8 @@ struct WrittenItem {
     /// The extra outputs written after this one, and those that failed.
     var extras: [WrittenExtra] = []
     var extraFailures: [BatchExtraFailure] = []
+    /// The note needs attention (`ReportEntry.warning`); extra outputs of the item share it.
+    var warning = false
 }
 
 public enum BatchRunner {
@@ -116,12 +118,15 @@ public enum BatchRunner {
                     source: plan.item.source, destination: item.url, inputBytes: item.inputBytes,
                     outputBytes: item.outputBytes, note: item.note)
                 entry.duration = index < durations.count ? durations[index] : 0
+                entry.warning = item.warning
                 (entry.inputWidth, entry.inputHeight) = (item.inputSize?.width, item.inputSize?.height)
                 (entry.outputWidth, entry.outputHeight) = (item.outputSize?.width, item.outputSize?.height)
                 report.entries.append(entry)
                 for extra in item.extras {
                     report.written.append(extra.url)
-                    report.entries.append(extra.entry(source: plan.item.source, primary: item))
+                    var extraEntry = extra.entry(source: plan.item.source, primary: item)
+                    extraEntry.warning = item.warning
+                    report.entries.append(extraEntry)
                 }
                 report.extraFailures += item.extraFailures
             case .failure(let error) where error.outputWasCommitted:
@@ -136,6 +141,7 @@ public enum BatchRunner {
                     source: plan.item.source, destination: plan.destination, inputBytes: inputSizes[index],
                     outputBytes: fileSize(plan.destination) ?? 0, note: warning)
                 entry.duration = index < durations.count ? durations[index] : 0
+                entry.warning = true
                 report.entries.append(entry)
             case .failure(let error):
                 report.order.append(plan.item.source)
@@ -179,10 +185,12 @@ public enum BatchRunner {
                 let (extras, extraFailures) = commitVariants(encoded.variants, planned: variants, item: plan.item,
                                                              trash: trash, setDates: setDates)
                 notes += extraFailures.map(\.message)
+                var trashFailed = false
                 if plan.trashesSource {
                     do { try trash(plan.item.source) } catch {
                         // Saved, only the Trash failed: the warning leads the note.
                         notes.insert(FileCommitter.trashFailurePrefix + error.localizedDescription, at: 0)
+                        trashFailed = true
                     }
                 }
                 var written = WrittenItem(url: plan.destination, note: notes.isEmpty ? nil : notes.joined(separator: "; "),
@@ -191,6 +199,7 @@ public enum BatchRunner {
                 written.outputSize = ImageLoader.pixelSize(of: encoded.data)
                 written.extras = extras
                 written.extraFailures = extraFailures
+                written.warning = trashFailed
                 return .success(written)
             } catch is CancellationError {
                 return .success(nil)
@@ -278,8 +287,10 @@ public enum BatchRunner {
                                                            focus: options.focus, notes: &stepNotes)
         let width = hint != nil ? fullSize?.width ?? loaded.image.width : loaded.image.width
         let height = hint != nil ? fullSize?.height ?? loaded.image.height : loaded.image.height
-        let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
-                                                   sourceWidth: width, sourceHeight: height)
+        let (properties, removedFaces) = pipeline.outputPropertiesNoting(from: loaded.properties,
+                                                                         metadata: loaded.metadata,
+                                                                         sourceWidth: width, sourceHeight: height)
+        if removedFaces { stepNotes.append(Redaction.faceRegionsRemovedNote) }
         var prepared = PreparedItem(source: loaded.image, downsampled: hint != nil, image: image,
                                     properties: properties, notes: stepNotes)
         prepared.sourceProperties = loaded.properties

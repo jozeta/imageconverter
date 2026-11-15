@@ -77,37 +77,6 @@ final class RedactPipelineTests: XCTestCase {
         XCTAssertEqual(notes, ["Redact: nothing found"])
     }
 
-    func testAVisionErrorIsANoteNotAFailure() throws {
-        let image = TestImages.noise(width: 30, height: 30)
-        var notes: [String] = []
-        let out = try pipeline([.redact(RedactOptions(target: .both))])
-            .apply(to: image, focus: FocusContext(detector: FakeVisionDetector(error: VisionBroke())), notes: &notes)
-        XCTAssertTrue(out === image)
-        XCTAssertEqual(notes, ["Image analysis unavailable: Vision broke; nothing was redacted"])
-
-        notes = []
-        let partial = try pipeline([.redact(fill)]).apply(
-            to: TestImages.make(width: 40, height: 40),
-            focus: FocusContext(detector: HalfBrokenDetector(text: [CGRect(x: 0, y: 0, width: 0.5, height: 0.5)])),
-            notes: &notes)
-        XCTAssertTrue(isGreen(TestImages.pixel(of: partial, x: 5, y: 5)), "what was found is still hidden")
-        XCTAssertEqual(notes, ["Image analysis unavailable: Vision broke; only redacted 1 text area"])
-    }
-
-    func testAnUnavailableAnalysisMakesTheReportRowAWarning() {
-        let warning = ReportEntry(source: "/a.jpg", status: .succeeded, inputBytes: 1,
-                                  note: "Redacted 1 face; Image analysis unavailable: x; nothing was redacted")
-        XCTAssertTrue(warning.isWarning)
-        XCTAssertFalse(ReportEntry(source: "/a.jpg", status: .succeeded, inputBytes: 1, note: "Redact: nothing found").isWarning)
-        XCTAssertFalse(ReportEntry(source: "/a.jpg", status: .succeeded, inputBytes: 1).isWarning)
-        XCTAssertFalse(ReportEntry(source: "/a.jpg", status: .failed, inputBytes: 1,
-                                   note: "Image analysis unavailable: x").isWarning)
-        let html = ReportExporter.html(ProcessingReport(
-            summary: RunSummary(startedAt: Date(), finishedAt: Date(), outputMode: "x", total: 1, succeeded: 1, failed: 0,
-                                inputBytes: 1, outputBytes: 1), entries: [warning]))
-        XCTAssertTrue(html.contains("<td class=\"status warning\">warning</td>"))
-    }
-
     func testBatchPrepareCarriesTheNote() throws {
         let dir = try TestImages.tempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

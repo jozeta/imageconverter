@@ -5,7 +5,7 @@ import Foundation
 public enum ReportExporter {
     public static let csvColumns = ["source", "destination", "status", "input bytes", "output bytes", "saving %",
                                     "note", "duration s", "input width", "input height", "output width",
-                                    "output height", "output"]
+                                    "output height", "output", "warning"]
 
     public static func data(_ report: ProcessingReport, format: ReportFormat) -> Data {
         switch format {
@@ -31,7 +31,7 @@ public enum ReportExporter {
                 quoted(entry.duration > 0 ? String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), entry.duration) : ""),
                 quoted(entry.inputWidth.map(String.init) ?? ""), quoted(entry.inputHeight.map(String.init) ?? ""),
                 quoted(entry.outputWidth.map(String.init) ?? ""), quoted(entry.outputHeight.map(String.init) ?? ""),
-                quoted(guarded(entry.variant ?? ""))
+                quoted(guarded(entry.variant ?? "")), quoted(entry.warning ? "true" : "false")
             ])
         }
         let summary = report.summary
@@ -39,7 +39,7 @@ public enum ReportExporter {
             quoted("TOTAL"), quoted(""), quoted(counts(summary)), quoted(String(summary.inputBytes)),
             quoted(String(summary.outputBytes)), quoted(summary.overallRatio.map(savingPercent) ?? ""), quoted(""),
             quoted(String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), summary.totalDuration)),
-            quoted(""), quoted(""), quoted(""), quoted(""), quoted("")
+            quoted(""), quoted(""), quoted(""), quoted(""), quoted(""), quoted("")
         ])
         return rows.map { $0.joined(separator: ",") }.joined(separator: "\r\n") + "\r\n"
     }
@@ -100,7 +100,8 @@ public enum ReportExporter {
         }
         lines.append("")
         for entry in report.entries {
-            var line = "\(entry.status.rawValue): \(printable(entry.source))"
+            let status = entry.status.rawValue + (entry.warning ? " (warning)" : "")
+            var line = "\(status): \(printable(entry.source))"
             if let variant = entry.variant { line = "  + \(printable(variant)): \(printable(entry.source))" }
             if let destination = entry.destination { line += " \u{2192} \(printable(destination))" }
             if let input = entry.inputBytes, let output = entry.outputBytes {

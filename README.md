@@ -17,7 +17,7 @@ Started 2026-11-13. The full design is in
 - **No network access except the optional update check and download from github.com.** No telemetry, no uploads. Nothing goes online until you allow it: the first launch asks once whether to check for updates when the app starts, and **Check Now** in About imageconverter checks on demand. A check asks GitHub's release API for the latest release; like any web request it shows GitHub your IP address and standard HTTP headers (such as your preferred languages), and the app adds only `User-Agent: imageconverter/<version>`. The app's only network entitlement is outgoing connections (`network.client`, no server), the networking code is one file (`Sources/Imageconverter/Update/UpdateClient.swift`), and a test fails the build if networking APIs or web addresses appear anywhere else. See [Updates](#updates).
 - **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit); no third-party code.
 - **Your files are untrusted input.** Images, SVG watermarks, preset and template files, `imageconverter://` links and AppleScript requests are all validated before use. Limits in force: images up to 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory) of decoded memory and 2 GB per file (first frame only); SVG files up to 1 MB, 20,000 elements, 64 levels deep; preset and template files up to 1 MB; links up to 16,384 characters. Help ▸ Privacy… shows these as built. See [SECURITY.md](SECURITY.md).
-- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed. The panel's opt-in **Also look for faces and text (on this Mac)** switch (off by default, remembered) also checks the pixels with Vision on this Mac and lists "2 images show faces" or "1 image contains text", each with **Add a Redact step**, which adds a configured [Redact step](#hide-faces-and-text) (or widens the one you have) without running anything. When no metadata is found the chip says "No private metadata found", so the panel can still be opened.
+- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed. The panel's opt-in **Also look for faces and text (on this Mac)** switch (off by default, remembered) also checks the pixels with Vision on this Mac and lists "2 images show faces" or "1 image contains text", each with **Add a Redact step**, which adds a configured [Redact step](#hide-faces-and-text) without running anything (for text a Solid colour step; an existing step that already covers it is left alone, a filling one is widened). It uses the same detection and resolution as the Redact step; images it couldn't check are listed as "Couldn't check 2 images: …" rather than counted as clean, and the panel's explanation then says it also looked at the pixels. When no metadata is found the chip says "No private metadata found", so the panel can still be opened.
 - **Temporary files are deleted, not wiped.** Output is written to a hidden temporary file next to its destination and moved into place; on cancel, quit or a failed write the app deletes these files. On SSDs and APFS, deleting (or overwriting) a file does not reliably erase its old blocks, so the app does not claim to securely wipe anything.
 
 <table>
@@ -117,8 +117,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     **Fill corners** (white, transparent or a colour; the canvas grows) or **Crop to fit (straighten)** (the
     largest centred rectangle with the original ratio), **Mirror (flip horizontally)** and **Flip vertically**
   - (available) **Redact**: hides **faces**, **text** or both, found on this Mac with Vision, with a **blur**
-    (default), **pixelate** or a **solid colour**, each box grown by a **padding** (15 % by default). Best effort:
-    check the results. See [Hide faces and text](#hide-faces-and-text)
+    (default for faces), **pixelate** or a **solid colour** (default for text), each box grown by a **padding**
+    (15 % by default). An image Vision can't check isn't written. Best effort: check the results. See
+    [Hide faces and text](#hide-faces-and-text)
   - (available) **Perspective**: **Auto** finds a document or screen and squares it up (the report says "No
     document edges found" if there is none); **Vertical** and **Horizontal** keystone sliders (−100…100) are
     applied after it, with the result cropped so no empty corners show
@@ -716,30 +717,36 @@ versions read a Subject or Faces crop as a centred one.
 
 ### Hide faces and text
 
-1. Add a **Redact** step (it goes after your Crop and Rotate steps, before a watermark; drag it elsewhere if you
-   like) and open it. Or switch on **Also look for faces and text (on this Mac)** in the privacy panel and press
+1. Add a **Redact** step (it goes after your last Crop, Rotate or Perspective step but always before the first
+   Watermark; drag it elsewhere if you like) and open it. Or switch on **Also look for faces and text (on this Mac)** in the privacy panel and press
    **Add a Redact step** next to "2 images show faces" or "1 image contains text".
 2. Choose **Hide**: **Faces**, **Text** or **Faces and text**.
 3. Choose a **Style**: **Blur** hides the box with a strong Gaussian blur, **Pixelate** with large blocks (both
    scale with the box, so a small face is hidden as well as a large one), **Solid colour** covers it with the
-   **Fill colour** (always fully opaque).
+   **Fill colour** (always fully opaque). A new step blurs faces; as soon as **Hide** includes text it switches to
+   Solid colour (unless you chose another style). For text, use Solid colour: blur and pixelation can sometimes be
+   reversed (by rendering guesses in the same font and comparing), especially for short text such as number plates.
 4. **Padding** grows each box on every side by that percentage of its own width and height, so hair, chins and the
    edges of letters are covered too.
 5. The preview shows the result for the selected image. After the run, each file's report row says what was
    hidden ("Redacted 2 faces, 1 text area") or "Redact: nothing found".
 
 The step looks at the image as it arrives at the step, so boxes land on the right pixels after any Crop, Rotate or
-Resize before it. Faces are found on a copy at most 1024 px on the long side, text on one at most 2048 px; the boxes
-are then mapped back to the image, padded and clamped. Pixels outside the boxes are copied unchanged. If Vision
-can't run, the file is still written, unredacted, with the note "Image analysis unavailable: …; nothing was
-redacted", and its report row is marked **warning**. **Best effort:** Vision can miss a face (turned away, small,
-covered) or some text (stylised, tiny, at an angle), so check the results before you share them. Nothing is sent
-anywhere.
+Resize before it. Faces and text are found on a copy at most 2048 px on the long side (text as recognised lines plus
+Vision's text rectangles, which also catch stylised or handwritten text); the boxes are then mapped back to the
+image, padded and clamped. Pixels outside the boxes are copied unchanged. **If Vision can't run for an image, that
+image isn't written**: it fails with "Not written: couldn't check for faces (…)" and the rest of the run goes on
+(jobs try it again later, like any failure). An **If … then … else** that would **copy the original unchanged**
+converts the image with the Redact step instead ("Converted to redact: …"), so a copy never skips it. With a Redact
+step that hides faces, face and person regions are left out of the output's metadata (MWG and Microsoft regions,
+Apple face info, IPTC *Person in image* and image regions; "Removed face regions from metadata"). **Best effort:**
+Vision can miss a face (turned away, small, covered) or some text (stylised, tiny, at an angle), so check the
+results before you share them. Nothing is sent anywhere.
 
 | Option | Choices | Default |
 |--------|---------|---------|
 | Hide | Faces · Text · Faces and text | Faces |
-| Style | Blur · Pixelate · Solid colour | Blur |
+| Style | Blur · Pixelate · Solid colour | Blur for faces; Solid colour when text is included |
 | Fill colour | any colour (opaque), with Solid colour | black |
 | Padding | 0…100 % of each box's size, per side | 15 % |
 
@@ -946,9 +953,10 @@ After a run the sidebar's **Report** section shows summary cards (processed, suc
 original → output, saved, average ratio, average time) above one row per file. **Export** saves the report
 as CSV, JSON, HTML or text through a save panel (you pick the file; nothing else is written), and
 **Show error log** lists the newest failures (reveal or clear the log from there). A written file whose note needs
-attention (image analysis couldn't run, or the original couldn't be moved to the Trash) shows **warning** in amber
-in the report table and the HTML export, and **Check** in the batch list; CSV, JSON and text keep its status as
-succeeded, with the note.
+attention (a condition's image analysis couldn't run, or the original couldn't be moved to the Trash) shows
+**warning** in amber in the report table and the HTML export, and **Check** in the batch list. Its status stays
+succeeded; exports flag it separately: JSON `"warning": true`, a CSV `warning` column (`true`/`false`) and
+"succeeded (warning)" in text. Older reports read as no warning.
 
 **Window ▸ History** (⌥⌘H) lists past runs, newest first: date, preset or job, counts and what was saved. The
 right side shows the selected run as the same cards plus a sortable table with a row per file, with

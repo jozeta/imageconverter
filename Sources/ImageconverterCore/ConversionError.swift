@@ -37,6 +37,8 @@ public enum ConversionError: Error, Equatable, Sendable {
     case sizeUnreachable(limit: Int, smallest: Int)
     /// A condition skips this file, so there is nothing to estimate (never a batch failure).
     case skippedByCondition
+    /// A Redact step couldn't look for what it hides (Vision failed): writing the image could leak it.
+    case redactUnchecked(target: RedactTarget, reason: String)
 
     /// True when the new file was written and only trashing the original failed: the item is done (a resumed
     /// run mustn't convert it again).
@@ -90,6 +92,8 @@ public enum ConversionError: Error, Equatable, Sendable {
             return "Can't get under \(ByteSize.format(limit)) (smallest is \(ByteSize.format(smallest)))"
         case .skippedByCondition:
             return ConditionalStep.skippedReason
+        case .redactUnchecked(let target, let reason):
+            return "Not written: couldn't check for \(target.displayName.lowercased()) (\(reason))"
         }
     }
 }
@@ -99,7 +103,8 @@ extension ConversionError {
     /// tries the file once more at the end. Unreadable files, size limits and watermark problems never change.
     public var isRetryable: Bool {
         switch self {
-        case .decodeFailed, .encodeFailed: return true
+        // Vision can fail for passing reasons (memory, a busy GPU).
+        case .decodeFailed, .encodeFailed, .redactUnchecked: return true
         // A watermark that can't be drawn fails the same way every time.
         case .processingFailed(let step): return step != StepKind.watermark.displayName
         default: return false

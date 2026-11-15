@@ -22,6 +22,8 @@ public struct ResolvedPipeline: Equatable, Sendable {
     public var unplannedOutputs: [String] = []
     /// What `{labels}` gives in the subfolder and note templates (empty when no template uses it).
     public var labels: [String] = []
+    /// A note needs attention: a content check's image analysis failed (`ReportEntry.warning`).
+    public var warning = false
 
     public init(pipeline: Pipeline, disposition: Disposition = .process, notes: [String] = [],
                 subfolder: String? = nil, finderTags: [String] = [], noteTemplates: [String] = []) {
@@ -101,12 +103,8 @@ extension Pipeline {
         // Extra outputs are made from the processed image: a copy (or a skip) has none, nor has an image whose
         // branch said so.
         if state.skipExtras || disposition != .process { result.extraOutputs = [] }
-        if disposition == .copyOriginal, result.metadata.hidesSourceData {
-            // A byte copy would keep what the Metadata step removes: convert with nothing else applied.
+        if disposition == .copyOriginal, Self.convertsCopy(&result, format: facts?.format, notes: &notes) {
             disposition = .process
-            result.steps = []
-            result.output = .faithful(facts?.format ?? result.output.format)
-            notes.append(ConditionalStep.convertedForPrivacyNote)
         }
         if disposition == .copyOriginal {
             // A copy is the unchanged source: no image steps (so `{width}`/`{height}` give its own size), and
@@ -121,7 +119,28 @@ extension Pipeline {
                                         subfolder: state.subfolder, finderTags: FinderTags.normalized(state.tags),
                                         noteTemplates: state.noteTemplates)
         resolved.labels = state.labels
+        resolved.warning = analysisFailed(facts)
         return resolved
+    }
+
+    /// Whether a copied original must be converted instead, set up for that: a byte copy would show what an enabled
+    /// Redact step hides (Redact is a floor like the Metadata step: only the Redact steps run) or keep what the
+    /// Metadata step removes (nothing else runs). In the source's own format, with a note. False: copy it.
+    private static func convertsCopy(_ result: inout Pipeline, format: OutputFormat?, notes: inout [String]) -> Bool {
+        let redactions = result.steps.filter { $0.isEnabled && $0.operation.kind == .redact }
+        let hidesMetadata = result.metadata.hidesSourceData
+        guard !redactions.isEmpty || hidesMetadata else { return false }
+        result.steps = redactions
+        result.output = .faithful(format ?? result.output.format)
+        if !redactions.isEmpty { notes.append(Redaction.convertedToRedactNote) }
+        if hidesMetadata { notes.append(ConditionalStep.convertedForPrivacyNote) }
+        return true
+    }
+
+    /// True when content checks needed an image analysis that failed: the report flags that file.
+    private func analysisFailed(_ facts: ItemFacts?) -> Bool {
+        guard let facts, !conditionFactNeeds.isDisjoint(with: .analysis) else { return false }
+        return facts.analysis.failure != nil
     }
 
     /// Why content checks couldn't be answered for `facts` (the analysis failed, or needs macOS 15).

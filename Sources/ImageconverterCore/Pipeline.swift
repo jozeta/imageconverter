@@ -243,7 +243,7 @@ extension Pipeline {
                 current = try ImageOps.crop(current, options, focus: rect)
             case .rotateFlip(let options): current = try ImageOps.rotateFlip(current, options)
             case .redact(let options):
-                let rects = redactRects(options, in: current, step: index, context: focus, notes: &notes)
+                let rects = try redactRects(options, in: current, step: index, context: focus, notes: &notes)
                 current = try ImageOps.redact(current, options, rects: rects)
             case .perspective(let options): current = try Perspective.apply(options, to: current, notes: &notes)
             case .trim(let options): current = try Trim.apply(options, to: current)

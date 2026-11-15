@@ -23,6 +23,21 @@ public struct ReportEntry: Codable, Equatable, Sendable {
     public var note: String?
     /// The extra output's label; nil for the primary output (and for failed or skipped files).
     public var variant: String?
+    /// Saved only when true (older reports have none).
+    private var warningFlag: Bool?
+
+    /// A written file whose note needs attention (a condition's image analysis failed, or the original couldn't be
+    /// moved to the Trash). Set by the batch when the note is made, never read from the note's text.
+    public var warning: Bool {
+        get { warningFlag ?? false }
+        set { warningFlag = newValue ? true : nil }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case source, destination, status, inputBytes, outputBytes, duration, inputWidth, inputHeight, outputWidth,
+             outputHeight, note, variant
+        case warningFlag = "warning"
+    }
 
     public init(source: String, destination: String? = nil, status: ReportStatus, inputBytes: Int?,
                 outputBytes: Int? = nil, duration: Double = 0, inputWidth: Int? = nil, inputHeight: Int? = nil,
@@ -122,11 +137,13 @@ public struct ProcessingReport: Equatable, Sendable {
         // No I/O here: every size was read by the runner. Entries go back into input order.
         var byName: [URL: [ReportEntry]] = [:]
         for entry in batch.entries {
-            byName[entry.source, default: []].append(ReportEntry(
+            var row = ReportEntry(
                 source: entry.source.path, destination: entry.destination.path, status: .succeeded,
                 inputBytes: entry.inputBytes, outputBytes: entry.outputBytes, duration: entry.duration,
                 inputWidth: entry.inputWidth, inputHeight: entry.inputHeight, outputWidth: entry.outputWidth,
-                outputHeight: entry.outputHeight, note: entry.note, variant: entry.variant))
+                outputHeight: entry.outputHeight, note: entry.note, variant: entry.variant)
+            row.warning = entry.warning
+            byName[entry.source, default: []].append(row)
         }
         for failure in batch.failures {
             byName[failure.source, default: []].append(ReportEntry(

@@ -49,12 +49,27 @@ public struct RedactOptions: Codable, Equatable, Sendable {
     public static let defaultPadding = 15.0
     public static let paddingRange: ClosedRange<Double> = 0...100
 
-    public init(target: RedactTarget = .faces, style: RedactStyle = .blur, fillColor: RGBAColor = .black,
+    /// `style` nil: the default for `target` (`defaultStyle(for:)`).
+    public init(target: RedactTarget = .faces, style: RedactStyle? = nil, fillColor: RGBAColor = .black,
                 padding: Double = RedactOptions.defaultPadding) {
         self.target = target
-        self.style = style
+        self.style = style ?? Self.defaultStyle(for: target)
         self.fillColor = fillColor
         self.padding = padding
+    }
+
+    /// Blur for faces; a solid colour as soon as text is included, since blurred or pixelated text can sometimes be
+    /// reconstructed by rendering guesses in the same font and comparing.
+    public static func defaultStyle(for target: RedactTarget) -> RedactStyle {
+        target.includesText ? .fill : .blur
+    }
+
+    /// These options for `target`; the style follows the new target's default unless another style was chosen.
+    public func retargeted(_ target: RedactTarget) -> RedactOptions {
+        var options = self
+        options.target = target
+        if style == Self.defaultStyle(for: self.target) { options.style = Self.defaultStyle(for: target) }
+        return options
     }
 
     /// `padding` limited to 0...100 (NaN → the default).
@@ -67,7 +82,7 @@ public struct RedactOptions: Codable, Equatable, Sendable {
         case target, style, fillColor, padding
     }
 
-    /// Lenient: a missing or unknown value takes its default.
+    /// Lenient: a missing or unknown value takes its default (a style saved before text defaulted to a fill: blur).
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         target = (try? container.decodeIfPresent(RedactTarget.self, forKey: .target)) ?? .faces
@@ -107,6 +122,12 @@ public enum Redaction {
     /// Text needs more resolution than faces: the copy Vision reads text from is at most this long.
     public static let textMaxLongSide = 2048
     public static let nothingFoundNote = "Redact: nothing found"
+    /// The note on an image a condition would have copied unchanged: it is converted with the Redact step instead.
+    public static let convertedToRedactNote = "Converted to redact: a copy of the original would not be redacted"
+    /// The note when face or person regions were taken out of the output's metadata.
+    public static let faceRegionsRemovedNote = "Removed face regions from metadata"
+    /// Shown in the editor, the hover help and the README.
+    public static let textAdvice = "For text, use Solid colour: blur and pixelation can sometimes be reversed."
 
     /// Normalised boxes as whole-pixel rects of an image of `size` (top-left origin), each grown by `padding`
     /// percent of its own width and height on every side, then clamped to the image. Boxes are untrusted:
@@ -155,24 +176,18 @@ public enum Redaction {
         max(6, (Double(min(rect.width, rect.height)) / 3).rounded(.up))
     }
 
-    /// The report note for one image: "Redacted 2 faces, 1 text area", "Redact: nothing found", or, when Vision
-    /// couldn't run, "Image analysis unavailable: <reason>; nothing was redacted" (an unredacted image may leak,
-    /// so the report shows that note as a warning).
-    public static func note(faces: Int, text: Int, failure: String?) -> String {
+    /// The report note for one image: "Redacted 2 faces, 1 text area" or "Redact: nothing found". (When Vision
+    /// can't run the image fails instead: `ConversionError.redactUnchecked`.)
+    public static func note(faces: Int, text: Int) -> String {
         var found: [String] = []
         if faces > 0 { found.append("\(faces) \(faces == 1 ? "face" : "faces")") }
         if text > 0 { found.append("\(text) text \(text == 1 ? "area" : "areas")") }
-        let list = found.joined(separator: ", ")
-        if let failure {
-            let unavailable = ImageAnalysis.unavailableNote(failure)
-            return found.isEmpty ? unavailable + "; nothing was redacted" : unavailable + "; only redacted " + list
-        }
-        return found.isEmpty ? nothingFoundNote : "Redacted " + list
+        return found.isEmpty ? nothingFoundNote : "Redacted " + found.joined(separator: ", ")
     }
 
-    /// Runs the step's detections on `image` (the image as it arrives at the step). One copy of at most
-    /// `textMaxLongSide` pixels serves both: text is read from it, faces from the detector's own smaller copy.
-    /// A throwing detection keeps what the other one found and records the reason (never fails a run).
+    /// Runs the step's detections on `image` (the image as it arrives at the step) on one copy of at most
+    /// `textMaxLongSide` pixels, for faces and text alike (small faces in big group photos need it too). A throwing
+    /// detection records the reason; the step then fails the image rather than write it unchecked.
     public static func detect(_ target: RedactTarget, in image: CGImage, detector: any VisionDetector)
         -> RedactDetections {
         guard let input = VisionInput.prepared(image, maxSide: textMaxLongSide) else {
@@ -181,7 +196,9 @@ public enum Redaction {
         var result = RedactDetections()
         var failures: [String] = []
         if target.includesFaces {
-            do { result.faces = try detector.faceRects(in: input).compactMap(sanitized) } catch {
+            do {
+                result.faces = try detector.faceRects(in: input, maxSide: textMaxLongSide).compactMap(sanitized)
+            } catch {
                 failures.append(ImageAnalysis.reason(error))
             }
         }
@@ -195,12 +212,20 @@ public enum Redaction {
     }
 }
 
-extension ReportEntry {
-    /// A written file whose note needs attention: image analysis couldn't run (a Redact step may have left
-    /// faces or text visible, a condition may have taken the other branch), or the original couldn't be trashed.
-    public var isWarning: Bool {
-        guard status == .succeeded, let note else { return false }
-        return note.contains(ImageAnalysis.unavailableNote("").trimmingCharacters(in: .whitespaces))
-            || note.hasPrefix(FileCommitter.trashFailurePrefix)
+/// Text boxes from two detectors together: every recognised line, plus each text rectangle that isn't mostly the
+/// same area as one of them (stylised or handwritten text that recognition drops).
+public enum TextBoxes {
+    public static func merged(recognized: [CGRect], rectangles: [CGRect]) -> [CGRect] {
+        recognized + rectangles.filter { box in
+            !recognized.contains { overlap(box, $0) >= 0.5 }
+        }
+    }
+
+    /// Intersection over the smaller box's area (0 when they don't meet).
+    static func overlap(_ lhs: CGRect, _ rhs: CGRect) -> Double {
+        let common = lhs.intersection(rhs)
+        guard !common.isNull, !common.isEmpty else { return 0 }
+        let smaller = min(lhs.width * lhs.height, rhs.width * rhs.height)
+        return smaller > 0 ? Double(common.width * common.height / smaller) : 0
     }
 }

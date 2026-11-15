@@ -7,7 +7,8 @@ struct RedactEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Picker("Hide", selection: $options.target) {
+            // The style follows the target's default (a solid colour for text) unless another one was chosen.
+            Picker("Hide", selection: Binding(get: { options.target }, set: { options = options.retargeted($0) })) {
                 ForEach(RedactTarget.allCases, id: \.self) { Text($0.displayName).tag($0) }
             }
             .accessibilityLabel("What to hide")
@@ -43,7 +44,13 @@ struct RedactEditor: View {
                     .frame(width: 40, alignment: .trailing)
                     .accessibilityHidden(true)
             }
-            Text("Found on this Mac with Vision. Best effort: it can miss a face or some text, so check the results.")
+            if options.target.includesText {
+                Text(Redaction.textAdvice)
+                    .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Found on this Mac with Vision. Best effort: it can miss a face or some text, so check the results. "
+                 + "If Vision can't run, the image isn't written.")
                 .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.warnText)
                 .fixedSize(horizontal: false, vertical: true)
         }

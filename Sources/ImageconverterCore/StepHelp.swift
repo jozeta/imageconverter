@@ -79,7 +79,8 @@ public enum StepHelp {
                     + "or covers them with a solid colour.",
                 howTo: [
                     "Choose what to hide: Faces, Text, or Faces and text.",
-                    "Style: Blur (the default), Pixelate, or Solid colour with a colour you pick.",
+                    "Style: Blur (the default for faces), Pixelate, or Solid colour (the default for text).",
+                    Redaction.textAdvice,
                     "Padding (default 15 %) grows each box on every side by that share of its size, so hair, "
                         + "chins and letter edges are covered too.",
                     "It looks at the image as it arrives at the step, so put it after Crop and Rotate."
@@ -87,7 +88,7 @@ public enum StepHelp {
                 tips: [
                     "Best effort: Vision can miss a face or some text, so check the results before you share them.",
                     "The report says per file what was hidden, such as \"Redacted 2 faces, 1 text area\".",
-                    "If image analysis couldn't run, nothing is hidden and the report marks the file as a warning."
+                    "If Vision can't run for an image, that image isn't written: it fails with a reason, and the rest go on."
                 ])
         case .step(.perspective):
             return StepHelpInfo(

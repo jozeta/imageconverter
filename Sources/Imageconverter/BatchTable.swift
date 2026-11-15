@@ -15,7 +15,7 @@ struct BatchTable: View {
     /// Rebuilt only when the batch changes, not on every body pass.
     @State private var rows: [BatchRow] = []
     @State private var statuses: [String: ReportStatus] = [:]
-    /// Written files whose note needs attention (`ReportEntry.isWarning`), by source path.
+    /// Written files whose note needs attention (`ReportEntry.warning`), by source path.
     @State private var warnings: Set<String> = []
 
     var body: some View {
@@ -74,7 +74,7 @@ struct BatchTable: View {
         }
         .onChange(of: model.runReport, initial: true) { _, report in
             statuses = Self.statuses(report)
-            warnings = Set(report?.entries.filter { $0.variant == nil && $0.isWarning }.map(\.source) ?? [])
+            warnings = Set(report?.entries.filter { $0.variant == nil && $0.warning }.map(\.source) ?? [])
         }
         .accessibilityLabel("Image list")
     }

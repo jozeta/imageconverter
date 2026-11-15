@@ -19,7 +19,7 @@ final class PrivacyState {
         didSet { AppDefaults.store.set(looksForContent, forKey: Self.looksForContentKey) }
     }
     /// What the content check found per image (absent until checked, or when the analysis failed).
-    var content: [URL: ContentFindings] = [:]
+    var content: [URL: ContentCheckResult] = [:]
     @ObservationIgnored var contentTask: Task<Void, Never>?
     static let looksForContentKey = "privacyLooksForContent"
 }
@@ -55,13 +55,13 @@ extension AppModel {
     /// a neutral chip, so the panel (and its content check) can still be opened.
     var privacyChip: (text: String, severity: PrivacySeverity)? {
         if let chip = PrivacySummary.chip(Array(privacy.findings.values)) { return chip }
-        if let first = privacyContentLines.first { return (first.text, .medium) }
+        if let first = privacyContentLines.first(where: { $0.target != nil }) { return (first.text, .medium) }
         guard !items.isEmpty, items.allSatisfy({ privacy.findings[$0.source] != nil }) else { return nil }
         return ("No private metadata found", .low)
     }
 
     /// "2 images show faces", "1 image contains text" for the images in the batch (empty while the check is off).
-    var privacyContentLines: [(text: String, target: RedactTarget)] {
+    var privacyContentLines: [(text: String, target: RedactTarget?)] {
         guard privacy.looksForContent else { return [] }
         return ContentPrivacySummary.lines(items.compactMap { privacy.content[$0.source] })
     }
@@ -72,8 +72,8 @@ extension AppModel {
         if isOn { startContentScan() } else { privacy.contentTask?.cancel() }
     }
 
-    /// Checks the batch's images for faces and text with the shared analysis cache (the conditions use it too, so
-    /// an image is analysed once), off the main actor, one image at a time.
+    /// Checks the batch's images for faces and text with the Redact step's detection (same resolution), off the main
+    /// actor, one image at a time. A failed check is kept and shown as such.
     func startContentScan() {
         privacy.contentTask?.cancel()
         guard privacy.looksForContent else { return }
@@ -84,11 +84,9 @@ extension AppModel {
         privacy.contentTask = Task { [weak self] in
             for url in todo {
                 if Task.isCancelled { return }
-                let found = await Task.detached(priority: .utility) {
-                    ContentFindings(ImageAnalysisCache.shared.analysis(of: url, needs: ContentFindings.needs))
-                }.value
+                let found = await Task.detached(priority: .utility) { ContentCheck.run(url) }.value
                 guard let self, !Task.isCancelled else { return }
-                if let found, self.items.contains(where: { $0.source == url }) { self.privacy.content[url] = found }
+                if self.items.contains(where: { $0.source == url }) { self.privacy.content[url] = found }
             }
         }
     }

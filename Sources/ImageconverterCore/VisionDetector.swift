@@ -9,8 +9,15 @@ public protocol VisionDetector: Sendable {
     func faceRects(in image: CGImage) throws -> [CGRect]
     /// The most salient regions, most confident first.
     func subjectRects(in image: CGImage) throws -> [CGRect]
-    /// Every line or block of text Vision reads (fast recognition), with a letter or digit in it.
+    /// Every line or block of text Vision finds: recognised lines with a letter or digit, plus text rectangles
+    /// recognition drops (stylised or handwritten text).
     func textRects(in image: CGImage) throws -> [CGRect]
+    /// Every face's bounding box, found on a copy at most `maxSide` long (Redact looks closer than smart crop).
+    func faceRects(in image: CGImage, maxSide: Int) throws -> [CGRect]
+}
+
+extension VisionDetector {
+    public func faceRects(in image: CGImage, maxSide: Int) throws -> [CGRect] { try faceRects(in: image) }
 }
 
 /// The working copy Vision looks at: an image is shrunk to `maxLongSide` first, so a 100 MP photo costs about
@@ -45,7 +52,11 @@ public struct SystemVisionDetector: VisionDetector {
     public init() {}
 
     public func faceRects(in image: CGImage) throws -> [CGRect] {
-        guard let input = VisionInput.prepared(image) else { return [] }
+        try faceRects(in: image, maxSide: VisionInput.maxLongSide)
+    }
+
+    public func faceRects(in image: CGImage, maxSide: Int) throws -> [CGRect] {
+        guard let input = VisionInput.prepared(image, maxSide: maxSide) else { return [] }
         let request = VNDetectFaceRectanglesRequest()
         try VNImageRequestHandler(cgImage: input, options: [:]).perform([request])
         return (request.results ?? []).map { Self.topLeft($0.boundingBox) }
@@ -68,8 +79,10 @@ public struct SystemVisionDetector: VisionDetector {
     public func textRects(in image: CGImage) throws -> [CGRect] {
         guard let input = VisionInput.prepared(image, maxSide: Redaction.textMaxLongSide) else { return [] }
         let request = SystemImageAnalyzer.textRequest()
-        try VNImageRequestHandler(cgImage: input, options: [:]).perform([request])
-        return SystemImageAnalyzer.textBoxes(request.results ?? []).map(Self.topLeft)
+        let rectangles = VNDetectTextRectanglesRequest()
+        try VNImageRequestHandler(cgImage: input, options: [:]).perform([request, rectangles])
+        return TextBoxes.merged(recognized: SystemImageAnalyzer.textBoxes(request.results ?? []).map(Self.topLeft),
+                                rectangles: (rectangles.results ?? []).map { Self.topLeft($0.boundingBox) })
     }
 
     /// Vision's normalised boxes have a bottom-left origin.

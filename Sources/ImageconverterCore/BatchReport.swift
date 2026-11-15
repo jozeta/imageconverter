@@ -69,6 +69,8 @@ public struct BatchResultEntry: Equatable, Sendable {
     public var inputHeight: Int?
     public var outputWidth: Int?
     public var outputHeight: Int?
+    /// The note needs attention (see `ReportEntry.warning`).
+    public var warning = false
 
     public init(source: URL, destination: URL, inputBytes: Int?, outputBytes: Int, note: String? = nil) {
         self.source = source
