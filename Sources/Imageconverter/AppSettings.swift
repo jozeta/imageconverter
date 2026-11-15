@@ -16,6 +16,20 @@ final class AppSettings {
         static let suffix = "sameFolderSuffix"
     }
 
+    /// Where the "When finished" choice is stored (`AppModel` reads it when a run ends).
+    static let afterRunKey = "afterRunAction"
+    @ObservationIgnored private let notifier: JobNotifier
+
+    /// What happens when a run finishes. Applies to every run, not to a preset.
+    var afterRun: AfterRunAction {
+        didSet {
+            defaults.set(afterRun.rawValue, forKey: Self.afterRunKey)
+            if afterRun.notifies { askForNotifications() }
+        }
+    }
+    /// Notifications are switched off for the app in System Settings (or were refused).
+    var notificationsDenied = false
+
     @ObservationIgnored private let defaults: UserDefaults
 
     var modeKind: OutputModeKind {
@@ -44,10 +58,22 @@ final class AppSettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        notifier = JobNotifier(defaults: defaults)
+        afterRun = defaults.string(forKey: Self.afterRunKey).flatMap(AfterRunAction.init(rawValue:)) ?? .nothing
         modeKind = defaults.string(forKey: Key.modeKind).flatMap(OutputModeKind.init(rawValue:)) ?? .newFolder
         outputFolder = defaults.string(forKey: Key.folder).map { URL(fileURLWithPath: $0, isDirectory: true) }
         sameFolderSuffix = defaults.string(forKey: Key.suffix) ?? OutputPlanner.defaultSuffix
         restoreOutputAccess()
+        if afterRun.notifies { Task { await refreshNotificationsDenied() } }
+    }
+
+    private func askForNotifications() {
+        notifier.requestPermissionIfNeeded { Task { @MainActor in await self.refreshNotificationsDenied() } }
+        Task { await refreshNotificationsDenied() }
+    }
+
+    func refreshNotificationsDenied() async {
+        notificationsDenied = await notifier.isDenied()
     }
 
     /// Resolves the output folder's bookmark: access started on the resolved URL, a stale bookmark refreshed, a

@@ -17,10 +17,16 @@ final class JobNotifier {
         Bundle.main.bundleIdentifier == nil ? nil : UNUserNotificationCenter.current()
     }
 
-    func requestPermissionIfNeeded() {
-        guard !defaults.bool(forKey: Self.askedKey), let center else { return }
+    func requestPermissionIfNeeded(completion: (@Sendable () -> Void)? = nil) {
+        guard !defaults.bool(forKey: Self.askedKey), let center else { completion?(); return }
         defaults.set(true, forKey: Self.askedKey)
-        center.requestAuthorization(options: [.alert, .sound]) { _, _ in }
+        center.requestAuthorization(options: [.alert, .sound]) { _, _ in completion?() }
+    }
+
+    /// True when the user has refused notifications for the app (or turned them off in System Settings).
+    func isDenied() async -> Bool {
+        guard let center else { return false }
+        return await center.notificationSettings().authorizationStatus == .denied
     }
 
     /// Posts when allowed; silently does nothing otherwise.

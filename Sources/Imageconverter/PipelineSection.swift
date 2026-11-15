@@ -305,6 +305,7 @@ struct OutputPanel: View {
                 .disabled(model.isRunning)
             estimateLine
             saveToControls
+            afterRunControls
         }
         .padding(.horizontal, LadaGlass.Spacing.m)
         .padding(.vertical, LadaGlass.Spacing.s)
@@ -343,5 +344,23 @@ struct OutputPanel: View {
         @Bindable var settings = settings
         return SaveToControl(kind: $settings.modeKind, folder: $settings.outputFolder, suffix: $settings.sameFolderSuffix)
             .disabled(model.isRunning)
+    }
+
+    // MARK: When finished
+
+    private var afterRunControls: some View {
+        @Bindable var settings = settings
+        return VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
+            Picker("When finished", selection: $settings.afterRun) {
+                ForEach(AfterRunAction.allCases, id: \.self) { Text($0.label).tag($0) }
+            }
+            .accessibilityLabel("When finished")
+            if settings.afterRun.notifies && settings.notificationsDenied {
+                Text("Notifications are off for imageconverter. Turn them on in System Settings ▸ Notifications.")
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }

@@ -241,6 +241,7 @@ The output settings are in the Output row of the sidebar (there is no Settings w
 | Setting | Options | Default |
 |---------|---------|---------|
 | Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
+| When finished | Nothing · Reveal in Finder · Notify me · Reveal and notify (the "When finished" dropdown under Save to). Applies to every run of the main window, including runs started from Finder Services, AppleScript and links; jobs have their own notifications. Reveal selects the written files in Finder (up to 50; with more it opens their folders). Notify posts "Run finished" with the counts and space saved, only when imageconverter is not the frontmost app. The first time you pick a notify choice macOS asks for permission; if notifications are off, a note says where to turn them on. Not stored in presets | Nothing |
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
 
