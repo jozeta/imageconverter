@@ -207,15 +207,22 @@ public struct Pipeline: Codable, Equatable, Sendable {
         let variants = (try? container.decodeIfPresent([LossyVariant].self, forKey: .extraOutputs)) ?? []
         let (kept, notes) = OutputVariant.validated(variants.compactMap(\.variant))
         extraOutputs = kept
-        loadNotes = PipelineLoadNotes(notes)
+        // An output this version can't read (a newer format, broken settings) is left out, and said so.
+        let unreadable = variants.filter { $0.variant == nil }.map { OutputVariant.unreadableNote($0.name) }
+        loadNotes = PipelineLoadNotes(unreadable + notes)
     }
 }
 
 private struct LossyVariant: Decodable {
     let variant: OutputVariant?
+    /// The label of an output that couldn't be read, when at least that could.
+    let name: String?
+
+    private enum Keys: String, CodingKey { case name }
 
     init(from decoder: Decoder) throws {
         variant = try? OutputVariant(from: decoder)
+        name = variant == nil ? (try? decoder.container(keyedBy: Keys.self).decode(String.self, forKey: .name)) : nil
     }
 }
 

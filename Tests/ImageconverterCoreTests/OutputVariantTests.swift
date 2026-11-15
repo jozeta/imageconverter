@@ -77,8 +77,41 @@ final class OutputVariantTests: XCTestCase {
         // "Broken" has no readable suffix, so it decodes with an empty one and is left out too.
         XCTAssertEqual(pipeline.extraOutputs.map(\.name), ["A", "Big"])
         XCTAssertNil(pipeline.extraOutputs.last?.resize, "an out-of-range resize is dropped, the output kept")
-        XCTAssertEqual(pipeline.loadNotes.notes.count, 3, "\(pipeline.loadNotes.notes)")
+        // Three left out for their suffix, one ("not an object") that couldn't be read at all.
+        XCTAssertEqual(pipeline.loadNotes.notes.count, 4, "\(pipeline.loadNotes.notes)")
+        XCTAssertTrue(pipeline.loadNotes.notes.contains("An extra output couldn't be read and was left out"))
         XCTAssertTrue(pipeline.loadNotes.notes.contains { $0.contains("Blank") })
+    }
+
+    func testUnreadableSettingsDropTheOutputWithANote() throws {
+        let json = """
+        {"extraOutputs":[
+          {"name":"Future","nameSuffix":"_f","settings":{"format":"jpegxl"}},
+          {"name":"Fine","nameSuffix":"_ok","settings":{"format":"png"}}
+        ]}
+        """
+        let pipeline = try JSONDecoder().decode(Pipeline.self, from: Data(json.utf8))
+        XCTAssertEqual(pipeline.extraOutputs.map(\.name), ["Fine"])
+        XCTAssertEqual(pipeline.extraOutputs.first?.settings.format, .png)
+        XCTAssertEqual(pipeline.loadNotes.notes, ["Extra output “Future” couldn't be read and was left out"])
+    }
+
+    func testRepeatedIDsAreRenewedNotDropped() throws {
+        let id = "00000000-0000-4000-8000-000000000001"
+        let json = """
+        {"extraOutputs":[
+          {"id":"\(id)","name":"A","nameSuffix":"_a"},
+          {"id":"\(id)","name":"B","nameSuffix":"_b"},
+          {"id":"\(id)","name":"C","nameSuffix":"_a"}
+        ]}
+        """
+        let pipeline = try JSONDecoder().decode(Pipeline.self, from: Data(json.utf8))
+        XCTAssertEqual(pipeline.extraOutputs.map(\.name), ["A", "B"])
+        XCTAssertEqual(pipeline.extraOutputs.first?.id.uuidString, id, "the first keeps its id")
+        XCTAssertEqual(Set(pipeline.extraOutputs.map(\.id)).count, 2)
+        // Only the real problem is noted: C repeats A's suffix.
+        XCTAssertEqual(pipeline.loadNotes.notes.count, 1)
+        XCTAssertTrue(pipeline.loadNotes.notes[0].contains("“C”"), pipeline.loadNotes.notes[0])
     }
 
     func testDecodeKeepsAtMostEight() throws {

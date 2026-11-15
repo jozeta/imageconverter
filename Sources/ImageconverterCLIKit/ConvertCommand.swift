@@ -19,7 +19,9 @@ enum ConvertCommand {
             environment.err("imageconverter: this Mac can't write \(missing.displayName).")
             return CLIExit.usage
         }
-        for note in pipeline.loadNotes.notes { environment.err("imageconverter: warning: \(note)") }
+        for note in pipeline.loadNotes.notes {
+            environment.err("imageconverter: warning: \(ReportExporter.printable(note))")
+        }
 
         warnAboutIgnoredFlags(options, format: pipeline.output.format, environment: environment)
         let missing = options.inputs.filter { !FileManager.default.fileExists(atPath: $0) }

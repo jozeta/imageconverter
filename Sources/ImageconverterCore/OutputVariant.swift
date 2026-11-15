@@ -85,7 +85,9 @@ public struct OutputVariant: Codable, Equatable, Sendable, Identifiable {
         id = (try? container.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID()
         let label = (try? container.decodeIfPresent(String.self, forKey: .name)) ?? "Output"
         name = String(label.prefix(Self.maxNameLength))
-        settings = (try? container.decodeIfPresent(OutputSettings.self, forKey: .settings)) ?? OutputSettings()
+        // Settings that are there but can't be read (e.g. a format from a newer version) fail the output: it is
+        // left out with a note instead of quietly becoming a JPEG.
+        settings = try container.decodeIfPresent(OutputSettings.self, forKey: .settings) ?? OutputSettings()
         let size = try? container.decodeIfPresent(VariantResize.self, forKey: .resize)
         resize = size?.isValid == true ? size : nil
         nameSuffix = (try? container.decodeIfPresent(String.self, forKey: .nameSuffix)) ?? ""
@@ -145,8 +147,19 @@ public struct OutputVariant: Codable, Equatable, Sendable, Identifiable {
         return problems
     }
 
-    /// The outputs that can run, in order, and a note for each one left out (`problems(in:)`).
+    /// The note for an output that couldn't be read at all.
+    static func unreadableNote(_ name: String?) -> String {
+        let label = name.map { String($0.prefix(maxNameLength)).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
+        return label.isEmpty ? "An extra output couldn't be read and was left out"
+            : "Extra output “\(label)” couldn't be read and was left out"
+    }
+
+    /// The outputs that can run, in order, and a note for each one left out (`problems(in:)`). An id that repeats
+    /// an earlier one (a hand-edited file) gets a new one first, so it is judged on its own.
     public static func validated(_ variants: [OutputVariant]) -> (kept: [OutputVariant], notes: [String]) {
+        var variants = variants
+        var ids = Set<UUID>()
+        for index in variants.indices where !ids.insert(variants[index].id).inserted { variants[index].id = UUID() }
         let problems = problems(in: variants)
         guard !problems.isEmpty else { return (variants, []) }
         var kept: [OutputVariant] = []
