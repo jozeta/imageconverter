@@ -90,6 +90,9 @@ extension Pipeline {
         var result = state.pipeline
         var disposition = state.disposition
         var notes = state.notes
+        // Extra outputs are made from the processed image: a copy (or a skip) has none, nor has an image whose
+        // branch said so.
+        if state.skipExtras || disposition != .process { result.extraOutputs = [] }
         if disposition == .copyOriginal, result.metadata.hidesSourceData {
             // A byte copy would keep what the Metadata step removes: convert with nothing else applied.
             disposition = .process
@@ -140,6 +143,7 @@ private struct Resolution {
     var tags: [String] = []
     var noteTemplates: [String] = []
     var stopped = false
+    var skipExtras = false
     /// What a copied original ignores (for its note).
     var addedKeywords = false
     var addedPresetSteps = false
@@ -169,6 +173,7 @@ private struct Resolution {
         case .addKeywords(let keywords): addKeywords(keywords)
         case .stop: stopped = true
         case .note(let text): noteTemplates.append(text)
+        case .skipExtraOutputs: skipExtras = true
         }
     }
 

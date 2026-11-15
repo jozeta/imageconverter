@@ -21,10 +21,12 @@ public struct ReportEntry: Codable, Equatable, Sendable {
     public var outputHeight: Int?
     /// A note on a written file, or the reason a file failed.
     public var note: String?
+    /// The extra output's label; nil for the primary output (and for failed or skipped files).
+    public var variant: String?
 
     public init(source: String, destination: String? = nil, status: ReportStatus, inputBytes: Int?,
                 outputBytes: Int? = nil, duration: Double = 0, inputWidth: Int? = nil, inputHeight: Int? = nil,
-                outputWidth: Int? = nil, outputHeight: Int? = nil, note: String? = nil) {
+                outputWidth: Int? = nil, outputHeight: Int? = nil, note: String? = nil, variant: String? = nil) {
         self.source = source
         self.destination = destination
         self.status = status
@@ -36,6 +38,7 @@ public struct ReportEntry: Codable, Equatable, Sendable {
         self.outputWidth = outputWidth
         self.outputHeight = outputHeight
         self.note = note
+        self.variant = variant
     }
 
     /// Output size divided by input size; nil unless the file was written from a non-empty source.
@@ -116,7 +119,7 @@ public struct ProcessingReport: Equatable, Sendable {
                 source: entry.source.path, destination: entry.destination.path, status: .succeeded,
                 inputBytes: entry.inputBytes, outputBytes: entry.outputBytes, duration: entry.duration,
                 inputWidth: entry.inputWidth, inputHeight: entry.inputHeight, outputWidth: entry.outputWidth,
-                outputHeight: entry.outputHeight, note: entry.note))
+                outputHeight: entry.outputHeight, note: entry.note, variant: entry.variant))
         }
         for failure in batch.failures {
             byName[failure.source, default: []].append(ReportEntry(
@@ -132,20 +135,24 @@ public struct ProcessingReport: Equatable, Sendable {
         for source in batch.order where seen.insert(source).inserted { entries += byName[source] ?? [] }
         // A hand-built BatchReport has no order: keep written then failed.
         if batch.order.isEmpty {
-            entries = batch.entries.compactMap { written in byName[written.source]?.first { $0.status == .succeeded } }
+            var listed: Set<URL> = []
+            entries = batch.entries.filter { listed.insert($0.source).inserted }
+                .flatMap { written in (byName[written.source] ?? []).filter { $0.status == .succeeded } }
                 + batch.failures.map { failure in ReportEntry(source: failure.source.path, status: .failed,
                                                         inputBytes: failure.inputBytes, duration: failure.duration,
                                                         note: failure.reason) }
                 + batch.skipped.map { ReportEntry(source: $0.source.path, status: .skipped, inputBytes: $0.inputBytes,
                                                   note: $0.reason) }
         }
-        let ratios = entries.compactMap(\.ratio)
-        let done = batch.entries.count + batch.failures.count + batch.skipped.count
+        // Counts and averages are per image: extra outputs are rows of their own, but not more images.
+        let primaries = entries.filter { $0.variant == nil }
+        let ratios = primaries.compactMap(\.ratio)
+        let done = batch.convertedCount + batch.failures.count + batch.skipped.count
         let notRun = batch.cancelled ? max(0, total - done) : 0
-        let times = entries.filter { $0.status == .succeeded }.map(\.duration)
+        let times = primaries.filter { $0.status == .succeeded }.map(\.duration)
         let summary = RunSummary(
             startedAt: startedAt, finishedAt: finishedAt, jobName: jobName, presetName: presetName,
-            outputMode: outputMode, total: total, succeeded: batch.entries.count, failed: batch.failures.count,
+            outputMode: outputMode, total: total, succeeded: batch.convertedCount, failed: batch.failures.count,
             skipped: batch.skipped.count, cancelled: notRun, inputBytes: batch.inputBytes, outputBytes: batch.outputBytes,
             averageDuration: times.isEmpty ? 0 : times.reduce(0, +) / Double(times.count),
             averageRatio: ratios.isEmpty ? nil : ratios.reduce(0, +) / Double(ratios.count))

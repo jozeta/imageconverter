@@ -77,7 +77,8 @@ extension ReportExporter {
     }
 
     private static func row(_ entry: ReportEntry) -> String {
-        let name = entry.destination.map { "\(entry.source) \u{2192} \($0)" } ?? entry.source
+        let name = (entry.variant.map { "\($0): " } ?? "")
+            + (entry.destination.map { "\(entry.source) \u{2192} \($0)" } ?? entry.source)
         let change = entry.inputBytes.flatMap { input in
             entry.outputBytes.flatMap { SizeFormat.percentChange(from: input, to: $0) }
         } ?? ""

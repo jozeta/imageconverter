@@ -18,6 +18,17 @@ public struct EncodedPreview: @unchecked Sendable {
     public let note: String?
     /// What the output still carries (the privacy scan of the encoded bytes, or of the copied original).
     public let privacy: PrivacyFindings?
+    /// The extra outputs' sizes, in order (empty for a copy).
+    public var variants: [VariantEstimate] = []
+}
+
+/// The estimate of one extra output: exactly what the batch would write for it, or why it can't.
+public struct VariantEstimate: Equatable, Sendable {
+    public let name: String
+    /// Nil when the output can't be made (`failure` says why).
+    public let bytes: Int?
+    public let failure: String?
+    public let note: String?
 }
 
 public enum SizeEstimator {
@@ -51,13 +62,18 @@ public enum SizeEstimator {
                 pipeline.output.optimizePNG = false
                 note = unoptimisedPNGNote
             }
-            let result = try BatchRunner.encodeItem(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
+            let variants = OutputVariant.validated(pipeline.extraOutputs).kept.map(withoutPNGOptimising)
+            let result = try BatchRunner.encodeItem(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
+                                                    variants: variants.map(\.variant))
+            let estimates = zip(variants, result.variants).map { estimate($1, unoptimised: $0.unoptimised) }
             let data = result.data
             guard let decodedSource = result.source else {
                 // A lossless metadata-only copy: its pixels are the original's, so both views show the original.
                 let original = try ImageLoader.load(item.source, maxPixels: maxPixels).image
-                return EncodedPreview(bytes: data.count, original: original, encoded: original, quality: nil,
-                                      note: result.note, privacy: PrivacyScanner.scan(data: data))
+                var preview = EncodedPreview(bytes: data.count, original: original, encoded: original, quality: nil,
+                                             note: result.note, privacy: PrivacyScanner.scan(data: data))
+                preview.variants = estimates
+                return preview
             }
             // The app encoded this itself, so no file-size heuristic; the hard limits still apply.
             guard let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -68,9 +84,36 @@ public enum SizeEstimator {
             // The comparison views want the full-size original; decode it only when the render didn't.
             let original = result.downsampled
                 ? try ImageLoader.load(item.source, maxPixels: maxPixels).image : decodedSource
-            return EncodedPreview(bytes: data.count, original: original, encoded: encoded,
-                                  quality: result.quality, note: result.note ?? note,
-                                  privacy: PrivacyScanner.scan(data: data))
+            var preview = EncodedPreview(bytes: data.count, original: original, encoded: encoded,
+                                         quality: result.quality, note: result.note ?? note,
+                                         privacy: PrivacyScanner.scan(data: data))
+            preview.variants = estimates
+            return preview
         }
+    }
+
+    /// A PNG output estimated without its seven-encode optimisation, like the primary.
+    private static func withoutPNGOptimising(_ variant: OutputVariant) -> (variant: OutputVariant, unoptimised: Bool) {
+        guard variant.settings.format == .png, variant.settings.optimizePNG else { return (variant, false) }
+        var copy = variant
+        copy.settings.optimizePNG = false
+        return (copy, true)
+    }
+
+    private static func estimate(_ encoded: EncodedVariant, unoptimised: Bool) -> VariantEstimate {
+        switch encoded.outcome {
+        case .success(let item):
+            return VariantEstimate(name: encoded.variant.displayName, bytes: item.data.count, failure: nil,
+                                   note: item.note ?? (unoptimised ? unoptimisedPNGNote : nil))
+        case .failure(let error):
+            return VariantEstimate(name: encoded.variant.displayName, bytes: nil, failure: error.reason, note: nil)
+        }
+    }
+
+    /// "Primary 1.1 MB · Thumbnail 48 KB · Web 620 KB"; nil without extra outputs.
+    public static func variantLine(primary: Int, variants: [VariantEstimate]) -> String? {
+        guard !variants.isEmpty else { return nil }
+        let parts = variants.map { "\($0.name) \($0.bytes.map(SizeFormat.bytes) ?? "—")" }
+        return (["Primary \(SizeFormat.bytes(primary))"] + parts).joined(separator: " · ")
     }
 }

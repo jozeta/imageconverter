@@ -126,7 +126,7 @@ struct ActionList: View {
     /// Which one-off actions the list already has (a second one would only override the first).
     private struct Present {
         var copy = false, skip = false, output = false, metadata = false, rename = false, subfolder = false
-        var stop = false
+        var stop = false, skipExtras = false
     }
 
     private var has: Present {
@@ -140,6 +140,7 @@ struct ActionList: View {
             case .rename: result.rename = true
             case .subfolder: result.subfolder = true
             case .stop: result.stop = true
+            case .skipExtraOutputs: result.skipExtras = true
             case .step, .finderTags, .preset, .addKeywords, .note: break
             }
         }
@@ -169,6 +170,7 @@ struct ActionList: View {
                 Button("Save into subfolder…") { append(.subfolder("{date:yyyy}/{date:MM}")) }.disabled(present.subfolder)
                 Button("Add Finder tags…") { append(.finderTags(["Converted"])) }
                 Button("Copy original unchanged") { append(.copyOriginal) }.disabled(present.copy)
+                Button("Skip extra outputs") { append(.skipExtraOutputs) }.disabled(present.skipExtras)
             }
             Section("Metadata") {
                 Button("Set metadata…") {
@@ -264,6 +266,7 @@ private struct ActionRow: View {
         case .addKeywords: return "Add keywords"
         case .stop: return "Stop"
         case .note: return "Add a note"
+        case .skipExtraOutputs: return "Skip extra outputs"
         }
     }
 
@@ -276,13 +279,14 @@ private struct ActionRow: View {
         case .copyOriginal: return "writes the file unchanged"
         case .skip: return "nothing is written"
         case .stop: return "later conditions aren't checked for this image"
+        case .skipExtraOutputs: return "only the main output is written"
         default: return action.summary
         }
     }
 
     private var hasEditor: Bool {
         switch action {
-        case .copyOriginal, .skip, .stop: return false
+        case .copyOriginal, .skip, .stop, .skipExtraOutputs: return false
         default: return true
         }
     }
@@ -352,7 +356,7 @@ private struct ActionRow: View {
             RenameEditor(options: Binding(
                 get: { if case .rename(let current) = action { return current } else { return options } },
                 set: { action = .rename($0) }), example: "")
-        case .copyOriginal, .skip, .stop:
+        case .copyOriginal, .skip, .stop, .skipExtraOutputs:
             EmptyView()
         default:
             FileActionEditor(action: $action)
