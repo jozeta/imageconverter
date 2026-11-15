@@ -47,15 +47,30 @@ enum UpdateInstaller {
         Task { _ = try? await callService { service, reply in service.cleanUp { reply(nil) } } }
     }
 
-    /// One call to the service; the reply or the connection error ends it (exactly once).
+    /// How long the app waits for the service before giving up (a 200 MB unpack and check takes far less).
+    static let serviceTimeout: Duration = .seconds(600)
+
+    /// One call to the service; the reply, the connection error or the timeout ends it (exactly once). On a timeout
+    /// the connection is invalidated.
     private static func callService(_ body: @escaping (UpdateInstallerProtocol, @escaping (String?) -> Void) -> Void)
         async throws -> String? {
         let connection = NSXPCConnection(serviceName: UpdateInstallerService.name)
         connection.remoteObjectInterface = NSXPCInterface(with: UpdateInstallerProtocol.self)
         connection.resume()
-        defer { connection.invalidate() }
+        let once = Once()
+        defer {
+            once.timer?.cancel()
+            connection.invalidate()
+        }
         return try await withCheckedThrowingContinuation { continuation in
-            let once = Once()
+            once.timer = Task {
+                try? await Task.sleep(for: serviceTimeout)
+                if once.claim() {
+                    connection.invalidate()
+                    continuation.resume(throwing: UpdateError.installFailed("the installer didn't answer in time. "
+                        + "Quit and open imageconverter, then try again."))
+                }
+            }
             let proxy = connection.remoteObjectProxyWithErrorHandler { error in
                 if once.claim() {
                     continuation.resume(throwing: UpdateError.installFailed("the installer could not be reached "
@@ -94,6 +109,12 @@ enum UpdateInstaller {
 private final class Once: @unchecked Sendable {
     private let lock = NSLock()
     private var claimed = false
+    /// The timeout, cancelled once the call ended.
+    var timer: Task<Void, Never>? {
+        get { lock.withLock { storedTimer } }
+        set { lock.withLock { storedTimer = newValue } }
+    }
+    private var storedTimer: Task<Void, Never>?
 
     func claim() -> Bool {
         lock.lock()

@@ -90,7 +90,12 @@ public final class InstallerService: NSObject, UpdateInstallerProtocol, @uncheck
         if let problem = UpdateInstallPlan.locationProblem(appPath: target.path, isReadOnlyVolume: readOnly) {
             throw UpdateError.installRefused(problem)
         }
-        let clientID = Self.bundleIdentifier(of: target) ?? ""
+        // Never a downgrade or reinstall, whatever the (possibly compromised) app asks for.
+        guard let installedVersion = Self.info(of: target)?["CFBundleShortVersionString"].flatMap({ $0 as? String })
+                .flatMap(AppVersion.init), version > installedVersion else {
+            throw UpdateError.installRefused("Not installed: \(version) is not newer than the installed version.")
+        }
+        let clientID = Self.info(of: target)?["CFBundleIdentifier"] as? String ?? ""
         if let problem = InstallRequest.zipPathProblem(zipPath, home: environment.home, clientBundleID: clientID, version: version) {
             throw UpdateError.installRefused(problem)
         }
@@ -121,7 +126,10 @@ public final class InstallerService: NSObject, UpdateInstallerProtocol, @uncheck
             throw error
         }
         _ = try UpdateReplacer.swap(target, with: staged, using: environment.operations)
-        if UpdateQuarantine.isQuarantined(target) { try UpdateQuarantine.strip(target) }
+        // The app is in place and passed the notarized requirement: a leftover mark is logged, not a failure.
+        if UpdateQuarantine.isQuarantined(target) {
+            do { try UpdateQuarantine.strip(target) } catch { NSLog("imageconverter installer: %@", "\(error)") }
+        }
     }
 
     private func removeWorkFolders() {
@@ -131,10 +139,11 @@ public final class InstallerService: NSObject, UpdateInstallerProtocol, @uncheck
         }
     }
 
-    static func bundleIdentifier(of app: URL) -> String? {
-        guard let data = try? Data(contentsOf: app.appendingPathComponent("Contents/Info.plist")), data.count <= 1_000_000,
-              let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any] else { return nil }
-        return info["CFBundleIdentifier"] as? String
+    static func info(of app: URL) -> [String: Any]? {
+        guard let data = try? Data(contentsOf: app.appendingPathComponent("Contents/Info.plist")), data.count <= 1_000_000 else {
+            return nil
+        }
+        return try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
     }
 }
 

@@ -19,10 +19,15 @@ public enum InstallRequest {
     /// `<home>/Library/Containers/<client>/Data/tmp/imageconverter-update-<UUID>/imageconverter-<version>.zip`.
     public static func zipPathProblem(_ path: String, home: String, clientBundleID: String, version: AppVersion) -> String? {
         let refused = "The update's download is not where the app keeps it."
-        guard path.hasPrefix("/"), !clientBundleID.isEmpty, !clientBundleID.contains("/"),
-              URL(fileURLWithPath: path).standardizedFileURL.path == path else { return refused }
-        let tmp = URL(fileURLWithPath: home).appendingPathComponent("Library/Containers")
-            .appendingPathComponent(clientBundleID).appendingPathComponent("Data/tmp").standardizedFileURL.path
+        // Compared as plain text: no `.`, `..` or empty components anywhere (URL standardising would also turn
+        // /private/var into /var, which is a different path for O_NOFOLLOW_ANY).
+        let isPlain = { (text: String) in
+            text.hasPrefix("/") && !text.dropFirst().split(separator: "/", omittingEmptySubsequences: false)
+                .contains { $0.isEmpty || $0 == "." || $0 == ".." }
+        }
+        guard isPlain(path), isPlain(home), !clientBundleID.isEmpty, !clientBundleID.contains("/"),
+              clientBundleID != ".", clientBundleID != ".." else { return refused }
+        let tmp = home + "/Library/Containers/" + clientBundleID + "/Data/tmp"
         guard path.hasPrefix(tmp + "/") else { return refused }
         let rest = path.dropFirst(tmp.count + 1).split(separator: "/", omittingEmptySubsequences: false)
         guard rest.count == 2, rest[0].hasPrefix(InstallerPolicy.clientFolderPrefix),
@@ -38,10 +43,11 @@ public enum InstallRequest {
         }
     }
 
-    /// Copies a regular file (never through a symlink) of at most `maxBytes` to `destination`.
+    /// Copies a regular file of at most `maxBytes` to `destination`, never through a symlink anywhere in its path
+    /// (`O_NOFOLLOW_ANY`: the app could make its download folder a link to somewhere else).
     public static func copyZip(at path: String, to destination: URL, maxBytes: Int) throws {
         let refused = UpdateError.installRefused("The update's download is not where the app keeps it.")
-        let descriptor = open(path, O_RDONLY | O_NOFOLLOW)
+        let descriptor = open(path, O_RDONLY | O_NOFOLLOW_ANY)
         guard descriptor >= 0 else { throw refused }
         let source = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
         var info = stat()

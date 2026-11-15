@@ -14,7 +14,10 @@ final class InstallerServiceTests: XCTestCase {
     private let adHocRequirement = "identifier \"io.github.jozeta.imageconverter\""
 
     override func setUpWithError() throws {
-        root = FileManager.default.temporaryDirectory.appendingPathComponent("installer-\(UUID().uuidString)")
+        // The real path: the zip is opened with O_NOFOLLOW_ANY, and the temp folder's /var is a link to /private/var.
+        let temp = try XCTUnwrap(realpath(FileManager.default.temporaryDirectory.path, nil))
+        defer { free(temp) }
+        root = URL(fileURLWithPath: String(cString: temp)).appendingPathComponent("installer-\(UUID().uuidString)")
         installed = root.appendingPathComponent("Applications/imageconverter.app")
         service = installed.appendingPathComponent("Contents/XPCServices/\(UpdateInstallerService.bundleName)")
         home = root.appendingPathComponent("home")
@@ -141,6 +144,28 @@ final class InstallerServiceTests: XCTestCase {
         try FileManager.default.moveItem(atPath: zip.path, toPath: real.path)
         try FileManager.default.createSymbolicLink(atPath: zip.path, withDestinationPath: real.path)
         assertRefused { try makeService().perform(zipPath: zip.path, expectedSHA256: zip.sha, version: "9.9.9") }
+    }
+
+    func testRefusesASymlinkedDownloadFolder() throws {
+        // The zip itself is a plain file, but its folder is a link (the app controls its own tmp).
+        let zip = try download()
+        let folder = URL(fileURLWithPath: zip.path).deletingLastPathComponent()
+        let real = root.appendingPathComponent("elsewhere")
+        try FileManager.default.moveItem(at: folder, to: real)
+        try FileManager.default.createSymbolicLink(at: folder, withDestinationURL: real)
+        assertRefused { try makeService().perform(zipPath: zip.path, expectedSHA256: zip.sha, version: "9.9.9") }
+    }
+
+    func testRefusesADowngradeOrReinstall() throws {
+        for installedVersion in ["9.9.9", "10.0.0"] {
+            try writeInfo(to: installed, version: installedVersion)
+            let zip = try download()
+            XCTAssertThrowsError(try makeService().perform(zipPath: zip.path, expectedSHA256: zip.sha, version: "9.9.9")) { error in
+                XCTAssertTrue((error as? UpdateError)?.message.contains("not newer") == true, "\(error)")
+            }
+            XCTAssertEqual(installedVersion, self.installedVersion, "untouched")
+            XCTAssertEqual(workFolders, [])
+        }
     }
 
     func testRefusesAZipOverTheListingCaps() throws {
