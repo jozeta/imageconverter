@@ -5,7 +5,7 @@ extension ImageOperation {
     public var summary: String {
         switch self {
         case .resize(let options): return Self.summary(of: options)
-        case .crop(let options): return Self.summary(of: options.mode) + " · " + options.anchor.displayName
+        case .crop(let options): return Self.summary(of: options.mode) + " · " + options.focus.displayName
         case .rotateFlip(let options): return Self.summary(of: options)
         case .perspective(let options): return Self.summary(of: options)
         case .trim(let options): return Self.summary(of: options)
@@ -19,6 +19,7 @@ extension ImageOperation {
 
     private static func summary(of options: ResizeOptions) -> String {
         var parts = [summary(of: options.mode)]
+        if options.cropsToFill, options.focus != .default { parts.append(options.focus.displayName) }
         if options.resampling != .lanczos { parts.append(options.resampling.displayName.lowercased()) }
         // A physical size already names its DPI.
         if !options.mode.isPrintSize, let dpi = options.effectiveDPI { parts.append("\(number(dpi)) dpi") }

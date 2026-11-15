@@ -44,18 +44,24 @@ public enum StepHelp {
                 ],
                 tips: [
                     "Print sizes use their own DPI (presets use 300), and a print sheet turns to match each photo's orientation.",
-                    "Put Resize before Adjust or Watermark so they suit the final size."
+                    "Put Resize before Adjust or Watermark so they suit the final size.",
+                    "Exact size with Fill, crop edges has a Focus too: a position, the subject or faces, like Crop."
                 ])
         case .step(.crop):
             return StepHelpInfo(
                 title: "Crop",
-                summary: "Cuts each image to a fixed size or an aspect ratio, keeping the part around the anchor you choose.",
+                summary: "Cuts each image to a fixed size or an aspect ratio, keeping the part you choose: a fixed "
+                    + "position, the main subject or the faces.",
                 howTo: [
                     "Choose Aspect for a ratio such as 1:1 or 16:9 (the largest area that fits), or Size for exact pixels.",
-                    "The anchor decides which part stays: centre, a corner or an edge.",
+                    "Focus decides which part stays: Position uses the anchor (centre, a corner or an edge).",
+                    "Subject keeps what stands out most; Faces keeps every face, else the subject. Found on this Mac with Vision.",
                     "A fixed size larger than the image is limited to the image's own width or height; nothing is enlarged."
                 ],
-                tips: ["For one image at a time with your own selection, crop in another app first."])
+                tips: [
+                    "When nothing is found the crop is centred, and the report says so for that file.",
+                    "For one image at a time with your own selection, crop in another app first."
+                ])
         case .step(.rotateFlip):
             return StepHelpInfo(
                 title: "Rotate / flip",

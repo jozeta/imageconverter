@@ -275,7 +275,7 @@ public enum BatchRunner {
         var stepNotes: [String] = []
         let textContext = pipeline.watermarkTextContext(source: url, properties: loaded.properties)
         let image = try (hint?.pipeline ?? pipeline).apply(to: loaded.image, assets: assets, textContext: textContext,
-                                                           notes: &stepNotes)
+                                                           focus: options.focus, notes: &stepNotes)
         let width = hint != nil ? fullSize?.width ?? loaded.image.width : loaded.image.width
         let height = hint != nil ? fullSize?.height ?? loaded.image.height : loaded.image.height
         let properties = pipeline.outputProperties(from: loaded.properties, metadata: loaded.metadata,
@@ -348,4 +348,6 @@ struct ItemRunOptions {
     var attempt = 1
     var beforeEncode: (@Sendable (URL, Int) throws -> Void)?
     var stage: (ItemEvent.Stage) -> Void = { _ in }
+    /// Finds a detected crop focus (Vision; tests inject a detector).
+    var focus: FocusContext = .system
 }

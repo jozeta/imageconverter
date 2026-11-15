@@ -9,7 +9,9 @@ public enum ImageOps {
 
     // MARK: Steps
 
-    public static func resize(_ image: CGImage, _ options: ResizeOptions) throws -> CGImage {
+    /// `focus` (image pixels, top-left origin) is where a detected fill-and-crop focus is; nil uses the
+    /// options' anchor.
+    public static func resize(_ image: CGImage, _ options: ResizeOptions, focus: CGRect? = nil) throws -> CGImage {
         let step = StepKind.resize.displayName
         let source = CGSize(width: image.width, height: image.height)
         switch Geometry.resizePlan(source: source, options: options) {
@@ -27,7 +29,8 @@ public enum ImageOps {
             return try finish(ctx, step: step)
         case .fillAndCrop(let scaledSize, let crop):
             // Scale only the part that is kept, so the full scaled image is never built.
-            let region = Geometry.fillCropSourceRect(source: source, scaled: scaledSize, crop: crop)
+            let region = Geometry.fillCropSourceRect(source: source, scaled: scaledSize, crop: crop,
+                                                     anchor: options.focus.anchor, focus: focus)
             guard let kept = image.cropping(to: region) else { throw ConversionError.processingFailed(step) }
             let target = try pixels(crop, step: step)
             if kept.width == target.0, kept.height == target.1 { return kept }
@@ -35,8 +38,10 @@ public enum ImageOps {
         }
     }
 
-    public static func crop(_ image: CGImage, _ options: CropOptions) throws -> CGImage {
-        let rect = Geometry.cropRect(source: CGSize(width: image.width, height: image.height), options: options)
+    /// `focus` (image pixels, top-left origin) is where a detected focus is; nil uses the options' anchor.
+    public static func crop(_ image: CGImage, _ options: CropOptions, focus: CGRect? = nil) throws -> CGImage {
+        let rect = Geometry.cropRect(source: CGSize(width: image.width, height: image.height), options: options,
+                                     focus: focus)
         guard let cropped = image.cropping(to: rect) else {
             throw ConversionError.processingFailed(StepKind.crop.displayName)
         }

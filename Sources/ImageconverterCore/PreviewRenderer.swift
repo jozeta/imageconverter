@@ -63,14 +63,19 @@ public actor PreviewRenderer {
     private var cachedSource: CachedSource?
     private var cachedAssets: WatermarkAssets?
     private var cachedAssetKeys: [FileKey]?
+    private let detector: any VisionDetector
+    /// Detected crop focus per file version and step input, so editing doesn't run Vision again.
+    let focusCache = FocusCache()
     /// How many times a source was decoded (for tests).
     private(set) var decodeCount = 0
     /// How many times the watermark images were loaded (for tests).
     private(set) var assetLoadCount = 0
 
-    public init(maxPixels: Int = ImageLoader.defaultMaxPixels, displayMax: Int = 1600) {
+    public init(maxPixels: Int = ImageLoader.defaultMaxPixels, displayMax: Int = 1600,
+                detector: any VisionDetector = SystemVisionDetector()) {
         self.maxPixels = maxPixels
         self.displayMax = max(1, displayMax)
+        self.detector = detector
     }
 
     /// Releases the cached source and watermark images (call when a batch starts or finishes).
@@ -109,7 +114,8 @@ public actor PreviewRenderer {
         do {
             // Synchronous and not interruptible; cancellation is only seen before and after it.
             let context = pipeline.watermarkTextContext(source: item.source, properties: properties)
-            result = try pipeline.apply(to: source, assets: assets, textContext: context)
+            let focus = FocusContext(detector: detector, cache: focusCache, sourceKey: FocusCache.sourceKey(for: item.source))
+            result = try pipeline.apply(to: source, assets: assets, textContext: context, focus: focus)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)
         } catch {

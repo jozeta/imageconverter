@@ -94,7 +94,8 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
   run from one decode (see [Write several outputs per image](#write-several-outputs-per-image)).
 - **Pipeline** of steps, applied in order to every image. Steps can be switched off and reordered:
   - (available) **Resize**: a grouped mode picker. *Pixels*: max width, max height, fit inside a box,
-    exact size (stretch, fit and pad, or fill and crop), longest edge, shortest edge, minimum size.
+    exact size (stretch, fit and pad, or fill and crop, which has the same **Focus** as Crop), longest edge,
+    shortest edge, minimum size.
     *Scale*: percentage (1 to 1000). *Print*: physical size in cm or inches at a DPI (leave one side empty
     to follow the aspect ratio; with both set the image fits inside). Every mode keeps the aspect ratio
     except Stretch. "Don't enlarge" is on by default and is hidden for the modes where it makes no sense
@@ -108,7 +109,10 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     such as 1080p and 4K (fit inside, don't enlarge). Applying a preset never changes the resampling or the DPI
     setting. Pick the **resampling** (Lanczos, Bicubic, Bilinear, Nearest neighbour). **Set DPI** (default
     300) labels the output's print resolution without changing pixels.
-  - (available) **Crop**: fixed size or aspect ratio (a menu of common ratios or a custom one), with an anchor point
+  - (available) **Crop**: fixed size or aspect ratio (a menu of common ratios or a custom one), with a **Focus**:
+    **Position** (an anchor point, the centre by default), **Subject** (what stands out, found on this Mac with
+    Vision) or **Faces** (every face; without faces the subject, then the centre). See
+    [Crop around the subject or faces](#crop-around-the-subject-or-faces)
   - (available) **Rotate / flip**: 90° turns, an **Angle** (slider −45…45°, or type −180…180°, clockwise) with
     **Fill corners** (white, transparent or a colour; the canvas grows) or **Crop to fit (straighten)** (the
     largest centred rectangle with the original ratio), **Mirror (flip horizontally)** and **Flip vertically**
@@ -682,6 +686,28 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
    image's RGB colour space (sRGB, Display P3, …), bit depth and transparency. Gray, CMYK and indexed
    images come out of the step in sRGB (Core Image works in RGB); add a Color profile step set to Gray
    after it to get a gray file back.
+
+### Crop around the subject or faces
+
+1. Add a **Crop** step (or a **Resize** step with *Exact size* and **Fill, crop edges**, for example the
+   Instagram presets) and open it.
+2. Set **Focus** to **Subject** to keep what stands out most, or **Faces** to keep every face in the frame.
+   **Position** is the fixed anchor grid, as before.
+3. The preview shows the crop each image will get. The crop is centred on the found region and moved back inside
+   the image where it would stick out; a region larger than the crop keeps the crop on its centre.
+4. When nothing is found, the image is cropped at the centre and the report has a note for that file: "No faces
+   found; cropped around the subject", "No faces or subject found; cropped at the center" or "No subject found;
+   cropped at the center". Detection never fails a run.
+
+Detection runs on this Mac with Apple's Vision framework, on a copy at most 1024 px on the long side, on the image
+as it arrives at the step (after any Rotate or Resize before it). Nothing is sent anywhere. It is best effort:
+check the results for images where the subject matters. Steps saved by older versions keep their anchor; older
+versions read a Subject or Faces crop as a centred one.
+
+| Option | Where | Choices | Default |
+|--------|-------|---------|---------|
+| Focus | Crop; Resize › Exact size › Fill, crop edges | Position · Subject · Faces | Position |
+| Anchor | With Focus set to Position | 9 positions (corners, edges, centre) | centre |
 
 ### Add a watermark
 

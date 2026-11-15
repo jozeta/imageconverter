@@ -49,16 +49,6 @@ public enum CropMode: Codable, Equatable, Sendable {
     case aspect(width: Double, height: Double)
 }
 
-public struct CropOptions: Codable, Equatable, Sendable {
-    public var mode: CropMode
-    public var anchor: Anchor
-
-    public init(mode: CropMode = .aspect(width: 1, height: 1), anchor: Anchor = .center) {
-        self.mode = mode
-        self.anchor = anchor
-    }
-}
-
 public enum CanvasMode: Codable, Equatable, Sendable {
     case padding(pixels: Int)
     case paddingPercent(Double)
@@ -224,23 +214,28 @@ private struct LossyStep: Decodable {
 extension Pipeline {
     /// Runs the enabled steps in order on `image`.
     public func apply(to image: CGImage, assets: WatermarkAssets = .empty,
-                      textContext: WatermarkTextContext? = nil) throws -> CGImage {
+                      textContext: WatermarkTextContext? = nil, focus: FocusContext = .system) throws -> CGImage {
         var notes: [String] = []
-        return try apply(to: image, assets: assets, textContext: textContext, notes: &notes)
+        return try apply(to: image, assets: assets, textContext: textContext, focus: focus, notes: &notes)
     }
 
     // One case per step kind keeps the dispatch in one place.
     // swiftlint:disable cyclomatic_complexity
     /// Runs the enabled steps in order on `image`; steps that had nothing to do for a reason the user should
     /// know (e.g. auto perspective found no document) append a short note to `notes`. `textContext` fills a text
-    /// watermark's tokens (nil: tokens are drawn as typed).
+    /// watermark's tokens (nil: tokens are drawn as typed). `focus` finds a Crop or Resize step's detected
+    /// focus on the image as it arrives at that step (a fallback adds a note).
     public func apply(to image: CGImage, assets: WatermarkAssets = .empty, textContext: WatermarkTextContext? = nil,
-                      notes: inout [String]) throws -> CGImage {
+                      focus: FocusContext = .system, notes: inout [String]) throws -> CGImage {
         var current = image
-        for step in steps where step.isEnabled {
+        for (index, step) in steps.enumerated() where step.isEnabled {
             switch step.operation {
-            case .resize(let options): current = try ImageOps.resize(current, options)
-            case .crop(let options): current = try ImageOps.crop(current, options)
+            case .resize(let options):
+                let rect = resizeFocus(options, in: current, step: index, context: focus, notes: &notes)
+                current = try ImageOps.resize(current, options, focus: rect)
+            case .crop(let options):
+                let rect = cropFocus(options, in: current, step: index, context: focus, notes: &notes)
+                current = try ImageOps.crop(current, options, focus: rect)
             case .rotateFlip(let options): current = try ImageOps.rotateFlip(current, options)
             case .perspective(let options): current = try Perspective.apply(options, to: current, notes: &notes)
             case .trim(let options): current = try Trim.apply(options, to: current)

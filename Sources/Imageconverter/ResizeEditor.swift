@@ -169,6 +169,9 @@ struct ResizeEditor: View {
             if fill == .fitAndPad {
                 ColorField(title: "Pad color", color: $options.padColor)
             }
+            if fill == .fillAndCrop {
+                FocusPicker(focus: $options.focus)
+            }
         }
     }
 
