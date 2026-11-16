@@ -225,7 +225,8 @@ final class ExternalActions {
             Task { @MainActor in
                 // Quiet: a refusal is reported once, by the caller, from the thrown error.
                 let started = await model.startRun(items, pipeline: plan.preset.pipeline, mode: plan.mode,
-                                                   presetName: plan.preset.name, quietAccess: true) { report in
+                                                   presetName: plan.preset.name, quietAccess: true,
+                                                   external: true) { report in
                     continuation.resume(returning: report.written)
                 }
                 switch started {

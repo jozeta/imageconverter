@@ -42,7 +42,7 @@ public enum SizeEstimator {
     /// item throws `.skippedByCondition`.
     public static func render(
         item: InputItem, pipeline unresolved: Pipeline, maxPixels: Int = ImageLoader.defaultMaxPixels,
-        presets: PresetLibrary = .standard
+        presets: PresetLibrary = .standard, enlarger: any SuperResolutionScaler = SystemSuperResolution.shared
     ) throws -> EncodedPreview {
         let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         switch resolved.disposition {
@@ -64,6 +64,7 @@ public enum SizeEstimator {
             }
             let variants = OutputVariant.validated(pipeline.extraOutputs).kept.map(withoutPNGOptimising)
             let result = try BatchRunner.encodeItem(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
+                                                    options: ItemRunOptions(focus: FocusContext(enlarger: enlarger)),
                                                     variants: variants.map(\.variant))
             let estimates = zip(variants, result.variants).map { estimate($1, unoptimised: $0.unoptimised) }
             let data = result.data

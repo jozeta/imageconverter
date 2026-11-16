@@ -41,7 +41,10 @@ public enum ConversionError: Error, Equatable, Sendable {
     case redactUnchecked(target: RedactTarget, reason: String)
     /// ML enlarge can't run here: an older macOS, an unsupported Mac, or the model isn't downloaded (the batch,
     /// jobs and the command line never download it).
-    case mlEnlargeUnavailable(MLEnlargeAvailability)
+    /// `inApp`: said in the app's own batch or preview ("Download it in the Resize step").
+    case mlEnlargeUnavailable(MLEnlargeAvailability, inApp: Bool = false)
+    /// The enlargement model didn't answer for one tile within `MLEnlarge.tileTimeout`; nothing was written.
+    case mlEnlargeNoResponse
     /// ML enlarge's result would break the decode limits; the value says which.
     case mlEnlargeTooLarge(String)
 
@@ -99,8 +102,10 @@ public enum ConversionError: Error, Equatable, Sendable {
             return ConditionalStep.skippedReason
         case .redactUnchecked(let target, let reason):
             return "Not written: couldn't check for \(target.displayName.lowercased()) (\(reason))"
-        case .mlEnlargeUnavailable(let availability):
-            return availability.refusal
+        case .mlEnlargeUnavailable(let availability, let inApp):
+            return availability.refusal(inApp: inApp)
+        case .mlEnlargeNoResponse:
+            return "Not enlarged: the enlargement model didn't respond"
         case .mlEnlargeTooLarge(let detail):
             return "Not enlarged: \(detail)"
         }
@@ -108,6 +113,13 @@ public enum ConversionError: Error, Equatable, Sendable {
 }
 
 extension ConversionError {
+    /// The item failed only because the enlargement model isn't downloaded yet: a job tries it again later
+    /// without counting an attempt.
+    public var awaitsModelDownload: Bool {
+        if case .mlEnlargeUnavailable(let availability, _) = self { return availability.awaitsDownload }
+        return false
+    }
+
     /// Failures that can be transient (memory ran out while decoding, processing or encoding), so the batch
     /// tries the file once more at the end. Unreadable files, size limits and watermark problems never change.
     public var isRetryable: Bool {

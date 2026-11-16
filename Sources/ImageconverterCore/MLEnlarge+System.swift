@@ -14,8 +14,14 @@ import VideoToolbox
 /// It never downloads the model; the app's Resize editor does that, after asking (`MLEnlargeDownload` in the app).
 public struct SystemSuperResolution: SuperResolutionScaler {
     public static let shared = SystemSuperResolution()
+    /// For the app's own batch and preview: refusals say "Download it in the Resize step".
+    public static let inApp = SystemSuperResolution(speaksFromApp: true)
 
-    public init() {}
+    public let speaksFromApp: Bool
+
+    public init(speaksFromApp: Bool = false) {
+        self.speaksFromApp = speaksFromApp
+    }
 
     public var factor: Int { 4 }
 
@@ -59,10 +65,11 @@ public struct SystemSuperResolution: SuperResolutionScaler {
     public func makeSession(width: Int, height: Int, colorSpace: CGColorSpace) throws -> any SuperResolutionSession {
         #if compiler(>=6.2) && !NO_MACOS26_SDK
         if #available(macOS 26, *) {
-            return try VideoToolboxScaler.Session(width: width, height: height, colorSpace: colorSpace)
+            return try VideoToolboxScaler.Session(width: width, height: height, colorSpace: colorSpace,
+                                                  inApp: speaksFromApp)
         }
         #endif
-        throw ConversionError.mlEnlargeUnavailable(.unsupportedOS)
+        throw ConversionError.mlEnlargeUnavailable(.unsupportedOS, inApp: speaksFromApp)
     }
 }
 
@@ -106,13 +113,13 @@ enum VideoToolboxScaler {
         private let width: Int
         private let height: Int
 
-        init(width: Int, height: Int, colorSpace: CGColorSpace) throws {
+        init(width: Int, height: Int, colorSpace: CGColorSpace, inApp: Bool) throws {
             guard let configuration = VideoToolboxScaler.configuration(width: width, height: height),
                   configuration.supportedPixelFormats.contains(kCVPixelFormatType_64RGBAHalf) else {
                 throw ConversionError.processingFailed(StepKind.resize.displayName)
             }
             let status = VideoToolboxScaler.status(of: configuration)
-            guard status.isReady else { throw ConversionError.mlEnlargeUnavailable(status) }
+            guard status.isReady else { throw ConversionError.mlEnlargeUnavailable(status, inApp: inApp) }
             try processor.startSession(configuration: configuration)
             self.configuration = configuration
             self.colorSpace = colorSpace
@@ -134,14 +141,9 @@ enum VideoToolboxScaler {
                   let parameters = VTSuperResolutionScalerParameters(
                     sourceFrame: sourceFrame, previousFrame: nil, previousOutputFrame: nil, opticalFlow: nil,
                     submissionMode: .random, destinationFrame: targetFrame) else { throw failed }
-            let done = DispatchSemaphore(value: 0)
-            let outcome = ProcessOutcome()
-            processor.process(parameters: parameters) { _, error in
-                outcome.error = error
-                done.signal()
+            try MLEnlarge.waitForModel { finished in
+                processor.process(parameters: parameters) { _, error in finished(error) }
             }
-            done.wait()
-            if outcome.error != nil { throw failed }
             return try Self.read(target)
         }
 
@@ -197,10 +199,5 @@ enum VideoToolboxScaler {
             return RGBA8Tile(width: width, height: height, pixels: pixels)
         }
     }
-}
-
-/// The frame processor's answer, handed from its completion handler to the waiting caller.
-private final class ProcessOutcome: @unchecked Sendable {
-    var error: Error?
 }
 #endif

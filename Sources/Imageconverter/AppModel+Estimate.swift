@@ -71,7 +71,8 @@ extension AppModel {
                 if Task.isCancelled { return nil }
                 let original = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
                 do {
-                    let preview = try SizeEstimator.render(item: item, pipeline: pipeline, presets: presets)
+                    let preview = try SizeEstimator.render(item: item, pipeline: pipeline, presets: presets,
+                                                           enlarger: SystemSuperResolution.inApp)
                     return EstimateOutcome(original: original, preview: preview, failure: nil)
                 } catch let error as ConversionError {
                     return EstimateOutcome(original: original, preview: nil, failure: error.reason)

@@ -162,7 +162,8 @@ extension AppModel {
             let original = (try? key.item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
             do {
                 let rungs = try QualityLadder.render(item: key.item, pipeline: key.pipeline, qualities: Self.ladderQualities,
-                                                     region: region, maxSide: Self.ladderMaxSide, presets: presets)
+                                                     region: region, maxSide: Self.ladderMaxSide, presets: presets,
+                                                     enlarger: SystemSuperResolution.inApp)
                 return LadderRender(rungs: rungs, originalBytes: original, failure: nil)
             } catch is CancellationError {
                 return LadderRender(rungs: [], originalBytes: original, failure: nil)

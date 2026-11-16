@@ -21,6 +21,8 @@ public struct BatchFailure: Equatable, Sendable {
     public let inputBytes: Int?
     /// Seconds the worker spent on the file (0 when unknown); set by the runner after the fact.
     public var duration: Double = 0
+    /// It failed only because the enlargement model isn't downloaded yet: a job doesn't count it as an attempt.
+    public var awaitsModelDownload = false
 
     public init(source: URL, reason: String, inputBytes: Int? = nil) {
         self.source = source

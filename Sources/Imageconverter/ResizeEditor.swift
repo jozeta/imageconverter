@@ -13,9 +13,10 @@ struct ResizeEditor: View {
         case mlEnlarge = "Enlarge with machine learning"
     }
 
-    /// ML enlarge is offered on macOS 26 and later; a step that already uses it stays shown (with the reason).
+    /// ML enlarge is offered on macOS 26 and later on Macs that can run the model; a step that already uses it
+    /// stays shown (with the reason).
     private var offersMLEnlarge: Bool {
-        kind == .mlEnlarge || MLEnlargeModel.shared.availability != .unsupportedOS
+        kind == .mlEnlarge || MLEnlargeModel.shared.availability.offersMode
     }
 
     private static let pixelKinds: [Kind] = [.maxWidth, .maxHeight, .fitBox, .exactSize, .longestEdge,

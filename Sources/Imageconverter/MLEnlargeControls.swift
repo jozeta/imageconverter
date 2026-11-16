@@ -63,10 +63,12 @@ struct MLEnlargeControls: View {
             if let error = model.downloadError {
                 Text(error).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.warnText)
             }
-            Text("Until then, images with this step aren't enlarged: they fail with a note in the report.")
-                .font(LadaGlass.Typography.label)
-                .foregroundStyle(LadaGlass.Colors.muted)
-                .fixedSize(horizontal: false, vertical: true)
+            if model.availability.awaitsDownload {
+                Text("Until then, images with this step aren't enlarged: they fail with a note in the report.")
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

@@ -755,8 +755,10 @@ results before you share them. Nothing is sent anywhere.
 
 ### Enlarge with machine learning
 
-Needs **macOS 26 or later** (on older systems the mode isn't offered, and a preset that uses it fails those
-images with "Not enlarged: machine-learning enlargement needs macOS 26 or later.").
+Needs **macOS 26 or later** on a Mac that can run Apple's model. On older systems, and on Macs whose hardware
+can't run it, the mode isn't offered; a preset that uses it fails those images with "Not enlarged:
+machine-learning enlargement needs macOS 26 or later." or "Not enlarged: this Mac can't run Apple's enlargement
+model."
 
 1. Add a **Resize** step and choose **Mode ▸ Enlarge with machine learning**, then **2×**, **3×** or **4×**.
 2. The first time, the editor may say **"Apple's enlargement model isn't on this Mac yet."** Press **Download…**.
@@ -768,16 +770,21 @@ images with "Not enlarged: machine-learning enlargement needs macOS 26 or later.
    is enlarged 4× by Apple's model on this Mac, the tiles are blended with a linear feather across the overlaps (no
    visible seams), and for 2× and 3× the result is brought down with Lanczos. Transparency is enlarged separately
    with Lanczos, never by the model. The model works in 8 bits per channel in the image's own RGB colour space
-   (other colour models become sRGB); a 16-bit or floating-point image gets the note "ML enlarge works in 8 bits
-   per channel".
+   (other colour models become sRGB); a 16-bit image gets the note "ML enlarge works in 8 bits per channel". HDR,
+   extended-range (floating-point) and linear images are enlarged in the standard-range version of their space
+   (extended Display P3 → Display P3, others → sRGB) with the note "ML enlarge works in 8 bits per channel and
+   standard range".
 
-Until the model is downloaded, images with this step **aren't enlarged**: they fail with "Not enlarged: Apple's
-enlargement model isn't downloaded. Open imageconverter and download it in the Resize step." The preview shows the
-same message. **Batches, jobs, the command line, Finder services, AppleScript and `imageconverter://` links never
-download the model.** A result over the decode limits (250 MP, 65,535 px on a side, or more working memory than
+Until the model is downloaded, images with this step **aren't enlarged**: in the app's own runs and the preview
+they fail with "Not enlarged: Apple's enlargement model isn't downloaded. Download it in the Resize step.";
+jobs, the command line, Finder services, AppleScript and `imageconverter://` links say "… Open imageconverter and
+download it in the Resize step." **None of them ever downloads the model.** A job doesn't count these as failed
+attempts (its usual limit is three), so it converts the files once the model is there. If the model doesn't answer
+for one tile within 60 seconds, that image fails with "Not enlarged: the enlargement model didn't respond" and
+nothing is written for it. A result over the decode limits (250 MP, 65,535 px on a side, or more working memory than
 the decode memory limit) is refused before any work, for example "Not enlarged: the result would be 384 MP
 (limit 250 MP)": a 4000 × 3000 photo at 4× (192 MP) fits, 6000 × 4000 at 4× (384 MP) doesn't.
-The memory scheduler counts the 4× tile, its model buffers and the whole output. "Don't enlarge" and Resampling
+The memory scheduler counts the 4× tile, its model buffers, the whole output and 256 MB for the model itself. "Don't enlarge" and Resampling
 don't apply to this mode. The model adds detail that wasn't in the photo, so check the results (faces and text
 especially). Nothing about your images leaves the Mac.
 

@@ -83,7 +83,7 @@ final class AppModel {
     /// Sizes the main window to its panels and animates the preview and pipeline toggles.
     @ObservationIgnored let windowSizer: WindowSizer
     @ObservationIgnored var previewMode: OutputMode?
-    @ObservationIgnored let previewRenderer = PreviewRenderer()
+    @ObservationIgnored let previewRenderer = PreviewRenderer(enlarger: SystemSuperResolution.inApp)
     /// Source facts for the preview's counter number and condition branches (see `AppModel+Preview.swift`).
     @ObservationIgnored let factsCache = ItemFactsCache()
     /// The condition branches and counter number of the item the latest preview shows.
@@ -256,8 +256,9 @@ final class AppModel {
     /// the app can't use yet (`AccessStore.ensureAccess`; `quietAccess`: the caller reports a refusal itself).
     /// `completion` gets the report.
     @discardableResult
+    /// `external`: started by a service, script or link, so refusals say "Open imageconverter…".
     func startRun(_ batch: [InputItem], pipeline: Pipeline, mode: OutputMode, presetName: String?,
-                  quietAccess: Bool = false,
+                  quietAccess: Bool = false, external: Bool = false,
                   completion: (@MainActor (BatchReport) -> Void)? = nil) async -> AppRunStart {
         // One item per file, so the run's event indices match this list (the runner deduplicates the same way).
         let batch = InputItem.unique(batch)
@@ -286,7 +287,9 @@ final class AppModel {
             let pixels = await Self.sourcePixels(of: batch)
             guard let events = self?.monitor.begin(sourcePixels: pixels) else { return }
             let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, control: control,
-                                               journal: AppDefaults.journalURL, presets: presets, progress: { update in
+                                               journal: AppDefaults.journalURL, presets: presets,
+                                               enlarger: external ? SystemSuperResolution.shared : SystemSuperResolution.inApp,
+                                               progress: { update in
                 // `.userInitiated`: inheriting the batch's `.utility` would let the bar lag behind the workers.
                 Task(priority: .userInitiated) { @MainActor in
                     // Updates can arrive out of order; only move forward.

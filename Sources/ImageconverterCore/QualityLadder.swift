@@ -37,7 +37,7 @@ public enum QualityLadder {
         item: InputItem, pipeline: Pipeline, qualities: [Double] = [0.4, 0.6, 0.8, 0.95],
         region: CGRect = unitRegion, maxSide: Int = 1024,
         maxPixels: Int = ImageLoader.defaultMaxPixels, maxComparePixels: Int = defaultMaxComparePixels,
-        presets: PresetLibrary = .standard
+        presets: PresetLibrary = .standard, enlarger: any SuperResolutionScaler = SystemSuperResolution.shared
     ) throws -> [Rung] {
         // A copied or skipped item has no quality to choose.
         let resolved = pipeline.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
@@ -49,7 +49,8 @@ public enum QualityLadder {
         if let pixels = ImageLoader.pixelCount(of: item.source), pixels > maxComparePixels { throw LadderError.tooLarge }
         return try autoreleasepool {
             let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)
-            let prepared = try BatchRunner.prepare(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
+            let prepared = try BatchRunner.prepare(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
+                                                   options: ItemRunOptions(focus: FocusContext(enlarger: enlarger)))
             return try qualities.map { quality in
                 try Task.checkCancellation()
                 return try autoreleasepool {

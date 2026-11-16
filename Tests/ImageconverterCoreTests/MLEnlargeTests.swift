@@ -8,13 +8,19 @@ final class FakeScaler: SuperResolutionScaler, @unchecked Sendable {
     let status: MLEnlargeAvailability
     /// Writes this into every alpha byte of its result (to prove the model's alpha is ignored).
     let alphaOut: UInt8?
+    /// Thrown by every `upscale` (a model that fails or doesn't answer).
+    let failure: Error?
+    let speaksFromApp: Bool
     private let lock = NSLock()
     private var sessionsMade = 0
     private var tileSizes: [String] = []
 
-    init(status: MLEnlargeAvailability = .ready, alphaOut: UInt8? = nil) {
+    init(status: MLEnlargeAvailability = .ready, alphaOut: UInt8? = nil, failure: Error? = nil,
+         speaksFromApp: Bool = false) {
         self.status = status
         self.alphaOut = alphaOut
+        self.failure = failure
+        self.speaksFromApp = speaksFromApp
     }
 
     var factor: Int { 4 }
@@ -44,6 +50,7 @@ final class FakeScaler: SuperResolutionScaler, @unchecked Sendable {
         func upscale(_ tile: RGBA8Tile) throws -> RGBA8Tile {
             XCTAssertEqual(tile.width, width)
             XCTAssertEqual(tile.height, height)
+            if let failure = owner.failure { throw failure }
             owner.record(tile)
             var result = MLEnlargeTests.nearest(tile.pixels, width: tile.width, height: tile.height, by: 4)
             if let alpha = owner.alphaOut {
@@ -289,7 +296,8 @@ final class MLEnlargeTests: XCTestCase {
         let peak = pipeline.peakPixels(sourceWidth: 1000, sourceHeight: 1000)
         // The 4 MP output, the 4× tile (16 MP, RGBA) and its half-float buffer (32 MP), and more.
         XCTAssertGreaterThanOrEqual(peak, 4_000_000 + 16_000_000 + 32_000_000)
-        XCTAssertEqual(peak, MLEnlarge.workingPixels(input: CGSize(width: 1000, height: 1000), factor: 2))
+        XCTAssertEqual(peak, MLEnlarge.workingPixels(input: CGSize(width: 1000, height: 1000), factor: 2)
+                       + MLEnlarge.modelSessionPixels)
     }
 
     func testRoundTripAndSummary() throws {

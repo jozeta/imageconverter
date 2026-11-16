@@ -15,17 +15,32 @@ extension MLEnlarge {
                                tiling: MLEnlargeTiling = .standard, limits: DecodeLimits = .standard,
                                notes: inout [String]) throws -> CGImage {
         let availability = scaler.availability()
-        guard availability.isReady else { throw ConversionError.mlEnlargeUnavailable(availability) }
+        guard availability.isReady else {
+            throw ConversionError.mlEnlargeUnavailable(availability, inApp: scaler.speaksFromApp)
+        }
         let scale = clampedFactor(factor)
         try checkLimits(input: CGSize(width: image.width, height: image.height), factor: scale, limits: limits,
                         tiling: tiling)
         let failed = ConversionError.processingFailed(StepKind.resize.displayName)
-        guard scaler.factor >= scale, let space = workingSpace(of: image) else { throw failed }
-        if image.bitsPerComponent > 8 { notes.append(eightBitNote) }
+        guard scaler.factor >= scale, var space = workingSpace(of: image) else { throw failed }
+        if let own = image.colorSpace, own.model == .rgb, Self.isExtendedOrLinear(own) {
+            notes.append(standardRangeNote)
+        } else if image.bitsPerComponent > 8 {
+            notes.append(eightBitNote)
+        }
         let alpha = ImageOps.hasAlpha(image)
-        var source = try SourcePixels(image, space: space, alpha: alpha)
-        let output = try enlargedColour(of: &source, scale: scale, scaler: scaler, tiling: tiling, space: space)
-        try finishAlpha(output, source: &source, alpha: alpha)
+        let source: SourcePixels
+        if let pixels = try? SourcePixels(image, space: space, alpha: alpha) {
+            source = pixels
+        } else {
+            // The 8-bit context couldn't be made in that space: sRGB always works.
+            guard let srgb = CGColorSpace(name: CGColorSpace.sRGB) else { throw failed }
+            space = srgb
+            source = try SourcePixels(image, space: srgb, alpha: alpha)
+        }
+        var working = source
+        let output = try enlargedColour(of: &working, scale: scale, scaler: scaler, tiling: tiling, space: space)
+        try finishAlpha(output, source: &working, alpha: alpha)
         let info = CGBitmapInfo(rawValue: (alpha ? CGImageAlphaInfo.premultipliedLast : .noneSkipLast).rawValue)
         guard let provider = CGDataProvider(data: output.data),
               let result = CGImage(width: output.width, height: output.height, bitsPerComponent: 8, bitsPerPixel: 32,
@@ -34,10 +49,28 @@ extension MLEnlarge {
         return result
     }
 
-    /// The colour space the model works in: the image's own when it is RGB, else sRGB.
+    /// The colour space the model works in: the image's own when it is a standard-range, non-linear RGB space; the
+    /// standard-range version of an extended one (extended sRGB → sRGB, extended Display P3 → Display P3); sRGB for
+    /// linear, HDR (PQ/HLG) and other extended spaces and for other colour models.
     static func workingSpace(of image: CGImage) -> CGColorSpace? {
-        if let own = image.colorSpace, own.model == .rgb { return own }
-        return CGColorSpace(name: CGColorSpace.sRGB)
+        let srgb = CGColorSpace(name: CGColorSpace.sRGB)
+        guard let own = image.colorSpace, own.model == .rgb else { return srgb }
+        guard isExtendedOrLinear(own) else { return own }
+        if let name = own.name as String?, let standard = standardRange[name] { return CGColorSpace(name: standard) }
+        return srgb
+    }
+
+    /// Extended-range spaces with a standard-range counterpart (linear ones go to sRGB).
+    private static let standardRange: [String: CFString] = [
+        CGColorSpace.extendedSRGB as String: CGColorSpace.sRGB,
+        CGColorSpace.extendedDisplayP3 as String: CGColorSpace.displayP3,
+    ]
+
+    /// Extended range, HDR transfer (PQ/HLG) or linear: an 8-bit copy in that space would clip or band.
+    static func isExtendedOrLinear(_ space: CGColorSpace) -> Bool {
+        if CGColorSpaceUsesExtendedRange(space) || CGColorSpaceUsesITUR_2100TF(space) { return true }
+        let name = (space.name as String?) ?? ""
+        return name.localizedCaseInsensitiveContains("linear")
     }
 
     // MARK: Buffers
@@ -248,4 +281,30 @@ extension MLEnlarge {
                                    width: vImagePixelCount(output.width), rowBytes: output.width * 4)
         _ = vImagePremultiplyData_RGBA8888(&buffer, &buffer, vImage_Flags(kvImageNoFlags))
     }
+}
+
+extension MLEnlarge {
+    /// Starts one model call with `start` (which calls its completion once, with an error or nil) and waits at most
+    /// `timeout`. No answer in time throws `mlEnlargeNoResponse`; an error throws `processingFailed`. The item then
+    /// fails before anything is written.
+    static func waitForModel(timeout: TimeInterval = tileTimeout,
+                             _ start: (@escaping @Sendable (Error?) -> Void) -> Void) throws {
+        let done = DispatchSemaphore(value: 0)
+        let outcome = ModelOutcome()
+        start { error in
+            outcome.set(error)
+            done.signal()
+        }
+        guard done.wait(timeout: .now() + timeout) == .success else { throw ConversionError.mlEnlargeNoResponse }
+        if outcome.failed { throw ConversionError.processingFailed(StepKind.resize.displayName) }
+    }
+}
+
+/// The model's answer, handed from its completion handler (any thread, possibly after a timeout) to the caller.
+private final class ModelOutcome: @unchecked Sendable {
+    private let lock = NSLock()
+    private var error: Error?
+
+    func set(_ error: Error?) { lock.withLock { self.error = error } }
+    var failed: Bool { lock.withLock { error != nil } }
 }

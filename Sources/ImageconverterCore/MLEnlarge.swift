@@ -15,14 +15,29 @@ public enum MLEnlargeAvailability: Equatable, Sendable {
 
     public var isReady: Bool { self == .ready }
 
-    /// Why an image isn't enlarged here, as the batch, jobs, the command line and the preview report it.
-    public var refusal: String {
+    /// The model can arrive later (download it): a job doesn't count such a failure as an attempt.
+    public var awaitsDownload: Bool {
+        switch self {
+        case .downloadRequired, .downloading: return true
+        default: return false
+        }
+    }
+
+    /// Whether the Resize editor offers the mode at all (hidden on older macOS and on Macs that can't run it).
+    public var offersMode: Bool { self != .unsupportedOS && self != .unsupportedHardware }
+
+    /// Why an image isn't enlarged here, as jobs, the command line, services, scripts and links report it.
+    public var refusal: String { refusal(inApp: false) }
+
+    /// `inApp`: the app's own batch and preview, where the person is already in imageconverter.
+    public func refusal(inApp: Bool) -> String {
         switch self {
         case .ready: return ""
         case .unsupportedOS: return "Not enlarged: machine-learning enlargement needs macOS 26 or later."
         case .unsupportedHardware: return "Not enlarged: this Mac can't run Apple's enlargement model."
         case .downloadRequired:
-            return "Not enlarged: Apple's enlargement model isn't downloaded. Open imageconverter and download it "
+            return inApp ? "Not enlarged: Apple's enlargement model isn't downloaded. Download it in the Resize step."
+                : "Not enlarged: Apple's enlargement model isn't downloaded. Open imageconverter and download it "
                 + "in the Resize step."
         case .downloading:
             return "Not enlarged: Apple's enlargement model is still downloading. Try again when it has finished."
@@ -60,9 +75,15 @@ public struct RGBA8Tile: Equatable, Sendable {
 public protocol SuperResolutionScaler: Sendable {
     /// The model's own scale factor (Apple's image model: 4).
     var factor: Int { get }
+    /// True for the app's own batch and preview: refusals then say "Download it in the Resize step".
+    var speaksFromApp: Bool { get }
     func availability() -> MLEnlargeAvailability
     /// A session for tiles of exactly `width` × `height` in `colorSpace`.
     func makeSession(width: Int, height: Int, colorSpace: CGColorSpace) throws -> any SuperResolutionSession
+}
+
+extension SuperResolutionScaler {
+    public var speaksFromApp: Bool { false }
 }
 
 /// Upscales tiles of one size by the scaler's factor; ends its work when released.
@@ -78,10 +99,11 @@ public struct MLEnlargeTiling: Equatable, Sendable {
     public let maxTile: Int
     public let overlap: Int
 
-    /// `maxTile` is at least 2 and more than twice `overlap`.
+    /// `maxTile` is at least 3 and `overlap` at most a third of it, so only neighbouring tiles ever overlap (the
+    /// blend relies on that).
     public init(maxTile: Int, overlap: Int) {
-        self.maxTile = max(2, maxTile)
-        self.overlap = min(max(0, overlap), (self.maxTile - 1) / 2)
+        self.maxTile = max(3, maxTile)
+        self.overlap = min(max(0, overlap), self.maxTile / 3)
     }
 
     /// One tile's place along an axis.
@@ -100,6 +122,7 @@ public struct MLEnlargeTiling: Equatable, Sendable {
     public func spans(length: Int) -> [Span] {
         let total = max(1, length)
         guard total > maxTile else { return [Span(start: 0, length: total, overlapBefore: 0)] }
+        let overlap = min(self.overlap, total)
         let step = maxTile - overlap
         let count = (total - overlap + step - 1) / step
         // Equal spans just long enough for `count` of them to cover the length with the overlap.
@@ -125,6 +148,13 @@ public enum MLEnlarge {
 
     /// The note for a source with more than 8 bits per channel.
     public static let eightBitNote = "ML enlarge works in 8 bits per channel"
+    /// The note for an extended-range (HDR, float) or linear source, which the model sees in standard range.
+    public static let standardRangeNote = "ML enlarge works in 8 bits per channel and standard range"
+    /// The model's own working memory per session, which VideoToolbox doesn't report: a conservative 256 MB (as
+    /// RGBA8 pixels), counted once per item in the memory scheduler (each item runs its own session).
+    public static let modelSessionPixels = 64 << 20
+    /// How long one tile may take before the item fails (`ConversionError.mlEnlargeNoResponse`).
+    public static let tileTimeout: TimeInterval = 60
 
     /// The output size: each side times the factor.
     public static func outputSize(of input: CGSize, factor: Int) -> CGSize {
@@ -146,9 +176,9 @@ public enum MLEnlarge {
         let source = Double(width) * Double(height)
         let output = source * Double(scale * scale)
         let strip = Double(width * scale) * Double(tileHeight * scale)
-        // Tile: its RGBA copy (1), half-float source (2), half-float 4× result (32), RGBA 4× result (16),
-        // the downsampled tile (scale²; none at 4×).
-        let tile = model * (1 + 2 + 32 + 16 + (scale < 4 ? Double(scale * scale) : 0))
+        // Tile: its RGBA copy and the copy converted to half float (2), half-float source (2), half-float 4× result
+        // (32), RGBA 4× result (16), the downsampled tile (scale²; none at 4×).
+        let tile = model * (2 + 2 + 32 + 16 + (scale < 4 ? Double(scale * scale) : 0))
         let alpha = (source + output) / 4
         let total = source + output + strip + tile + alpha
         return total >= Double(Int.max) ? Int.max : Int(total.rounded(.up))

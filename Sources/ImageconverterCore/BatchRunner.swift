@@ -69,12 +69,15 @@ public enum BatchRunner {
         control: BatchControl? = nil,
         journal: URL? = nil,
         presets: PresetLibrary = .standard,
+        enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in },
         events: @escaping @Sendable (ItemEvent) -> Void = { _ in }
     ) async -> BatchReport {
-        await run(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, concurrency: concurrency,
-                  memoryBudgetPixels: memoryBudgetPixels, trash: trash, control: control, journal: journal,
-                  presets: presets, hooks: BatchHooks(), progress: progress, events: events)
+        var hooks = BatchHooks()
+        hooks.enlarger = enlarger
+        return await run(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, concurrency: concurrency,
+                         memoryBudgetPixels: memoryBudgetPixels, trash: trash, control: control, journal: journal,
+                         presets: presets, hooks: hooks, progress: progress, events: events)
     }
 
     /// Peak pixels of one item, from a header-only read; unreadable files weigh 1 and fail later in `convert`.
@@ -147,6 +150,7 @@ public enum BatchRunner {
                 report.order.append(plan.item.source)
                 var failure = BatchFailure(source: plan.item.source, reason: error.reason, inputBytes: inputSizes[index])
                 failure.duration = index < durations.count ? durations[index] : 0
+                failure.awaitsModelDownload = error.awaitsModelDownload
                 report.failures.append(failure)
             case .success(nil), nil: break
             }
