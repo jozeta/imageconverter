@@ -99,10 +99,9 @@ public enum StepHelp {
                 howTo: [
                     "Auto looks for a document or screen and squares it up.",
                     "Vertical and Horizontal sliders correct keystone distortion; they run after Auto.",
-                    "Empty areas: Crop to the image keeps the largest rectangle with no empty corners (the default); "
-                        + "Fill with colour, Transparent or Extend edges (the edge pixels repeated) keep the whole image.",
-                    "Output size: Fit the corrected image (the default) or Keep original size, which scales the result "
-                        + "back to the source's width and height (to fit, or with Crop to fill and cut from the centre)."
+                    "Empty areas: Crop to the image (the default) keeps the largest rectangle with no empty corners.",
+                    "Fill with colour, Transparent or Extend edges (edge pixels repeated) keep the whole image.",
+                    "Keep original size scales the result back to the source's size: to fit, or with Crop to fill."
                 ],
                 tips: ["If Auto finds no edges, the image is left as it is and the "
                     + "report notes \"No document edges found\"; use the sliders.",
