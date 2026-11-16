@@ -364,7 +364,7 @@ this fixed order whatever order the sliders are moved in:
 | Hue | Rotates every colour around the colour wheel | −180° to +180° |
 | Noise reduction | Smooths fine grain | 0 to 100 |
 | Definition | Local contrast (a wide, gentle unsharp mask) | 0 to 100 |
-| Soften ↔ Sharpen | 0 in the middle changes nothing; right sharpens fine detail, left softens with a blur that scales with the image (at −100 the radius is 0.6 % of the shorter side, so a thumbnail and a 50 MP photo look the same). Pipelines saved by earlier versions kept a 0–100 *Sharpness*, which loads as the same amount of sharpening | −100 to +100 |
+| Soft ↔ Sharp | 0 in the middle changes nothing; right sharpens fine detail, left softens with a blur that scales with the image (at −100 the radius is 0.6 % of the shorter side, so a thumbnail and a 50 MP photo look the same). Pipelines saved by earlier versions kept a 0–100 *Sharpness*, which loads as the same amount of sharpening | −100 to +100 |
 | Presets | Applies a built-in look or a saved preset; **replaces every Adjust value** (the sliders stay editable). **Save current as…** saves the sliders as a preset; **Duplicate** copies any preset (built-in ones too) under a new name; **Rename** and **Delete** work on your own presets. Stored one JSON file each in `adjust-presets/` next to the watermark templates | – |
 
 Built-in Adjust looks (values not listed are 0):

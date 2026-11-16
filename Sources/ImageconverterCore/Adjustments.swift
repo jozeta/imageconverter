@@ -17,7 +17,7 @@ public struct AdjustOptions: Codable, Equatable, Sendable {
     public var tint: Double
     /// Degrees.
     public var hue: Double
-    /// Soften ↔ Sharpen: negative softens (a blur scaled to the image), positive sharpens. Files saved before
+    /// Soft ↔ Sharp: negative softens (a blur scaled to the image), positive sharpens. Files saved before
     /// Soften existed hold 0…100, the sharpen side, unchanged. The JSON key stays `sharpness`.
     public var sharpness: Double
     public var definition: Double
@@ -62,7 +62,8 @@ public struct AdjustOptions: Codable, Equatable, Sendable {
             switch self {
             case .blackPoint: return "Black point"
             case .noiseReduction: return "Noise reduction"
-            case .sharpness: return "Soften ↔ Sharpen"
+            // "Soften ↔ Sharpen" doesn't fit the editor's label column; the same words everywhere.
+            case .sharpness: return "Soft ↔ Sharp"
             default: return rawValue.prefix(1).uppercased() + rawValue.dropFirst()
             }
         }

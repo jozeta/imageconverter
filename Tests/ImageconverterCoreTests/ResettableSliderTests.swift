@@ -47,6 +47,36 @@ final class ResettableSliderTests: XCTestCase {
         XCTAssertNil(ResettableSlider.fillRect(value: 1, minValue: 5, maxValue: 5, origin: 5, in: bar))
     }
 
+    func testFillEndsAtTheKnobCentre() throws {
+        // The knob travels an inset range (half its width at each end); the fill must end under its centre.
+        let slider = ResettableSlider(value: 50, minValue: -100, maxValue: 100, target: nil, action: nil)
+        slider.fillOrigin = 0
+        slider.frame = NSRect(x: 0, y: 0, width: 200, height: 22)
+        let cell = try XCTUnwrap(slider.cell as? ResettableSliderCell)
+        let bar = cell.barRect(flipped: false)
+        for value in [-100.0, -37, 0, 50, 100] {
+            slider.doubleValue = value
+            let knob = cell.knobRect(flipped: false)
+            let fill = try XCTUnwrap(cell.fillRect(in: bar, flipped: false))
+            let end = value < 0 ? fill.minX : fill.maxX
+            XCTAssertEqual(end, knob.midX, accuracy: 0.5, "value \(value)")
+        }
+        // The neutral tick sits where the knob is at 0.
+        slider.doubleValue = 0
+        let tick = try XCTUnwrap(cell.neutralX(in: bar, flipped: false))
+        XCTAssertEqual(tick, cell.knobRect(flipped: false).midX, accuracy: 0.5)
+    }
+
+    func testInsetFillGeometry() {
+        let bar = CGRect(x: 0, y: 0, width: 200, height: 4)
+        XCTAssertEqual(ResettableSlider.fillRect(value: 50, minValue: -100, maxValue: 100, origin: 0, in: bar,
+                                                 inset: 10),
+                       CGRect(x: 100, y: 0, width: 45, height: 4))
+        XCTAssertEqual(ResettableSlider.fillRect(value: -100, minValue: -100, maxValue: 100, origin: 0, in: bar,
+                                                 inset: 10),
+                       CGRect(x: 10, y: 0, width: 90, height: 4))
+    }
+
     func testCentreFillIsOptIn() {
         let slider = ResettableSlider(value: 10, minValue: -100, maxValue: 100, target: nil, action: nil)
         XCTAssertNil(slider.fillOrigin)

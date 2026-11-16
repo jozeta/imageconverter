@@ -69,8 +69,7 @@ private struct AdjustSlider: View {
 
     var body: some View {
         HStack(spacing: LadaGlass.Spacing.s) {
-            // The full "Soften ↔ Sharpen" doesn't fit the label column.
-            Text(field == .sharpness ? "Soft ↔ Sharp" : field.displayName)
+            Text(field.displayName)
                 .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 .lineLimit(1)
                 .frame(width: 92, alignment: .leading)
@@ -81,7 +80,8 @@ private struct AdjustSlider: View {
             AdjustSliderControl(value: Binding(
                 get: { AdjustOptions.clamped(value, to: field) },
                 set: { value = $0 }), range: field.range,
-                fillOrigin: field == .sharpness ? 0 : nil)
+                // Bipolar sliders (0 in the middle) fill from the centre to the knob.
+                fillOrigin: field.range.lowerBound < 0 ? 0 : nil)
                 .help(field == .sharpness ? "Left softens, right sharpens. Double-click to reset"
                                           : "Double-click to reset")
                 .accessibilityLabel(field == .sharpness ? "Soften or sharpen" : field.displayName)
