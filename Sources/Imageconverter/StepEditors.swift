@@ -21,6 +21,10 @@ struct StepEditor: View {
             RotateFlipEditor(options: Binding(
                 get: { if case .rotateFlip(let opts) = operation { return opts } else { return RotateFlipOptions() } },
                 set: { operation = .rotateFlip($0) }))
+        case .redact:
+            RedactEditor(options: Binding(
+                get: { if case .redact(let opts) = operation { return opts } else { return RedactOptions() } },
+                set: { operation = .redact($0) }))
         case .canvas:
             CanvasEditor(options: Binding(
                 get: { if case .canvas(let opts) = operation { return opts } else { return CanvasOptions() } },
@@ -128,10 +132,7 @@ private struct CropEditor: View {
                         get: { size.high }, set: { options.mode = .size(width: size.wide, height: $0) }))
                 }
             }
-            HStack(alignment: .top, spacing: LadaGlass.Spacing.s) {
-                Text("Anchor").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-                AnchorPicker(anchor: $options.anchor)
-            }
+            FocusPicker(focus: $options.focus)
         }
     }
 }

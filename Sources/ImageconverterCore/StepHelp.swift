@@ -40,22 +40,30 @@ public enum StepHelp {
                     "Use Presets for ready-made sizes: print, web, devices, app assets, social media and screen resolutions.",
                     "\"Don't enlarge\" keeps small images as they are; it doesn't apply to Percentage, Minimum size or print sizes.",
                     "Resampling sets how pixels are scaled; Lanczos, the default, "
-                        + "is the sharpest. Set DPI only labels the print resolution."
+                        + "is the sharpest. Set DPI only labels the print resolution.",
+                    "Enlarge with machine learning (macOS 26+, Macs that can run Apple's model): 2×, 3× or 4×. "
+                        + "Download the model once in the editor; check the results."
                 ],
                 tips: [
                     "Print sizes use their own DPI (presets use 300), and a print sheet turns to match each photo's orientation.",
-                    "Put Resize before Adjust or Watermark so they suit the final size."
+                    "Put Resize before Adjust or Watermark so they suit the final size.",
+                    "Exact size with Fill, crop edges has a Focus too: a position, the subject or faces, like Crop."
                 ])
         case .step(.crop):
             return StepHelpInfo(
                 title: "Crop",
-                summary: "Cuts each image to a fixed size or an aspect ratio, keeping the part around the anchor you choose.",
+                summary: "Cuts each image to a fixed size or an aspect ratio, keeping the part you choose: a fixed "
+                    + "position, the main subject or the faces.",
                 howTo: [
                     "Choose Aspect for a ratio such as 1:1 or 16:9 (the largest area that fits), or Size for exact pixels.",
-                    "The anchor decides which part stays: centre, a corner or an edge.",
+                    "Focus decides which part stays: Position uses the anchor (centre, a corner or an edge).",
+                    "Subject keeps what stands out most; Faces keeps every face, else the subject. Found on this Mac with Vision.",
                     "A fixed size larger than the image is limited to the image's own width or height; nothing is enlarged."
                 ],
-                tips: ["For one image at a time with your own selection, crop in another app first."])
+                tips: [
+                    "When nothing is found the crop is centred, and the report says so for that file.",
+                    "For one image at a time with your own selection, crop in another app first."
+                ])
         case .step(.rotateFlip):
             return StepHelpInfo(
                 title: "Rotate / flip",
@@ -66,6 +74,24 @@ public enum StepHelp {
                     "Mirror flips left to right, Flip vertically flips top to bottom."
                 ],
                 tips: ["Photos are already turned upright from their camera orientation before the pipeline starts."])
+        case .step(.redact):
+            return StepHelpInfo(
+                title: "Redact",
+                summary: "Hides faces, text or both: Vision finds them on this Mac, and the step blurs, pixelates "
+                    + "or covers them with a solid colour.",
+                howTo: [
+                    "Choose what to hide: Faces, Text, or Faces and text.",
+                    "Style: Blur (the default for faces), Pixelate, or Solid colour (the default for text).",
+                    Redaction.textAdvice,
+                    "Padding (default 15 %) grows each box on every side by that share of its size, so hair, "
+                        + "chins and letter edges are covered too.",
+                    "It looks at the image as it arrives at the step, so put it after Crop and Rotate."
+                ],
+                tips: [
+                    "Best effort: Vision can miss a face or some text, so check the results before you share them.",
+                    "The report says per file what was hidden, such as \"Redacted 2 faces, 1 text area\".",
+                    "If Vision can't run for an image, that image isn't written: it fails with a reason, and the rest go on."
+                ])
         case .step(.perspective):
             return StepHelpInfo(
                 title: "Perspective",
@@ -142,7 +168,8 @@ public enum StepHelp {
             return StepHelpInfo(
                 title: "If ... then ... else",
                 summary: "Treats images differently depending on what they are, e.g. "
-                    + "name, date taken, camera, size, format, orientation or whether they have a location.",
+                    + "name, date taken, camera, size, format, orientation, whether they have a location, "
+                    + "or what they show (analysed on this Mac).",
                 howTo: [
                     "Add up to 10 tests and choose whether all or any of them must match; tick Not to turn a test around.",
                     "Tests look at the original file, before any steps run, not at the image part-way through the pipeline.",
@@ -152,7 +179,9 @@ public enum StepHelp {
                 ],
                 tips: [
                     "With several conditions, later output, metadata and rename settings win, and Skip beats Copy.",
-                    "Copy original keeps the file byte for byte, unless the Metadata step removes something; then it is converted instead."
+                    "Copy original keeps the file byte for byte, unless the Metadata step removes something; then it is converted instead.",
+                    "Content tests (Shows, faces, text) are best effort, on a small copy; "
+                        + "{labels} puts what an image shows into tags or keywords."
                 ])
         case .metadata:
             return StepHelpInfo(
@@ -161,6 +190,8 @@ public enum StepHelp {
                 howTo: [
                     "Remove: Remove all metadata (with a Keep list), or single parts: location, camera, author, thumbnail, IPTC, XMP.",
                     "Describe: set title, artist, copyright, description and keywords (add or replace).",
+                    "Generate alt text on this Mac (macOS 27, Apple Intelligence): one sentence per image, on-device, "
+                        + "after the image steps. Check it before publishing.",
                     "Date: keep, set or shift the date taken. Location: keep, remove or set the GPS position.",
                     "Templates apply ready-made settings such as Privacy or Web, or save your own."
                 ],

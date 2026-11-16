@@ -124,7 +124,7 @@ final class RunBatchScriptCommand: ImageconverterScriptCommand {
                 return try await withCheckedThrowingContinuation { continuation in
                     Task { @MainActor in
                         let started = await model.startRun(batch, pipeline: pipeline, mode: mode,
-                                                           presetName: presetName) {
+                                                           presetName: presetName, external: true) {
                             continuation.resume(returning: $0.written)
                         }
                         switch started {

@@ -106,14 +106,17 @@ public actor ItemFactsCache {
 
     private let maxPixels: Int
     private let limit: Int
+    private let analysis: ImageAnalysisCache
     private var entries: [Key: Entry] = [:]
     private var clock = 0
     /// How many files were read (for tests).
     public private(set) var readCount = 0
 
-    public init(maxPixels: Int = ImageLoader.defaultMaxPixels, limit: Int = 5000) {
+    /// `analysis` answers the content checks (shared with the batch, so a file is analysed once).
+    public init(maxPixels: Int = ImageLoader.defaultMaxPixels, limit: Int = 5000, analysis: ImageAnalysisCache = .shared) {
         self.maxPixels = maxPixels
         self.limit = max(1, limit)
+        self.analysis = analysis
     }
 
     public func removeAll() { entries = [:] }
@@ -139,9 +142,11 @@ public actor ItemFactsCache {
         }
         readCount += 1
         let wanted = needs.union(entries[key]?.needs ?? [])
-        let facts = ItemFacts.read(url, needs: wanted, maxPixels: maxPixels)
+        let facts = ItemFacts.read(url, needs: wanted, maxPixels: maxPixels, analysis: analysis)
         if entries[key] == nil, entries.count >= limit { evictLeastRecentlyUsed() }
-        entries[key] = Entry(facts: facts, needs: wanted, lastUse: clock)
+        // A failed image analysis isn't kept: the next read tries it again.
+        let kept = facts?.analysis.failure == nil ? wanted : wanted.subtracting(.analysis)
+        entries[key] = Entry(facts: facts, needs: kept, lastUse: clock)
         return facts
     }
 
@@ -161,7 +166,7 @@ public actor ItemFactsCache {
         guard pipeline.hasConditions else {
             return ConditionPreview(counterIndex: index, branches: [],
                                     resolved: pipeline.resolved(forSource: items[index].source, maxPixels: maxPixels,
-                                                                       presets: presets))
+                                                                       presets: presets, analysis: analysis))
         }
         let needs = pipeline.conditionFactNeeds
         var counter = index

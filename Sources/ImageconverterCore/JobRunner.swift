@@ -149,7 +149,8 @@ public enum JobRunner {
         var gaveUp: Set<String> = []
         // Sources as they were before the run (in overwrite mode the path's new version is an output).
         ledger.recordProcessed(batch.order.filter { !failed.contains($0) }.compactMap { fingerprints[$0] })
-        for source in batch.failures.map(\.source) {
+        // Waiting for the enlargement model isn't an attempt: the file stays a candidate until the model is there.
+        for source in batch.failures.filter({ !$0.awaitsModelDownload }).map(\.source) {
             guard let fingerprint = fingerprints[source] else { continue }
             if ledger.recordFailure(fingerprint) >= ProcessedLedger.maxAttempts { gaveUp.insert(source.path) }
         }

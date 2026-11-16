@@ -113,12 +113,18 @@ struct ReportView: View {
         let id: Int
         let entry: ReportEntry
         var name: String { entry.name }
-        var status: String { entry.status.rawValue }
+        var status: String { entry.warning ? "warning" : entry.status.rawValue }
         var input: Int { entry.inputBytes ?? -1 }
         var output: Int { entry.outputBytes ?? -1 }
         var ratio: Double { entry.ratio ?? .infinity }
         var duration: Double { entry.duration }
         var note: String { entry.note ?? "" }
+
+        /// Red for a failure, amber for a warning (`ReportEntry.warning`), else `normal`.
+        func tint(_ normal: Color) -> Color {
+            if entry.status == .failed { return LadaGlass.Colors.badText }
+            return entry.warning ? LadaGlass.Colors.warnText : normal
+        }
     }
 
     @State private var sortOrder = [KeyPathComparator(\Row.id)]
@@ -142,7 +148,7 @@ struct ReportView: View {
                     Text(row.name).lineLimit(1).truncationMode(.middle).help(row.entry.source)
                 }
                 TableColumn("Status", value: \.status) { row in
-                    Text(row.status).foregroundStyle(row.entry.status == .failed ? LadaGlass.Colors.badText : LadaGlass.Colors.text)
+                    Text(row.status).foregroundStyle(row.tint(LadaGlass.Colors.text))
                 }
                 .width(min: 60, ideal: 70)
                 TableColumn("Original", value: \.input) { row in
@@ -165,7 +171,7 @@ struct ReportView: View {
                 .width(min: 50, ideal: 60)
                 TableColumn("Note", value: \.note) { row in
                     Text(row.note).lineLimit(1).truncationMode(.tail).help(row.note)
-                        .foregroundStyle(row.entry.status == .failed ? LadaGlass.Colors.badText : LadaGlass.Colors.muted)
+                        .foregroundStyle(row.tint(LadaGlass.Colors.muted))
                 }
             }
             .accessibilityLabel("Files in this run")

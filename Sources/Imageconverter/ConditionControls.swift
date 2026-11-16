@@ -82,7 +82,7 @@ struct ConditionControls: View {
         case .hasProfile: note("has an embedded color profile")
         case .isRotated: note("its EXIF orientation turns or mirrors it")
         case .isAnimated: note("has more than one frame or page")
-        default: EmptyView()
+        default: ContentConditionControls(check: $check, number: number)
         }
     }
 

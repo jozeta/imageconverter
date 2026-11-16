@@ -15,9 +15,11 @@ Started 2026-11-13. The full design is in
 ## Privacy
 
 - **No network access except the optional update check and download from github.com.** No telemetry, no uploads. Nothing goes online until you allow it: the first launch asks once whether to check for updates when the app starts, and **Check Now** in About imageconverter checks on demand. A check asks GitHub's release API for the latest release; like any web request it shows GitHub your IP address and standard HTTP headers (such as your preferred languages), and the app adds only `User-Agent: imageconverter/<version>`. The app's only network entitlement is outgoing connections (`network.client`, no server), the networking code is one file (`Sources/Imageconverter/Update/UpdateClient.swift`), and a test fails the build if networking APIs or web addresses appear anywhere else. See [Updates](#updates).
-- **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit); no third-party code.
+- **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit, VideoToolbox, Core Video, Core Media, Foundation Models); no third-party code.
+- **Alt text stays on this Mac.** [Generated alt text](#write-alt-text-on-this-mac) comes from Apple's on-device model (Apple Intelligence, macOS 27 and later): the image and the text never leave the Mac, and no server model is used. The app never asks macOS to download the model; when it isn't ready, no alt text is written.
+- **Apple's enlargement model.** The only other network activity: if you choose to download Apple's enlargement model (for [Enlarge with machine learning](#enlarge-with-machine-learning), macOS 26 and later), macOS downloads it from Apple. imageconverter itself sends nothing; the download starts only from **Download…** in the Resize step, after you agree, and batches, jobs, the command line, services, scripts and links never start it.
 - **Your files are untrusted input.** Images, SVG watermarks, preset and template files, `imageconverter://` links and AppleScript requests are all validated before use. Limits in force: images up to 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory) of decoded memory and 2 GB per file (first frame only); SVG files up to 1 MB, 20,000 elements, 64 levels deep; preset and template files up to 1 MB; links up to 16,384 characters. Help ▸ Privacy… shows these as built. See [SECURITY.md](SECURITY.md).
-- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed.
+- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed. The panel's opt-in **Also look for faces and text (on this Mac)** switch (off by default, remembered) also checks the pixels with Vision on this Mac and lists "2 images show faces" or "1 image contains text", each with **Add a Redact step**, which adds a configured [Redact step](#hide-faces-and-text) without running anything (for text a Solid colour step; an existing step that already covers it is left alone, a filling one is widened). It uses the same detection and resolution as the Redact step; images it couldn't check are listed as "Couldn't check 2 images: …" rather than counted as clean, and the panel's explanation then says it also looked at the pixels. When no metadata is found the chip says "No private metadata found", so the panel can still be opened.
 - **Temporary files are deleted, not wiped.** Output is written to a hidden temporary file next to its destination and moved into place; on cancel, quit or a failed write the app deletes these files. On SSDs and APFS, deleting (or overwriting) a file does not reliably erase its old blocks, so the app does not claim to securely wipe anything.
 
 <table>
@@ -94,8 +96,11 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
   run from one decode (see [Write several outputs per image](#write-several-outputs-per-image)).
 - **Pipeline** of steps, applied in order to every image. Steps can be switched off and reordered:
   - (available) **Resize**: a grouped mode picker. *Pixels*: max width, max height, fit inside a box,
-    exact size (stretch, fit and pad, or fill and crop), longest edge, shortest edge, minimum size.
-    *Scale*: percentage (1 to 1000). *Print*: physical size in cm or inches at a DPI (leave one side empty
+    exact size (stretch, fit and pad, or fill and crop, which has the same **Focus** as Crop), longest edge,
+    shortest edge, minimum size.
+    *Scale*: percentage (1 to 1000). *Machine learning* (macOS 26 and later): **Enlarge with machine learning**
+    2×, 3× or 4× with Apple's super-resolution model, see [Enlarge with machine learning](#enlarge-with-machine-learning).
+    *Print*: physical size in cm or inches at a DPI (leave one side empty
     to follow the aspect ratio; with both set the image fits inside). Every mode keeps the aspect ratio
     except Stretch. "Don't enlarge" is on by default and is hidden for the modes where it makes no sense
     (percentage, physical size, print sheet, minimum size, stretch). A **Presets** menu fills the editor, grouped:
@@ -108,10 +113,17 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     such as 1080p and 4K (fit inside, don't enlarge). Applying a preset never changes the resampling or the DPI
     setting. Pick the **resampling** (Lanczos, Bicubic, Bilinear, Nearest neighbour). **Set DPI** (default
     300) labels the output's print resolution without changing pixels.
-  - (available) **Crop**: fixed size or aspect ratio (a menu of common ratios or a custom one), with an anchor point
+  - (available) **Crop**: fixed size or aspect ratio (a menu of common ratios or a custom one), with a **Focus**:
+    **Position** (an anchor point, the centre by default), **Subject** (what stands out, found on this Mac with
+    Vision) or **Faces** (every face; without faces the subject, then the centre). See
+    [Crop around the subject or faces](#crop-around-the-subject-or-faces)
   - (available) **Rotate / flip**: 90° turns, an **Angle** (slider −45…45°, or type −180…180°, clockwise) with
     **Fill corners** (white, transparent or a colour; the canvas grows) or **Crop to fit (straighten)** (the
     largest centred rectangle with the original ratio), **Mirror (flip horizontally)** and **Flip vertically**
+  - (available) **Redact**: hides **faces**, **text** or both, found on this Mac with Vision, with a **blur**
+    (default for faces), **pixelate** or a **solid colour** (default for text), each box grown by a **padding**
+    (15 % by default). An image Vision can't check isn't written. Best effort: check the results. See
+    [Hide faces and text](#hide-faces-and-text)
   - (available) **Perspective**: **Auto** finds a document or screen and squares it up (the report says "No
     document edges found" if there is none); **Vertical** and **Horizontal** keystone sliders (−100…100) are
     applied after it, with the result cropped so no empty corners show
@@ -134,7 +146,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     at least / at most). Image: longest edge, width, height, megapixels, aspect ratio, orientation, file size,
     format (a writable format or any file type, e.g. camera RAW), transparency (checked on a small
     thumbnail), bit depth, color space, embedded color profile, DPI, rotated by EXIF orientation, animated or
-    multi-page, location, camera. Each branch (up to 20 actions) can add image steps (not another condition)
+    multi-page, location, camera. Content (analysed on this Mac with Vision, best effort): **Shows** (any or all of
+    chosen labels, e.g. dog, beach, food), **Face count**, **Contains text**, and on macOS 15 or later **Aesthetics
+    score** and **Screenshot or document**. Each branch (up to 20 actions) can add image steps (not another condition)
     or **apply a saved preset**'s steps and settings, change the output format and settings, metadata or rename
     for that image, **save into a subfolder** (rename tokens, e.g. `{date:yyyy}/{date:MM}`), add **Finder
     tags**, add **keywords**, **copy the original** unchanged (same bytes and extension, nothing decoded; in
@@ -146,7 +160,8 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     each image's own branch.
   - (available) **Metadata** (always last, above Output): strip everything (with a keep list) or single
     groups, set title, artist, copyright, description, keywords, date taken, GPS and allowlisted extra fields,
-    with templates; the color profile is always kept
+    with templates; the color profile is always kept. On macOS 27 with Apple Intelligence it can also
+    [write alt text on this Mac](#write-alt-text-on-this-mac)
   - (available) **Rename** (always last): a pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`,
     with a live example
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version, and **More ▸ Clear All…** to empty the image list and start again from an empty pipeline), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
@@ -572,6 +587,8 @@ The Metadata editor has five collapsible groups and a **Templates** menu:
   IPTC and XMP.
 - **Describe**: title, artist, copyright, description and keywords. Keywords are tokens (Return or a comma
   adds one); **Add** merges them with the file's own, **Replace** replaces them (removing the last token in Replace mode clears them; switching mode keeps the tokens).
+  On macOS 27 and later: **Generate alt text on this Mac** and **Also use it as the description**, see
+  [Write alt text on this Mac](#write-alt-text-on-this-mac).
 - **Date**: keep the date taken, **Set** it, or **Shift** it earlier or later by days, hours and minutes
   (files without a date keep none). **Set file dates to date taken** also changes the file's own dates.
 - **Location**: keep, remove, or set latitude (-90 to 90), longitude (-180 to 180) and an optional altitude in
@@ -622,6 +639,72 @@ all of the file's language variants of it (only the one you typed remains).
    written after the removal, so it survives. Untick to leave a field as it is. A ticked field with empty text removes that field.
 4. Run the batch. The removed information is not in the output files. The color profile is always
    kept, so the images look the same.
+
+### Write alt text on this Mac
+
+Alt text is a short description of an image for people who use screen readers. imageconverter can ask Apple's
+on-device language model to write one sentence per image and store it in the file.
+
+**Needs** macOS 27 or later, a Mac that supports Apple Intelligence, Apple Intelligence turned on in System
+Settings, and its model ready (macOS downloads it itself after you turn Apple Intelligence on; imageconverter never
+starts that download). Below macOS 27 the option isn't shown. On macOS 27 without a ready model it is shown
+switched off with the reason, for example "Not available: Apple Intelligence is turned off in System Settings."
+
+1. Open **Metadata** (under **Always last**), switch it on and open **Describe**.
+2. Tick **Generate alt text on this Mac**. Tick **Also use it as the description** to write the same sentence as
+   the description too.
+3. Select an image: the preview's table gets an **Alt text** row, "Generating…" and then the sentence the batch
+   would write (or why there is none; with **Remove XMP** on and no description it doesn't ask the model, like the
+   batch). It is cached per file version and image steps, so changing the output or
+   other metadata settings doesn't ask again.
+4. Run the batch. Read the sentences before you publish them: the model can get details wrong.
+
+How it works:
+
+- The model sees the image as the pipeline made it (after Crop, Rotate, Redact, Resize, Watermark and the other
+  image steps, so redacted faces and text stay hidden from it), as an sRGB copy at most 1024 px on the long side.
+  A metadata-only run (lossless JPEG/HEIC copy) shows it a 1024 px thumbnail of the original.
+- The prompt is fixed and in English: one sentence, at most 250 characters, describing what is visible, not
+  starting with "image of" or "picture of", and no guesses about who people are. Text in the image is mentioned
+  (a sign, a document, a screen) but not copied: the prompt asks for no names, numbers, addresses or licence plates.
+  The model can still slip; add a [Redact step](#hide-faces-and-text) to keep text and faces from it entirely.
+- The answer is treated as untrusted text: control and formatting characters (bidirectional overrides,
+  zero-width spaces) are removed (emoji joined with a zero-width joiner stay whole), line breaks and runs of spaces become one space, wrapping quotes and an
+  "Image of …" opening are dropped, and it is cut to 250 characters at a word boundary.
+- It is written to XMP `Iptc4xmpCore:AltTextAccessibility` (IPTC "Alt Text (Accessibility)", a language
+  alternative with an `x-default` entry), after the removals, so **Remove all metadata** and **Remove IPTC** keep it.
+  With **Also use it as the description** it is also the EXIF/TIFF image description, IPTC Caption and XMP
+  `dc:description`. The metadata-only lossless copy writes and verifies it like any other field.
+- **Remove XMP** leaves no place for alt text: the image then gets the note "Alt text not generated: Remove XMP is
+  on, and alt text is stored in XMP" (unless it is also the description, which EXIF and IPTC hold).
+- The model describes one image at a time across the whole app (the main window's batch, jobs, services, scripts
+  and the preview). Images take turns in the order they arrive; the preview goes ahead of waiting batch images. Each
+  image gets 30 seconds from its turn; waiting for the turn doesn't count. An image that timed out gets the note
+  "no answer within 30 seconds" and its late answer is ignored, but the next image waits until the model has really
+  finished with it, so no more than one request is ever running.
+- If the model doesn't answer three images in a row, or is still busy a minute after a request that timed out, it
+  counts as not responding: the remaining images in every run (and the preview) get "Alt text not generated: the
+  on-device model stopped responding" at once, without waiting, until you quit and reopen imageconverter.
+- Across all batches running at once, at most half the Mac's cores work on images that will ask the model; images
+  that don't (no alt text asked for, Remove XMP with nowhere to store it, the model unavailable or not responding)
+  take no part in that limit. While another batch holds all of those workers, an image that asks the model waits for
+  one, and while it waits it keeps its place in its own batch's memory budget, so other images in that batch can
+  start a little later.
+- Every image that got alt text has the report note "Alt text generated on this Mac" (it is machine-written:
+  check it). When there is no text (model not ready, an error, a refusal, no answer in time, an empty answer) the
+  image is still written, without alt text, with a note such as "Alt text not generated: no answer within 30
+  seconds". A copy of imageconverter built without the macOS 27 SDK says "this build of imageconverter can't
+  generate alt text" on macOS 27.
+- The size estimate and the quality comparison don't ask the model (one sentence of XMP doesn't change the size
+  noticeably). Jobs, the command line, services, scripts and links write alt text the same way, with the same notes.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Generate alt text on this Mac | off | One sentence per image from Apple's on-device model, written as IPTC alt text in XMP |
+| Also use it as the description | off | Also writes it as the description (EXIF, IPTC, XMP); when a sentence was generated it replaces **Set description** |
+
+Saved in pipelines, presets and jobs as `"generateAltText": true` and `"altTextAsDescription": true` in the
+metadata settings (left out when off; older files load with both off).
 
 ### Rename by date and camera
 
@@ -683,6 +766,111 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
    images come out of the step in sRGB (Core Image works in RGB); add a Color profile step set to Gray
    after it to get a gray file back.
 
+### Crop around the subject or faces
+
+1. Add a **Crop** step (or a **Resize** step with *Exact size* and **Fill, crop edges**, for example the
+   Instagram presets) and open it.
+2. Set **Focus** to **Subject** to keep what stands out most, or **Faces** to keep every face in the frame.
+   **Position** is the fixed anchor grid, as before.
+3. The preview shows the crop each image will get. The crop is centred on the found region and moved back inside
+   the image where it would stick out; a region larger than the crop keeps the crop on its centre.
+4. When nothing is found, the image is cropped at the centre and the report has a note for that file: "No faces
+   found; cropped around the subject", "No faces or subject found; cropped at the center" or "No subject found;
+   cropped at the center". If Vision itself fails, the note says so instead, with the reason, for example "Subject
+   detection unavailable: …; cropped at the center" or "Face detection unavailable: …; cropped around the subject".
+   Detection never fails a run.
+
+Detection runs on this Mac with Apple's Vision framework, on a copy at most 1024 px on the long side, on the image
+as it arrives at the step (after any Rotate or Resize before it). Nothing is sent anywhere. It is best effort:
+check the results for images where the subject matters. Steps saved by older versions keep their anchor; older
+versions read a Subject or Faces crop as a centred one.
+
+| Option | Where | Choices | Default |
+|--------|-------|---------|---------|
+| Focus | Crop; Resize › Exact size › Fill, crop edges | Position · Subject · Faces | Position |
+| Anchor | With Focus set to Position | 9 positions (corners, edges, centre) | centre |
+
+### Hide faces and text
+
+1. Add a **Redact** step (it goes after your last Crop, Rotate or Perspective step but always before the first
+   Watermark; drag it elsewhere if you like) and open it. Or switch on **Also look for faces and text (on this Mac)** in the privacy panel and press
+   **Add a Redact step** next to "2 images show faces" or "1 image contains text".
+2. Choose **Hide**: **Faces**, **Text** or **Faces and text**.
+3. Choose a **Style**: **Blur** hides the box with a strong Gaussian blur, **Pixelate** with large blocks (both
+   scale with the box, so a small face is hidden as well as a large one), **Solid colour** covers it with the
+   **Fill colour** (always fully opaque). A new step blurs faces; as soon as **Hide** includes text it switches to
+   Solid colour (unless you chose another style). For text, use Solid colour: blur and pixelation can sometimes be
+   reversed (by rendering guesses in the same font and comparing), especially for short text such as number plates.
+4. **Padding** grows each box on every side by that percentage of its own width and height, so hair, chins and the
+   edges of letters are covered too.
+5. The preview shows the result for the selected image. After the run, each file's report row says what was
+   hidden ("Redacted 2 faces, 1 text area") or "Redact: nothing found".
+
+The step looks at the image as it arrives at the step, so boxes land on the right pixels after any Crop, Rotate or
+Resize before it. Faces and text are found on a copy at most 2048 px on the long side (text as recognised lines plus
+Vision's text rectangles, which also catch stylised or handwritten text); the boxes are then mapped back to the
+image, padded and clamped. Pixels outside the boxes are copied unchanged. **If Vision can't run for an image, that
+image isn't written**: it fails with "Not written: couldn't check for faces (…)" and the rest of the run goes on
+(jobs try it again later, like any failure). An **If … then … else** that would **copy the original unchanged**
+converts the image with the Redact step instead ("Converted to redact: …"), so a copy never skips it; only the Redact
+steps run on it, and image steps a branch's preset would have added are named in the report ("Not applied to the
+converted copy: the preset's Resize, Watermark steps"). With a Redact
+step that hides faces, face and person regions are left out of the output's metadata (MWG and Microsoft regions,
+Apple face info, IPTC *Person in image* and image regions, found by their namespace and name whatever prefix the
+file uses; "Removed face regions from metadata"). **Best effort:**
+Vision can miss a face (turned away, small, covered) or some text (stylised, tiny, at an angle), so check the
+results before you share them. Nothing is sent anywhere.
+
+| Option | Choices | Default |
+|--------|---------|---------|
+| Hide | Faces · Text · Faces and text | Faces |
+| Style | Blur · Pixelate · Solid colour | Blur for faces; Solid colour when text is included |
+| Fill colour | any colour (opaque), with Solid colour | black |
+| Padding | 0…100 % of each box's size, per side | 15 % |
+
+### Enlarge with machine learning
+
+Needs **macOS 26 or later** on a Mac that can run Apple's model. On older systems, and on Macs whose hardware
+can't run it, the mode isn't offered; a preset that uses it fails those images with "Not enlarged:
+machine-learning enlargement needs macOS 26 or later." or "Not enlarged: this Mac can't run Apple's enlargement
+model." A copy of imageconverter built without the macOS 26 SDK says "Not enlarged: this build of imageconverter
+can't enlarge with machine learning." on macOS 26 and later.
+
+1. Add a **Resize** step and choose **Mode ▸ Enlarge with machine learning**, then **2×**, **3×** or **4×**.
+2. The first time, the editor may say **"Apple's enlargement model isn't on this Mac yet."** Press **Download…**.
+   The app asks once: *"macOS will download Apple's enlargement model from Apple. imageconverter itself sends
+   nothing. Download now?"* Press **Download**: macOS fetches the model from Apple and the editor shows the
+   progress. Your answer is remembered (`mlEnlargeDownloadConsent`), but a download still only ever starts from
+   this button.
+3. Run the batch. Each image is cut into tiles of at most 1920 × 1920 px that overlap by at least 64 px, each tile
+   is enlarged 4× by Apple's model on this Mac, the tiles are blended with a linear feather across the overlaps (no
+   visible seams), and for 2× and 3× the result is brought down with Lanczos. Transparency is enlarged separately
+   with Lanczos, never by the model. The model works in 8 bits per channel in the image's own RGB colour space
+   (other colour models become sRGB); a 16-bit image gets the note "ML enlarge works in 8 bits per channel". HDR,
+   extended-range (floating-point) and linear images are enlarged in the standard-range version of their space
+   (extended Display P3 → Display P3, others → sRGB) with the note "ML enlarge works in 8 bits per channel and
+   standard range".
+
+Until the model is downloaded, images with this step **aren't enlarged**: in the app's own runs and the preview
+they fail with "Not enlarged: Apple's enlargement model isn't downloaded. Download it in the Resize step.";
+jobs, the command line, Finder services, AppleScript and `imageconverter://` links say "… Open imageconverter and
+download it in the Resize step." **None of them ever downloads the model.** A job doesn't count these as failed
+attempts (its usual limit is three), so it converts the files once the model is there. If the model doesn't answer
+for one tile within 60 seconds, that image fails with "Not enlarged: the enlargement model didn't respond" and
+nothing is written for it. A result over the decode limits (250 MP, 65,535 px on a side, or more working memory than
+the decode memory limit) is refused before any work, for example "Not enlarged: the result would be 384 MP
+(limit 250 MP)": a 4000 × 3000 photo at 4× (192 MP) fits, 6000 × 4000 at 4× (384 MP) doesn't.
+The memory scheduler counts the 4× tile, its model buffers, the whole output and 256 MB for the model itself.
+The preview, the size estimate and the quality comparison enlarge one image at a time between them and keep the
+last two results (up to 200 MP in all, until a batch starts or ends), so editing a later step or the output quality
+doesn't run the model again; Smart crop and Redact detections are kept the same way. "Don't enlarge" and Resampling
+don't apply to this mode. The model adds detail that wasn't in the photo, so check the results (faces and text
+especially). Nothing about your images leaves the Mac.
+
+| Option | Choices | Default |
+|--------|---------|---------|
+| Enlarge | 2× · 3× · 4× | 2× |
+
 ### Add a watermark
 
 1. Press **+ Add step** and pick **Watermark**. A new step is text and starts with `© ` and your full name.
@@ -731,6 +919,28 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
      Gray, CMYK or another; RGB without a profile counts as sRGB), **Color profile** (has an embedded one), **DPI** (a file
      without one counts as 72), **Rotated (EXIF)** (its EXIF orientation turns or mirrors it) and **Animated / pages**
      (more than one frame or page).
+   - **Content (analysed on this Mac)**: what the picture shows, found by Apple's Vision framework on this Mac (nothing
+     is sent anywhere), on a copy at most 1024 px on the long side. Best effort: check the results on a few images first.
+     - **Shows**: **any of** / **all of** the labels you pick with **Choose Labels…** (a searchable list of the about
+       1,300 things Vision's classifier knows, such as dog, beach, food, document; saved by their identifiers), with
+       **Confidence at least** 0.05 … 1 (default **0.3**; higher finds fewer images, with fewer mistakes). Until at
+       least one label is chosen the editor says so in red and **Run** stays off; a saved preset with an empty Shows
+       check keeps it (jobs and the command line run it as a check that never matches, with **Not** either).
+     - **Face count**: is more than, is less than, is at least or is at most a number of faces (0 when none are found).
+     - **Contains text**: contains text / contains no text (fast text recognition; only whether there is any).
+     - **Aesthetics score** (macOS 15 or later): Vision's overall rating from −1 (poor) to 1 (excellent), compared with
+       a number.
+     - **Screenshot or document** (macOS 15 or later): Vision rates the image a screenshot, document, receipt or
+       similar rather than a photo.
+
+     The analysis runs only when a condition (or `{labels}`) needs it, once per file version: the preview, the size
+     estimate and the batch share it (two reads of one file at the same time share one analysis). It reads a
+     thumbnail-sized decode (ImageIO's thumbnail API, upright, at most 1024 px), and at most two images are analysed
+     at once across the app. On macOS 14 the last two can't be picked (the kind menu marks them "(needs macOS 15 or
+     later)"); a preset that already has one keeps it, it never matches (with **Not** either), and the report says
+     once per run "Aesthetics and screenshot checks need macOS 15 or later; they don't match on this Mac" (only when the
+     pipeline has such a check). If Vision can't analyse an image, its content checks don't match and the
+     report says "Image analysis unavailable: …" for that file; the file is still processed.
 
    Tick **Not** to turn a check around: "name does not start with “IMG”", "has no date taken", "is not 16-bit". A
    check on a value the file doesn't have (no date taken, no ISO, no camera) is false either way, so "date taken is not
@@ -750,11 +960,19 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
      or `{camera}`; inside the output folder, or inside the image's own folder when saving next to the originals; each
      folder name is made safe like a file name, `..` and empty names are dropped, at most 5 levels; ignored with a note
      when overwriting originals; name clashes are numbered per folder), **Add Finder tags…** (comma-separated; added to the
-     written file's own tags on this Mac; never to an original that overwrite mode leaves untouched, which the report
+     written file's own tags on this Mac; `{labels}` adds one tag per label; never to an original that overwrite mode leaves untouched, which the report
      notes) and **Copy original unchanged** (the file is copied as it is, nothing is decoded; added keywords and a
      preset's image steps are then ignored, with the note "Ignored for a copied original: …").
    - **Metadata**: **Set metadata…** and **Add keywords…** (comma-separated; added to the file's keywords, or to the ones
-     the Metadata step sets; turns that step on with nothing removed when it was off).
+     the Metadata step sets; turns that step on with nothing removed when it was off, unless nothing is added, such as
+     only `{labels}` on an image with no labels; `{labels}` adds one keyword per label, and `ai-{labels}` gives
+     `ai-dog`, `ai-grass`, …).
+
+   **`{labels}`**: in a subfolder, a note, Finder tags and keywords, `{labels}` is what the image shows: the labels
+   Vision gives with a confidence of 0.3 or more, as words (`musical instrument`), most confident first, at most 10. In
+   a subfolder or note they are joined with commas (`dog, grass`) and made safe like any other token (a subfolder name
+   can never gain a `/`); in tags and keywords each label is its own entry, cleaned like other tags and keywords. An
+   image with no labels gets none (the entry is left out). File names don't offer it.
    - **Flow**: **Skip file** (nothing is written; the file counts as *skipped by a condition*, not failed, and takes no
      counter number), **Stop checking later conditions** (later If … then … else steps are not checked for this image;
      the other actions in the branch still apply) and **Add a note to the report…** (a line in the report for this file;
@@ -790,6 +1008,10 @@ Examples (one step each):
 | Metadata field: ISO is more than 3200 | Add keywords › `high ISO`, Add Finder tags › `Check` | (nothing) |
 | **Not** Metadata field: copyright is present | Set metadata… › Copyright, Add a note › `No copyright: {name}` | (nothing) |
 | Animated / pages | Copy original unchanged, Stop checking later conditions | (nothing) |
+| Shows any of dog, cat | Save into subfolder › `Pets`, Add keywords › `{labels}` | (nothing) |
+| Face count is at least 1 | Set metadata… › Remove location (GPS) | (nothing) |
+| Contains text | Add Finder tags › `Has text` | (nothing) |
+| Screenshot or document (macOS 15) | Set output… › PNG | (nothing) |
 
 (More how-tos once the features exist: build and save a preset.)
 
@@ -857,7 +1079,11 @@ Good to know:
 After a run the sidebar's **Report** section shows summary cards (processed, succeeded, failed, skipped,
 original → output, saved, average ratio, average time) above one row per file. **Export** saves the report
 as CSV, JSON, HTML or text through a save panel (you pick the file; nothing else is written), and
-**Show error log** lists the newest failures (reveal or clear the log from there).
+**Show error log** lists the newest failures (reveal or clear the log from there). A written file whose note needs
+attention (a condition's image analysis couldn't run, or the original couldn't be moved to the Trash) shows
+**warning** in amber in the report table and the HTML export, and **Check** in the batch list. Its status stays
+succeeded; exports flag it separately: JSON `"warning": true`, a CSV `warning` column (`true`/`false`) and
+"succeeded (warning)" in text. Older reports read as no warning.
 
 **Window ▸ History** (⌥⌘H) lists past runs, newest first: date, preset or job, counts and what was saved. The
 right side shows the selected run as the same cards plus a sortable table with a row per file, with

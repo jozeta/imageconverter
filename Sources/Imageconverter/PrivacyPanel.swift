@@ -67,7 +67,8 @@ struct PrivacyPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
             Text("Privacy scan").font(LadaGlass.Typography.subtitle)
-            Text("Found in the files' metadata and headers. Nothing leaves your Mac, and the originals are not changed.")
+            Text(model.privacy.looksForContent ? ContentPrivacySummary.headerWithContent
+                                               : ContentPrivacySummary.headerMetadataOnly)
                 .font(LadaGlass.Typography.label)
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -80,6 +81,7 @@ struct PrivacyPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxHeight: 280)
+            PrivacyContentSection(model: model)
             HStack {
                 Button("Remove these from the output") {
                     model.removeFoundPrivacyData()
@@ -94,6 +96,40 @@ struct PrivacyPanel: View {
         }
         .padding(LadaGlass.Spacing.l)
         .frame(width: 380)
+    }
+}
+
+/// The opt-in content check: a toggle, then what it found with a button that adds a Redact step for it.
+private struct PrivacyContentSection: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
+            Toggle(ContentPrivacySummary.toggleTitle, isOn: Binding(
+                get: { model.privacy.looksForContent }, set: { model.setLooksForContent($0) }))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .help(ContentPrivacySummary.toggleHelp)
+                .accessibilityHint(ContentPrivacySummary.toggleHelp)
+            ForEach(model.privacyContentLines, id: \.text) { line in
+                // Two rows, so neither the finding nor the button is cut off in the narrow panel.
+                VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
+                    HStack(spacing: LadaGlass.Spacing.s) {
+                        LGChip(line.target == nil ? "Unchecked" : "Medium", status: .warn)
+                        Text(line.text).font(LadaGlass.Typography.label)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let target = line.target {
+                        Button("Add a Redact step") { model.addSuggestedRedaction(target) }
+                            .buttonStyle(.lg(.secondary))
+                            .controlSize(.small)
+                            .disabled(model.isRunning)
+                            .help("Adds a Redact step for \(target.displayName.lowercased()); nothing runs until you press Run")
+                            .accessibilityLabel("Add a Redact step for \(line.text)")
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -133,6 +169,10 @@ struct PrivacyWindow: View {
                 Text("Privacy").font(LadaGlass.Typography.title)
                 Text(PrivacyStatement.offline).font(LadaGlass.Typography.body)
                 Text(PrivacyStatement.updates).font(LadaGlass.Typography.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(PrivacyStatement.enlargeModel).font(LadaGlass.Typography.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(PrivacyStatement.altText).font(LadaGlass.Typography.body)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(PrivacyStatement.frameworks).font(LadaGlass.Typography.body)
                 section("What the privacy scan looks for") {

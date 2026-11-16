@@ -37,6 +37,16 @@ public enum ConversionError: Error, Equatable, Sendable {
     case sizeUnreachable(limit: Int, smallest: Int)
     /// A condition skips this file, so there is nothing to estimate (never a batch failure).
     case skippedByCondition
+    /// A Redact step couldn't look for what it hides (Vision failed): writing the image could leak it.
+    case redactUnchecked(target: RedactTarget, reason: String)
+    /// ML enlarge can't run here: an older macOS, an unsupported Mac, or the model isn't downloaded (the batch,
+    /// jobs and the command line never download it).
+    /// `inApp`: said in the app's own batch or preview ("Download it in the Resize step").
+    case mlEnlargeUnavailable(MLEnlargeAvailability, inApp: Bool = false)
+    /// The enlargement model didn't answer for one tile within `MLEnlarge.tileTimeout`; nothing was written.
+    case mlEnlargeNoResponse
+    /// ML enlarge's result would break the decode limits; the value says which.
+    case mlEnlargeTooLarge(String)
 
     /// True when the new file was written and only trashing the original failed: the item is done (a resumed
     /// run mustn't convert it again).
@@ -90,16 +100,32 @@ public enum ConversionError: Error, Equatable, Sendable {
             return "Can't get under \(ByteSize.format(limit)) (smallest is \(ByteSize.format(smallest)))"
         case .skippedByCondition:
             return ConditionalStep.skippedReason
+        case .redactUnchecked(let target, let reason):
+            return "Not written: couldn't check for \(target.displayName.lowercased()) (\(reason))"
+        case .mlEnlargeUnavailable(let availability, let inApp):
+            return availability.refusal(inApp: inApp)
+        case .mlEnlargeNoResponse:
+            return "Not enlarged: the enlargement model didn't respond"
+        case .mlEnlargeTooLarge(let detail):
+            return "Not enlarged: \(detail)"
         }
     }
 }
 
 extension ConversionError {
+    /// The item failed only because the enlargement model isn't downloaded yet: a job tries it again later
+    /// without counting an attempt.
+    public var awaitsModelDownload: Bool {
+        if case .mlEnlargeUnavailable(let availability, _) = self { return availability.awaitsDownload }
+        return false
+    }
+
     /// Failures that can be transient (memory ran out while decoding, processing or encoding), so the batch
     /// tries the file once more at the end. Unreadable files, size limits and watermark problems never change.
     public var isRetryable: Bool {
         switch self {
-        case .decodeFailed, .encodeFailed: return true
+        // Vision can fail for passing reasons (memory, a busy GPU).
+        case .decodeFailed, .encodeFailed, .redactUnchecked: return true
         // A watermark that can't be drawn fails the same way every time.
         case .processingFailed(let step): return step != StepKind.watermark.displayName
         default: return false

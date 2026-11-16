@@ -5,7 +5,9 @@ extension AppModel {
     /// What is wrong with each extra output (by id); Run stays disabled while there is anything.
     var variantProblems: [UUID: String] { OutputVariant.problems(in: pipeline.extraOutputs) }
 
-    var hasVariantProblems: Bool { OutputVariant.runBlocker(in: pipeline.extraOutputs) != nil }
+    /// Why Run is off: an extra output that can't run, or a condition that isn't finished (a Shows check without
+    /// labels); nil when it can run.
+    var runBlocker: String? { OutputVariant.runBlocker(in: pipeline.extraOutputs) ?? pipeline.conditionRunBlocker }
 
     var canAddVariant: Bool { pipeline.extraOutputs.count < OutputVariant.maxCount }
 
@@ -31,9 +33,9 @@ extension AppModel {
         toasts.show(first, type: .info, description: notes.count > 1 ? notes.dropFirst().joined(separator: "\n") : nil)
     }
 
-    /// False (with a toast) while an extra output can't run.
+    /// False (with a toast) while an extra output or a condition can't run (`runBlocker`).
     func variantsCanRun() -> Bool {
-        guard let blocker = OutputVariant.runBlocker(in: pipeline.extraOutputs) else { return true }
+        guard let blocker = runBlocker else { return true }
         toasts.show(blocker, type: .bad)
         return false
     }

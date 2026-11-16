@@ -15,6 +15,8 @@ struct BatchTable: View {
     /// Rebuilt only when the batch changes, not on every body pass.
     @State private var rows: [BatchRow] = []
     @State private var statuses: [String: ReportStatus] = [:]
+    /// Written files whose note needs attention (`ReportEntry.warning`), by source path.
+    @State private var warnings: Set<String> = []
 
     var body: some View {
         let hasReport = model.runReport != nil
@@ -51,7 +53,11 @@ struct BatchTable: View {
                 if let stage = model.monitor.stage(for: row.id) {
                     liveStatus(stage, running: model.isRunning)
                 } else {
-                    status(statuses[row.id.path] ?? (hasReport ? .cancelled : nil))
+                    if warnings.contains(row.id.path) {
+                        LGChip("Check", status: .warn).help("Written, with a note that needs attention; see the report")
+                    } else {
+                        status(statuses[row.id.path] ?? (hasReport ? .cancelled : nil))
+                    }
                 }
             }
             .width(min: 60, ideal: 80)
@@ -66,7 +72,10 @@ struct BatchTable: View {
             rows = items.enumerated().map { BatchRow(index: $0.offset, item: $0.element) }
             model.compare.setActiveSources(Set(items.map(\.source)))
         }
-        .onChange(of: model.runReport, initial: true) { _, report in statuses = Self.statuses(report) }
+        .onChange(of: model.runReport, initial: true) { _, report in
+            statuses = Self.statuses(report)
+            warnings = Set(report?.entries.filter { $0.variant == nil && $0.warning }.map(\.source) ?? [])
+        }
         .accessibilityLabel("Image list")
     }
 

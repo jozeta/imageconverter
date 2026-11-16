@@ -33,11 +33,13 @@ public enum QualityLadder {
     /// configured compression mode is ignored) and keeps the encoded bytes plus a crop of `region` (unit
     /// coordinates, origin top left) of each decode. Full-size decodes are dropped right away. Empty for formats
     /// without a quality, for items a condition copies or skips, and for metadata-only edits written losslessly.
+    /// `caches` (the preview's) keep Smart crop, Redact and ML enlarge from running again for the same input.
     public static func render(
         item: InputItem, pipeline: Pipeline, qualities: [Double] = [0.4, 0.6, 0.8, 0.95],
         region: CGRect = unitRegion, maxSide: Int = 1024,
         maxPixels: Int = ImageLoader.defaultMaxPixels, maxComparePixels: Int = defaultMaxComparePixels,
-        presets: PresetLibrary = .standard
+        presets: PresetLibrary = .standard, enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
+        caches: PreviewCaches? = nil, detector: any VisionDetector = SystemVisionDetector()
     ) throws -> [Rung] {
         // A copied or skipped item has no quality to choose.
         let resolved = pipeline.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
@@ -49,7 +51,10 @@ public enum QualityLadder {
         if let pixels = ImageLoader.pixelCount(of: item.source), pixels > maxComparePixels { throw LadderError.tooLarge }
         return try autoreleasepool {
             let assets = WatermarkAssets.load(for: pipeline, maxPixels: maxPixels)
-            let prepared = try BatchRunner.prepare(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels)
+            let focus = caches?.context(for: item.source, detector: detector, enlarger: enlarger)
+                ?? FocusContext(detector: detector, enlarger: enlarger)
+            let prepared = try BatchRunner.prepare(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
+                                                   options: ItemRunOptions(focus: focus))
             return try qualities.map { quality in
                 try Task.checkCancellation()
                 return try autoreleasepool {

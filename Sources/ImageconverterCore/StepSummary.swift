@@ -5,8 +5,9 @@ extension ImageOperation {
     public var summary: String {
         switch self {
         case .resize(let options): return Self.summary(of: options)
-        case .crop(let options): return Self.summary(of: options.mode) + " · " + options.anchor.displayName
+        case .crop(let options): return Self.summary(of: options.mode) + " · " + options.focus.displayName
         case .rotateFlip(let options): return Self.summary(of: options)
+        case .redact(let options): return options.summary
         case .perspective(let options): return Self.summary(of: options)
         case .trim(let options): return Self.summary(of: options)
         case .canvas(let options): return Self.summary(of: options.mode)
@@ -19,7 +20,8 @@ extension ImageOperation {
 
     private static func summary(of options: ResizeOptions) -> String {
         var parts = [summary(of: options.mode)]
-        if options.resampling != .lanczos { parts.append(options.resampling.displayName.lowercased()) }
+        if options.cropsToFill, options.focus != .default { parts.append(options.focus.displayName) }
+        if options.resampling != .lanczos, !options.mode.isMLEnlarge { parts.append(options.resampling.displayName.lowercased()) }
         // A physical size already names its DPI.
         if !options.mode.isPrintSize, let dpi = options.effectiveDPI { parts.append("\(number(dpi)) dpi") }
         return parts.joined(separator: " · ")
@@ -45,6 +47,8 @@ extension ImageOperation {
             return "\(side(width)) × \(side(height)) \(unit.displayName) at \(number(dpi)) dpi"
         case .printSheet(let long, let short, let unit, let dpi):
             return "print \(number(short)) × \(number(long)) \(unit.displayName) at \(number(dpi)) dpi"
+        case .mlEnlarge(let factor):
+            return "enlarge \(MLEnlarge.clampedFactor(factor))× with machine learning"
         }
     }
 
@@ -139,6 +143,7 @@ extension MetadataOptions {
         }
         if !custom.isEmpty { fields.append(custom.count == 1 ? "1 field" : "\(custom.count) fields") }
         if setFileDates { fields.append("file dates") }
+        if generateAltText { fields.append(altTextAsDescription ? "alt text (also description)" : "alt text") }
         if !fields.isEmpty { text += " · set " + fields.joined(separator: ", ") }
         return text
     }

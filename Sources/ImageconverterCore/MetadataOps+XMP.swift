@@ -25,7 +25,10 @@ extension MetadataOps {
     private static let authorPaths: Set<String> = ["dc:creator", "photoshop:AuthorsPosition", "photoshop:CaptionWriter",
                                                    "Iptc4xmpCore:CreatorContactInfo"]
     /// Language alternatives in XMP (written as rdf:Alt with an x-default entry).
-    private static let altTextPaths = ["dc:title", "dc:description", "dc:rights", "xmpRights:UsageTerms"]
+    private static let altTextPaths = ["dc:title", "dc:description", "dc:rights", "xmpRights:UsageTerms",
+                                       accessibilityAltTextPath]
+    /// IPTC Photo Metadata 2021's "Alt Text (Accessibility)", a language alternative.
+    static let accessibilityAltTextPath = "Iptc4xmpCore:AltTextAccessibility"
     /// Lightroom/Camera Raw settings name the lens and camera profile.
     private static let cameraRawNamespace = "http://ns.adobe.com/camera-raw-settings/1.0/"
     /// The IPTC Core fields that live in Dublin Core.
@@ -202,6 +205,8 @@ extension MetadataOps {
         if let copyright = options.copyright { set(copyright, at: "dc:rights", in: meta) }
         if let description = options.description { set(description, at: "dc:description", in: meta) }
         if let title = options.title { set(title, at: "dc:title", in: meta) }
+        // Model text, already sanitised (`AltText.sanitized`); `set` sanitises again like every other value.
+        if let altText = options.generatedAltText { set(altText, at: accessibilityAltTextPath, in: meta) }
         if options.keywords != nil { setList(iptcKeywords(props), at: "dc:subject", ordered: false, in: meta) }
         let zone = MetadataDates.zone(of: props)
         for path in MetadataDates.xmpPaths {

@@ -22,7 +22,15 @@ connections (`network.client`, no server); the networking code is confined to
 `Sources/Imageconverter/Update/UpdateClient.swift`, and a test fails the build if networking APIs or web addresses
 appear anywhere else in the sources. That entitlement applies to the whole process, so the sandbox no longer stops
 the parsers (ImageIO, the SVG sanitiser and rasteriser) from reaching the network: the sanitiser's refusal of
-anything external and that test are now the barriers. The assets an attacker could want are your files and your private metadata (location, serial
+anything external and that test are now the barriers.
+The only other network activity: if you choose to download Apple's
+enlargement model (ML enlarge, macOS 26 and later), macOS downloads it from Apple. The app only asks VideoToolbox to
+start that download (`downloadConfigurationModel`), from one place (`Sources/Imageconverter/MLEnlargeDownload.swift`,
+the Resize editor's Download… button, after a consent alert; a test fails if the call appears anywhere else); batch,
+job, command-line, service, script and link runs never start it. Generated alt text (macOS 27 and later) uses only
+Apple's on-device system language model (`SystemLanguageModel.default`); the server model is never used (a test
+fails if any identifier starting with `PrivateCloudCompute` appears in the sources, and checks that every language
+model session is built on `SystemLanguageModel.default`), and the app never asks macOS to download the on-device model. The assets an attacker could want are your files and your private metadata (location, serial
 numbers, names), and the app's stability.
 
 Everything that comes from outside the app is untrusted:
@@ -31,6 +39,9 @@ Everything that comes from outside the app is untrusted:
   (`DecodeLimits`): at most 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory)
   of decoded memory, 2 GB per file, first frame only; likely decompression bombs are refused. Metadata is
   sanitised before it is used in file names and never rendered as markup.
+- **Model output.** Generated alt text is untrusted text: control and format characters (bidirectional overrides,
+  zero-width characters) are stripped, whitespace collapsed and the length capped at 250 characters before it is
+  written to metadata; the preview shows it as plain text.
 - **SVG watermarks.** At most 1 MB, parsed by a strict allowlist (elements, attributes, simple style rules),
   capped in elements, depth and expanded instances, with reference-graph checks; only the re-serialised
   result is drawn, and nothing is ever fetched.

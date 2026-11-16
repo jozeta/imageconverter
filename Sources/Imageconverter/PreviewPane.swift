@@ -67,6 +67,7 @@ struct PreviewPane: View {
         }
         .task(id: model.differenceKey) { await model.renderDifference(for: model.differenceKey) }
         .task(id: model.ladderKey) { await model.renderLadder(for: model.ladderKey) }
+        .task(id: model.altTextRequest) { await model.generatePreviewAltText(for: model.altTextRequest) }
         .task(id: model.ladderCropKey) { await model.recropLadder(for: model.ladderCropKey) }
         // Single mode's Space/B monitor exists only while it can matter.
         .onChange(of: model.compare.mode == .single && !model.items.isEmpty, initial: true) { _, active in
@@ -215,6 +216,9 @@ struct PreviewPane: View {
                                     findings: model.privacy.findings[source])
                         privacyCell(failed ? "—" : resultPrivacy(estimate),
                                     findings: failed ? nil : estimate?.full?.privacy)
+                    }
+                    if !failed, let request = result?.altTextRequest {
+                        PreviewAltTextRow(state: model.previewAltText?.key == request.key ? model.previewAltText?.state : nil)
                     }
                 }
             }

@@ -49,16 +49,6 @@ public enum CropMode: Codable, Equatable, Sendable {
     case aspect(width: Double, height: Double)
 }
 
-public struct CropOptions: Codable, Equatable, Sendable {
-    public var mode: CropMode
-    public var anchor: Anchor
-
-    public init(mode: CropMode = .aspect(width: 1, height: 1), anchor: Anchor = .center) {
-        self.mode = mode
-        self.anchor = anchor
-    }
-}
-
 public enum CanvasMode: Codable, Equatable, Sendable {
     case padding(pixels: Int)
     case paddingPercent(Double)
@@ -93,13 +83,14 @@ public enum ColorProfile: String, Codable, CaseIterable, Sendable {
 }
 
 public enum StepKind: String, Codable, CaseIterable, Sendable {
-    case resize, crop, rotateFlip, perspective, trim, canvas, colorProfile, adjust, watermark, condition
+    case resize, crop, rotateFlip, redact, perspective, trim, canvas, colorProfile, adjust, watermark, condition
 
     public var displayName: String {
         switch self {
         case .resize: return "Resize"
         case .crop: return "Crop"
         case .rotateFlip: return "Rotate / flip"
+        case .redact: return "Redact"
         case .perspective: return "Perspective"
         case .trim: return "Trim"
         case .canvas: return "Canvas / padding"
@@ -115,6 +106,7 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .resize: return .resize(ResizeOptions())
         case .crop: return .crop(CropOptions())
         case .rotateFlip: return .rotateFlip(RotateFlipOptions())
+        case .redact: return .redact(RedactOptions())
         case .perspective: return .perspective(PerspectiveOptions())
         case .trim: return .trim(TrimOptions())
         case .canvas: return .canvas(CanvasOptions())
@@ -130,6 +122,8 @@ public enum ImageOperation: Codable, Equatable, Sendable {
     case resize(ResizeOptions)
     case crop(CropOptions)
     case rotateFlip(RotateFlipOptions)
+    /// Blurs, pixelates or fills the faces and/or text Vision finds in the image as it arrives at the step.
+    case redact(RedactOptions)
     case perspective(PerspectiveOptions)
     case trim(TrimOptions)
     case canvas(CanvasOptions)
@@ -145,6 +139,7 @@ public enum ImageOperation: Codable, Equatable, Sendable {
         case .resize: return .resize
         case .crop: return .crop
         case .rotateFlip: return .rotateFlip
+        case .redact: return .redact
         case .perspective: return .perspective
         case .trim: return .trim
         case .canvas: return .canvas
@@ -224,24 +219,36 @@ private struct LossyStep: Decodable {
 extension Pipeline {
     /// Runs the enabled steps in order on `image`.
     public func apply(to image: CGImage, assets: WatermarkAssets = .empty,
-                      textContext: WatermarkTextContext? = nil) throws -> CGImage {
+                      textContext: WatermarkTextContext? = nil, focus: FocusContext = .system) throws -> CGImage {
         var notes: [String] = []
-        return try apply(to: image, assets: assets, textContext: textContext, notes: &notes)
+        return try apply(to: image, assets: assets, textContext: textContext, focus: focus, notes: &notes)
     }
 
     // One case per step kind keeps the dispatch in one place.
     // swiftlint:disable cyclomatic_complexity
     /// Runs the enabled steps in order on `image`; steps that had nothing to do for a reason the user should
     /// know (e.g. auto perspective found no document) append a short note to `notes`. `textContext` fills a text
-    /// watermark's tokens (nil: tokens are drawn as typed).
+    /// watermark's tokens (nil: tokens are drawn as typed). `focus` finds a Crop or Resize step's detected
+    /// focus on the image as it arrives at that step (a fallback adds a note).
     public func apply(to image: CGImage, assets: WatermarkAssets = .empty, textContext: WatermarkTextContext? = nil,
-                      notes: inout [String]) throws -> CGImage {
+                      focus: FocusContext = .system, notes: inout [String]) throws -> CGImage {
         var current = image
-        for step in steps where step.isEnabled {
+        for (index, step) in steps.enumerated() where step.isEnabled {
             switch step.operation {
-            case .resize(let options): current = try ImageOps.resize(current, options)
-            case .crop(let options): current = try ImageOps.crop(current, options)
+            case .resize(let options):
+                if case .mlEnlarge(let factor) = options.mode {
+                    current = try mlEnlarged(current, factor: factor, step: index, context: focus, notes: &notes)
+                    continue
+                }
+                let rect = resizeFocus(options, in: current, step: index, context: focus, notes: &notes)
+                current = try ImageOps.resize(current, options, focus: rect)
+            case .crop(let options):
+                let rect = cropFocus(options, in: current, step: index, context: focus, notes: &notes)
+                current = try ImageOps.crop(current, options, focus: rect)
             case .rotateFlip(let options): current = try ImageOps.rotateFlip(current, options)
+            case .redact(let options):
+                let rects = try redactRects(options, in: current, step: index, context: focus, notes: &notes)
+                current = try ImageOps.redact(current, options, rects: rects)
             case .perspective(let options): current = try Perspective.apply(options, to: current, notes: &notes)
             case .trim(let options): current = try Trim.apply(options, to: current)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
@@ -338,7 +345,7 @@ extension Pipeline {
             return Geometry.perspectiveCrop(source: size, options: options)?.size ?? size
         case .canvas(let options):
             return Geometry.canvas(source: size, options: options).canvas
-        case .trim, .colorProfile, .adjust, .watermark, .condition:
+        case .trim, .redact, .colorProfile, .adjust, .watermark, .condition:
             // Trim only ever shrinks, by an amount that depends on the content: the input is an upper bound.
             // It scans in strips, so it needs no input-sized working copy.
             return size

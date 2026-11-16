@@ -10,6 +10,13 @@ struct ResizeEditor: View {
         case exactWidth = "Exact width", exactHeight = "Exact height", exactSize = "Exact size"
         case longestEdge = "Longest edge", shortestEdge = "Shortest edge", minimum = "Minimum size"
         case percent = "Percentage", physical = "Physical size", printSheet = "Print sheet"
+        case mlEnlarge = "Enlarge with machine learning"
+    }
+
+    /// ML enlarge is offered on macOS 26 and later on Macs that can run the model; a step that already uses it
+    /// stays shown (with the reason).
+    private var offersMLEnlarge: Bool {
+        kind == .mlEnlarge || MLEnlargeModel.shared.availability.offersMode
     }
 
     private static let pixelKinds: [Kind] = [.maxWidth, .maxHeight, .fitBox, .exactSize, .longestEdge,
@@ -29,6 +36,7 @@ struct ResizeEditor: View {
         case .percent: return .percent
         case .physical: return .physical
         case .printSheet: return .printSheet
+        case .mlEnlarge: return .mlEnlarge
         }
     }
 
@@ -40,7 +48,7 @@ struct ResizeEditor: View {
             return (side, side)
         case .fitBox(let wide, let high), .exactSize(let wide, let high, _), .minimum(let wide, let high):
             return (wide, high)
-        case .percent, .physical, .printSheet:
+        case .percent, .physical, .printSheet, .mlEnlarge:
             return (1600, 1600)
         }
     }
@@ -89,13 +97,14 @@ struct ResizeEditor: View {
         case .printSheet:
             let current = PrintSheetFields.current(of: options)
             options.mode = .printSheet(long: current.long, short: current.short, unit: current.unit, dpi: current.dpi)
+        case .mlEnlarge: options.mode = .mlEnlarge(factor: 2)
         }
     }
 
     /// Modes where "don't enlarge" has no meaning: they name the size outright or only ever enlarge.
     private var ignoresEnlargeRule: Bool {
         switch kind {
-        case .percent, .physical, .printSheet, .minimum: return true
+        case .percent, .physical, .printSheet, .minimum, .mlEnlarge: return true
         case .exactSize: return fill == .stretch
         default: return false
         }
@@ -115,6 +124,9 @@ struct ResizeEditor: View {
                         Text(Kind.physical.rawValue).tag(Kind.physical)
                         Text(Kind.printSheet.rawValue).tag(Kind.printSheet)
                     }
+                    if offersMLEnlarge {
+                        Section("Machine learning") { Text(Kind.mlEnlarge.rawValue).tag(Kind.mlEnlarge) }
+                    }
                     // Older saved presets can hold these; keep them shown rather than silently replaced.
                     if kind == .exactWidth || kind == .exactHeight {
                         Section("Other") { Text(kind.rawValue).tag(kind) }
@@ -132,10 +144,12 @@ struct ResizeEditor: View {
                 Toggle("Don't enlarge smaller images", isOn: Binding(
                     get: { !options.allowEnlarge }, set: { options.allowEnlarge = !$0 }))
             }
-            Picker("Resampling", selection: $options.resampling) {
-                ForEach(Resampling.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            if kind != .mlEnlarge {
+                Picker("Resampling", selection: $options.resampling) {
+                    ForEach(Resampling.allCases, id: \.self) { Text($0.displayName).tag($0) }
+                }
+                .accessibilityLabel("Resampling")
             }
-            .accessibilityLabel("Resampling")
             dpiRow
         }
     }
@@ -151,6 +165,8 @@ struct ResizeEditor: View {
             physicalFields
         case .printSheet:
             PrintSheetFields(options: $options)
+        case .mlEnlarge:
+            MLEnlargeControls(options: $options)
         case .longestEdge, .shortestEdge:
             NumberField(title: kind == .longestEdge ? "Longest edge" : "Shortest edge", value: Binding(
                 get: { pixels.width }, set: { set(kind, width: $0, height: $0, fill: fill) }))
@@ -168,6 +184,9 @@ struct ResizeEditor: View {
             .accessibilityLabel("Fill mode")
             if fill == .fitAndPad {
                 ColorField(title: "Pad color", color: $options.padColor)
+            }
+            if fill == .fillAndCrop {
+                FocusPicker(focus: $options.focus)
             }
         }
     }
@@ -283,6 +302,10 @@ extension ResizeEditor {
             return "A print sheet at this resolution. The image fits inside it, turned the way round its own "
                 + "orientation needs (a landscape photo goes into long × short, a portrait one into short × long). "
                 + "Can enlarge."
+        case .mlEnlarge:
+            return "Enlarges 2×, 3× or 4× with Apple's super-resolution model, on this Mac (macOS 26 or later). "
+                + "It adds detail that wasn't there, so check the results. A result over the "
+                + "\(DecodeLimits.standard.maxPixels / 1_000_000) MP limit isn't made."
         case .exactSize:
             switch fill {
             case .stretch: return "Stretch changes the aspect ratio; every other mode keeps it."

@@ -2,7 +2,8 @@ import Foundation
 import UniformTypeIdentifiers
 
 /// What a condition checks about a source file. The first nine cases are saved exactly as before (so older
-/// pipelines read the same); every case is answered from header-only facts (`ItemFacts`).
+/// pipelines read the same); every case is answered from `ItemFacts`: header-only facts, plus on-device image
+/// analysis of a small copy for the content checks.
 public enum ConditionCheck: Codable, Equatable, Sendable {
     case longestEdge(Comparison, Int)
     case width(Comparison, Int)
@@ -43,6 +44,16 @@ public enum ConditionCheck: Codable, Equatable, Sendable {
     /// More than one frame or page.
     case isAnimated
 
+    // Content: on-device image analysis of a ≤ 1024 px copy (`ImageAnalysis`), only when a condition needs it.
+    /// Vision's classifier sees any (or all) of the labels.
+    case shows(LabelMatch)
+    case faceCount(Comparison, Int)
+    case containsText(Bool)
+    /// Vision's overall aesthetics score, −1...1 (macOS 15+).
+    case aesthetics(Comparison, Double)
+    /// A screenshot, document or similar rather than a photo (macOS 15+).
+    case isUtility
+
     public static let maxExtensions = 20
     public static let maxMegapixels = 1_000.0
     public static let maxDPI = 100_000
@@ -77,6 +88,8 @@ public enum ConditionCheck: Codable, Equatable, Sendable {
             return (0...Self.maxDPI).contains(value)
         case .hasTransparency, .orientation, .hasGPS, .bitDepth, .colorSpace, .hasProfile, .isRotated, .isAnimated:
             return true
+        case .shows, .faceCount, .containsText, .aesthetics, .isUtility:
+            return isValidContent
         }
     }
 
@@ -124,6 +137,7 @@ public enum ConditionCheck: Codable, Equatable, Sendable {
         case .camera: return facts.make != nil || facts.model != nil
         case .bitDepth: return facts.bitsPerComponent != nil
         case .colorSpace: return facts.colorModel != nil || facts.profileName != nil
+        case .shows, .faceCount, .containsText, .aesthetics, .isUtility: return hasContentValue(in: facts.analysis)
         default: return true
         }
     }
@@ -171,7 +185,7 @@ public enum ConditionCheck: Codable, Equatable, Sendable {
             return comparison.test(Int(dpi.rounded()), value)
         case .isRotated: return facts.exifOrientation != 1
         case .isAnimated: return facts.frameCount > 1
-        default: return false
+        default: return matchesContent(facts.analysis)
         }
     }
 
@@ -198,6 +212,10 @@ public enum ConditionCheck: Codable, Equatable, Sendable {
         case .isAnimated: return .frames
         case .date(.taken, _): return .xmp
         case .metadata(let test): return test.subject.needsXMP ? .xmp : []
+        case .shows: return .labels
+        case .faceCount: return .faces
+        case .containsText: return .text
+        case .aesthetics, .isUtility: return .aesthetics
         default: return []
         }
     }

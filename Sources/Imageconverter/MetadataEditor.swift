@@ -77,6 +77,47 @@ struct MetadataEditor: View {
         Text("Replaces any existing title, including its other languages. Leave a ticked field empty to remove it.")
             .font(LadaGlass.Typography.label)
             .foregroundStyle(LadaGlass.Colors.muted)
+        AltTextControls(options: $options)
+    }
+}
+
+// MARK: - Alt text
+
+/// "Generate alt text on this Mac" and "Also use it as the description". Hidden below macOS 27 unless the
+/// settings already use it; on macOS 27 without a ready model, shown disabled with the system's reason (a ticked
+/// option can still be unticked).
+private struct AltTextControls: View {
+    @Binding var options: MetadataOptions
+    @State private var availability = SystemAltTextGenerator.shared.availability
+
+    var body: some View {
+        if availability != .unsupportedOS || options.generateAltText {
+            Toggle("Generate alt text on this Mac", isOn: $options.generateAltText)
+                .disabled(!availability.isAvailable && !options.generateAltText)
+                .help("Apple's on-device model writes one sentence describing each image, after the image steps. "
+                      + "Stored as IPTC alt text (accessibility) in XMP. Nothing leaves the Mac.")
+                .accessibilityLabel("Generate alt text on this Mac")
+                .onAppear { availability = SystemAltTextGenerator.shared.availability }
+            if options.generateAltText {
+                Toggle("Also use it as the description", isOn: $options.altTextAsDescription)
+                    .padding(.leading, LadaGlass.Spacing.m)
+                    .accessibilityLabel("Also use the alt text as the description")
+            }
+            if let reason = availability.reason {
+                Text("Not available: \(reason).")
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(options.generateAltText ? LadaGlass.Colors.warnText : LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if options.generateAltText {
+                Text(options.removeXMP && !options.altTextAsDescription
+                     ? "Remove XMP is on, so no alt text can be stored."
+                     : "Takes a few seconds per image. Check the text before you publish it.")
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(options.removeXMP && !options.altTextAsDescription
+                                     ? LadaGlass.Colors.warnText : LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }
 

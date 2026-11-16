@@ -25,7 +25,7 @@ extension BatchRunner {
         // A normal finish and a cancel both end here; only a crash or a forced quit leaves the journal.
         defer { writer?.remove() }
         guard let plan = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, busy: busy,
-                                           presets: presets),
+                                           presets: presets, analysis: hooks.analysis),
               !Task.isCancelled
         else { return BatchReport(cancelled: true) }
         // Temp files never collide with planned names, so this can wait until every destination folder is known.
@@ -223,12 +223,26 @@ final class BatchScheduler {
         let source = planned.item.source
         let (assets, maxPixels, trash, events) = (assets, settings.maxPixels, settings.trash, settings.events)
         let hook = settings.hooks.beforeEncode
+        let focus = FocusContext(enlarger: settings.hooks.enlarger)
+        let altText = settings.hooks.altText
+        // Workers wait for the model synchronously, holding a cooperative thread. Across every batch in the process at
+        // most half the cores may, so a model call that needs a pool thread always finds one (`AltTextWorkerLimiter`).
+        // Only items that will really ask the model take a slot.
+        let limiter: AltTextWorkerLimiter? = AltText.asksModel(job, generator: altText) ? AltTextWorkerLimiter.shared : nil
         let attempt = attempts[index]
         let variants = index < plan.variants.count ? plan.variants[index] : []
         group.addTask {
+            if let limiter {
+                // Suspended while waiting (no thread held); a cancel while waiting leaves the item unstarted.
+                guard await limiter.acquire() else {
+                    return WorkerResult(index: index, result: .success(nil), inputBytes: nil, duration: 0)
+                }
+            }
+            defer { limiter?.release() }
             let started = Date()
             let options = ItemRunOptions(lowMemory: lowMemory, attempt: attempt, beforeEncode: hook,
-                                         stage: { events(ItemEvent(index: inputIndex, source: source, stage: $0)) })
+                                         stage: { events(ItemEvent(index: inputIndex, source: source, stage: $0)) },
+                                         focus: focus, altText: altText)
             let outcome = BatchRunner.process(planned, job: job, assets: assets, maxPixels: maxPixels, trash: trash,
                                               options: options, variants: variants)
             return WorkerResult(index: index, result: outcome.0, inputBytes: outcome.1,

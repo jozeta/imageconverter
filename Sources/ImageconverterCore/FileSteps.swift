@@ -47,6 +47,13 @@ public struct MetadataOptions: Codable, Equatable, Sendable {
     public var setFileDates = false
     /// Allowlisted EXIF/IPTC/XMP fields, set after everything else.
     public var custom: [MetadataField] = []
+    /// Asks Apple's on-device model (macOS 27+) for one sentence of alt text per image, written to XMP
+    /// `Iptc4xmpCore:AltTextAccessibility` (see `AltText`).
+    public var generateAltText = false
+    /// With `generateAltText`: the generated text is also the description (EXIF, IPTC and XMP `dc:description`).
+    public var altTextAsDescription = false
+    /// The alt text generated for the item being written; set per item by the batch, never saved.
+    public internal(set) var generatedAltText: String?
 
     /// The old on/off switch for location removal; `location` holds the full choice.
     public var removeLocation: Bool {
@@ -70,7 +77,7 @@ public struct MetadataOptions: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case isEnabled, isIncluded, removeAll, keepWhenRemovingAll, location, removeLocation, removeCamera, removeAuthor
         case removeThumbnail, removeIPTC, removeXMP, artist, copyright, description, title, keywords, keywordsMode
-        case dateTaken, setFileDates, custom
+        case dateTaken, setFileDates, custom, generateAltText, altTextAsDescription
     }
 
     /// Lenient: a missing or invalid field takes its default, so older saved pipelines keep loading
@@ -111,6 +118,8 @@ public struct MetadataOptions: Codable, Equatable, Sendable {
         setFileDates = try container.decodeIfPresent(Bool.self, forKey: .setFileDates) ?? false
         let raw = try container.decodeIfPresent([MetadataFields.RawField].self, forKey: .custom) ?? []
         custom = MetadataFields.allowed(raw)
+        generateAltText = (try? container.decodeIfPresent(Bool.self, forKey: .generateAltText)) ?? false
+        altTextAsDescription = (try? container.decodeIfPresent(Bool.self, forKey: .altTextAsDescription)) ?? false
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -134,6 +143,9 @@ public struct MetadataOptions: Codable, Equatable, Sendable {
         try container.encode(dateTaken, forKey: .dateTaken)
         try container.encode(setFileDates, forKey: .setFileDates)
         try container.encode(custom, forKey: .custom)
+        // Written only when used, so files that don't use alt text stay as they were.
+        if generateAltText { try container.encode(generateAltText, forKey: .generateAltText) }
+        if altTextAsDescription { try container.encode(altTextAsDescription, forKey: .altTextAsDescription) }
     }
 }
 

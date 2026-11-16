@@ -190,4 +190,10 @@ struct BatchHooks: Sendable {
     /// Called on the worker just before an item is encoded, with its source and attempt (1, or 2 on the retry);
     /// throwing fails that attempt.
     var beforeEncode: (@Sendable (URL, Int) throws -> Void)?
+    /// Answers the content conditions (tests inject an analyzer).
+    var analysis: ImageAnalysisCache = .shared
+    /// The super-resolution model for ML enlarge (tests inject a fake, so no test runs the real one).
+    var enlarger: any SuperResolutionScaler = SystemSuperResolution.shared
+    /// Writes alt text for the Metadata step (Apple's on-device model; tests inject a fake).
+    var altText: any AltTextGenerator = AltText.standardGenerator
 }

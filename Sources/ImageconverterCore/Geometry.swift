@@ -50,7 +50,7 @@ public enum Geometry {
             // Only ever enlarges, so "don't enlarge" doesn't apply.
             guard factor > 1 else { return .unchanged }
             ratio = factor
-        case .percent, .physical, .printSheet:
+        case .percent, .physical, .printSheet, .mlEnlarge:
             // Explicit sizes: "don't enlarge" doesn't apply.
             ratio = factor
         default:
@@ -78,6 +78,8 @@ public enum Geometry {
             return max(dimension(wide) / srcW, dimension(high) / srcH)
         case .physical, .printSheet:
             return printFactor(mode, width: srcW, height: srcH)
+        case .mlEnlarge(let factor):
+            return Double(MLEnlarge.clampedFactor(factor))
         case .exactSize:
             return nil
         }
@@ -124,16 +126,20 @@ public enum Geometry {
         }
     }
 
-    /// The part of the source that a fill-and-crop plan keeps, centred, in source pixels (top-left
-    /// origin). Scaling only this region to `crop` avoids building the whole scaled image.
-    public static func fillCropSourceRect(source: CGSize, scaled: CGSize, crop: CGSize) -> CGRect {
+    /// The part of the source that a fill-and-crop plan keeps, in source pixels (top-left origin): placed by
+    /// `anchor`, or centred on `focus` (source pixels) when one was detected. Scaling only this region to `crop`
+    /// avoids building the whole scaled image.
+    public static func fillCropSourceRect(source: CGSize, scaled: CGSize, crop: CGSize, anchor: Anchor = .center,
+                                          focus: CGRect? = nil) -> CGRect {
         let srcW = max(1, source.width)
         let srcH = max(1, source.height)
         // At least one pixel each way, so extreme aspect ratios never round the kept region away.
         let size = CGSize(width: min(srcW, max(1, round(crop.width * srcW / max(1, scaled.width)))),
                           height: min(srcH, max(1, round(crop.height * srcH / max(1, scaled.height)))))
-        return CGRect(origin: Anchor.center.origin(content: size, container: CGSize(width: srcW, height: srcH)),
-                      size: size)
+        let container = CGSize(width: srcW, height: srcH)
+        let origin = focus.map { focusedOrigin(window: size, focus: $0, container: container) }
+            ?? anchor.origin(content: size, container: container)
+        return CGRect(origin: origin, size: size)
     }
 
     /// Pixels for a print length: `value` in `unit` at `dpi`, rounded. Nil for a non-finite or
@@ -148,8 +154,9 @@ public enum Geometry {
 
     // MARK: Crop
 
-    /// The crop rectangle inside the source, top-left origin.
-    public static func cropRect(source: CGSize, options: CropOptions) -> CGRect {
+    /// The crop rectangle inside the source, top-left origin: placed by the anchor, or centred on `focus`
+    /// (source pixels) when the options' focus was detected.
+    public static func cropRect(source: CGSize, options: CropOptions, focus: CGRect? = nil) -> CGRect {
         let srcW = max(1, source.width)
         let srcH = max(1, source.height)
         var size: CGSize
@@ -165,8 +172,22 @@ public enum Geometry {
             }
         }
         size = CGSize(width: min(max(1, size.width), srcW), height: min(max(1, size.height), srcH))
-        let origin = options.anchor.origin(content: size, container: CGSize(width: srcW, height: srcH))
+        let container = CGSize(width: srcW, height: srcH)
+        let origin = focus.map { focusedOrigin(window: size, focus: $0, container: container) }
+            ?? options.focus.anchor.origin(content: size, container: container)
         return CGRect(origin: origin, size: size)
+    }
+
+    /// Top-left of a `window` centred on the centre of `focus`, moved back inside `container` where it would
+    /// stick out (whole pixels). A focus larger than the window keeps the window on the focus's centre.
+    public static func focusedOrigin(window: CGSize, focus: CGRect, container: CGSize) -> CGPoint {
+        let place = { (center: CGFloat, side: CGFloat, room: CGFloat) -> CGFloat in
+            let free = max(0, room - side)
+            guard center.isFinite else { return (free / 2).rounded(.down) }
+            return min(max(0, (center - side / 2).rounded(.down)), free)
+        }
+        return CGPoint(x: place(focus.midX, window.width, container.width),
+                       y: place(focus.midY, window.height, container.height))
     }
 
     // MARK: Canvas

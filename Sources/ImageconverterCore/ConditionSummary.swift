@@ -89,7 +89,7 @@ extension ConditionCheck {
         case .dpi(let comparison, let value): return "DPI \(Self.phrase(comparison, negated)) \(value)"
         case .isRotated: return "\(isPhrase) rotated by its EXIF orientation"
         case .isAnimated: return negated ? "is a single image" : "is animated or has several pages"
-        default: return ""
+        default: return contentSummary(negated: negated)
         }
     }
 
