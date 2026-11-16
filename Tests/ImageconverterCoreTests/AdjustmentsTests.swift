@@ -109,11 +109,12 @@ final class AdjustmentsTests: XCTestCase {
     }
 
     func testDecodesClampsAndDefaults() throws {
-        let json = #"{"exposure": 500, "hue": -999, "sharpness": -5, "contrast": 12.5}"#
+        let json = #"{"exposure": 500, "hue": -999, "sharpness": -500, "contrast": 12.5}"#
         let options = try JSONDecoder().decode(AdjustOptions.self, from: Data(json.utf8))
         XCTAssertEqual(options.exposure, 100)
         XCTAssertEqual(options.hue, -180)
-        XCTAssertEqual(options.sharpness, 0)
+        XCTAssertEqual(options.sharpness, -100)
+        XCTAssertEqual(AdjustOptions.ranges[.sharpness], -100...100)
         XCTAssertEqual(options.contrast, 12.5)
         XCTAssertEqual(options.saturation, 0)
         XCTAssertEqual(options.noiseReduction, 0)
@@ -136,7 +137,44 @@ final class AdjustmentsTests: XCTestCase {
         options.contrast = 10
         options.hue = -30
         options.sharpness = 40
-        XCTAssertEqual(ImageOperation.adjust(options).summary, "exposure +20, contrast +10, hue −30°, sharpness 40")
+        XCTAssertEqual(ImageOperation.adjust(options).summary, "exposure +20, contrast +10, hue −30°, sharpen +40")
+        options = AdjustOptions(sharpness: -25)
+        XCTAssertEqual(options.summary, "soften 25")
+    }
+
+    /// Saved before Soften existed: 0…100 sharpness is the positive (sharpen) side, unchanged.
+    func testOldSharpnessLoadsAsSharpen() throws {
+        let old = try JSONDecoder().decode(AdjustOptions.self, from: Data(#"{"sharpness": 40}"#.utf8))
+        XCTAssertEqual(old.sharpness, 40)
+        let image = TestImages.twoColor(width: 24, height: 24,
+                                        left: CGColor(srgbRed: 0.2, green: 0.4, blue: 0.7, alpha: 1),
+                                        right: CGColor(srgbRed: 0.9, green: 0.7, blue: 0.3, alpha: 1))
+        // Same render as a sharpen of 40 built in code.
+        let viaJSON = try Adjustments.apply(old, to: image)
+        let direct = try Adjustments.apply(AdjustOptions(sharpness: 40), to: image)
+        for column in [10, 11, 12, 13] {
+            let left = TestImages.pixel(of: viaJSON, x: column, y: 12)
+            let right = TestImages.pixel(of: direct, x: column, y: 12)
+            XCTAssertEqual([left.red, left.green, left.blue], [right.red, right.green, right.blue])
+        }
+    }
+
+    func testSoftenZeroIsByteIdentical() throws {
+        let image = TestImages.twoColor(width: 24, height: 24,
+                                        left: CGColor(srgbRed: 0.2, green: 0.4, blue: 0.7, alpha: 1),
+                                        right: CGColor(srgbRed: 0.9, green: 0.7, blue: 0.3, alpha: 1))
+        XCTAssertTrue(try Adjustments.apply(AdjustOptions(sharpness: 0), to: image) === image)
+        XCTAssertTrue(try Adjustments.apply(AdjustOptions(sharpness: -0.0), to: image) === image)
+        XCTAssertEqual(Adjustments.softenRadius(0, shortSide: 4000), 0)
+    }
+
+    func testSoftenRadiusScalesWithTheShortSide() {
+        let small = Adjustments.softenRadius(-100, shortSide: 500)
+        let large = Adjustments.softenRadius(-100, shortSide: 5000)
+        XCTAssertGreaterThan(small, 0)
+        XCTAssertEqual(large, small * 10, accuracy: 1e-9)
+        XCTAssertEqual(Adjustments.softenRadius(-50, shortSide: 500), small / 2, accuracy: 1e-9)
+        XCTAssertEqual(Adjustments.softenRadius(30, shortSide: 500), 0)
     }
 
     func testPeakPixelsCountsWorkingCopies() {

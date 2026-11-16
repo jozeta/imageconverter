@@ -143,7 +143,8 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     custom) that grows the shorter side without cropping, with an anchor and a background colour
   - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original
   - (available) **Adjust**: exposure, brilliance, highlights, shadows, contrast, brightness, black point,
-    saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction
+    saturation, vibrance, warmth, tint, hue, soften ↔ sharpen, definition and noise reduction, plus 16 built-in
+    looks and your own Adjust presets
   - (available) **Watermark**: text (with tokens, shadow and outline) or image (raster or SVG), single or tiled,
     with position, size, opacity, margin and rotation controls, and watermark templates
   - (available) **Condition** (if / then / else): up to 10 checks, all or any of which must hold, each of
@@ -336,7 +337,29 @@ this fixed order whatever order the sliders are moved in:
 | Hue | Rotates every colour around the colour wheel | −180° to +180° |
 | Noise reduction | Smooths fine grain | 0 to 100 |
 | Definition | Local contrast (a wide, gentle unsharp mask) | 0 to 100 |
-| Sharpness | Sharpens fine detail | 0 to 100 |
+| Soften ↔ Sharpen | 0 in the middle changes nothing; right sharpens fine detail, left softens with a blur that scales with the image (at −100 the radius is 0.6 % of the shorter side, so a thumbnail and a 50 MP photo look the same). Pipelines saved by earlier versions kept a 0–100 *Sharpness*, which loads as the same amount of sharpening | −100 to +100 |
+| Presets | Applies a built-in look or a saved preset; **replaces every Adjust value** (the sliders stay editable). **Save current as…** saves the sliders as a preset; **Duplicate** copies any preset (built-in ones too) under a new name; **Rename** and **Delete** work on your own presets. Stored one JSON file each in `adjust-presets/` next to the watermark templates | – |
+
+Built-in Adjust looks (values not listed are 0):
+
+| Look | Values |
+|------|--------|
+| Vivid | contrast +10, saturation +20, vibrance +30 |
+| Vivid Warm | contrast +10, saturation +15, vibrance +30, warmth +30, tint +4 |
+| Vivid Cool | contrast +10, saturation +15, vibrance +30, warmth −30, tint −2 |
+| Dramatic | highlights −30, shadows −15, contrast +30, black point +10, saturation −20, definition 25 |
+| Dramatic Warm | highlights −30, shadows −15, contrast +30, black point +10, saturation −10, warmth +35, tint +5, definition 25 |
+| Dramatic Cool | highlights −30, shadows −15, contrast +30, black point +10, saturation −10, warmth −35, definition 25 |
+| Mono | contrast +10, saturation −100 |
+| Silvertone | brilliance +20, highlights +20, contrast −10, black point −15, saturation −100, warmth −8 |
+| Noir | highlights +15, shadows −25, contrast +45, black point +25, saturation −100, definition 20 |
+| Fade | highlights −10, contrast −20, black point −35, saturation −20 |
+| Film | highlights −15, shadows +10, contrast +10, black point −20, saturation −10, warmth +12, tint +5, soften 10 |
+| Golden Hour | exposure +5, highlights −20, shadows +15, vibrance +20, warmth +75, tint +10 |
+| Cool Breeze | exposure +5, contrast −5, brightness +5, vibrance +10, warmth −35, tint −4 |
+| Matte | brilliance +10, highlights −25, shadows +10, contrast −15, black point −30, saturation −5 |
+| Punch | contrast +25, black point +5, saturation +10, vibrance +40, sharpen +30, definition 30 |
+| Soft Portrait | brilliance +15, highlights −15, shadows +15, contrast −10, vibrance −5, warmth +10, tint +5, soften 25 |
 
 Watermark (pipeline step, saved with the pipeline):
 
@@ -794,7 +817,12 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
 1. Press **+ Add step** and pick **Adjust**, then open the step.
 2. Move the sliders in **Light**, **Colour** and **Detail**; the preview updates as you go.
 3. Double-click a slider's label to set it back to 0, or press a group's **Reset** to clear the whole group.
-4. Put the step after resizing if you want sharpening to suit the final size. The step keeps each
+4. **Soft ↔ Sharp** starts in the middle: drag right to sharpen, left to soften (a gentle blur, for skin or noisy
+   photos). The coloured part of its track runs from the middle to the knob.
+5. To start from a look, open **Presets** and pick one (Vivid, Noir, Golden Hour, …; see the table under
+   Configuration). It replaces all the sliders; adjust from there. **Save current as…** keeps your own settings
+   as a preset, **Duplicate** copies a built-in look so you can rename and tweak it.
+6. Put the step after resizing if you want sharpening to suit the final size. The step keeps each
    image's RGB colour space (sRGB, Display P3, …), bit depth and transparency. Gray, CMYK and indexed
    images come out of the step in sRGB (Core Image works in RGB); add a Color profile step set to Gray
    after it to get a gray file back.

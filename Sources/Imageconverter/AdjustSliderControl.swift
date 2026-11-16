@@ -8,6 +8,8 @@ struct AdjustSliderControl: NSViewRepresentable {
     @Binding var value: Double
     let range: ClosedRange<Double>
     var resetValue: Double = 0
+    /// Fill the track from this value to the knob (a centred, bipolar slider); `nil` fills from the left.
+    var fillOrigin: Double?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -16,6 +18,7 @@ struct AdjustSliderControl: NSViewRepresentable {
                                       target: context.coordinator, action: #selector(Coordinator.changed(_:)))
         slider.isContinuous = true
         slider.resetValue = resetValue
+        slider.fillOrigin = fillOrigin
         slider.setContentHuggingPriority(.defaultLow, for: .horizontal)
         slider.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return slider
@@ -26,9 +29,12 @@ struct AdjustSliderControl: NSViewRepresentable {
         slider.minValue = range.lowerBound
         slider.maxValue = range.upperBound
         slider.resetValue = resetValue
+        slider.fillOrigin = fillOrigin
         if slider.doubleValue != value { slider.doubleValue = value }
         let neutral = abs(value - resetValue) < 0.5
         slider.trackFillColor = NSColor(neutral ? LadaGlass.Colors.muted : LadaGlass.accent.color)
+        // The custom bar is drawn by the cell, so a colour change alone needs a redraw.
+        if fillOrigin != nil { slider.needsDisplay = true }
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ResettableSlider, context: Context) -> CGSize? {

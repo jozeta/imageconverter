@@ -137,10 +137,15 @@ public enum StepHelp {
         case .step(.adjust):
             return StepHelpInfo(
                 title: "Adjust",
-                summary: "Corrects light, colour and detail: exposure, contrast, saturation, warmth, sharpness and more.",
+                summary: "Corrects light, colour and detail: exposure, contrast, saturation, warmth, soften or sharpen "
+                    + "and more, or applies a ready-made look.",
                 howTo: [
                     "Open the Light, Colour and Detail groups and move the sliders; the preview updates as you go.",
-                    "Most sliders run from -100 to 100, Hue from -180 to 180 degrees, Detail from 0 to 100.",
+                    "Most sliders run from -100 to 100, Hue from -180 to 180 degrees, Definition and Noise reduction "
+                        + "from 0 to 100.",
+                    "Soft ↔ Sharp starts in the middle: right sharpens, left softens.",
+                    "Presets applies a look such as Vivid, Noir or Golden Hour (it replaces every slider), "
+                        + "or saves your own.",
                     "Double-click a slider or its label to set it back to 0, or press a group's Reset."
                 ],
                 tips: [

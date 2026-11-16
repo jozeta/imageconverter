@@ -169,6 +169,7 @@ extension AdjustOptions {
         let parts = Field.allCases.compactMap { field -> String? in
             let value = Int(self[field].rounded())
             guard value != 0 else { return nil }
+            if field == .sharpness { return value > 0 ? "sharpen +\(value)" : "soften \(-value)" }
             // Signed fields show their sign (a real minus sign); 0…100 fields are plain amounts.
             let number = field.range.lowerBound < 0 ? (value > 0 ? "+\(value)" : "−\(-value)") : "\(value)"
             return field.displayName.lowercased() + " " + number + (field == .hue ? "°" : "")

@@ -10,6 +10,8 @@ struct ImageconverterApp: App {
         directory: AppDefaults.templatesDirectory(folder: WatermarkTemplateStore.watermarkFolderName)))
     @State private var metadataTemplates = MetadataTemplatesModel(store: .metadata(
         directory: AppDefaults.templatesDirectory(folder: MetadataTemplateStore.folderName)))
+    @State private var adjustPresets = AdjustPresetsModel(store: .adjust(
+        directory: AppDefaults.templatesDirectory(folder: AdjustPresetStore.adjustFolderName)))
     @State private var settings = AppSettings(defaults: AppDefaults.store)
     /// Saved jobs, their watchers and schedules (see `JobsController`).
     @State private var jobs = JobsController.shared
@@ -35,6 +37,7 @@ struct ImageconverterApp: App {
                 .environment(model)
                 .environment(watermarkTemplates)
                 .environment(metadataTemplates)
+                .environment(adjustPresets)
                 .onChange(of: settings.afterRun, initial: true) { _, value in model.afterRunSetting = value }
                 .onChange(of: PreviewRequest(model: model, mode: settings.outputMode), initial: true) { _, request in
                     model.schedulePreview(mode: request.mode)
