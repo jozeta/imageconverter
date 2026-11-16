@@ -99,7 +99,13 @@ final class ColorReduceFixTests: XCTestCase {
         XCTAssertEqual(table.index(13, 13, 13), 1)
         XCTAssertEqual(table.index(201, 30, 29), 2)
         // Every palette colour maps to itself.
-        let many = (0..<256).map { RGB(red: UInt8($0), green: UInt8(255 - $0), blue: UInt8(($0 * 7) % 256)) }
+        // Typed step by step so CI's Swift 6.0 type-checks it in time.
+        let many: [RGB] = (0..<256).map { (value: Int) -> RGB in
+            let red = UInt8(value)
+            let green = UInt8(255 - value)
+            let blue = UInt8((value * 7) % 256)
+            return RGB(red: red, green: green, blue: blue)
+        }
         let big = NearestTable(palette: many)
         for (index, color) in many.enumerated() {
             XCTAssertEqual(big.index(Int(color.red), Int(color.green), Int(color.blue)), index)
