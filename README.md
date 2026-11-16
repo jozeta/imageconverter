@@ -677,10 +677,19 @@ How it works:
   `dc:description`. The metadata-only lossless copy writes and verifies it like any other field.
 - **Remove XMP** leaves no place for alt text: the image then gets the note "Alt text not generated: Remove XMP is
   on, and alt text is stored in XMP" (unless it is also the description, which EXIF and IPTC hold).
-- Each image waits at most 30 seconds, counted from when it is ready for the model: waiting behind other images,
-  or behind a model still busy with an image that timed out (whose late answer is ignored), counts too. One image is
-  described at a time, and across all batches running at once (the main window, jobs, services, scripts) at most
-  half the Mac's cores work on images that get alt text; other images aren't held back.
+- The model describes one image at a time across the whole app (the main window's batch, jobs, services, scripts
+  and the preview). Images take turns in the order they arrive; the preview goes ahead of waiting batch images. Each
+  image gets 30 seconds from its turn; waiting for the turn doesn't count. An image that timed out gets the note
+  "no answer within 30 seconds" and its late answer is ignored, but the next image waits until the model has really
+  finished with it, so no more than one request is ever running.
+- If the model doesn't answer three images in a row, or is still busy a minute after a request that timed out, it
+  counts as not responding: the remaining images in every run (and the preview) get "Alt text not generated: the
+  on-device model stopped responding" at once, without waiting, until you quit and reopen imageconverter.
+- Across all batches running at once, at most half the Mac's cores work on images that will ask the model; images
+  that don't (no alt text asked for, Remove XMP with nowhere to store it, the model unavailable or not responding)
+  take no part in that limit. While another batch holds all of those workers, an image that asks the model waits for
+  one, and while it waits it keeps its place in its own batch's memory budget, so other images in that batch can
+  start a little later.
 - Every image that got alt text has the report note "Alt text generated on this Mac" (it is machine-written:
   check it). When there is no text (model not ready, an error, a refusal, no answer in time, an empty answer) the
   image is still written, without alt text, with a note such as "Alt text not generated: no answer within 30

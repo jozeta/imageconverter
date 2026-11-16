@@ -213,10 +213,35 @@ final class AltTextTests: XCTestCase {
         XCTAssertEqual(report.written.count, 1)
     }
 
+    /// Items that won't ask the model (Remove XMP leaves nowhere to store alt text) take no slot: with every slot
+    /// taken, such a batch still runs, with its note.
+    func testItemsThatSkipTheModelTakeNoSlot() async throws {
+        var held = 0
+        while AltTextWorkerLimiter.shared.tryAcquire() { held += 1 }
+        defer { for _ in 0..<held { AltTextWorkerLimiter.shared.release() } }
+        var options = altOptions()
+        options.removeXMP = true
+        let pipeline = Pipeline(steps: [rotate], output: OutputSettings(format: .jpeg), metadata: options)
+        let items = [InputItem(source: try source(), relativeDirectory: "")]
+        let out = root.appendingPathComponent("skip")
+        let run = Task { await BatchRunner.run(items, pipeline: pipeline, mode: .newFolder(out), altText: FakeAltTextGenerator()) }
+        let watchdog = Task {
+            try await Task.sleep(nanoseconds: 10_000_000_000)
+            run.cancel()
+        }
+        let report = await run.value
+        watchdog.cancel()
+        XCTAssertEqual(report.written.count, 1, "the batch waited for a slot it doesn't need")
+        XCTAssertEqual(report.notes.map(\.text), [AltText.notGeneratedNote(AltText.removeXMPReason)])
+    }
+
     func testCancelledBatchStopsWaiting() async throws {
         let image = TestImages.make(width: 20, height: 20)
         let task = Task.detached { () -> Result<AltTextOutcome, Error> in
-            Result { try AltText.generateBlocking(for: image, with: FakeAltTextGenerator(.hang(seconds: 10)), timeout: 20) }
+            Result {
+                try AltText.generateBlocking(for: image, with: FakeAltTextGenerator(.hang(seconds: 10)), timeout: 20,
+                                             gate: AltTextModelGate())
+            }
         }
         try await Task.sleep(nanoseconds: 200_000_000)
         let started = Date()

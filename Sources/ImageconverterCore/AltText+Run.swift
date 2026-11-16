@@ -2,17 +2,29 @@ import CoreGraphics
 import Foundation
 
 extension AltText {
-    /// Generates alt text for `image` (any size; a ≤ 1024 px sRGB copy is what the model sees), waiting at most
-    /// `timeout`. Never throws: unavailable, an error, no answer in time, cancellation or an empty answer give
-    /// `.failed`. The timeout holds even when the model ignores cancellation (it is a timer, not a child task).
+    /// Generates alt text for `image` (any size; a ≤ 1024 px sRGB copy is what the model sees) through the app-wide
+    /// `gate`, as the preview does: its request goes ahead of the batches' waiting items but never runs beside another
+    /// call. Waiting for the turn has no time limit; `timeout` counts from the turn. Never throws: unavailable, an
+    /// error, no answer in time, a model that stopped responding, cancellation or an empty answer give `.failed`. The
+    /// timeout holds even when the model ignores cancellation (it is a timer, not a child task).
     public static func generate(for image: CGImage, with generator: any AltTextGenerator,
                                 timeout: TimeInterval = AltText.timeout) async -> AltTextOutcome {
+        await generate(for: image, with: generator, timeout: timeout, gate: .shared)
+    }
+
+    static func generate(for image: CGImage, with generator: any AltTextGenerator, timeout: TimeInterval,
+                         gate: AltTextModelGate) async -> AltTextOutcome {
         if let reason = generator.availability.reason { return .failed(reason) }
         guard let small = modelImage(image) else { return .failed(unreadable) }
+        switch await gate.turn(priority: true) {
+        case .notResponding: return .failed(notResponding)
+        case .cancelled: return .failed("cancelled")
+        case .yourTurn: break
+        }
         let run = AltTextRun()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
-                run.start(small, generator: generator, timeout: timeout) { continuation.resume(returning: $0) }
+                gate.call(run, image: small, generator: generator, timeout: timeout) { continuation.resume(returning: $0) }
             }
         } onCancel: {
             run.cancel()
@@ -49,36 +61,44 @@ extension AltText {
     /// `Task.sleep` or a continuation resumed on a global queue then hangs, an actor hop doesn't).
     static var batchWorkers: Int { max(1, ProcessInfo.processInfo.activeProcessorCount / 2) }
 
-    /// One generation at a time from the batch: the model answers one request after another anyway.
-    private static let batchGate = NSLock()
+    /// Whether the batch's worker for `job` will ask the model (and so takes an `AltTextWorkerLimiter` slot): it is
+    /// processed, generates alt text that something can store, the model is available and hasn't stopped responding.
+    static func asksModel(_ job: ResolvedPipeline, generator: any AltTextGenerator,
+                          gate: AltTextModelGate = .shared) -> Bool {
+        job.disposition == .process && job.pipeline.metadata.generatesAltText
+            && job.pipeline.metadata.altTextSkipReason == nil && generator.availability.isAvailable && !gate.isStopped
+    }
 
     /// Workers inside `generateBlocking` right now and the most there were at once (for tests).
     static let waiting = WaitingCounter()
 
-    /// `generate(for:with:timeout:)` for the batch's synchronous worker. The item's `timeout` starts when it gets
-    /// here: waiting for its turn behind other items counts, and so does a model still busy with an earlier item that
-    /// timed out (its late answer is ignored; the next item doesn't wait for it, it just starts its own call, which
-    /// the system may queue). So no item waits more than its own 30 s. The timer has a queue of its own, so it fires
-    /// however busy the pool is; the model call's own code runs on `AltTextExecutor`, not on the cooperative pool the
-    /// waiting workers hold. Throws `CancellationError` when the batch is cancelled (before or while waiting).
+    /// `generate(for:with:timeout:)` for the batch's synchronous worker, through the same app-wide `gate`: it waits
+    /// for its turn in order, with no time limit (a cancelled batch stops waiting), and its `timeout` starts when it
+    /// gets the turn. A model that stopped responding (`AltTextModelGate`) gives `.failed(notResponding)` at once. The
+    /// timer has a queue of its own, so it fires however busy the pool is; the model call's own code runs on
+    /// `AltTextExecutor`, not on the cooperative pool the waiting workers hold. Throws `CancellationError` when the
+    /// batch is cancelled (before or while waiting).
     static func generateBlocking(for image: CGImage, with generator: any AltTextGenerator,
-                                 timeout: TimeInterval = AltText.timeout) throws -> AltTextOutcome {
+                                 timeout: TimeInterval = AltText.timeout,
+                                 gate: AltTextModelGate = .shared) throws -> AltTextOutcome {
         if let reason = generator.availability.reason { return .failed(reason) }
         waiting.enter()
         defer { waiting.leave() }
-        let deadline = Date().addingTimeInterval(max(0, timeout))
-        // Wait for the turn in slices, so a cancelled batch stops waiting and the deadline holds.
-        while !batchGate.lock(before: min(deadline, Date().addingTimeInterval(0.25))) {
-            if Task.isCancelled { throw CancellationError() }
-            if Date() >= deadline { return .failed(timedOut) }
-        }
-        defer { batchGate.unlock() }
         if Task.isCancelled { throw CancellationError() }
         guard let small = modelImage(image) else { return .failed(unreadable) }
+        switch gate.waitForTurn() {
+        case .notResponding: return .failed(notResponding)
+        case .cancelled: throw CancellationError()
+        case .yourTurn: break
+        }
+        if Task.isCancelled {
+            gate.pass()
+            throw CancellationError()
+        }
         let box = OutcomeBox()
         let done = DispatchSemaphore(value: 0)
         let run = AltTextRun()
-        run.start(small, generator: generator, timeout: max(0, deadline.timeIntervalSinceNow)) { outcome in
+        gate.call(run, image: small, generator: generator, timeout: timeout) { outcome in
             box.set(outcome)
             done.signal()
         }
@@ -170,6 +190,8 @@ public final class AltTextWorkerLimiter: @unchecked Sendable {
 
 /// One generation: the model call on `AltTextExecutor`, a timer for the timeout, and `finish` called exactly once
 /// with whichever comes first (the answer, the timeout or a cancel), after which the model call is cancelled.
+/// `ended` is called once when the call's task really ends (it may run on after a timeout), or at once when the run
+/// was cancelled before it started.
 final class AltTextRun: @unchecked Sendable {
     private static let timerQueue = DispatchQueue(label: "imageconverter.alt-text.timeout")
     private let lock = NSLock()
@@ -178,11 +200,12 @@ final class AltTextRun: @unchecked Sendable {
     private var cancelled = false
 
     func start(_ image: CGImage, generator: any AltTextGenerator, timeout: TimeInterval,
-               finish: @escaping @Sendable (AltTextOutcome) -> Void) {
+               finish: @escaping @Sendable (AltTextOutcome) -> Void, ended: @escaping @Sendable () -> Void = {}) {
         lock.lock()
         guard !cancelled else {
             lock.unlock()
             finish(.failed("cancelled"))
+            ended()
             return
         }
         self.finish = finish
@@ -190,6 +213,7 @@ final class AltTextRun: @unchecked Sendable {
             let answer: AltText.Answer
             do { answer = .text(try await generator.generate(for: image)) } catch { answer = .error(error) }
             complete(AltText.outcome(answer))
+            ended()
         }
         if #available(macOS 15, *) {
             task = Task(executorPreference: AltTextExecutor.shared, operation: work)
@@ -237,8 +261,8 @@ private final class OutcomeBox: @unchecked Sendable {
 }
 
 /// Runs the alt text tasks on a dedicated queue instead of the cooperative pool, whose threads the batch's
-/// synchronous workers may all be holding while they wait. Concurrent, so a call that timed out but keeps a thread
-/// busy can't hold up the next item's call (each task still runs its own jobs one at a time).
+/// synchronous workers may all be holding while they wait. Concurrent so the call's jobs never wait behind another
+/// queue user; `AltTextModelGate` keeps it to one call at a time (each task still runs its own jobs one at a time).
 @available(macOS 15, *)
 final class AltTextExecutor: TaskExecutor, @unchecked Sendable {
     static let shared = AltTextExecutor()

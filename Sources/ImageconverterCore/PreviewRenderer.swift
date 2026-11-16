@@ -107,14 +107,17 @@ public actor PreviewRenderer {
 
     /// The alt text the batch would write for `request`'s image: cached per file version and pixel steps,
     /// generated otherwise (seconds; the preview shows "Generating…" meanwhile). The same model, prompt, size,
-    /// sanitiser and timeout as the batch.
+    /// sanitiser, timeout and app-wide gate as the batch (`AltTextModelGate`: its turn comes before the batches'
+    /// waiting items, never beside another call).
     public func altText(for request: AltTextRequest) async -> AltTextOutcome {
         if let reason = request.skipReason { return .failed(reason) }
         if let cached = altTexts[request.key] { return cached }
         if let reason = altTextGenerator.availability.reason { return .failed(reason) }
         altTextRequests += 1
         let outcome = await AltText.generate(for: request.image, with: altTextGenerator)
-        if case .failed(let reason) = outcome, reason == AltText.timedOut || reason == "cancelled" { return outcome }
+        if case .failed(let reason) = outcome, [AltText.timedOut, AltText.notResponding, "cancelled"].contains(reason) {
+            return outcome
+        }
         if altTexts.count >= 200 { altTexts.removeAll() }
         altTexts[request.key] = outcome
         return outcome

@@ -227,8 +227,8 @@ final class BatchScheduler {
         let altText = settings.hooks.altText
         // Workers wait for the model synchronously, holding a cooperative thread. Across every batch in the process at
         // most half the cores may, so a model call that needs a pool thread always finds one (`AltTextWorkerLimiter`).
-        let limiter: AltTextWorkerLimiter? = job.disposition == .process && job.pipeline.metadata.generatesAltText
-            && altText.availability.isAvailable ? AltTextWorkerLimiter.shared : nil
+        // Only items that will really ask the model take a slot.
+        let limiter: AltTextWorkerLimiter? = AltText.asksModel(job, generator: altText) ? AltTextWorkerLimiter.shared : nil
         let attempt = attempts[index]
         let variants = index < plan.variants.count ? plan.variants[index] : []
         group.addTask {

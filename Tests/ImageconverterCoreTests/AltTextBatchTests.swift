@@ -188,27 +188,30 @@ final class AltTextBatchTests: XCTestCase {
     func testTimeoutEndsTheWaitEvenWhenTheModelIgnoresCancellation() async throws {
         let image = TestImages.make(width: 20, height: 20)
         let started = Date()
-        let outcome = try AltText.generateBlocking(for: image, with: FakeAltTextGenerator(.hang(seconds: 5)), timeout: 0.3)
+        let outcome = try AltText.generateBlocking(for: image, with: FakeAltTextGenerator(.hang(seconds: 5)), timeout: 0.3,
+                                                   gate: AltTextModelGate())
         XCTAssertEqual(outcome, .failed(AltText.timedOut))
         XCTAssertLessThan(Date().timeIntervalSince(started), 2)
         let asyncStarted = Date()
-        let asyncOutcome = await AltText.generate(for: image, with: FakeAltTextGenerator(.hang(seconds: 5)), timeout: 0.3)
+        let asyncOutcome = await AltText.generate(for: image, with: FakeAltTextGenerator(.hang(seconds: 5)), timeout: 0.3,
+                                                  gate: AltTextModelGate())
         XCTAssertEqual(asyncOutcome, .failed(AltText.timedOut))
         XCTAssertLessThan(Date().timeIntervalSince(asyncStarted), 2)
         XCTAssertEqual(AltText.timeout, 30)
     }
 
     /// A call that timed out keeps running (it ignores cancellation): its late answer is ignored, and the next item
-    /// starts its own call at once instead of waiting for it.
-    func testATimedOutCallNeitherAnswersLateNorHoldsUpTheNextItem() throws {
+    /// waits for that call to really end (never two calls at once), then gets its own full timeout.
+    func testATimedOutCallIsIgnoredAndTheNextItemGetsItsOwnFullTime() throws {
         let generator = FirstCallHangs()
+        let gate = AltTextModelGate()
         let image = TestImages.make(width: 20, height: 20)
-        XCTAssertEqual(try AltText.generateBlocking(for: image, with: generator, timeout: 0.3), .failed(AltText.timedOut))
-        let started = Date()
-        XCTAssertEqual(try AltText.generateBlocking(for: image, with: generator, timeout: 0.3), .text("Second."))
-        XCTAssertLessThan(Date().timeIntervalSince(started), 1, "didn't wait for the first call")
-        Thread.sleep(forTimeInterval: 1.8)
-        XCTAssertTrue(generator.firstFinished, "the first call did finish late")
+        XCTAssertEqual(try AltText.generateBlocking(for: image, with: generator, timeout: 0.3, gate: gate),
+                       .failed(AltText.timedOut))
+        XCTAssertFalse(generator.firstFinished)
+        XCTAssertEqual(try AltText.generateBlocking(for: image, with: generator, timeout: 0.3, gate: gate), .text("Second."))
+        XCTAssertTrue(generator.firstFinished, "the second call started only after the first one ended")
+        XCTAssertEqual(gate.peakRunning, 1)
     }
 
     func testRemoveXMPSkipsTheModelWithANote() async throws {

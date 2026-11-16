@@ -87,6 +87,8 @@ public enum AltText {
 
     static let emptyAnswer = "the model gave no usable text"
     static let timedOut = "no answer within 30 seconds"
+    /// After three timeouts in a row, or a call still running a minute after it started (`AltTextModelGate`).
+    static let notResponding = "the on-device model stopped responding"
     static let unreadable = "the image couldn't be read"
     static let removeXMPReason = "Remove XMP is on, and alt text is stored in XMP"
 
