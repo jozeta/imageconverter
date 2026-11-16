@@ -28,8 +28,9 @@ enlargement model (ML enlarge, macOS 26 and later), macOS downloads it from Appl
 start that download (`downloadConfigurationModel`), from one place (`Sources/Imageconverter/MLEnlargeDownload.swift`,
 the Resize editor's Download… button, after a consent alert; a test fails if the call appears anywhere else); batch,
 job, command-line, service, script and link runs never start it. Generated alt text (macOS 27 and later) uses only
-Apple's on-device system language model (`SystemLanguageModel.default`); the server model class is never used (a test
-fails if its name appears in the sources), and the app never asks macOS to download the on-device model. The assets an attacker could want are your files and your private metadata (location, serial
+Apple's on-device system language model (`SystemLanguageModel.default`); the server model is never used (a test
+fails if any identifier starting with `PrivateCloudCompute` appears in the sources, and checks that every language
+model session is built on `SystemLanguageModel.default`), and the app never asks macOS to download the on-device model. The assets an attacker could want are your files and your private metadata (location, serial
 numbers, names), and the app's stability.
 
 Everything that comes from outside the app is untrusted:

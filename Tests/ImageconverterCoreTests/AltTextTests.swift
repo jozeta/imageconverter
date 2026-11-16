@@ -282,22 +282,38 @@ final class AltTextTests: XCTestCase {
         XCTAssertEqual(AltTextOutcome.text("A cat.").note, "Alt text generated on this Mac")
     }
 
-    /// Only Apple's on-device model: the server model class must not appear anywhere in the sources.
+    private var rotate: PipelineStep { PipelineStep(operation: .rotateFlip(RotateFlipOptions(rotation: .cw90))) }
+}
+
+/// The server model never appears in the sources.
+final class AltTextSourceBanTests: XCTestCase {
+    /// Only Apple's on-device model: no identifier starting with the server model's name (any `PrivateCloudCompute…`
+    /// type, in any case) appears anywhere in the sources, and every language model session is built on
+    /// `SystemLanguageModel.default`.
     func testSourcesNeverNameTheServerModel() throws {
         let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().appendingPathComponent("Sources")
         let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
+        let banned = try NSRegularExpression(pattern: "Private" + "Cloud" + "Compute\\w*", options: [.caseInsensitive])
+        let session = try NSRegularExpression(pattern: "LanguageModelSession\\(([^)]*)")
         var scanned = 0
         var offenders: [String] = []
-        let banned = ["Private" + "CloudCompute", "Private" + "Cloud" + "Compute".lowercased()]
+        var sessions: [String] = []
         for case let url as URL in enumerator where url.pathExtension == "swift" {
             scanned += 1
             let text = try String(contentsOf: url, encoding: .utf8)
-            if banned.contains(where: text.contains) { offenders.append(url.lastPathComponent) }
+            let range = NSRange(text.startIndex..., in: text)
+            offenders += banned.matches(in: text, range: range).compactMap { Range($0.range, in: text) }
+                .map { "\(url.lastPathComponent): \(text[$0])" }
+            sessions += session.matches(in: text, range: range).compactMap { Range($0.range(at: 1), in: text) }
+                .map { String(text[$0]) }
         }
         XCTAssertGreaterThan(scanned, 50)
         XCTAssertEqual(offenders, [])
+        XCTAssertFalse(sessions.isEmpty, "the alt text session is found")
+        XCTAssertTrue(sessions.allSatisfy { $0.hasPrefix("model: SystemLanguageModel.default") }, "\(sessions)")
+        // The pattern catches any such name, not one guessed type.
+        let probe = "let m = " + "Private" + "CloudComputeLanguageModel()"
+        XCTAssertEqual(banned.numberOfMatches(in: probe, range: NSRange(probe.startIndex..., in: probe)), 1)
     }
-
-    private var rotate: PipelineStep { PipelineStep(operation: .rotateFlip(RotateFlipOptions(rotation: .cw90))) }
 }
