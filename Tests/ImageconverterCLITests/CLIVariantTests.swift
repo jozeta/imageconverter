@@ -176,4 +176,18 @@ final class CLIVariantTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path), ["in.jpg"])
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: web.path), ["in_web.png"])
     }
+
+    func testEveryExtraOutputsFolderIsPrinted() async throws {
+        let source = try writePNG("in.png")
+        let outDir = root.appendingPathComponent("out")
+        let web = root.appendingPathComponent("web")
+        let arguments = ["convert", source.path, "--out", outDir.path,
+                         "--variant", "name=web,suffix=_web,folder=\(web.path)", "--variant", "name=thumb,long=16"]
+        for extra in [["--dry-run"], ["--quiet"]] {
+            let result = await run(arguments + extra)
+            XCTAssertEqual(result.code, 0, result.err)
+            XCTAssertTrue(result.err.contains("Extra output “web” → \(web.standardizedFileURL.path)"), result.err)
+            XCTAssertTrue(result.err.contains("Extra output “thumb” → \(outDir.standardizedFileURL.path)"), result.err)
+        }
+    }
 }

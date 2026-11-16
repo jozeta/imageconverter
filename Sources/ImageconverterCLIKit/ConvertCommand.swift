@@ -29,6 +29,7 @@ enum ConvertCommand {
         let items = InputCollector.collect(options.inputs.filter { !missing.contains($0) }
             .map { URL(fileURLWithPath: $0) })
         let mode = outputMode(options)
+        announceExtraOutputs(pipeline, mode: mode, environment: environment)
         if options.dryRun {
             return await dryRun(Setup(items: items, missing: missing, pipeline: pipeline, mode: mode),
                                 options: options, environment: environment)
@@ -42,15 +43,24 @@ enum ConvertCommand {
         let started = Date()
         let progress = CLIRunner.progressReporter(quiet: options.quiet || options.json, environment: environment)
         let batch = await environment.cancel.run {
+            // Folders named on the command line or in a file passed to it are used as given (announced above).
             await BatchRunner.run(items, pipeline: pipeline, mode: mode, trash: environment.trash,
                                   control: environment.control, presets: PresetLibrary.folder(environment.presetDirectory),
-                                  progress: progress)
+                                  variantFolders: .trustPaths, progress: progress)
         }
         var report = ProcessingReport(batch: batch, total: items.count, outputMode: mode.kind.rawValue,
                                       presetName: presetName, startedAt: started, finishedAt: Date())
         add(missing: missing, to: &report)
         return CLIRunner.finish(report, format: options.json ? .json : options.report,
                                 interrupted: batch.cancelled, environment: environment)
+    }
+
+    /// Where every extra output writes, said on stderr before anything runs (a preset or file can name any folder).
+    static func announceExtraOutputs(_ pipeline: Pipeline, mode: OutputMode, environment: CLIEnvironment) {
+        for variant in pipeline.extraOutputs {
+            environment.err("Extra output “\(ReportExporter.printable(variant.displayName))” → "
+                            + ReportExporter.printable(variant.folderDescription(main: mode)))
+        }
     }
 
     /// A path that doesn't exist counts as a failed file, so a typo can't end in a quiet "success".
@@ -152,7 +162,7 @@ enum ConvertCommand {
         let started = Date()
         let planned = await environment.cancel.run {
             await BatchRunner.plan(items, pipeline: pipeline, mode: mode,
-                                   presets: PresetLibrary.folder(environment.presetDirectory))
+                                   presets: PresetLibrary.folder(environment.presetDirectory), variantFolders: .trustPaths)
         }
         guard let planned else { return CLIExit.interrupted }
         let entries = planned.flatMap { file -> [ReportEntry] in

@@ -71,12 +71,14 @@ public enum BatchRunner {
         presets: PresetLibrary = .standard,
         enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
         altText: any AltTextGenerator = AltText.standardGenerator,
+        variantFolders: VariantFolderPolicy = .confirmedOnly,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in },
         events: @escaping @Sendable (ItemEvent) -> Void = { _ in }
     ) async -> BatchReport {
         var hooks = BatchHooks()
         hooks.enlarger = enlarger
         hooks.altText = altText
+        hooks.variantFolders = variantFolders
         return await run(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, concurrency: concurrency,
                          memoryBudgetPixels: memoryBudgetPixels, trash: trash, control: control, journal: journal,
                          presets: presets, hooks: hooks, progress: progress, events: events)

@@ -196,4 +196,6 @@ struct BatchHooks: Sendable {
     var enlarger: any SuperResolutionScaler = SystemSuperResolution.shared
     /// Writes alt text for the Metadata step (Apple's on-device model; tests inject a fake).
     var altText: any AltTextGenerator = AltText.standardGenerator
+    /// What an extra output's unconfirmed chosen folder does (the command line passes `.trustPaths`).
+    var variantFolders: VariantFolderPolicy = .confirmedOnly
 }

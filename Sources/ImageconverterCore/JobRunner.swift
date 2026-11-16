@@ -75,6 +75,8 @@ public enum JobRunner {
 
         let batch = await BatchRunner.run(selection.items, pipeline: pipeline, mode: job.output, maxPixels: maxPixels,
                                           concurrency: concurrency, memoryBudgetPixels: memoryBudgetPixels,
+                                          // Nobody can be asked in the background: an extra output whose folder this
+                                          // app can't confirm isn't written (a note says so; `.confirmedOnly`).
                                           trash: trash, presets: library, progress: progress)
         // Extra outputs the job's pipeline (or its preset's) couldn't load are named on every run that does work.
         var problems = pipeline.loadNotes.notes.map { $0 + "." }

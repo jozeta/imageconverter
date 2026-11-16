@@ -1,23 +1,20 @@
+import AppKit
 import SwiftUI
 import ImageconverterCore
 
 /// The ⓘ right of the main output's format picker (Johan, round 3): the size estimate for the selected image moved
-/// here from under the format. Hovering shows a box with every output's estimated size and notes ("Main JPEG …
-/// · Thumbnail JPEG …"); a click (or Space when it has keyboard focus) pins the box open until clicked again or
-/// Escape. VoiceOver reads the same text as the button's value.
+/// here from under the format. Pointing at it shows a box with every output's estimated size and notes ("Main
+/// JPEG … · Thumbnail JPEG …"); a click (or Space when it has keyboard focus) pins the box open until clicked again
+/// or Escape. The box is a tooltip-style window that never becomes key (`HoverBox`), so a field being edited keeps
+/// its focus. VoiceOver reads the same text as the button's value.
 struct EstimateInfoButton: View {
     var model: AppModel
-    @State private var iconInside = false
-    @State private var boxInside = false
-    @State private var hoverShown = false
+    @State private var hovered = false
     @State private var pinned = false
+    @State private var box = HoverBox()
+    @State private var anchor = AnchorView.Holder()
 
-    private static let grace: Duration = .milliseconds(250)
-
-    private var shown: Binding<Bool> {
-        Binding(get: { pinned || hoverShown },
-                set: { if !$0 { pinned = false; hoverShown = false } })
-    }
+    private var shown: Bool { pinned || hovered }
 
     var body: some View {
         Button { pinned.toggle() } label: {
@@ -27,18 +24,16 @@ struct EstimateInfoButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(shown.wrappedValue ? LadaGlass.Colors.text : LadaGlass.Colors.muted)
-        .onHover { inside in
-            iconInside = inside
-            if inside { hoverShown = true } else { closeSoon() }
+        .foregroundStyle(shown ? LadaGlass.Colors.text : LadaGlass.Colors.muted)
+        .background(AnchorView(holder: anchor))
+        .onHover { hovered = $0 }
+        .onChange(of: shown) { _, isShown in update(isShown) }
+        .onKeyPress(.escape) {
+            guard pinned else { return .ignored }
+            pinned = false
+            return .handled
         }
-        .popover(isPresented: shown, arrowEdge: .trailing) {
-            EstimateBox(model: model)
-                .onHover { inside in
-                    boxInside = inside
-                    if !inside { closeSoon() }
-                }
-        }
+        .onDisappear { box.close() }
         .accessibilityLabel("Size estimate")
         .accessibilityValue(EstimateBox.lines(model).map { line in
             [line.title, line.size, line.note].compactMap { $0 }.joined(separator: ", ")
@@ -54,12 +49,72 @@ struct EstimateInfoButton: View {
         #endif
     }
 
-    /// A short grace period lets the pointer cross the gap between the icon and the box.
-    private func closeSoon() {
-        Task { @MainActor in
-            try? await Task.sleep(for: Self.grace)
-            if !iconInside && !boxInside { hoverShown = false }
+    private func update(_ isShown: Bool) {
+        if isShown, let view = anchor.view {
+            box.show(EstimateBox(model: model), beside: view)
+        } else {
+            box.close()
         }
+    }
+}
+
+/// Finds the AppKit view behind a SwiftUI view, to place a window next to it.
+struct AnchorView: NSViewRepresentable {
+    final class Holder {
+        weak var view: NSView?
+    }
+
+    let holder: Holder
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        holder.view = view
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        holder.view = nsView
+    }
+}
+
+/// A borderless, non-activating child window showing SwiftUI content to the right of a view, like a tooltip: it
+/// never becomes key (the field being edited keeps its focus), ignores the mouse, and moves with its window.
+@MainActor
+final class HoverBox {
+    private var panel: NSPanel?
+
+    func show<Content: View>(_ content: Content, beside anchor: NSView) {
+        guard let window = anchor.window else { return }
+        close()
+        let controller = NSHostingController(rootView: content.fixedSize())
+        controller.sizingOptions = .preferredContentSize
+        let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered,
+                            defer: true)
+        panel.contentViewController = controller
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.ignoresMouseEvents = true
+        panel.becomesKeyOnlyIfNeeded = true
+        panel.hidesOnDeactivate = true
+        let size = controller.view.fittingSize
+        let rect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+        var origin = CGPoint(x: rect.maxX + 8, y: rect.maxY + 12 - size.height)
+        if let screen = window.screen?.visibleFrame {
+            origin.x = min(origin.x, screen.maxX - size.width)
+            origin.y = max(min(origin.y, screen.maxY - size.height), screen.minY)
+        }
+        panel.setFrame(CGRect(origin: origin, size: size), display: false)
+        window.addChildWindow(panel, ordered: .above)
+        panel.orderFront(nil)
+        self.panel = panel
+    }
+
+    func close() {
+        guard let panel else { return }
+        panel.parent?.removeChildWindow(panel)
+        panel.orderOut(nil)
+        self.panel = nil
     }
 }
 
@@ -116,5 +171,8 @@ struct EstimateBox: View {
         .padding(LadaGlass.Spacing.m)
         .frame(width: 320, alignment: .leading)
         .lgPopoverSurface()
+        // Its own window shows whatever is behind it through the material: an opaque base keeps it readable.
+        .background(Color(nsColor: .windowBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: LadaGlass.Radius.card))
     }
 }

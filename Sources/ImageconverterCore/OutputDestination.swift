@@ -2,7 +2,7 @@ import Foundation
 
 /// A folder chosen for an extra output: its path, and a bookmark so the sandboxed app (and its jobs) can open it
 /// again after a relaunch. Pipelines, presets and jobs carry it; the path alone is used when there is none.
-public struct VariantFolder: Codable, Equatable, Sendable {
+public struct VariantFolder: Codable, Hashable, Sendable {
     /// An absolute path; empty while no folder is chosen yet (the output can't run then).
     public var path: String
     /// An app-scoped security-scoped bookmark of the folder (a plain one outside the sandbox), made when chosen.
@@ -23,13 +23,50 @@ public struct VariantFolder: Codable, Equatable, Sendable {
 
     public var isChosen: Bool { !path.isEmpty }
 
-    /// The folder as a file URL (the stored path; `resolved` follows a moved folder).
+    /// The folder as a file URL (the stored path; `resolution` follows a moved folder).
     public var url: URL { URL(fileURLWithPath: path, isDirectory: true) }
 
-    /// The folder now: the bookmark's folder when it resolves, else the stored path.
-    public func resolved(resolver: (Data) -> FolderAccess.Resolved? = FolderAccess.resolve) -> URL {
-        if let bookmark, let found = resolver(bookmark) { return found.url }
-        return url
+    /// Where the folder is, and whether this app may trust it without asking again.
+    public enum Resolution: Equatable, Sendable {
+        /// Opened through this app's own security-scoped bookmark (or, outside the sandbox, a bookmark that still
+        /// names the stored folder): the folder now (a moved folder followed) and a renewed bookmark when stale.
+        case confirmed(URL, refreshed: Data?)
+        /// No bookmark, or one that doesn't open with this app's security scope (a folder that is gone, or a
+        /// preset from someone else): the stored path, never where a foreign bookmark points.
+        case unconfirmed(URL)
+
+        public var url: URL {
+            switch self {
+            case .confirmed(let url, _), .unconfirmed(let url): return url
+            }
+        }
+
+        public var isConfirmed: Bool {
+            if case .confirmed = self { return true }
+            return false
+        }
+    }
+
+    /// Resolves the bookmark once. It is followed only when it opens with the app's security scope, or (outside the
+    /// real sandbox) when it still points at the stored path; a plain bookmark to somewhere else is ignored.
+    public func resolution(resolver: (Data) -> FolderAccess.Resolved? = FolderAccess.resolve,
+                           sandboxEnforced: Bool = Sandbox.isEnforced) -> Resolution {
+        guard isChosen else { return .unconfirmed(url) }
+        guard let bookmark, let found = resolver(bookmark) else { return .unconfirmed(url) }
+        if found.isSecurityScoped { return .confirmed(found.url, refreshed: found.refreshed) }
+        if !sandboxEnforced, FileIdentity.pathKey(found.url) == FileIdentity.pathKey(url) {
+            return .confirmed(found.url, refreshed: found.refreshed)
+        }
+        return .unconfirmed(url)
+    }
+
+    /// This folder updated to where it is now (moved: the new path; stale: the renewed bookmark); nil when nothing
+    /// changes or it isn't confirmed.
+    public func refreshed(_ resolution: Resolution) -> VariantFolder? {
+        guard case .confirmed(let now, let renewed) = resolution else { return nil }
+        let newPath = now.standardizedFileURL.path
+        guard newPath != path || (renewed != nil && renewed != bookmark) else { return nil }
+        return VariantFolder(path: newPath, bookmark: renewed ?? bookmark)
     }
 
     private enum CodingKeys: String, CodingKey { case path, bookmark }
@@ -161,23 +198,104 @@ extension OutputVariant {
     }
 }
 
-/// The chosen folders of a batch's extra outputs, resolved once per run: where each is now (its bookmark followed),
-/// with access started on the resolved URLs for as long as this is kept (the run's lifetime).
+/// What a run does with an extra output's chosen folder that isn't confirmed (`VariantFolder.Resolution`).
+public enum VariantFolderPolicy: Sendable {
+    /// The command line: the stored path is used as typed (the folder was named on the command line or in a file
+    /// the user passed; the CLI prints every extra output's folder first).
+    case trustPaths
+    /// The app and jobs: such an output is not written (a note says to choose its folder again); never written
+    /// silently to a folder the user didn't choose in this app.
+    case confirmedOnly
+}
+
+/// The chosen folders of a batch's extra outputs, resolved once per run (`VariantFolder.resolution`): where each is
+/// now, with access started on the resolved URLs for as long as this is kept (the run's lifetime).
 final class VariantFolderAccess: @unchecked Sendable {
     /// Stored path → the folder now.
     let folders: [String: URL]
+    /// Stored paths that weren't confirmed and, under `.confirmedOnly`, are not written to.
+    let refused: Set<String>
     private let grant: FolderAccess.Grant
 
-    init(_ variants: [OutputVariant], resolver: (Data) -> FolderAccess.Resolved? = FolderAccess.resolve) {
+    init(_ variants: [OutputVariant], policy: VariantFolderPolicy = .trustPaths,
+         resolver: (Data) -> FolderAccess.Resolved? = FolderAccess.resolve) {
         var folders: [String: URL] = [:]
+        var refused = Set<String>()
         for variant in variants {
-            guard case .folder(let folder)? = variant.destination, folder.isChosen, folders[folder.path] == nil
-            else { continue }
-            folders[folder.path] = folder.resolved(resolver: resolver)
+            guard case .folder(let folder)? = variant.destination, folder.isChosen, folders[folder.path] == nil,
+                  !refused.contains(folder.path) else { continue }
+            let resolution = folder.resolution(resolver: resolver)
+            if !resolution.isConfirmed, policy == .confirmedOnly {
+                refused.insert(folder.path)
+            } else {
+                folders[folder.path] = resolution.url
+            }
         }
         self.folders = folders
+        self.refused = refused
         grant = FolderAccess.Grant(Array(folders.values))
     }
 
     static let none = VariantFolderAccess([])
+
+    /// The note on an item whose extra output wasn't written because its folder needs choosing again.
+    static func refusedNote(_ name: String) -> String {
+        "Extra output “\(name)” not written: \(OutputVariant.chooseFolderAgainProblem.lowercased())"
+    }
+}
+
+extension OutputVariant {
+    /// Shown on an output whose chosen folder this app can't confirm (a preset from someone else, a moved or
+    /// deleted folder): Run asks for it first.
+    public static let chooseFolderAgainProblem = "Choose the folder again"
+
+    /// The output's chosen folder, if it has one.
+    public var chosenFolder: VariantFolder? {
+        guard case .folder(let folder)? = destination, folder.isChosen else { return nil }
+        return folder
+    }
+
+    /// Where its files go, for the command line: "/Users/me/Web/big", "next to each original", "“thumbs” next to
+    /// each original"; beside the main output: the main output's folder (`main`), or next to each original.
+    public func folderDescription(main mode: OutputMode) -> String {
+        let below = destination == .sameFolder ? nil : effectiveSubfolder
+        func under(_ base: String) -> String { below.map { "\(base)/\($0)" } ?? base }
+        switch destination {
+        case nil:
+            if case .newFolder(let folder) = mode { return under(folder.standardizedFileURL.path) }
+            return below.map { "“\($0)” next to each original" } ?? "next to each original"
+        case .folder(let folder)?: return under(folder.resolution().url.standardizedFileURL.path)
+        case .sameFolder?: return "next to each original"
+        case .subfolder(let template)?: return "“\(template)” next to each original"
+        }
+    }
+}
+
+/// The pipeline with every chosen extra-output folder resolved once (`VariantFolder.resolution`).
+public struct VariantFolderCheck: Equatable, Sendable {
+    /// Confirmed folders updated to where they are now (moved or stale bookmarks rewritten).
+    public var pipeline: Pipeline
+    /// True when `pipeline` differs from the one checked (save it).
+    public var changed: Bool
+    /// The outputs whose folder isn't confirmed: the app asks for these before a run.
+    public var unconfirmed: [OutputVariant]
+}
+
+extension Pipeline {
+    public func checkingVariantFolders(resolver: (Data) -> FolderAccess.Resolved? = FolderAccess.resolve,
+                                       sandboxEnforced: Bool = Sandbox.isEnforced) -> VariantFolderCheck {
+        var copy = self
+        var changed = false
+        var unconfirmed: [OutputVariant] = []
+        for index in copy.extraOutputs.indices {
+            guard let folder = copy.extraOutputs[index].chosenFolder else { continue }
+            let resolution = folder.resolution(resolver: resolver, sandboxEnforced: sandboxEnforced)
+            if let updated = folder.refreshed(resolution) {
+                copy.extraOutputs[index].destination = .folder(updated)
+                changed = true
+            }
+            if !resolution.isConfirmed { unconfirmed.append(copy.extraOutputs[index]) }
+        }
+        return VariantFolderCheck(pipeline: copy, changed: changed, unconfirmed: unconfirmed)
+    }
 }

@@ -60,9 +60,11 @@ enum RenameRendering {
     /// The rendered subfolder of each of the item's extra outputs (empty for none); nothing is read when no extra
     /// output has one. Tokens describe the primary output (its size and format).
     static func variantFolders(for item: InputItem, index: Int, job: ResolvedPipeline) -> [[String]] {
-        // A `.subfolder` destination's folders come first (inside the original's folder), then the output's own.
-        let parts = job.pipeline.extraOutputs.map { variant in
-            (variant.destination?.subfolderTemplate.map(SubfolderTemplate.parts) ?? [])
+        // A `.subfolder` destination's folders come first (inside the original's folder), then the output's own;
+        // "Same folder as original" has no subfolder (the panel says it isn't used).
+        let parts = job.pipeline.extraOutputs.map { variant -> [RenameTemplate] in
+            guard variant.destination != .sameFolder else { return [] }
+            return (variant.destination?.subfolderTemplate.map(SubfolderTemplate.parts) ?? [])
                 + (variant.effectiveSubfolder.map(SubfolderTemplate.parts) ?? [])
         }
         guard parts.contains(where: { !$0.isEmpty }) else { return parts.map { _ in [] } }

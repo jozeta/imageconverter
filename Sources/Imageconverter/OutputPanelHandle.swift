@@ -56,9 +56,15 @@ struct CollapsibleOutputPanel: View {
     /// The open panel's natural height, capped to a share of the screen (several output panels scroll instead of
     /// growing the window past it).
     private var reachableHeight: CGFloat {
-        let screen = NSApp.keyWindow?.screen ?? NSScreen.main
-        return OutputPanelSizing.reachable(
-            full: fullHeight, cap: OutputPanelSizing.maxOpenHeight(screenHeight: screen?.visibleFrame.height ?? 0))
+        OutputPanelSizing.reachable(full: fullHeight, cap: OutputPanelSizing.maxOpenHeight(screenHeight: screenHeight))
+    }
+
+    /// The usable height of the screen the window is on; read again when the window moves to another screen or the
+    /// screens change (resolution, Dock, a display added or removed).
+    @State private var screenHeight = Self.currentScreenHeight()
+
+    private static func currentScreenHeight() -> CGFloat {
+        (NSApp.keyWindow?.screen ?? NSApp.mainWindow?.screen ?? NSScreen.main)?.visibleFrame.height ?? 0
     }
 
     private var state: OutputPanelSizing.State {
@@ -78,6 +84,18 @@ struct CollapsibleOutputPanel: View {
     }
 
     var body: some View {
+        panelStack
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.didChangeScreenNotification)) { _ in
+                screenHeight = Self.currentScreenHeight()
+            }
+            .onReceive(NotificationCenter.default.publisher(
+                for: NSApplication.didChangeScreenParametersNotification)) { _ in
+                screenHeight = Self.currentScreenHeight()
+            }
+            .onAppear { screenHeight = Self.currentScreenHeight() }
+    }
+
+    private var panelStack: some View {
         VStack(spacing: 0) {
             handle
             if model.outputPanel.collapsed && dragHeight == nil {

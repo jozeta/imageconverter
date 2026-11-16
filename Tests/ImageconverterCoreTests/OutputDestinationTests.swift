@@ -122,7 +122,8 @@ final class OutputDestinationTests: XCTestCase {
             OutputVariant(name: "Sub", nameSuffix: "_sub", destination: .subfolder("thumbs/{ext}")),
         ]
         let pipeline = Pipeline(output: OutputSettings(format: .jpeg), extraOutputs: variants)
-        let report = await BatchRunner.run(items([photo]), pipeline: pipeline, mode: .newFolder(out))
+        let report = await BatchRunner.run(items([photo]), pipeline: pipeline, mode: .newFolder(out),
+                                           variantFolders: .trustPaths)
         XCTAssertEqual(report.failures, [])
         XCTAssertEqual(report.written.map(relative),
                        ["out/a.jpg", "out/a_beside.jpg", "web/big/a_web.jpg", "src/a_here.jpg",
@@ -145,7 +146,8 @@ final class OutputDestinationTests: XCTestCase {
         ]
         let pipeline = Pipeline(output: OutputSettings(format: .jpeg), extraOutputs: variants)
         let before = try Data(contentsOf: namesake)
-        let report = await BatchRunner.run(items([photo, namesake]), pipeline: pipeline, mode: .newFolder(out))
+        let report = await BatchRunner.run(items([photo, namesake]), pipeline: pipeline, mode: .newFolder(out),
+                                           variantFolders: .trustPaths)
         XCTAssertEqual(report.failures, [])
         XCTAssertEqual(report.written.map(relative),
                        ["out/a.jpg", "web/a_web_2.jpg", "src/a_here_2.jpg",

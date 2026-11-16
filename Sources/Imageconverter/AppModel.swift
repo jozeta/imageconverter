@@ -262,8 +262,9 @@ final class AppModel {
         // One item per file, so the run's event indices match this list (the runner deduplicates the same way).
         let batch = InputItem.unique(batch)
         // `{preset}` names the preset the run uses (a service or link runs a preset that isn't selected).
-        let pipeline = presetName.map { pipeline.named($0) } ?? pipeline
         guard !isRunning, !batch.isEmpty else { return .busy }
+        // Extra outputs' folders resolved once (moved ones followed) and unconfirmed ones asked for again.
+        guard let pipeline = confirmVariantFolders(pipeline, named: presetName) else { return .noAccess }
         guard await AccessStore.shared.ensureAccess(sources: batch.map(\.source), mode: mode,
                                                     extraOutputs: pipeline.extraOutputs, toasts: toasts,
                                                     quiet: quietAccess) else {

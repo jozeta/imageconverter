@@ -101,16 +101,29 @@ private struct VariantPanel: View {
         return parts.joined(separator: " · ")
     }
 
+    /// A folder this app can't confirm (a preset from someone else, a moved or deleted folder): Run asks for it.
+    private var needsFolder: Bool {
+        variant.chosenFolder.map { VariantFolderTrust.shared.needsChoosing($0) } ?? false
+    }
+
+    /// The line under the title: a problem, the folder warning, or the summary.
+    private var statusLine: String {
+        problem ?? (needsFolder ? "\(OutputVariant.chooseFolderAgainProblem) · \(summary)" : summary)
+    }
+
     var body: some View {
         AccordionCard(isExpanded: $isExpanded, canExpand: true, title: title) {
             HStack(spacing: LadaGlass.Spacing.s) {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title).font(LadaGlass.Typography.subtitle)
-                    Text(problem ?? summary)
+                    Text(statusLine)
                         .font(LadaGlass.Typography.label)
-                        .foregroundStyle(problem == nil ? LadaGlass.Colors.muted : LadaGlass.Colors.badText)
+                        .foregroundStyle(problem == nil && !needsFolder ? LadaGlass.Colors.muted
+                                         : LadaGlass.Colors.badText)
                         .lineLimit(1)
-                        .truncationMode(.middle)
+                        .truncationMode(.tail)
+                        .help(statusLine)
+                        .accessibilityLabel(statusLine)
                 }
                 Spacer(minLength: 0)
                 RemoveStepButton(label: "output \(title)", action: remove)
@@ -201,6 +214,10 @@ private struct VariantSaveToControl: View {
                 subfolderField
             case .sameFolder?:
                 note("Next to each original, as a new file; the original is never replaced")
+                if let subfolder, !SubfolderTemplate.isBlank(subfolder) {
+                    // Kept for switching back, but not used here.
+                    note("Subfolder \u{201C}\(subfolder)\u{201D} isn't used with this option")
+                }
             case .subfolder(let name)?:
                 TextField("thumbs", text: Binding(
                     get: { name },
@@ -218,6 +235,13 @@ private struct VariantSaveToControl: View {
                     Button("Choose folder…", action: chooseFolder)
                         .buttonStyle(.lg(.secondary))
                         .accessibilityLabel("Choose this output's folder")
+                }
+                if VariantFolderTrust.shared.needsChoosing(folder) {
+                    Text("\(OutputVariant.chooseFolderAgainProblem): it wasn't chosen in imageconverter on this Mac "
+                         + "(or it moved or is gone). Run asks for it before writing anything there.")
+                        .font(LadaGlass.Typography.label)
+                        .foregroundStyle(LadaGlass.Colors.badText)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 subfolderField
             }
@@ -253,8 +277,8 @@ private struct VariantSaveToControl: View {
         switch new {
         case .besideMain: destination = nil
         case .sameFolder:
+            // The subfolder stays (for switching back); this option doesn't use it and says so.
             destination = .sameFolder
-            subfolder = nil
         case .subfolder:
             // A subfolder template already set becomes the subfolder's name.
             destination = .subfolder(subfolder ?? lastName)
