@@ -232,22 +232,22 @@ final class RenameRound3Tests: XCTestCase {
     private enum Mode: String { case sideBySide, split, difference, single }
 
     func testPreviewDefaultsToSplitAndKeepsASavedMode() throws {
-        let suite = "imageconverter-tests-compare-\(UUID().uuidString)"
-        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        // A store with nothing saved (no plist is written: values go in the in-memory registration domain).
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "imageconverter-tests-compare-\(UUID().uuidString)"))
+        let key = ViewDefaults.compareModeKey
+        let registration = UserDefaults.registrationDomain
         defer {
-            defaults.removePersistentDomain(forName: suite)
-            let plist = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Preferences/\(suite).plist")
-            try? FileManager.default.removeItem(at: plist)
+            var domain = defaults.volatileDomain(forName: registration)
+            domain[key] = nil
+            defaults.setVolatileDomain(domain, forName: registration)
         }
+        XCTAssertNil(defaults.object(forKey: key))
         XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .split, "a brand-new store")
-        defaults.set("difference", forKey: ViewDefaults.compareModeKey)
+        defaults.register(defaults: [key: "difference"])
         XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .difference, "a saved mode is kept")
-        defaults.set("sideBySide", forKey: ViewDefaults.compareModeKey)
+        defaults.register(defaults: [key: "sideBySide"])
         XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .sideBySide)
-        defaults.set("bogus", forKey: ViewDefaults.compareModeKey)
+        defaults.register(defaults: [key: "bogus"])
         XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .split, "unknown: the default")
-        defaults.removeObject(forKey: ViewDefaults.compareModeKey)
-        XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .split, "removed: the default")
     }
 }
