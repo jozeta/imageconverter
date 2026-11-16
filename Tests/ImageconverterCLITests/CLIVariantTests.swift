@@ -57,6 +57,18 @@ final class CLIVariantTests: XCTestCase {
                                     "--variant=name=web,format=png,percent=50,folder=web"]), options)
     }
 
+    func testAnAbsoluteFolderIsTheOutputsOwnFolder() throws {
+        let options = try convert(["--variant", "name=web,folder=/tmp/web/../site",
+                                   "--variant", "name=home,folder=~/Pictures/thumbs",
+                                   "--variant", "name=sub,folder=thumbs"])
+        XCTAssertEqual(options.variants[0].destination, .folder(VariantFolder(path: "/tmp/site")))
+        XCTAssertNil(options.variants[0].subfolder)
+        let home = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Pictures/thumbs").path
+        XCTAssertEqual(options.variants[1].destination, .folder(VariantFolder(path: home)))
+        XCTAssertNil(options.variants[2].destination)
+        XCTAssertEqual(options.variants[2].subfolder, "thumbs")
+    }
+
     func testUsageErrors() {
         XCTAssertNotNil(error(["--variant", "format=jpeg"]), "no suffix and no name")
         XCTAssertNotNil(error(["--variant", "suffix=_a,colour=red"]))
@@ -152,5 +164,30 @@ final class CLIVariantTests: XCTestCase {
         XCTAssertEqual(files, ["in.jpg", "in_thumb.jpg"])
         XCTAssertEqual(ImageLoader.pixelSize(of: outDir.appendingPathComponent("in_thumb.jpg"))?.width, 16)
         XCTAssertTrue(result.out.contains("1 of 1 files converted"), result.out)
+    }
+
+    func testARealRunWritesIntoTheVariantsOwnFolder() async throws {
+        let source = try writePNG("in.png")
+        let outDir = root.appendingPathComponent("out")
+        let web = root.appendingPathComponent("web")
+        let result = await run(["convert", source.path, "--out", outDir.path, "--quiet",
+                                "--variant", "name=web,format=png,suffix=_web,folder=\(web.path)"])
+        XCTAssertEqual(result.code, 0, result.err)
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: outDir.path), ["in.jpg"])
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: web.path), ["in_web.png"])
+    }
+
+    func testEveryExtraOutputsFolderIsPrinted() async throws {
+        let source = try writePNG("in.png")
+        let outDir = root.appendingPathComponent("out")
+        let web = root.appendingPathComponent("web")
+        let arguments = ["convert", source.path, "--out", outDir.path,
+                         "--variant", "name=web,suffix=_web,folder=\(web.path)", "--variant", "name=thumb,long=16"]
+        for extra in [["--dry-run"], ["--quiet"]] {
+            let result = await run(arguments + extra)
+            XCTAssertEqual(result.code, 0, result.err)
+            XCTAssertTrue(result.err.contains("Extra output “web” → \(web.standardizedFileURL.path)"), result.err)
+            XCTAssertTrue(result.err.contains("Extra output “thumb” → \(outDir.standardizedFileURL.path)"), result.err)
+        }
     }
 }

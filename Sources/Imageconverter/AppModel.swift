@@ -5,15 +5,18 @@ import ImageconverterCore
 
 @MainActor @Observable
 final class AppModel {
-    var items: [InputItem] = [] { didSet { schedulePrivacyScan() } }
+    var items: [InputItem] = [] { didSet { itemsChanged(from: oldValue) } }
+    /// The metadata panel: open or closed, the row to highlight, the images with changes (`AppModel+MetadataOverrides`).
+    let inspector: InspectorState
     let privacy = PrivacyState()  // the privacy scan's results and panel (`AppModel+Privacy.swift`)
     /// The selected preset and the pipeline being edited; both are saved to `UserDefaults` on every change.
     var session: PresetSession {
         didSet { persist() }
     }
     /// The image steps and output format being edited (the session's pipeline).
+    /// The pipeline being edited, carrying the selected preset's name for `{preset}` (not saved, not compared).
     var pipeline: Pipeline {
-        get { session.pipeline }
+        get { session.pipeline.named(session.selected?.name) }
         set { session.pipeline = newValue }
     }
     /// The user's saved presets, sorted by name; the built-ins are in `PresetStore.builtIns`.
@@ -63,6 +66,8 @@ final class AppModel {
     var pipelineCollapsed: Bool {
         didSet { defaults.set(pipelineCollapsed, forKey: Self.pipelineCollapsedKey) }
     }
+    /// The Output panel's collapsed state and chosen height (its grab handle, View menu).
+    let outputPanel: OutputPanelState
     /// Two workers and a quarter of the memory budget; also stops the preview during a run. Applies to a
     /// running batch from its next item on (see `AppModel+Performance.swift`).
     var lowMemoryMode: Bool {
@@ -120,8 +125,11 @@ final class AppModel {
         compare = CompareController(defaults: defaults)
         previewCollapsed = defaults.bool(forKey: Self.previewCollapsedKey)
         pipelineCollapsed = defaults.bool(forKey: Self.pipelineCollapsedKey)
+        outputPanel = OutputPanelState(defaults: defaults)
         lowMemoryMode = defaults.bool(forKey: Self.lowMemoryModeKey)
-        windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey), defaults: defaults)
+        inspector = InspectorState(defaults: defaults)
+        windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey),
+                                  inspectorShown: inspector.isOpen, defaults: defaults)
         let saved = Self.loadPipeline(from: defaults)
         session = PresetSession(selected: nil, pipeline: saved)
         let result = presetStore.loadAll()
@@ -166,17 +174,6 @@ final class AppModel {
             operation = .watermark(options)
         }
         return operation
-    }
-
-    func removeStep(_ id: PipelineStep.ID) {
-        pipeline.steps.removeAll { $0.id == id }
-    }
-
-    func moveStep(_ id: PipelineStep.ID, by offset: Int) {
-        guard let index = pipeline.steps.firstIndex(where: { $0.id == id }) else { return }
-        let target = index + offset
-        guard pipeline.steps.indices.contains(target) else { return }
-        pipeline.steps.swapAt(index, target)
     }
 
     /// Drag and drop: puts `id` where `target` is now.
@@ -257,8 +254,14 @@ final class AppModel {
                   completion: (@MainActor (BatchReport) -> Void)? = nil) async -> AppRunStart {
         // One item per file, so the run's event indices match this list (the runner deduplicates the same way).
         let batch = InputItem.unique(batch)
+        // `{preset}` names the preset the run uses (a service or link runs a preset that isn't selected).
         guard !isRunning, !batch.isEmpty else { return .busy }
-        guard await AccessStore.shared.ensureAccess(sources: batch.map(\.source), mode: mode, toasts: toasts,
+        // Extra outputs' folders resolved once (moved ones followed) and unconfirmed ones asked for again.
+        guard let (pipeline, variantFolders) = confirmVariantFolders(pipeline, named: presetName) else {
+            return .noAccess
+        }
+        guard await AccessStore.shared.ensureAccess(sources: batch.map(\.source), mode: mode,
+                                                    extraOutputs: pipeline.extraOutputs, toasts: toasts,
                                                     quiet: quietAccess) else {
             return .noAccess
         }
@@ -284,6 +287,7 @@ final class AppModel {
             let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, control: control,
                                                journal: AppDefaults.journalURL, presets: presets,
                                                enlarger: external ? SystemSuperResolution.shared : SystemSuperResolution.inApp,
+                                               variantFolders: variantFolders,
                                                progress: { update in
                 // `.userInitiated`: inheriting the batch's `.utility` would let the bar lag behind the workers.
                 Task(priority: .userInitiated) { @MainActor in
@@ -330,6 +334,17 @@ enum AppRunStart: Equatable {
 }
 
 extension AppModel {
+    func removeStep(_ id: PipelineStep.ID) {
+        pipeline.steps.removeAll { $0.id == id }
+    }
+
+    func moveStep(_ id: PipelineStep.ID, by offset: Int) {
+        guard let index = pipeline.steps.firstIndex(where: { $0.id == id }) else { return }
+        let target = index + offset
+        guard pipeline.steps.indices.contains(target) else { return }
+        pipeline.steps.swapAt(index, target)
+    }
+
     /// Asks for files and folders to add (not while a run is in progress).
     func chooseInputs() {
         guard !isRunning else { return }

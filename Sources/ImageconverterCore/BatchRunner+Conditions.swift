@@ -25,6 +25,8 @@ extension BatchRunner {
         let jobs: [ResolvedPipeline]
         /// The extra outputs of each plan (empty for copies, skipped extras and refused plans).
         var variants: [[PlannedVariant]] = []
+        /// The extra outputs' chosen folders, resolved, with access held while the plan is (the run).
+        var folderAccess = VariantFolderAccess.none
         /// Sources a condition skipped or another run holds, in input order, with the reason for each.
         let skipped: [URL]
         let skipReasons: [String]
@@ -42,7 +44,8 @@ extension BatchRunner {
     /// `fileKey` is in `busy` (held by another run) are skipped with `ActiveSources.busyReason`.
     static func planRun(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode, maxPixels: Int,
                         busy: Set<String> = [], presets: PresetLibrary = .standard,
-                        analysis: ImageAnalysisCache = .shared) async -> RunPlan? {
+                        analysis: ImageAnalysisCache = .shared,
+                        variantFolders: VariantFolderPolicy = .confirmedOnly) async -> RunPlan? {
         guard var resolved = await resolveAll(items, pipeline: pipeline, maxPixels: maxPixels, presets: presets,
                                               analysis: analysis)
         else { return nil }
@@ -76,37 +79,54 @@ extension BatchRunner {
             return nil
         }
         let primaries = OutputPlanner.plan(targets, mode: mode, reservedSources: skipped)
-        guard let variants = plannedVariants(active.map { items[$0] }, jobs: &jobs, baseNames: baseNames,
-                                             primaries: primaries, reserved: skipped) else { return nil }
+        guard let (variants, folderAccess) = plannedVariants(active.map { items[$0] }, jobs: &jobs,
+                                                             baseNames: baseNames, primaries: primaries,
+                                                             reserved: skipped, policy: variantFolders)
+        else { return nil }
         var run = RunPlan(plans: primaries, jobs: jobs, skipped: skipped, skipReasons: reasons,
                           busyIndices: busyIndices, planIndices: active, skippedIndices: skippedIndices,
                           assetPipeline: assetPipeline(pipeline, resolved: jobs))
         run.variants = variants
+        run.folderAccess = folderAccess
         return run
     }
 
+    // swiftlint:disable function_parameter_count
     /// Each plan's extra outputs, named like its primary output (`OutputPlanner.planVariants`). Outputs that
-    /// can't run or found no free name are left out with a note on the item. Nil when cancelled part-way.
+    /// can't run or found no free name are left out with a note on the item. Chosen folders are resolved once (their
+    /// bookmarks followed) and opened for the run; under `.confirmedOnly` an output whose folder isn't confirmed is
+    /// left out with a note. Nil when cancelled part-way.
     private static func plannedVariants(_ items: [InputItem], jobs: inout [ResolvedPipeline], baseNames: [String?],
-                                        primaries: [PlannedOutput], reserved: [URL]) -> [[PlannedVariant]]? {
-        guard jobs.contains(where: { !$0.pipeline.extraOutputs.isEmpty }) else { return jobs.map { _ in [] } }
+                                        primaries: [PlannedOutput], reserved: [URL], policy: VariantFolderPolicy)
+        -> ([[PlannedVariant]], VariantFolderAccess)? {
+        guard jobs.contains(where: { !$0.pipeline.extraOutputs.isEmpty }) else { return (jobs.map { _ in [] }, .none) }
+        let access = VariantFolderAccess(jobs.flatMap(\.pipeline.extraOutputs), policy: policy)
         var targets: [VariantTarget] = []
         for (index, item) in items.enumerated() {
             if Task.isCancelled { return nil }
-            let (kept, notes) = OutputVariant.validated(jobs[index].pipeline.extraOutputs)
+            var (kept, notes) = OutputVariant.validated(jobs[index].pipeline.extraOutputs)
+            let refused = kept.filter { $0.chosenFolder.map { access.refused.contains($0.path) } ?? false }
+            if !refused.isEmpty {
+                kept.removeAll { variant in refused.contains { $0.id == variant.id } }
+                notes += refused.map { VariantFolderAccess.refusedNote($0.displayName) }
+                jobs[index].unplannedOutputs += refused.map(\.displayName)
+            }
             jobs[index].pipeline.extraOutputs = kept
             jobs[index].notes += notes
             targets.append(VariantTarget(variants: kept, baseName: baseNames[index],
                                          subfolders: RenameRendering.variantFolders(for: item, index: index,
                                                                                     job: jobs[index])))
         }
-        let (plans, failures) = OutputPlanner.planVariants(targets, primaries: primaries, reservedSources: reserved)
+        let (plans, failures) = OutputPlanner.planVariants(targets, primaries: primaries, reservedSources: reserved,
+                                                           folders: access.folders)
         for (index, missing) in failures.enumerated() {
             jobs[index].notes += missing.map { noFreeNameNote($0.displayName) }
-            jobs[index].unplannedOutputs = missing.map(\.displayName)
+            jobs[index].unplannedOutputs += missing.map(\.displayName)
         }
-        return plans
+        return (plans, access)
     }
+
+    // swiftlint:enable function_parameter_count
 
     /// The note when an extra output found no free name (it isn't written; the item is).
     static func noFreeNameNote(_ name: String) -> String {
@@ -150,10 +170,11 @@ extension BatchRunner {
     /// destinations planned by the same path the batch uses. In input order; nil when the task is cancelled.
     public static func plan(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode,
                             maxPixels: Int = 250_000_000, presets: PresetLibrary = .standard,
-                            analysis: ImageAnalysisCache = .shared) async -> [PlannedFile]? {
+                            analysis: ImageAnalysisCache = .shared,
+                            variantFolders: VariantFolderPolicy = .confirmedOnly) async -> [PlannedFile]? {
         let items = InputItem.unique(items)
         guard let run = await planRun(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, presets: presets,
-                                      analysis: analysis)
+                                      analysis: analysis, variantFolders: variantFolders)
         else { return nil }
         var byPlan: [URL: PlannedFile] = [:]
         for (index, (plan, job)) in zip(run.plans, run.jobs).enumerated() {
@@ -236,9 +257,9 @@ extension BatchRunner {
     /// is cancelled part-way.
     static func resolveAll(_ items: [InputItem], pipeline: Pipeline, maxPixels: Int, presets: PresetLibrary = .standard,
                            analysis: ImageAnalysisCache = .shared) async -> [ResolvedPipeline]? {
-        guard pipeline.hasConditions else {
-            let plain = ResolvedPipeline(pipeline: pipeline.withoutConditions)
-            return items.map { _ in plain }
+        guard pipeline.needsFacts else {
+            let plain = pipeline.withoutConditions
+            return items.map { ResolvedPipeline(pipeline: plain.withMetadataOverrides($0.metadataOverrides)) }
         }
         var resolved = [ResolvedPipeline?](repeating: nil, count: items.count)
         let finished = await withTaskGroup(of: (Int, ResolvedPipeline).self) { group -> Bool in
@@ -246,9 +267,12 @@ extension BatchRunner {
             func startNext() {
                 let index = next
                 let url = items[index].source
+                // The item's metadata panel changes travel with its pipeline through the resolution.
+                let itemPipeline = pipeline.withMetadataOverrides(items[index].metadataOverrides)
                 next += 1
                 group.addTask {
-                    (index, pipeline.resolved(forSource: url, maxPixels: maxPixels, presets: presets, analysis: analysis))
+                    (index, itemPipeline.resolved(forSource: url, maxPixels: maxPixels, presets: presets,
+                                                  analysis: analysis))
                 }
             }
             while next < min(items.count, factReaders) { startNext() }
@@ -303,7 +327,8 @@ extension BatchRunner {
             }
             if Task.isCancelled { return nil }
             guard let rendered = RenameRendering.checkedBaseName(for: item, index: index, pipeline: job.pipeline,
-                                                                 isCopy: job.disposition == .copyOriginal)
+                                                                 isCopy: job.disposition == .copyOriginal,
+                                                                 labels: job.labels)
             else { return nil }
             names.append(rendered.name)
             if rendered.timedOut { slow.insert(index) }

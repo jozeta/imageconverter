@@ -15,6 +15,7 @@ extension AppModel {
         if let selected = session.selected, !selected.isBuiltIn, !userPresets.contains(where: { $0.id == selected.id }) {
             session.deselect()
         }
+        ImageconverterShortcuts.parametersChanged()
     }
 
     /// Selects a preset, or goes ad hoc for nil. Returns `.needsConfirmation` when edits would be lost.

@@ -29,13 +29,17 @@ public struct PrivacyFinding: Equatable, Sendable {
     }
 
     public let kind: Kind
-    /// The fields found, by name (e.g. "Body serial number"); never their values, which are private and untrusted.
+    /// The fields found, by name (e.g. "Body serial number").
     public let fields: [String]
+    /// What each field holds (e.g. "59.3293° N, 18.0686° E"), escaped and shortened, with where it is stored
+    /// (for the panel's link to the metadata panel). Untrusted text: shown as plain text only.
+    public let details: [PrivacyDetail]
     public var severity: PrivacySeverity { kind.severity }
 
-    public init(kind: Kind, fields: [String]) {
+    public init(kind: Kind, fields: [String], details: [PrivacyDetail] = []) {
         self.kind = kind
         self.fields = fields
+        self.details = details
     }
 }
 
@@ -102,9 +106,13 @@ public enum PrivacyScanner {
         guard let header = ImageHeader.read(source) else { return PrivacyFindings(findings: []) }
         let xmp = xmpTags(CGImageSourceCopyMetadataAtIndex(source, 0, nil))
         var found: [PrivacyFinding.Kind: [String]] = [:]
-        func add(_ kind: PrivacyFinding.Kind, _ fields: [String]) {
+        var details: [PrivacyFinding.Kind: [PrivacyDetail]] = [:]
+        func add(_ kind: PrivacyFinding.Kind, _ fields: [PrivacyDetail]) {
             guard !fields.isEmpty else { return }
-            found[kind, default: []].append(contentsOf: fields.filter { !(found[kind] ?? []).contains($0) })
+            for detail in fields {
+                if !(found[kind] ?? []).contains(detail.field) { found[kind, default: []].append(detail.field) }
+                if !(details[kind] ?? []).contains(detail) { details[kind, default: []].append(detail) }
+            }
         }
         let props = header.properties
         add(.location, locationFields(props, xmp: xmp))
@@ -115,22 +123,33 @@ public enum PrivacyScanner {
         add(.device, deviceFields(props, xmp: xmp))
         if let thumbnail = embeddedThumbnailSize(source: source, head: head),
            aspectDiffers(image: (header.width, header.height), thumbnail: thumbnail) {
-            add(.thumbnailMismatch, ["Embedded thumbnail (\(thumbnail.width) × \(thumbnail.height))"])
+            add(.thumbnailMismatch, [PrivacyDetail(field: "Embedded thumbnail (\(thumbnail.width) × \(thumbnail.height))",
+                                                   value: "\(thumbnail.width) × \(thumbnail.height) pixels", path: nil)])
         }
-        return PrivacyFindings(findings: found.map { PrivacyFinding(kind: $0.key, fields: $0.value) })
+        return PrivacyFindings(findings: found.map {
+            PrivacyFinding(kind: $0.key, fields: $0.value, details: details[$0.key] ?? [])
+        })
     }
 
     // MARK: Fields
 
-    /// Top-level XMP tags as "prefix:name", outside the EXIF/TIFF mirrors ImageIO adds (the dictionaries
-    /// already cover those).
-    private static func xmpTags(_ metadata: CGImageMetadata?) -> Set<String> {
-        guard let metadata, let tags = CGImageMetadataCopyTags(metadata) as? [CGImageMetadataTag] else { return [] }
-        return Set(tags.compactMap { tag in
+    /// Top-level XMP tags by "prefix:name" with their values as text (the panel's link goes to the XMP row;
+    /// the EXIF/TIFF mirrors ImageIO adds are found through the dictionaries first).
+    private static func xmpTags(_ metadata: CGImageMetadata?) -> [String: String] {
+        guard let metadata, let tags = CGImageMetadataCopyTags(metadata) as? [CGImageMetadataTag] else { return [:] }
+        var values: [String: String] = [:]
+        for tag in tags {
             guard let prefix = CGImageMetadataTagCopyPrefix(tag) as String?,
-                  let name = CGImageMetadataTagCopyName(tag) as String? else { return nil }
-            return "\(prefix):\(name)"
-        })
+                  let name = CGImageMetadataTagCopyName(tag) as String? else { continue }
+            values["\(prefix):\(name)"] = MetadataInspection.xmpText(tag)
+        }
+        return values
+    }
+
+    /// The XMP tags `isWanted` picks, as details named `field`.
+    private static func xmpDetails(_ xmp: [String: String], field: String, where isWanted: (String) -> Bool)
+        -> [PrivacyDetail] {
+        xmp.keys.sorted().filter(isWanted).map { PrivacyDetail(field: field, value: xmp[$0] ?? "", path: .xmp($0)) }
     }
 
     private static func dictionary(_ key: CFString, in props: [String: Any]) -> [String: Any] {
@@ -147,91 +166,95 @@ public enum PrivacyScanner {
         }
     }
 
-    /// The names of the `(key, name)` pairs present in `dict`.
-    private static func names(_ pairs: [(CFString, String)], in dict: [String: Any]) -> [String] {
-        pairs.filter { present(dict[$0.0 as String]) }.map(\.1)
+    /// The `(key, name)` pairs present in the `dictKey` dictionary of `props`, with their values.
+    private static func names(_ pairs: [(CFString, String)], in dictKey: CFString, of props: [String: Any])
+        -> [PrivacyDetail] {
+        let dict = dictionary(dictKey, in: props)
+        return pairs.filter { present(dict[$0.0 as String]) }.map { key, name in
+            PrivacyDetail(field: name, value: MetadataInspection.text(dict[key as String] ?? ""),
+                          path: .property(dictionary: dictKey as String, key: key as String))
+        }
     }
 
-    private static func locationFields(_ props: [String: Any], xmp: Set<String>) -> [String] {
+    private static func locationFields(_ props: [String: Any], xmp: [String: String]) -> [PrivacyDetail] {
         let gps = dictionary(kCGImagePropertyGPSDictionary, in: props)
         let coordinates = [kCGImagePropertyGPSLatitude, kCGImagePropertyGPSLongitude, kCGImagePropertyGPSAltitude]
-        let hasGPS = coordinates.contains { present(gps[$0 as String]) }
-            || xmp.contains { $0.hasSuffix(":GPSLatitude") || $0.hasSuffix(":GPSLongitude") }
-        return hasGPS ? ["GPS position"] : []
+        if coordinates.contains(where: { present(gps[$0 as String]) }) {
+            let text = MetadataInspection.position(gps).map(MetadataInspection.positionText)
+                ?? MetadataInspection.text(gps)
+            return [PrivacyDetail(field: "GPS position", value: text,
+                                  path: .dictionary(kCGImagePropertyGPSDictionary as String))]
+        }
+        return xmpDetails(xmp, field: "GPS position") { $0.hasSuffix(":GPSLatitude") || $0.hasSuffix(":GPSLongitude") }
     }
 
-    private static func serialFields(_ props: [String: Any], xmp: Set<String>) -> [String] {
-        let exif = dictionary(kCGImagePropertyExifDictionary, in: props)
-        let aux = dictionary(kCGImagePropertyExifAuxDictionary, in: props)
+    private static func serialFields(_ props: [String: Any], xmp: [String: String]) -> [PrivacyDetail] {
         var fields = names([(kCGImagePropertyExifBodySerialNumber, "Body serial number"),
                             (kCGImagePropertyExifLensSerialNumber, "Lens serial number"),
-                            (kCGImagePropertyExifCameraOwnerName, "Camera owner name")], in: exif)
-        if present(aux[kCGImagePropertyExifAuxSerialNumber as String]) { fields.append("Body serial number") }
-        if present(aux[kCGImagePropertyExifAuxLensSerialNumber as String]) { fields.append("Lens serial number") }
+                            (kCGImagePropertyExifCameraOwnerName, "Camera owner name")],
+                           in: kCGImagePropertyExifDictionary, of: props)
+        fields += names([(kCGImagePropertyExifAuxSerialNumber, "Body serial number"),
+                         (kCGImagePropertyExifAuxLensSerialNumber, "Lens serial number")],
+                        in: kCGImagePropertyExifAuxDictionary, of: props)
         // MakerNote dictionaries ({MakerCanon}, {MakerNikon}, ...) where ImageIO exposes a serial.
-        for (key, value) in props where key.hasPrefix("{Maker") {
+        for (key, value) in props.sorted(by: { $0.key < $1.key }) where key.hasPrefix("{Maker") {
             let maker = value as? [String: Any] ?? [:]
-            if maker.contains(where: { $0.key.lowercased().contains("serial") && present($0.value) }) {
-                fields.append("Serial number in MakerNote")
+            for (name, serial) in maker.sorted(by: { $0.key < $1.key })
+            where name.lowercased().contains("serial") && present(serial) {
+                fields.append(PrivacyDetail(field: "Serial number in MakerNote", value: MetadataInspection.text(serial),
+                                            path: .dictionary(key)))
             }
         }
         // ImageIO's XMP view mirrors the EXIF serials; count XMP only when it's the sole place they are.
         // The rule camera removal uses for XMP (`MetadataOps.isCameraTag`: any tag name containing "SerialNumber"),
         // so the suggestion clears what is found.
-        let xmpSerial = xmp.contains { $0.split(separator: ":").last?.lowercased().contains("serialnumber") == true }
-        if fields.isEmpty, xmpSerial {
-            fields.append("Serial number (XMP)")
+        if fields.isEmpty {
+            fields = xmpDetails(xmp, field: "Serial number (XMP)") {
+                $0.split(separator: ":").last?.lowercased().contains("serialnumber") == true
+            }
         }
-        return unique(fields)
+        return fields
     }
 
-    private static func ownerFields(_ props: [String: Any], xmp: Set<String>) -> [String] {
-        var fields = names([(kCGImagePropertyTIFFArtist, "Artist")],
-                           in: dictionary(kCGImagePropertyTIFFDictionary, in: props))
+    private static func ownerFields(_ props: [String: Any], xmp: [String: String]) -> [PrivacyDetail] {
+        var fields = names([(kCGImagePropertyTIFFArtist, "Artist")], in: kCGImagePropertyTIFFDictionary, of: props)
         fields += names([(kCGImagePropertyExifCameraOwnerName, "Camera owner name")],
-                        in: dictionary(kCGImagePropertyExifDictionary, in: props))
+                        in: kCGImagePropertyExifDictionary, of: props)
         fields += names([(kCGImagePropertyIPTCByline, "Byline"), (kCGImagePropertyIPTCWriterEditor, "Writer")],
-                        in: dictionary(kCGImagePropertyIPTCDictionary, in: props))
-        fields += names([(kCGImagePropertyPNGAuthor, "Author")], in: dictionary(kCGImagePropertyPNGDictionary, in: props))
-        if xmp.contains("dc:creator") { fields.append("Creator (XMP)") }
-        return unique(fields)
+                        in: kCGImagePropertyIPTCDictionary, of: props)
+        fields += names([(kCGImagePropertyPNGAuthor, "Author")], in: kCGImagePropertyPNGDictionary, of: props)
+        fields += xmpDetails(xmp, field: "Creator (XMP)") { $0 == "dc:creator" }
+        return fields
     }
 
-    private static func historyFields(_ xmp: Set<String>) -> [String] {
+    private static func historyFields(_ xmp: [String: String]) -> [PrivacyDetail] {
         [("xmpMM:History", "Edit history"), ("xmpMM:DocumentID", "Document ID"),
          ("xmpMM:OriginalDocumentID", "Original document ID"), ("xmpMM:InstanceID", "Instance ID"),
          ("xmpMM:DerivedFrom", "Derived from"), ("xmpMM:Ingredients", "Ingredients")]
-            .filter { xmp.contains($0.0) }.map(\.1)
+            .compactMap { path, name in xmp[path].map { PrivacyDetail(field: name, value: $0, path: .xmp(path)) } }
     }
 
-    private static func dateFields(_ props: [String: Any], xmp: Set<String>) -> [String] {
+    private static func dateFields(_ props: [String: Any], xmp: [String: String]) -> [PrivacyDetail] {
         var fields = names([(kCGImagePropertyExifDateTimeOriginal, "Date taken"),
                             (kCGImagePropertyExifDateTimeDigitized, "Date digitized")],
-                           in: dictionary(kCGImagePropertyExifDictionary, in: props))
-        fields += names([(kCGImagePropertyTIFFDateTime, "Date modified")],
-                        in: dictionary(kCGImagePropertyTIFFDictionary, in: props))
+                           in: kCGImagePropertyExifDictionary, of: props)
+        fields += names([(kCGImagePropertyTIFFDateTime, "Date modified")], in: kCGImagePropertyTIFFDictionary, of: props)
         fields += names([(kCGImagePropertyIPTCDateCreated, "Date created (IPTC)")],
-                        in: dictionary(kCGImagePropertyIPTCDictionary, in: props))
-        fields += names([(kCGImagePropertyPNGCreationTime, "Creation time")],
-                        in: dictionary(kCGImagePropertyPNGDictionary, in: props))
-        if xmp.contains("xmp:CreateDate") || xmp.contains("photoshop:DateCreated") { fields.append("Date created (XMP)") }
-        return unique(fields)
+                        in: kCGImagePropertyIPTCDictionary, of: props)
+        fields += names([(kCGImagePropertyPNGCreationTime, "Creation time")], in: kCGImagePropertyPNGDictionary, of: props)
+        fields += xmpDetails(xmp, field: "Date created (XMP)") { $0 == "xmp:CreateDate" || $0 == "photoshop:DateCreated" }
+        return fields
     }
 
-    private static func deviceFields(_ props: [String: Any], xmp: Set<String>) -> [String] {
+    private static func deviceFields(_ props: [String: Any], xmp: [String: String]) -> [PrivacyDetail] {
         var fields = names([(kCGImagePropertyTIFFMake, "Camera make"), (kCGImagePropertyTIFFModel, "Camera model"),
                             (kCGImagePropertyTIFFSoftware, "Software"), (kCGImagePropertyTIFFHostComputer, "Computer")],
-                           in: dictionary(kCGImagePropertyTIFFDictionary, in: props))
+                           in: kCGImagePropertyTIFFDictionary, of: props)
         fields += names([(kCGImagePropertyExifLensMake, "Lens make"), (kCGImagePropertyExifLensModel, "Lens model")],
-                        in: dictionary(kCGImagePropertyExifDictionary, in: props))
-        fields += names([(kCGImagePropertyPNGSoftware, "Software")], in: dictionary(kCGImagePropertyPNGDictionary, in: props))
-        if xmp.contains("xmp:CreatorTool") { fields.append("Software (XMP)") }
-        return unique(fields)
-    }
-
-    private static func unique(_ fields: [String]) -> [String] {
-        var seen = Set<String>()
-        return fields.filter { seen.insert($0).inserted }
+                        in: kCGImagePropertyExifDictionary, of: props)
+        fields += names([(kCGImagePropertyPNGSoftware, "Software")], in: kCGImagePropertyPNGDictionary, of: props)
+        fields += xmpDetails(xmp, field: "Software (XMP)") { $0 == "xmp:CreatorTool" }
+        return fields
     }
 
     // MARK: Embedded thumbnail

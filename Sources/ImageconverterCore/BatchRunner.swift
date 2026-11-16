@@ -71,12 +71,14 @@ public enum BatchRunner {
         presets: PresetLibrary = .standard,
         enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
         altText: any AltTextGenerator = AltText.standardGenerator,
+        variantFolders: VariantFolderPolicy = .confirmedOnly,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in },
         events: @escaping @Sendable (ItemEvent) -> Void = { _ in }
     ) async -> BatchReport {
         var hooks = BatchHooks()
         hooks.enlarger = enlarger
         hooks.altText = altText
+        hooks.variantFolders = variantFolders
         return await run(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, concurrency: concurrency,
                          memoryBudgetPixels: memoryBudgetPixels, trash: trash, control: control, journal: journal,
                          presets: presets, hooks: hooks, progress: progress, events: events)
@@ -260,7 +262,8 @@ public enum BatchRunner {
         let fullSize = ImageLoader.header(of: url)?.uprightSize
         let hint = fullSize.flatMap { pipeline.decodeHint(sourceWidth: $0.width, sourceHeight: $0.height) }
         let loaded = try ImageLoader.load(url, maxPixels: maxPixels, maxLongSide: hint?.maxLongSide,
-                                          includeMetadata: pipeline.metadata.isActive, lowMemory: options.lowMemory)
+                                          includeMetadata: pipeline.effectiveMetadata.isActive,
+                                          lowMemory: options.lowMemory)
         options.stage(.processing)
         var stepNotes: [String] = []
         let textContext = pipeline.watermarkTextContext(source: url, properties: loaded.properties)
@@ -328,11 +331,13 @@ public enum BatchRunner {
         let stepNotes = prepared.notes
         options.stage(.encoding)
         try options.beforeEncode?(url, options.attempt)
-        let result = try CompressionSearch.encode(prepared.image, properties: properties, settings: pipeline.output)
+        let (image, matteNote) = pipeline.matted(prepared.image, for: pipeline.output.format)
+        let result = try CompressionSearch.encode(image, properties: properties, settings: pipeline.output,
+                                                 indexedPNG: pipeline.reducesColors)
         let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
             ? MetadataDates.dateTaken(in: properties) : nil
         // Step notes (e.g. "No document edges found") come first, then the encoder's.
-        let notes = stepNotes + [losslessNote, result.note].compactMap { $0 }
+        let notes = stepNotes + [losslessNote, matteNote, result.note].compactMap { $0 }
         return EncodedItem(data: result.data, source: prepared.source, downsampled: prepared.downsampled,
                            quality: result.quality,
                            note: notes.isEmpty ? nil : notes.joined(separator: "; "), dateTaken: taken)

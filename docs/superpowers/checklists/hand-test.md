@@ -327,3 +327,142 @@ fake models, and never run the real ML enlarge or alt text model.
   Expected: the preset branch's images are redacted; the copy branch's are copied unchanged. With a Redact step in the
   main pipeline too, the copies are converted with it instead ("Converted to redact: …"), and a preset's other image
   steps on a copy branch are named ("Not applied to the converted copy: …").
+
+## 14. Automation: Shortcuts, AppleScript, command line
+
+Build with `scripts/release.sh`, install the app where you keep it and **open it once**: Shortcuts (linkd) indexes
+an app's actions only after it has been launched from that location, and never from `/tmp`. An ad hoc build is
+indexed too (verified 2026-11-16 with a test bundle in `dist/`). If an older copy with the same bundle identifier
+is registered elsewhere (e.g. `dist/` and `/Applications`), Shortcuts may bind to either: keep one.
+
+**Shortcuts** (Shortcuts app ▸ new shortcut ▸ search "imageconverter"; the 7 actions also appear under Apps ▸
+imageconverter). Agents can't import or run a shortcut without clicking, so these are by hand.
+- [ ] **Listed.** All seven actions show: Convert Images, Apply Preset to Folder, Run Job, Strip Metadata, Resize
+  Images, Convert Format, Get Image Metadata; Spotlight finds "Convert images with imageconverter".
+- [ ] **Convert Images.** Shortcut: *Select File* (allow multiple, two JPEGs) → *Convert Images* (Preset: pick from
+  the suggestions, which list the built-in and your saved presets; Format: PNG) → *Quick Look*. Expected: two PNGs
+  shown, the app's window does not come forward, the originals are unchanged. Again with Output Folder set to a
+  folder allowed in Help ▸ Folder Access: the files land there (`_2` on a second run, never replaced).
+- [ ] **Not allowed folder.** Output Folder set to a folder that is *not* in Folder Access. Expected: the shortcut
+  stops with "imageconverter isn't allowed to use the folder … Open imageconverter, choose Help ▸ Folder Access… ▸
+  Add Folder…, allow the folder, then run the shortcut again." Allow it there, run again: it works.
+- [ ] **Missing preset.** Rename the preset the shortcut uses, run it. Expected: "There is no preset named "…"."
+- [ ] **Empty input.** Run Convert Images with no images (e.g. *Select File* cancelled, or a text file). Expected:
+  "No files were given to the action." or "None of the given files is an image imageconverter can read."
+- [ ] **Apply Preset to Folder.** An allowed folder with subfolders → *Apply Preset to Folder* → *Count* items.
+  Expected: the count of images; without Output Folder the files are only returned (save them with *Save File*).
+  A folder not allowed: the Folder Access message.
+- [ ] **Strip Metadata.** A photo with GPS → *Strip Metadata* → *Get Image Metadata* → *Show Result*. Expected: no
+  "Location (GPS)" group; the format is kept (a HEIC stays HEIC).
+- [ ] **Resize Images.** Long Edge 800 on a 4000×3000 JPEG and a PNG. Expected: 800×600 JPEG and a PNG, each in
+  its own format. Long Edge 0 is refused by Shortcuts' field (1–100 000).
+- [ ] **Convert Format.** HEIC, Quality 50. Expected: `.heic` files; quality left empty uses 82. AVIF on a Mac that
+  can't write it: "This Mac can't write AVIF files."
+- [ ] **Get Image Metadata.** Expected: text starting with the file name, then groups ("File", "Camera (EXIF)",
+  …) with "  Label: value" lines.
+- [ ] **Run Job.** *Run Job* (Job: pick from the suggestions) → *Show Result*. Expected: waits for the run and
+  returns "Job Name: Converted n images" (or "Converted n · 1 skipped by a condition", ", 2 unchanged"); the job's history entry appears. A job whose folder is gone: "The job … didn't
+  run." with the reason. While the job is already running, the action waits for the follow-up run.
+- [ ] **App not running.** Quit the app, run a shortcut with Convert Images. Expected: the app launches (its window
+  may appear: macOS starts the app to run the action) and the shortcut gets the files.
+- [ ] **Siri / Spotlight phrases.** "Strip metadata with imageconverter" in Spotlight runs the action after asking
+  for images.
+
+**AppleScript** (section 8 too). The first `osascript` from a terminal makes macOS ask "“iTerm” wants access to
+control “imageconverter”". Agents ran into a timeout (-1712) because the screen was locked and the question
+couldn't be answered; allow it once (or in System Settings ▸ Privacy & Security ▸ Automation ▸ iTerm ▸
+imageconverter), then:
+- [ ] `osascript -e 'tell application "imageconverter" to presets'`. Expected: the preset names.
+- [ ] `osascript -e 'tell application "imageconverter" to convert {POSIX file "/allowed/a.jpg"} using preset "Web export" to folder POSIX file "/allowed/out"'`.
+  Expected: the written file(s) as a list.
+- [ ] `osascript -e 'tell application "imageconverter" to add files {"/allowed/a.jpg"}'` then
+  `… to run batch`. Expected: added, then converted per Save to.
+
+**Command line** (verified by agents from `dist/imageconverter.app/Contents/Helpers/imageconverter` with
+`--data-dir`; repeat once against the real data):
+- [ ] `imageconverter presets list` lists the same presets as the app (macOS may ask whether Terminal may access
+  the app's data: allow).
+- [ ] `imageconverter jobs run "<job>"` runs a saved job and prints the counts.
+- [ ] `imageconverter jobs run "<job>"` with an extra output: an `Extra output “…” → <folder>` line comes first.
+
+## 15. Feedback round 3
+
+Use a copy of some photos; never your only originals. Agents can't click, so every item here was built and
+tested in code only.
+
+**Output panel and its handle**
+- [ ] **Click.** Click the grab handle above Output. Expected: Output collapses to one summary line (format ·
+  quality · where files go); the pipeline steps above get the space. Click the handle again, or **the summary line
+  itself**: Output opens again.
+- [ ] **Drag.** Drag the handle up and down. Expected: Output's height follows between the summary line and its
+  full content (the content scrolls inside a shorter panel); the window keeps its height; dragging to within
+  20 pt of the summary line collapses it. Quit and relaunch: the height and the collapsed state are remembered.
+- [ ] **Keys and VoiceOver.** Tab to the handle, press ↑ / ↓. Expected: the same steps as a drag. With
+  VoiceOver: "Collapse Output, adjustable", value "180 points of 320" / "Collapsed"; swipe up/down adjusts.
+- [ ] **⌥⌘U** (View ▸ Collapse Output) toggles it.
+- [ ] **Output panels.** Add an extra output (top right of Output). Expected: a full panel of its own (name,
+  format, compression, size, suffix, its own **Save to**: beside the main output, a folder, same folder as
+  original, a subfolder there). The ⓘ right of the format opens a small box that doesn't take focus.
+- [ ] **Own folder.** Give the extra output its own folder, run. Expected: its files land there. Open a preset
+  made on another Mac (or edit the JSON so the folder has no bookmark). Expected: the panel says **Choose the folder
+  again** in red; Run opens a folder panel once per folder (two outputs sharing it: one panel), and the files land
+  in the folder you chose.
+
+**Metadata panel and privacy links**
+- [ ] **Open.** ⌥⌘I (or the toolbar button). Expected: the panel opens right of the preview (the preview opens if
+  it was collapsed), closed by default on a fresh install, remembered once opened.
+- [ ] **Edit, remove, add.** Change the title, remove GPS, add a keyword. Expected: a pencil badge on the image in
+  the filmstrip, grid and list; Revert / Revert All undo it; the preview's Privacy row and size estimate follow;
+  the written file has the changes and the original doesn't.
+- [ ] **Overwrite note.** Set Save to: Overwrite originals. Expected: the header no longer says "The original
+  isn't changed"; an amber note says the changes end up in the original file.
+- [ ] **Resume.** Start a batch with panel edits, quit mid-run (Stop and Quit), relaunch and resume. Expected: the
+  resumed files still have the edits (GPS still removed).
+- [ ] **Privacy links.** In the privacy panel, a finding shows its value ("GPS position: 59.33° N, …"); clicking
+  its link selects that image, opens the preview and the metadata panel, scrolls to the row and highlights it.
+
+**Previews**
+- [ ] **Split once.** On the first launch of this version the compare mode is **Split**, even if you used Side by
+  side before. Choose another mode, relaunch: your choice is kept.
+
+**Adjust**
+- [ ] **Sliders.** Every slider with 0 in the middle (Exposure … Tint, Hue, Soft ↔ Sharp) fills from the centre to
+  the knob in both directions; the fill ends under the knob's centre (check at −100, −40, +40, +100); the small
+  centre tick stays visible over the fill; double-click resets.
+- [ ] **Looks.** Presets ▸ each built-in on a landscape and a portrait. Expected: Golden Hour, Vivid Warm and
+  Dramatic Warm look golden/warm, not green; Mono, Silvertone and Noir are black and white; Cool looks are bluer.
+  Save as preset, rename, delete work and survive a relaunch.
+- [ ] **Soft ↔ Sharp.** Left softens, right sharpens; an old preset with Sharpness 40 loads as Sharpen +40.
+
+**Color**
+- [ ] **Re-colour.** Tint, Duotone, Sepia, Replace colour (with and without Exact), Hue shift on a photo. Expected:
+  the preview matches the written file.
+- [ ] **Reduce colours.** 16 colours with and without dither on a photo and on a logo with transparency.
+  Expected: banding without dither, grain with it; transparency kept; a PNG output is a palette PNG (Finder ▸ Get
+  Info, or `file`), and the report says why when it isn't.
+
+**Perspective**
+- [ ] **Modes.** On a photographed document: Auto; then Vertical/Horizontal. **Keep original size**: the output
+  has exactly the source's size. Each **Empty areas** choice: Crop (no empty corners), Fill with colour (your
+  colour), Transparent (PNG see-through, JPEG filled with the note), Extend edges (edge pixels repeated).
+- [ ] **Old preset.** A preset saved before this version with a Perspective step gives the same crop as before.
+
+**Redact**
+- [ ] **Fixed sizes.** Pixelate Block size Fixed 8 / 64 / 256 px and Blur Strength Fixed on a large image with
+  text and faces. Expected: the blocks get bigger with the size; a small size on a big box is raised (editor hint
+  and report note) so nothing stays readable.
+- [ ] **Text.** A screenshot and a large photo with small text (signs, number plates). Expected: every legible
+  line is covered; the note's count of text areas is plausible (one line found twice counts once).
+
+**Rename**
+- [ ] **Insert menus.** Rename ▸ Insert: grouped submenus (date, camera, image, counter, …); each token inserts
+  at the cursor and the live example follows.
+- [ ] **Counter step.** Counter starts at 10, Step 5. Expected: names 10, 15, 20, …
+
+**Shortcuts (with section 14)**
+- [ ] **History and quit.** Run Convert Images from Shortcuts. Expected: History lists "Shortcuts: <preset>". Run a
+  long one and press ⌘Q: "Stop and quit?" names "a Shortcuts action"; Stop and Quit waits and leaves no temp files.
+- [ ] **Beside the originals.** A preset whose extra output saves Same folder as original, on files from a folder
+  not in Folder Access. Expected: the action stops with the Folder Access message (nothing written).
+- [ ] **Siri/Spotlight job names.** After saving a job "Nightly", "Run Nightly in imageconverter" in Spotlight
+  offers it.

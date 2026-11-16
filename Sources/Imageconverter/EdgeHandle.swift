@@ -4,10 +4,10 @@ import SwiftUI
 /// It is a button (keyboard focusable with Full Keyboard Access, VoiceOver label, tooltip); the menu
 /// commands are the keyboard alternative.
 struct EdgeHandle: View {
-    enum Edge { case trailing, bottom }
+    enum Edge { case trailing, bottom, top }
 
     let edge: Edge
-    /// True when a click moves the edge outward (shows the preview, expands the pipeline).
+    /// True when a click moves the edge outward (shows the preview, expands the pipeline, expands Output upwards).
     let pointsOutward: Bool
     let label: String
     let action: () -> Void
@@ -49,6 +49,7 @@ struct EdgeHandle: View {
         switch edge {
         case .trailing: pointsOutward ? "chevron.compact.right" : "chevron.compact.left"
         case .bottom: pointsOutward ? "chevron.compact.down" : "chevron.compact.up"
+        case .top: pointsOutward ? "chevron.compact.up" : "chevron.compact.down"
         }
     }
 }

@@ -157,7 +157,8 @@ public actor PreviewRenderer {
                        presets: PresetLibrary = .standard) async -> PreviewOutcome {
         let cancelled = PreviewOutcome.failed(reason: "Cancelled")
         if Task.isCancelled { return cancelled }
-        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
+        let resolved = unresolved.withMetadataOverrides(item.metadataOverrides)
+            .resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         let pipeline = resolved.pipeline
         if resolved.disposition != .process { return unchanged(item: item, index: index, resolved: resolved, mode: mode) }
         let assets = watermarkAssets(for: pipeline)
@@ -186,7 +187,8 @@ public actor PreviewRenderer {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
         if Task.isCancelled { return cancelled }
-        guard let after = fit(result) else {
+        // Shown as the main output is written: a format without alpha gets the step's fill colour (`matted`).
+        guard let after = fit(pipeline.matted(result, for: pipeline.output.format).image) else {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
         let (destination, outputName) = outputDestination(for: item, index: index, resolved: resolved, mode: mode)
@@ -226,7 +228,8 @@ public actor PreviewRenderer {
                                    mode: OutputMode?) -> (URL, String) {
         let pipeline = resolved.pipeline
         let copy = resolved.disposition == .copyOriginal
-        let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline, isCopy: copy)
+        let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline, isCopy: copy,
+                                            labels: resolved.labels)
         let folders = mode == .overwrite ? [] : RenameRendering.extras(for: item, index: index, job: resolved).subfolder
         let target = copy ? OutputTarget.copyOfOriginal(item, baseName: base, subfolder: folders)
             : OutputTarget(item: item, format: pipeline.output.format, baseName: base, subfolder: folders)
@@ -245,14 +248,15 @@ public actor PreviewRenderer {
     }
 
     /// The item's extra outputs, named as the batch would name them next to `primary` (planned alone, so no
-    /// collision numbers), with the folder below the primary output's one: `Thumbnail: thumbs/a_thumb.jpg`.
+    /// collision numbers), with the folder below the primary output's one: `Thumbnail: thumbs/a_thumb.jpg` (an output
+    /// in another folder shows that folder's name: `Web: site/a_web.jpg`).
     private func extraOutputNames(for item: InputItem, index: Int, resolved: ResolvedPipeline,
                                   primary: URL) -> [String] {
         let variants = OutputVariant.validated(resolved.pipeline.extraOutputs).kept
         guard !variants.isEmpty else { return [] }
         var job = resolved
         job.pipeline.extraOutputs = variants
-        let base = RenameRendering.baseName(for: item, index: index, pipeline: resolved.pipeline)
+        let base = RenameRendering.baseName(for: item, index: index, pipeline: resolved.pipeline, labels: resolved.labels)
         let target = VariantTarget(variants: variants, baseName: base,
                                    subfolders: RenameRendering.variantFolders(for: item, index: index, job: job))
         let plan = PlannedOutput(item: item, destination: primary, replacesSource: false, trashesSource: false)
@@ -260,8 +264,11 @@ public actor PreviewRenderer {
         let folder = primary.deletingLastPathComponent().standardizedFileURL.path
         return planned.map { variant in
             let path = variant.destination.standardizedFileURL.path
+            // Another folder (its own Save to): that folder's name and the file.
             let shown = path.hasPrefix(folder + "/") ? String(path.dropFirst(folder.count + 1))
-                : variant.destination.lastPathComponent
+                : variant.variant.destination == nil ? variant.destination.lastPathComponent
+                : "\(variant.destination.deletingLastPathComponent().lastPathComponent)/"
+                    + variant.destination.lastPathComponent
             return "\(variant.variant.displayName): \(shown)"
         }
     }

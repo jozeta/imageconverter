@@ -24,7 +24,7 @@ public enum PrivacyStatement {
     public static let frameworkList = [
         "SwiftUI", "AppKit", "Foundation", "Observation", "Charts", "ImageIO", "Core Graphics", "Core Image",
         "Core Text", "Core Services", "Metal", "Accelerate", "Vision", "UniformTypeIdentifiers", "UserNotifications",
-        "Security", "CryptoKit", "VideoToolbox", "Core Video", "Core Media", "Foundation Models",
+        "Security", "CryptoKit", "VideoToolbox", "Core Video", "Core Media", "Foundation Models", "App Intents",
     ]
     public static let frameworks = "Built only on Apple frameworks (" + frameworkList.joined(separator: ", ")
         + "); no third-party code."

@@ -113,12 +113,19 @@ extension BatchRunner {
             }
         }
         let prepared = try preparation.get()
-        let image = try variant.resize.map { try ImageOps.resize(prepared.image, $0.resizeOptions) } ?? prepared.image
+        let resized = try variant.resize.map { try ImageOps.resize(prepared.image, $0.resizeOptions) } ?? prepared.image
+        let (image, matteNote) = pipeline.matted(resized, for: variant.settings.format)
         let properties = prepared.properties(for: pipeline)
-        let result = try CompressionSearch.encode(image, properties: properties, settings: variant.settings)
+        let result = try CompressionSearch.encode(image, properties: properties, settings: variant.settings,
+                                                 indexedPNG: pipeline.reducesColors)
         let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
             ? MetadataDates.dateTaken(in: properties) : nil
-        let notes = [losslessNote, result.note].compactMap { $0 }
+        // The palette was lost to this output's own resize, not to a pipeline step: say so.
+        var encodeNote = result.note
+        if resized !== prepared.image, encodeNote == IndexedPNG.note(IndexedPNG.changedAfterReduce) {
+            encodeNote = IndexedPNG.note(IndexedPNG.resizedByOutput)
+        }
+        let notes = [losslessNote, matteNote, encodeNote].compactMap { $0 }
         return EncodedItem(data: result.data, source: prepared.source, downsampled: prepared.downsampled,
                            quality: result.quality, note: notes.isEmpty ? nil : notes.joined(separator: "; "),
                            dateTaken: taken)

@@ -94,7 +94,7 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .perspective: return "Perspective"
         case .trim: return "Trim"
         case .canvas: return "Canvas / padding"
-        case .colorProfile: return "Color profile"
+        case .colorProfile: return "Color"
         case .adjust: return "Adjust"
         case .watermark: return "Watermark"
         case .condition: return "Condition"
@@ -127,7 +127,7 @@ public enum ImageOperation: Codable, Equatable, Sendable {
     case perspective(PerspectiveOptions)
     case trim(TrimOptions)
     case canvas(CanvasOptions)
-    case colorProfile(ColorProfile)
+    case colorProfile(ColorOptions) // The Color step: profile, re-color, reduce colours.
     case adjust(AdjustOptions)
     case watermark(WatermarkOptions)
     /// If/then/else on the source file's facts; replaced by its chosen branch before anything runs
@@ -173,6 +173,9 @@ public struct Pipeline: Codable, Equatable, Sendable {
     public var extraOutputs: [OutputVariant]
     /// What decoding left out (not saved; never makes pipelines unequal).
     public var loadNotes = PipelineLoadNotes()
+    /// The preset name for `{preset}` (`Pipeline+PresetName.swift`; not saved, never makes pipelines unequal).
+    var presetTag = PresetNameTag()
+    public var metadataOverrides = MetadataOverrides()  // one image's metadata panel changes; not saved
 
     public init(schemaVersion: Int = 1, steps: [PipelineStep] = [], output: OutputSettings = OutputSettings(),
                 metadata: MetadataOptions = MetadataOptions(), rename: RenameOptions = RenameOptions(),
@@ -252,7 +255,7 @@ extension Pipeline {
             case .perspective(let options): current = try Perspective.apply(options, to: current, notes: &notes)
             case .trim(let options): current = try Trim.apply(options, to: current)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
-            case .colorProfile(let profile): current = try ImageOps.convertColor(current, to: profile)
+            case .colorProfile(let options): current = try ImageOps.color(current, options)
             case .adjust(let options): current = try Adjustments.apply(options, to: current)
             case .watermark(let options):
                 current = try ImageOps.watermark(current, options, asset: Self.asset(for: options, in: assets),
@@ -295,7 +298,7 @@ extension Pipeline {
         var peak = 0
         walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { size, operation in
             let pixels = Self.pixels(size)
-            // Core Image keeps intermediates: count its steps as 3 working copies of the input.
+            // Core Image keeps intermediates: count its steps as several working copies of the input.
             let copies = operation.map { Self.workingCopies($0) } ?? 1
             if copies > 1 {
                 let (product, overflow) = pixels.multipliedReportingOverflow(by: copies)
@@ -339,10 +342,9 @@ extension Pipeline {
         case .rotateFlip(let options):
             return Geometry.rotated(source: size, options: options)
         case .perspective(let options):
-            // Auto correction depends on the content, and the keystone then runs on the corrected image,
-            // so its size is unknown: keep the input size. The manual keystone alone is planned exactly.
-            if options.auto { return size }
-            return Geometry.perspectiveCrop(source: size, options: options)?.size ?? size
+            // Auto correction depends on the content, so its size is unknown (the input size); the keystone
+            // alone and keep original size are planned exactly.
+            return Geometry.perspectiveOutputSize(source: size, options: options)
         case .canvas(let options):
             return Geometry.canvas(source: size, options: options).canvas
         case .trim, .redact, .colorProfile, .adjust, .watermark, .condition:
@@ -365,7 +367,8 @@ extension Pipeline {
     static func workingCopies(_ operation: ImageOperation) -> Int {
         switch operation {
         case .adjust(let options): return options.isNeutral ? 1 : 3
-        case .perspective(let options): return Perspective.isNoOp(options) ? 1 : 3
+        case .perspective(let options): return options.workingCopies
+        case .colorProfile(let options): return options.workingCopies
         default: return 1
         }
     }

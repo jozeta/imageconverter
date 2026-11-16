@@ -24,22 +24,32 @@ enum CompressionKind: String, CaseIterable {
     }
 }
 
-/// Format, quality and compression controls of the Output row.
-struct OutputFormatControls: View {
+/// Format, quality and compression controls of the Output panel (and every extra output's panel). `accessory`
+/// sits right of the format picker (the main panel's ⓘ size box).
+struct OutputFormatControls<Accessory: View>: View {
     @Binding var output: OutputSettings
+    var accessory: Accessory
     @State private var sizeText = ""
     @State private var unit: SizeUnit = .kilobytes
     @FocusState private var sizeFocused: Bool
     /// The last size of each size mode, so Target -> Quality -> Target keeps it.
     @State private var lastBytes: Int?
 
-    private static let defaultBytes = 500_000
+    private static var defaultBytes: Int { 500_000 }
+
+    init(output: Binding<OutputSettings>, @ViewBuilder accessory: () -> Accessory) {
+        _output = output
+        self.accessory = accessory()
+    }
 
     var body: some View {
-        Picker("Format", selection: $output.format.sidebarAnimated) {
-            ForEach(OutputFormat.available(), id: \.self) { Text($0.displayName).tag($0) }
+        HStack(spacing: LadaGlass.Spacing.xs) {
+            Picker("Format", selection: $output.format.sidebarAnimated) {
+                ForEach(OutputFormat.available(), id: \.self) { Text($0.displayName).tag($0) }
+            }
+            .accessibilityLabel("Output format")
+            accessory
         }
-        .accessibilityLabel("Output format")
         if output.format.supportsQuality {
             Picker("Compression", selection: kindBinding.sidebarAnimated) {
                 ForEach(CompressionKind.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -161,5 +171,11 @@ struct OutputFormatControls: View {
                 }
                 syncText(chooseUnit: true)
             })
+    }
+}
+
+extension OutputFormatControls where Accessory == EmptyView {
+    init(output: Binding<OutputSettings>) {
+        self.init(output: output) { EmptyView() }
     }
 }

@@ -1,7 +1,7 @@
 import SwiftUI
 import ImageconverterCore
 
-/// Editor for the Adjust step: labelled sliders in three groups, each value resettable to 0.
+/// Editor for the Adjust step: a Presets menu, then labelled sliders in three groups, each value resettable to 0.
 struct AdjustEditor: View {
     @Binding var options: AdjustOptions
 
@@ -15,6 +15,10 @@ struct AdjustEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
+            HStack {
+                Spacer()
+                AdjustPresetsMenu(options: $options)
+            }
             ForEach(Self.groups, id: \.title) { group in
                 VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
                     HStack {
@@ -55,9 +59,18 @@ private struct AdjustSlider: View {
         return number + (field == .hue ? "°" : "")
     }
 
+    private var accessibilityValue: String {
+        switch field {
+        case .hue: return "\(shown) degrees"
+        case .sharpness: return shown < 0 ? "Soften \(-shown)" : (shown > 0 ? "Sharpen \(shown)" : "0, neutral")
+        default: return "\(shown)"
+        }
+    }
+
     var body: some View {
         HStack(spacing: LadaGlass.Spacing.s) {
-            Text(field.displayName).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            Text(field.displayName)
+                .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 .lineLimit(1)
                 .frame(width: 92, alignment: .leading)
                 .contentShape(Rectangle())
@@ -66,10 +79,13 @@ private struct AdjustSlider: View {
                 .accessibilityHidden(true)
             AdjustSliderControl(value: Binding(
                 get: { AdjustOptions.clamped(value, to: field) },
-                set: { value = $0 }), range: field.range)
-                .help("Double-click to reset")
-                .accessibilityLabel(field.displayName)
-                .accessibilityValue(field == .hue ? "\(shown) degrees" : "\(shown)")
+                set: { value = $0 }), range: field.range,
+                // Bipolar sliders (0 in the middle) fill from the centre to the knob.
+                fillOrigin: field.range.lowerBound < 0 ? 0 : nil)
+                .help(field == .sharpness ? "Left softens, right sharpens. Double-click to reset"
+                                          : "Double-click to reset")
+                .accessibilityLabel(field == .sharpness ? "Soften or sharpen" : field.displayName)
+                .accessibilityValue(accessibilityValue)
                 .accessibilityAction(named: "Reset to 0") { value = 0 }
             Text(valueText).font(LadaGlass.Typography.mono).foregroundStyle(LadaGlass.Colors.text)
                 .frame(width: 40, alignment: .trailing)

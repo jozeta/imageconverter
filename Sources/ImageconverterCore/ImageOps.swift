@@ -60,6 +60,13 @@ public enum ImageOps {
         return try finish(ctx, step: step)
     }
 
+    /// The Color step: the profile conversion, then re-color, then reduce colors.
+    public static func color(_ image: CGImage, _ options: ColorOptions) throws -> CGImage {
+        let converted = try convertColor(image, to: options.profile)
+        let recolored = try Recolor.apply(options.recolor, to: converted)
+        return try ColorReduce.apply(options.reduce, to: recolored)
+    }
+
     public static func convertColor(_ image: CGImage, to profile: ColorProfile) throws -> CGImage {
         let step = StepKind.colorProfile.displayName
         let width = image.width

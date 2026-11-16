@@ -129,7 +129,7 @@ final class CompareController {
     /// The batch's files, kept by the list view so per-row checks don't scan the whole batch.
     @ObservationIgnored var activeSources: Set<URL> = []
 
-    static let modeKey = "compareMode"
+    static let modeKey = ViewDefaults.compareModeKey
     static let splitKey = "compareSplitPosition"
     static let browserKey = "batchBrowserMode"
     static let browserHeightKey = "batchBrowserHeight"
@@ -138,7 +138,10 @@ final class CompareController {
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
-        mode = defaults.string(forKey: Self.modeKey).flatMap(CompareMode.init(rawValue:)) ?? .sideBySide
+        // Split once for everyone on the first launch of round 3's version (Johan), then the user's choice; no saved
+        // choice (the setting removed): Split too.
+        ViewDefaults.applySplitDefaultOnce(in: defaults)
+        mode = ViewDefaults.startingCompareMode(in: defaults, as: CompareMode.self) ?? .split
         let split = defaults.object(forKey: Self.splitKey) as? Double ?? 0.5
         splitPosition = min(max(CGFloat(split), Self.splitRange.lowerBound), Self.splitRange.upperBound)
         browserMode = defaults.string(forKey: Self.browserKey).flatMap(BrowserMode.init(rawValue:)) ?? .filmstrip

@@ -8,10 +8,22 @@ public struct InputItem: Hashable, Sendable {
     /// `""` for a loose file; for a file found in a dropped folder `Trip`, the path from the
     /// dropped folder's parent, e.g. `"Trip"` or `"Trip/day2"`.
     public let relativeDirectory: String
+    /// This image's changes from the metadata panel, applied to its outputs only (session-only: never saved, and
+    /// not part of equality or hashing, so the same file stays the same item whatever its edits).
+    public var metadataOverrides = MetadataOverrides()
 
     public init(source: URL, relativeDirectory: String) {
         self.source = source
         self.relativeDirectory = relativeDirectory
+    }
+
+    public static func == (lhs: InputItem, rhs: InputItem) -> Bool {
+        lhs.source == rhs.source && lhs.relativeDirectory == rhs.relativeDirectory
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(source)
+        hasher.combine(relativeDirectory)
     }
 
     /// The file this item stands for (`FileIdentity.key`: volume and inode, else the path as the volume compares

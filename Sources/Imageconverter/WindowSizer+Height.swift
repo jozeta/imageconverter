@@ -5,6 +5,11 @@ import ImageconverterCore
 extension WindowSizer {
     /// The sidebar measured its parts (natural heights) with the pipeline collapsed or expanded.
     func sidebarMeasured(_ parts: WindowLayout.SidebarParts, collapsed: Bool) {
+        // The first layout after an Output resize: let the pin go, judged with these fresh parts.
+        if releasePending, pinnedHeight != nil {
+            finishRelease(parts: parts, collapsed: collapsed)
+            return
+        }
         let toggled = pipelineCollapsed.map { $0 != collapsed } ?? false
         let shownBefore = targetHeight
         self.parts = parts
@@ -14,6 +19,11 @@ extension WindowSizer {
         if collapsed {
             height = WindowLayout.fittingHeight(contentHeight: parts.collapsed, maxContent: maxContent)
             previousExpanded = nil
+        } else if let pinned = pinnedHeight {
+            // The Output panel is being dragged: the window stays (within what the parts allow); no animation.
+            let range = WindowLayout.expandedHeights(parts: parts, maxContent: maxContent)
+            height = min(max(pinned, range.lowerBound), range.upperBound)
+            previousExpanded = parts.expanded
         } else {
             let result = WindowLayout.expandedHeight(parts: parts, remembered: rememberedHeight,
                                                      previousContent: previousExpanded, maxContent: maxContent)
@@ -32,7 +42,8 @@ extension WindowSizer {
             applyRestLimits()
             return
         }
-        targetAnimates = didInitialSize && window != nil && !isLiveResizing && SidebarMotion.animation != nil
+        targetAnimates = didInitialSize && window != nil && !isLiveResizing && pinnedHeight == nil
+            && SidebarMotion.animation != nil
         if targetAnimates, !isAnimating { isAnimating = true }
         targetHeight = height
     }
@@ -53,7 +64,7 @@ extension WindowSizer {
         let chrome = Self.chrome(of: window)
         let maxContent = CGSize(width: visible.width - chrome.width, height: visible.height - chrome.height)
         let size = WindowLayout.targetSize(previewShown: previewShown, current: current, contentHeight: shown,
-                                           requestedWidth: nil, maxContent: maxContent)
+                                           requestedWidth: nil, maxContent: maxContent, inspectorWidth: openInspectorWidth)
         let rest = restLimits(height: size.height, maxContent: maxContent)
         let heights = settled ? rest.height : WindowLayout.followingHeights(maxContent: maxContent)
         if widthRange != rest.width { widthRange = rest.width }
@@ -69,7 +80,8 @@ extension WindowSizer {
             WindowLayout.restHeights(collapsed: pipelineCollapsed ?? true, parts: $0, height: height,
                                      maxContent: maxContent)
         } ?? height...height
-        return WindowLayout.limits(previewShown: previewShown, heights: heights, maxContent: maxContent)
+        return WindowLayout.limits(previewShown: previewShown, heights: heights, maxContent: maxContent,
+                                   inspectorWidth: openInspectorWidth)
     }
 
     #if DEBUG
@@ -79,6 +91,44 @@ extension WindowSizer {
         if let parts, let collapsed = pipelineCollapsed { sidebarMeasured(parts, collapsed: collapsed) }
     }
     #endif
+
+    /// The Output panel is being resized from its handle (a drag, an arrow key, a VoiceOver adjustment): the window
+    /// keeps its current height while the panel grows or shrinks, and the pipeline steps above take up the difference.
+    func pinHeight() {
+        guard pipelineCollapsed == false else { return }
+        if pinnedHeight == nil {
+            pinnedHeight = targetHeight ?? currentContentSize?.height
+            rememberedBeforePin = rememberedHeight
+        }
+        releasePending = false
+    }
+
+    /// The resize is done (or the drag was cancelled): the pin is let go at the next measured layout, so the
+    /// decision sees the panel's new height (`WindowLayout.releasedRememberedHeight`). A change that moves no
+    /// measured height lets it go shortly after instead.
+    func requestRelease() {
+        guard pinnedHeight != nil else { return }
+        releasePending = true
+        releaseToken += 1
+        let token = releaseToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, token == releaseToken, releasePending, let parts else { return }
+            finishRelease(parts: parts, collapsed: pipelineCollapsed ?? false)
+        }
+    }
+
+    private func finishRelease(parts: WindowLayout.SidebarParts, collapsed: Bool) {
+        guard let pinned = pinnedHeight else { return }
+        releasePending = false
+        pinnedHeight = nil
+        if !collapsed {
+            setRemembered(WindowLayout.releasedRememberedHeight(pinned: pinned, parts: parts,
+                                                                rememberedBefore: rememberedBeforePin,
+                                                                maxContent: currentMaxContent))
+        }
+        // Now unpinned: the window settles by the usual rules, animated (closing a gap the change left).
+        sidebarMeasured(parts, collapsed: collapsed)
+    }
 
     /// The user finished resizing: an expanded window keeps (and remembers) the height they chose.
     func liveResizeEnded() {
@@ -92,7 +142,7 @@ extension WindowSizer {
         applyRestLimits()
     }
 
-    private func setRemembered(_ height: CGFloat?) {
+    func setRemembered(_ height: CGFloat?) {
         guard height != rememberedHeight else { return }
         rememberedHeight = height
         if let height { defaults.set(Double(height), forKey: Self.rememberedHeightKey) } else {
@@ -111,7 +161,7 @@ extension WindowSizer {
         if abs(value - pipelineReveal) > 0.0001 { pipelineReveal = value }
     }
 
-    private func applyRestLimits() {
+    func applyRestLimits() {
         guard !isResizing, let height = currentContentSize?.height else { return }
         let rest = restLimits(height: height, maxContent: currentMaxContent)
         if widthRange != rest.width { widthRange = rest.width }

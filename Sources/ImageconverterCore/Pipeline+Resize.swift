@@ -30,8 +30,9 @@ extension Pipeline {
         return dpi
     }
 
-    /// The metadata written with the output: the metadata options applied to `source` (and its XMP view
-    /// `metadata`, see `MetadataOps.output`), then the DPI.
+    /// The metadata written with the output: the metadata options with this image's metadata overrides
+    /// (`effectiveMetadata`) applied to `source` (and its XMP view `metadata`, see `MetadataOps.output`), the
+    /// overrides' removals, then the DPI.
     /// With an enabled Redact step that hides faces, face and person regions are left out of the XMP.
     public func outputProperties(from source: [String: Any], metadata sourceXMP: CGImageMetadata? = nil,
                                  sourceWidth: Int, sourceHeight: Int) -> [String: Any] {
@@ -42,7 +43,10 @@ extension Pipeline {
     /// `outputProperties` and whether face regions were removed from them (for the report note).
     func outputPropertiesNoting(from source: [String: Any], metadata sourceXMP: CGImageMetadata?,
                                 sourceWidth: Int, sourceHeight: Int) -> (properties: [String: Any], removedFaces: Bool) {
-        var properties = MetadataOps.output(metadata, properties: source, metadata: sourceXMP)
+        // The metadata panel's changes for this image: set fields go in with the step's options, removals and the
+        // rating come last, so they win over the step (`MetadataOverrides`).
+        var properties = metadataOverrides.finish(MetadataOps.output(effectiveMetadata, properties: source,
+                                                                     metadata: sourceXMP))
         var removed = false
         if redactsFaces { (properties, removed) = MetadataOps.removingFaceRegions(from: properties) }
         return (MetadataOps.setDPI(outputDPI(sourceWidth: sourceWidth, sourceHeight: sourceHeight),

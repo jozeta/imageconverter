@@ -8,7 +8,8 @@ import ImageIO
 /// the re-encode would carry; anything the options remove that survived sends the item back to the re-encode.
 ///
 /// The path is taken when all of these hold:
-/// - the Metadata step is on (`MetadataOptions.isActive`);
+/// - the Metadata step is on (`MetadataOptions.isActive`), or the image has metadata panel changes
+///   (`Pipeline.effectiveMetadata`), which the check below verifies like the step's own edits;
 /// - the pipeline has no enabled image step at all (after conditions are resolved: resize, crop, rotate,
 ///   perspective, trim, canvas, color profile, Adjust and watermark all count, even when set to do nothing);
 /// - the output format is the source's own format (by content, not extension);
@@ -55,7 +56,7 @@ enum LosslessMetadata {
 
     /// True when `pipeline` (resolved, without conditions) changes only metadata.
     static func applies(to pipeline: Pipeline) -> Bool {
-        guard pipeline.metadata.isActive, !pipeline.steps.contains(where: \.isEnabled) else { return false }
+        guard pipeline.effectiveMetadata.isActive, !pipeline.steps.contains(where: \.isEnabled) else { return false }
         return pipeline.output.compression == .quality || !pipeline.output.format.supportsQuality
     }
 

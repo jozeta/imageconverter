@@ -15,11 +15,11 @@ Started 2026-11-13. The full design is in
 ## Privacy
 
 - **No network access except the optional update check and download from github.com.** No telemetry, no uploads. Nothing goes online until you allow it: the first launch asks once whether to check for updates when the app starts, and **Check Now** in About imageconverter checks on demand. A check asks GitHub's release API for the latest release; like any web request it shows GitHub your IP address and standard HTTP headers (such as your preferred languages), and the app adds only `User-Agent: imageconverter/<version>`. The app's only network entitlement is outgoing connections (`network.client`, no server), the networking code is one file (`Sources/Imageconverter/Update/UpdateClient.swift`), and a test fails the build if networking APIs or web addresses appear anywhere else. See [Updates](#updates).
-- **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit, VideoToolbox, Core Video, Core Media, Foundation Models); no third-party code.
+- **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit, VideoToolbox, Core Video, Core Media, Foundation Models, App Intents); no third-party code.
 - **Alt text stays on this Mac.** [Generated alt text](#write-alt-text-on-this-mac) comes from Apple's on-device model (Apple Intelligence, macOS 27 and later): the image and the text never leave the Mac, and no server model is used. The app never asks macOS to download the model; when it isn't ready, no alt text is written.
 - **Apple's enlargement model.** The only other network activity: if you choose to download Apple's enlargement model (for [Enlarge with machine learning](#enlarge-with-machine-learning), macOS 26 and later), macOS downloads it from Apple. imageconverter itself sends nothing; the download starts only from **Download…** in the Resize step, after you agree, and batches, jobs, the command line, services, scripts and links never start it.
 - **Your files are untrusted input.** Images, SVG watermarks, preset and template files, `imageconverter://` links and AppleScript requests are all validated before use. Limits in force: images up to 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory) of decoded memory and 2 GB per file (first frame only); SVG files up to 1 MB, 20,000 elements, 64 levels deep; preset and template files up to 1 MB; links up to 16,384 characters. Help ▸ Privacy… shows these as built. See [SECURITY.md](SECURITY.md).
-- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed. The panel's opt-in **Also look for faces and text (on this Mac)** switch (off by default, remembered) also checks the pixels with Vision on this Mac and lists "2 images show faces" or "1 image contains text", each with **Add a Redact step**, which adds a configured [Redact step](#hide-faces-and-text) without running anything (for text a Solid colour step; an existing step that already covers it is left alone, a filling one is widened). It uses the same detection and resolution as the Redact step; images it couldn't check are listed as "Couldn't check 2 images: …" rather than counted as clean, and the panel's explanation then says it also looked at the pixels. When no metadata is found the chip says "No private metadata found", so the panel can still be opened.
+- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image with the values found (for example "GPS position: 59.3293° N, 18.0686° E" or "Body serial number: SN 1234…"; shown as plain text, at most 200 characters, the whole shown value on hover). Each image's name is a link: it selects the image, shows it in the preview (opening the preview when it is hidden) and opens the [metadata panel](#change-one-images-metadata) at the first finding; each value links to its own row there, highlighted. **Remove these from the output** which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed. The panel's opt-in **Also look for faces and text (on this Mac)** switch (off by default, remembered) also checks the pixels with Vision on this Mac and lists "2 images show faces" or "1 image contains text", each with **Add a Redact step**, which adds a configured [Redact step](#hide-faces-and-text) without running anything (for text a Solid colour step; an existing step that already covers it is left alone, a filling one is widened). It is a quick check with the Redact step's detection on a copy at most 2048 px long (the Redact step looks closer: small text in a large image may only be found by the step itself); images it couldn't check are listed as "Couldn't check 2 images: …" rather than counted as clean, and the panel's explanation then says it also looked at the pixels. When no metadata is found the chip says "No private metadata found", so the panel can still be opened.
 - **Temporary files are deleted, not wiped.** Output is written to a hidden temporary file next to its destination and moved into place; on cancel, quit or a failed write the app deletes these files. On SSDs and APFS, deleting (or overwriting) a file does not reliably erase its old blocks, so the app does not claim to securely wipe anything.
 
 <table>
@@ -69,7 +69,7 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
 - **Jobs** (Window ▸ Jobs, ⌘J): watch folders or run on a schedule with a saved pipeline or a linked preset, while the app is open; one run at a time per job, a catch-up run when watching starts, a report file per run, notifications, and an optional menu bar mode. See [Process a folder automatically](#process-a-folder-automatically).
 - **Reports and history**: after a run the Report section shows summary cards with Export (CSV, JSON, HTML, text) and the error log, and Window ▸ History (⌥⌘H) keeps the last 100 runs, manual and jobs. See [Reports and history](#reports-and-history).
 - **Performance**: Pause/Resume (⌥⌘.), "12 / 124 · 3.4 img/s · about 2 min left", each image's stage in the list and as a ring on the thumbnails, a Performance panel (CPU, memory, workers, img/s, MP/s, elapsed), Low-memory mode, Process Next, a preview that keeps working during a run, and an offer to resume a batch that was interrupted. See [Performance](#performance).
-- Finder Quick Actions ("Convert with imageconverter" and up to 5 pinned presets), AppleScript commands (`convert`, `add files`, `run batch`, `presets`) and `imageconverter://` links, active once the app is packaged (milestone 6). See [Finder, AppleScript and links](#finder-applescript-and-links).
+- Finder Quick Actions ("Convert with imageconverter" and up to 5 pinned presets), AppleScript commands (`convert`, `add files`, `run batch`, `presets`) and `imageconverter://` links, active once the app is packaged (milestone 6). See [Finder Quick Actions, AppleScript and links](#finder-quick-actions-applescript-and-links).
 - Watermark editor: rotation (with 0°/−45°/45°/90° buttons), a Tiled layout (spacing, staggered rows), shadow and outline for text, an **Insert** menu for tokens such as `{filename}` and `{year}` with the text shown for the selected image, SVG logos (including Illustrator exports), and a **Templates** menu (Apply, Save as template…, Delete).
 - If / then / else steps: test each image's size, file size, format, transparency, orientation, GPS or camera, and give it its own steps, output, metadata or rename, copy it unchanged or skip it; the preview shows which branch an image takes, and skipped files are counted apart from failures.
 - Geometry editors: free angle and straighten, Perspective (Auto and keystone), Trim and the canvas Ratio mode.
@@ -102,8 +102,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
 - **Writes** JPEG, PNG, HEIC and TIFF, plus GIF, BMP and JPEG 2000 where macOS supports them, with
   quality and compression options.
 - **Several outputs per image**: besides the main output, up to 8 extra outputs (for example a thumbnail and
-  a web-sized copy), each with its own format, quality, size, name suffix and subfolder, written in the same
-  run from one decode (see [Write several outputs per image](#write-several-outputs-per-image)).
+  a web-sized copy), each a full output panel with its own format, quality, size, name suffix and **Save to**
+  (beside the main output, next to the original, in a subfolder next to it, or a folder of its own), written in
+  the same run from one decode (see [Write several outputs per image](#write-several-outputs-per-image)).
 - **Pipeline** of steps, applied in order to every image. Steps can be switched off and reordered:
   - (available) **Resize**: a grouped mode picker. *Pixels*: max width, max height, fit inside a box,
     exact size (stretch, fit and pad, or fill and crop, which has the same **Focus** as Crop), longest edge,
@@ -136,14 +137,23 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     [Hide faces and text](#hide-faces-and-text)
   - (available) **Perspective**: **Auto** finds a document or screen and squares it up (the report says "No
     document edges found" if there is none); **Vertical** and **Horizontal** keystone sliders (−100…100) are
-    applied after it, with the result cropped so no empty corners show
+    applied after it. **Output size**: **Fit the corrected image** (default) or **Keep original size** (exactly
+    the source's width and height: the corrected image is scaled to fit inside, centred, or with *Crop to the
+    image* scaled to fill and cut from the centre). **Empty areas**: **Crop to the image** (default; the largest
+    rectangle with no empty corners; steps saved by 1.3 or earlier keep their earlier crop until you change them),
+    **Fill with colour** (default white), **Transparent** (each output decides: JPEG and BMP outputs, extra outputs
+    too, get the fill colour and the report says "No transparency in JPEG; filled with #FFFFFF"; PNG keeps alpha)
+    or **Extend edges** (the image's edge pixels repeated outwards). The same choices apply to Auto
   - (available) **Trim**: removes a border of transparent pixels, one **Colour**, or the **Edge colour**
     (the colour of the top-left pixel); **Tolerance** 0–100 % and **Padding** in pixels keep a margin
   - (available) **Canvas / padding**: padding in pixels or percent, a fixed canvas size, or a **Ratio** (1:1 … 3:4 or
     custom) that grows the shorter side without cropping, with an anchor and a background colour
-  - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original
+  - (available) **Color**: convert to sRGB, Display P3 or Gray (or keep the profile), then **Re-color** (Tint,
+    Duotone, Sepia, Replace colour, Hue shift) and **Reduce colours** to a palette of 2–256 colours with or without
+    dithering (PNG is then written as a palette PNG when it can be)
   - (available) **Adjust**: exposure, brilliance, highlights, shadows, contrast, brightness, black point,
-    saturation, vibrance, warmth, tint, hue, sharpness, definition and noise reduction
+    saturation, vibrance, warmth, tint, hue, soften ↔ sharpen, definition and noise reduction, plus 16 built-in
+    looks and your own Adjust presets
   - (available) **Watermark**: text (with tokens, shadow and outline) or image (raster or SVG), single or tiled,
     with position, size, opacity, margin and rotation controls, and watermark templates
   - (available) **Condition** (if / then / else): up to 10 checks, all or any of which must hold, each of
@@ -177,6 +187,7 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version, and **More ▸ Clear All…** to empty the image list and start again from an empty pipeline), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
 - **Live preview** of the selected image before and after the pipeline, with its new name and
   size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and the batch as a filmstrip, grid or list; pinch to zoom in sync in every comparison mode (side by side, split, difference, single), with a checkerboard behind transparent images and a quality ladder to choose the output quality. Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
+- **Metadata panel** (⌥⌘I): the selected image's metadata by group, searchable; edit, remove or add fields for that image's outputs only (the original is never changed). See [Change one image's metadata](#change-one-images-metadata).
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
   half-written files, and name collisions resolved with `_2`, `_3`, …
 - **Updates**: Check Now in About imageconverter (and, if you allow it, a check at every launch) finds a newer
@@ -199,6 +210,10 @@ Generated with `scripts/screenshots.sh` from synthetic sample images (nothing pe
   <tr>
     <td width="50%"><img src="docs/screenshots/adjust.png" alt="Adjust step" width="400"><br>The Adjust step: light and colour sliders, with the preview updating live</td>
     <td width="50%"><img src="docs/screenshots/output-target-size.png" alt="Output with a target size" width="400"><br>The Output row set to a target size: the quality is chosen to fit the size</td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/outputs.png" alt="Output panel with two extra outputs" width="400"><br>Two extra outputs, each with its own format and Save to; the ⓘ box lists every output's size</td>
+    <td width="50%"></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/metadata.png" alt="Metadata step" width="400"><br>The Metadata step: remove location and camera details, and see what the result still carries</td>
@@ -231,7 +246,8 @@ Requires macOS 14 (Sonoma) or later, on Apple silicon or Intel.
    `xattr -dr com.apple.quarantine /Applications/imageconverter.app`. A build you made on this Mac needs neither.
 4. Check the download against the `.sha256` file next to the zip: `shasum -a 256 -c imageconverter-<version>.zip.sha256`.
 
-**Build the app from source** (needs Xcode or the Command Line Tools):
+**Build the app from source** (needs Xcode: a release with the Shortcuts actions can't be built with only the
+Command Line Tools):
 
 ```sh
 git clone <this repository> && cd imageconverter
@@ -245,7 +261,7 @@ compiles it (see CLAUDE.md for tests and lint).
 
 **Command-line tool:** the app carries it at `imageconverter.app/Contents/Helpers/imageconverter`. Run
 `scripts/install-cli.sh` to link it as `~/.local/bin/imageconverter` (no sudo; pass the app's path if it isn't in
-`/Applications`; the script tells you if that folder isn't on your PATH). See [Command line and Shortcuts](#command-line-and-shortcuts).
+`/Applications`; the script tells you if that folder isn't on your PATH). See [Command line](#command-line).
 
 ### Build the app bundle
 
@@ -254,11 +270,13 @@ scripts/release.sh                 # ad hoc signed: dist/imageconverter.app + di
 SIGN_IDENTITY="Developer ID Application: …" NOTARY_PROFILE=<profile> scripts/release.sh --notarize
 ```
 
-The script reads the version from `VERSION` (must be `x.y.z`, three numbers without a suffix), builds a
+The script reads the version from `VERSION` (must be `x.y.z`, three numbers without a suffix), checks that
+Xcode's App Intents tool is there (it stops before building when it isn't, unless `SKIP_APPINTENTS=1`), builds a
 universal (arm64 + x86_64) release (falling back to this Mac's architecture, with a warning, only when the
-toolchain can't build a second architecture, i.e. Command Line Tools without Xcode; any other build error
-stops the script), and assembles the bundle in a temporary folder:
-the app, `AppIcon.icns` (from `Resources/AppIcon.png`), the AppleScript dictionary, and an `Info.plist` made
+toolchain can't build a second architecture, i.e. Command Line Tools without Xcode, which is only possible with
+`SKIP_APPINTENTS=1`; any other build error stops the script), and assembles the bundle in a temporary folder:
+the app, `AppIcon.icns` (from `Resources/AppIcon.png`), the AppleScript dictionary, the Shortcuts actions'
+metadata (`Contents/Resources/Metadata.appintents`, see below), and an `Info.plist` made
 from `scripts/Info.plist.template` plus `Resources/Info-fragments.plist` (Services, AppleScript, `imageconverter://`
 links), with `CFBundleShortVersionString` = `VERSION`, `CFBundleVersion` = the number of commits and the
 copyright year from the last commit (holder from `LICENSE`). Only a signed and verified bundle is moved into
@@ -268,6 +286,7 @@ copyright year from the last commit (holder from `LICENSE`). Only a signed and v
 | --- | --- | --- |
 | `SIGN_IDENTITY` | `-` (ad hoc) | The codesign identity. Ad hoc builds run only on this Mac without a Gatekeeper warning. |
 | `NOTARY_PROFILE` | none | A `notarytool` keychain profile (`xcrun notarytool store-credentials`); required by `--notarize`. |
+| `SKIP_APPINTENTS` | unset | `1` builds the app without `Metadata.appintents`, so Shortcuts lists no actions; the script prints "App Intents metadata skipped (SKIP_APPINTENTS=1)". Only for CI, whose older Xcode can't run the metadata step. Refused with a real `SIGN_IDENTITY` or `--notarize`, before anything is built. |
 | `--notarize` | off | Submit to Apple's notary service, wait, staple, and write `dist/imageconverter-<version>.zip`. Refused with an ad hoc identity or without `NOTARY_PROFILE`. When the submission isn't `Accepted`, prints the notary log and fails. |
 
 Both executables get the hardened runtime. The app is signed with `Resources/imageconverter.entitlements`:
@@ -277,6 +296,15 @@ that the sandbox and network client entitlements are there and that no network s
 own permissions on whatever paths you name. A real identity without `--notarize` gives
 `…-not-notarized.zip`. Every zip gets a `.sha256` file next to it. Credentials stay in the keychain.
 
+**Shortcuts metadata.** Shortcuts lists an app's actions only when its bundle carries
+`Contents/Resources/Metadata.appintents`. Xcode makes that file in a build step that `swift build` doesn't run, so
+the release script runs Xcode's own `appintentsmetadataprocessor` on what the universal `swift build` leaves behind
+(the app module's source list and the compiler's `.swiftconstvalues` for arm64 and x86_64), copies the result into
+the bundle and checks that it lists all seven actions, that none opens the app, and that each has its App Shortcut.
+This needs Xcode (not only the Command Line Tools): a release with Shortcuts actions is always built with Xcode
+selected (`xcode-select -s /Applications/Xcode.app`). CI sets `SKIP_APPINTENTS=1` for its bundle check, so its
+build has no Shortcuts actions. `swift build`, `swift run` and `swift test` are unchanged.
+
 ## Configuration
 
 The output settings are in the Output row of the sidebar (there is no Settings window). The pipeline itself (steps and output format) is edited in the sidebar and saved automatically (UserDefaults key `currentPipeline`); if it cannot be read at launch you start with an empty pipeline and the default output.
@@ -285,7 +313,7 @@ The output settings are in the Output row of the sidebar (there is no Settings w
 |---------|---------|---------|
 | Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
 | When finished | Nothing · Reveal in Finder · Notify me · Reveal and notify (the "When finished" dropdown under Save to). Applies to every run of the main window, including runs started from Finder Services, AppleScript and links; jobs have their own notifications. Reveal selects the written files in Finder (up to 50; with more it opens their folders). Notify posts "Run finished" with the counts and space saved, only when imageconverter is not the frontmost app. The first time you pick a notify choice macOS asks for permission; if notifications are off, a note says where to turn them on. Not stored in presets | Nothing |
-| Extra outputs | Up to 8 more files per image, added with **+ Add output** under the Output format controls. Each has a name (its label in the report), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case; `/` and `:` become `-`) and an optional **subfolder** (rename tokens allowed, under the main output's folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
+| Extra outputs | Up to 8 more files per image, added with the **+** at the top right of the Output panel; each is an output panel of its own. Each has a name (its label in the report; new ones are *Output 2*, *Output 3*, …, starting from the main output's settings), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case, also between outputs in different folders; `/` and `:` become `-`), a **Save to** (*Beside the main output* (default), *Same folder as original*, *Subfolder next to original* with a folder name, or *New folder* with a chosen folder; never overwrite) and an optional **subfolder** (rename tokens allowed, under the main output's folder or the chosen folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Check for updates when the app starts | Checkbox in About imageconverter. Set by the question at the first launch (**Yes** / **No**); until you answer, nothing goes online. UserDefaults key `updateCheckOnLaunch` (absent until answered). See [Updates](#updates) | off until answered |
 | Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
@@ -311,6 +339,7 @@ Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 | Special characters | Keep, Replace (each run of other characters becomes one `-`, `_`, `.` or nothing; runs at the ends are trimmed) or Remove everything except letters (any language), digits, `-`, `_` and `.` | Keep |
 | Case | Keep, lowercase, UPPERCASE, camelCase, PascalCase, snake_case, kebab-case or Title Case | Keep |
 | Counter starts at | First `{counter}` value, 0 to 999 999 999 | 1 |
+| Step | Added to `{counter}` for each image, −999 999 to 999 999; 0 is read as 1; a negative step counts down and stops at 0 (later images keep 0, and names that come out the same get `_2`, `_3`, …); saved as `counterStep` | 1 |
 
 While the Metadata step is on, the file's XMP (Lightroom/Photoshop fields such as usage terms) is carried over
 too, cleaned with the same rules: removing everything, the location, camera details, the author or IPTC also
@@ -335,7 +364,50 @@ this fixed order whatever order the sliders are moved in:
 | Hue | Rotates every colour around the colour wheel | −180° to +180° |
 | Noise reduction | Smooths fine grain | 0 to 100 |
 | Definition | Local contrast (a wide, gentle unsharp mask) | 0 to 100 |
-| Sharpness | Sharpens fine detail | 0 to 100 |
+| Soft ↔ Sharp | 0 in the middle changes nothing; right sharpens fine detail, left softens with a blur that scales with the image (at −100 the radius is 0.6 % of the shorter side, so a thumbnail and a 50 MP photo look the same). Pipelines saved by earlier versions kept a 0–100 *Sharpness*, which loads as the same amount of sharpening | −100 to +100 |
+| Presets | Applies a built-in look or a saved preset; **replaces every Adjust value** (the sliders stay editable). **Save current as…** saves the sliders as a preset; **Duplicate** copies any preset (built-in ones too) under a new name; **Rename** and **Delete** work on your own presets. Stored one JSON file each in `adjust-presets/` next to the watermark templates | – |
+
+Built-in Adjust looks (values not listed are 0):
+
+| Look | Values |
+|------|--------|
+| Vivid | contrast +10, saturation +20, vibrance +30 |
+| Vivid Warm | contrast +10, saturation +5, vibrance +15, warmth +70, tint +10 |
+| Vivid Cool | contrast +10, saturation +15, vibrance +30, warmth −30, tint −2 |
+| Dramatic | highlights −30, shadows −15, contrast +30, black point +10, saturation −20, definition 25 |
+| Dramatic Warm | highlights −30, shadows −15, contrast +30, black point +10, saturation −15, warmth +70, tint +10, definition 25 |
+| Dramatic Cool | highlights −30, shadows −15, contrast +30, black point +10, saturation −10, warmth −35, definition 25 |
+| Mono | contrast +10, saturation −100 |
+| Silvertone | brilliance +20, highlights +20, contrast −10, black point −15, saturation −100, warmth −8 |
+| Noir | highlights +15, shadows −25, contrast +45, black point +25, saturation −100, definition 20 |
+| Fade | highlights −10, contrast −20, black point −35, saturation −20 |
+| Film | highlights −15, shadows +10, contrast +10, black point −20, saturation −10, warmth +12, tint +5, soften 10 |
+| Golden Hour | exposure +5, highlights −20, shadows +15, vibrance +10, warmth +100, tint +15 |
+| Cool Breeze | exposure +5, contrast −5, brightness +5, vibrance +10, warmth −35, tint −4 |
+| Matte | brilliance +10, highlights −25, shadows +10, contrast −15, black point −30, saturation −5 |
+| Punch | contrast +25, black point +5, saturation +10, vibrance +40, sharpen +30, definition 30 |
+| Soft Portrait | brilliance +15, highlights −15, shadows +15, contrast −10, vibrance −5, warmth +10, tint +5, soften 25 |
+
+Color (pipeline step, saved with the pipeline; runs Profile, then Re-color, then Reduce colours):
+
+| Option | What it does | Default |
+|--------|--------------|---------|
+| Profile | sRGB · Display P3 · Gray · Keep original (no conversion) | sRGB |
+| Re-color | None · Tint · Duotone · Sepia · Replace colour · Hue shift | None |
+| Tint colour | The colour Tint tones the image in (black → it → white by lightness) | #3D6EA8 |
+| Shadows / Highlights | Duotone's colours for the darkest and lightest tones | #1F1A4F / #F2C16B |
+| Strength | Tint, Duotone and Sepia: how much of the result is mixed in | 100 % |
+| Replace / With | Replace colour: the colour to replace and its new colour | #1E5AC8 / #C81E2D |
+| Shading | Replace colour: **Keep** (lightness and saturation stay relative to the picked colour) or **Exact colour** | Keep |
+| Tolerance | Replace colour: how far a hue may differ and still change (100 % = every hue; hue only) | 25 % |
+| Softness | Replace colour: how much of the tolerance fades out instead of a hard edge | 50 % |
+| Hue | Hue shift: degrees around the colour wheel | 0° (−180° to 180°) |
+| Reduce to a palette | Reduces the image to a palette of a few colours | off |
+| Colours | How many colours the palette has | 16 (2 to 256) |
+| Dithering | Floyd–Steinberg error diffusion, so gradients stay smooth with few colours | on |
+
+Saved files keep the old form (`{"colorProfile": {"_0": "sRGB"}}`) while Re-color and Reduce colours are untouched,
+so older versions read them; older files load as a profile-only Color step.
 
 Watermark (pipeline step, saved with the pipeline):
 
@@ -425,9 +497,13 @@ Presets and preview:
 | Archive TIFF (built-in) | No image steps, metadata off, TIFF LZW | n/a |
 | Show preview | View → Hide Preview / Show Preview (⌥⌘P); UserDefaults key `previewCollapsed` | shown |
 | Pipeline collapsed | The handle on the pipeline's edge or View → Collapse Pipeline (⌥⌘L); key `pipelineCollapsed` | expanded |
-| Compare mode | The Compare control in the preview header or View → Side by side / Split / Difference / Single (⌘1…⌘4); key `compareMode` | Side by side |
+| Output collapsed | Click the handle above the Output panel or View → Collapse Output (⌥⌘U); collapsed it shows one line (format · quality · where files go), and clicking that line opens it again; key `outputCollapsed` | expanded |
+| Output height | Drag the handle above the Output panel (or focus it and press ↑ / ↓) between its one-line height and its full content; a shorter panel scrolls, and the steps above give way; key `outputHeight` | full content |
+| Compare mode | The Compare control in the preview header or View → Side by side / Split / Difference / Single (⌘1…⌘4); key `compareMode`. The first launch of version 1.4 switches it to Split once (also when you chose another mode before; key `compareModeDefaultSplitApplied`); a mode you choose after that is kept | Split |
 | Split position | Where the split divider sits (2…98 % of the width); key `compareSplitPosition` | 50 % |
 | Batch view | Filmstrip, Grid or List under the preview; key `batchBrowserMode` | Filmstrip |
+| Metadata panel | The panel right of the preview: the sidebar button in the preview header, View → Show Metadata / Hide Metadata (⌥⌘I) or a privacy link; it shows with the preview (opening it opens a hidden preview); key `inspectorOpen` | closed |
+| Metadata panel width | Drag the panel's left edge (or focus its handle and press ← / →), 260–560 pt; the preview gives way; key `inspectorWidth` | 300 pt |
 | Window height | The window's height when you resize it by hand (the window also grows and shrinks with the pipeline and the preview); key `expandedWindowHeight` | fits the content |
 | Grid / list height | Drag the bar above the grid or list (90…420 pt); key `batchBrowserHeight` | 180 pt |
 
@@ -508,7 +584,7 @@ unsandboxed.
 ### Build a pipeline
 
 1. In the sidebar, press **+ Add step** and pick Resize, Crop, Rotate / flip, Perspective, Trim, Canvas / padding,
-   Color profile, Adjust, Watermark or **If … then … else** (see below). The step is added at the end and opens so you can set it.
+   Color, Adjust, Watermark or **If … then … else** (see below). The step is added at the end and opens so you can set it.
 2. Open or close a step by clicking its row; its settings (size, anchor, colour, profile, ...) are
    inside. The muted line under the name summarises them. The header shows how many steps are on.
 3. Reorder by dragging the handle, or with the keyboard: the right-click menu has
@@ -516,6 +592,12 @@ unsandboxed.
 4. Switch a step off with its toggle to skip it without losing its settings; it is dimmed.
 5. Steps run top to bottom on every image. The **Output** row is always last: format, quality and
    where files go. The handle on the pipeline's bottom edge (or ⌥⌘L) hides the whole list.
+6. The handle above **Output** collapses it to one line ("JPEG · 82 % · Converted") with a click, or ⌥⌘U.
+   Drag it up or down to give Output any height between that line and its full content (it scrolls when
+   shorter; within 20 pt of the line it collapses). While you drag, the window keeps its height and the steps
+   above give way; when you let go, a window left with empty room above Output fits its content again (or
+   returns to the height you gave it). With the handle focused, ↑ and ↓ (or VoiceOver's adjust actions) do the
+   same step by step; VoiceOver reads the height as "180 points of 320" or "Collapsed".
 
 Your pipeline is kept between launches.
 
@@ -530,8 +612,8 @@ Your pipeline is kept between launches.
    *Target size* (the highest quality that fits a size you type, in KB or MB, 1 KB = 1000 bytes), *Maximum size* (the slider's quality, lowered
    only as far as needed; files that can't fit are skipped) or *Smart* (the lowest quality that still looks the same, up to 95 %). JPEG has a
    *Progressive* toggle, PNG an *Optimise PNG* toggle (smaller, slower), TIFF a compression choice.
-3. Below the controls, the size estimate shows "Original → about" for the selected image, with the chosen quality ("at 74 %") when a size
-   or Smart mode searched for one, or why a maximum size can't be met. Use **Save to** to pick *Overwrite original
+3. The **ⓘ** right of the format picker shows the size estimate for the selected image ("2.1 MB → about 1.1 MB"), with the chosen quality ("at 74 %") when a size
+   or Smart mode searched for one, or why a maximum size can't be met; with extra outputs, every output's size. Use **Save to** to pick *Overwrite original
    files* (originals that are renamed or change format go to the Trash after the new file is saved), *Same folder as original* (the suffix, default `_new`, is added only if the output would have the same name as the original; or the Rename pattern applies) or *New folder*.
 4. Press **Run on N images** (⌘R). In *New folder* mode with no folder chosen yet, you are asked to
    pick one first. Cancel with ⌘. at any time; files already finished stay, and no half-written
@@ -545,19 +627,32 @@ One run can write more than one file for every image, for example the full-size 
 web-sized HEIC:
 
 1. Set up the pipeline and the main output as usual.
-2. Under the Output format controls press **+ Add output**. A *Thumbnail* row appears (JPEG, 70 %, longest edge
-   400 px, suffix `_thumb`); open it to change its name, format, compression, size, suffix and subfolder. Add more
-   with **+ Add output** (up to 8); the bin removes one.
-3. The size line under Output lists every file for the selected image: "Primary 1.1 MB · Thumbnail 48 KB · Web
-   620 KB". In the preview table the Result name has a "+2 outputs" chip; hover it to see each file's name.
+2. Press **+** at the top right of the Output panel (VoiceOver: "Add output"). A new output panel appears under the
+   main one, named *Output 2* with the main output's format and compression, the same size and the suffix `_out2`.
+   It has the same controls as the main output: name, format, compression (quality, target or maximum size, Smart),
+   Progressive / Optimise PNG, a size (*Same as main output*, longest edge, max width or height, percentage), the
+   name suffix and its own **Save to**:
+   - *Beside the main output* (the default): into the main output's folder (in overwrite mode, the original's
+     folder), with an optional subfolder under it.
+   - *Same folder as original*: next to each original, as a new file.
+   - *Subfolder next to original*: a folder inside each original's folder (rename tokens allowed, `thumbs/{date:yyyy}`).
+   - *New folder*: a folder of its own (**Choose folder…**), with an optional subfolder under it.
+   There is no *Overwrite* here: an extra output never replaces an original. *Same folder as original* doesn't use a
+   subfolder (one you typed before is kept for switching back, and the panel says it isn't used). Click the chevron or the title to fold
+   a panel, the bin to remove it; add more with **+** (up to 8).
+3. The **ⓘ** right of the main format picker shows the size estimate for the selected image when you point at it
+   (click it, or press Space when it has keyboard focus, to keep the box open): one line per output, for example
+   "Main JPEG 2.1 MB → about 1.1 MB (−48 %)", "Thumbnail JPEG about 48 KB (−98 %)", with any notes. In the preview
+   table the Result name has a "+2 outputs" chip; hover it to see each file's name (an output in another folder
+   shows that folder's name).
 4. Run as usual. Every image is loaded and processed once; each extra output is then resized (if it says so) and
-   encoded with its own settings, as `<name><suffix>.<ext>` next to the main output (in its subfolder, if set). The
+   encoded with its own settings, as `<name><suffix>.<ext>` where its Save to says (in its subfolder, if set). The
    Rename step's name is the base name for all of them.
 
 Rules worth knowing:
 
-- Extra outputs are always new files. In *Same folder* and *Overwrite* modes they go into the original's folder;
-  they never replace or trash anything, and a name that is taken (by any file, another image's original or
+- Extra outputs are always new files, whatever their Save to. Beside the main output in *Same folder* and
+  *Overwrite* modes they go into the original's folder; they never replace or trash anything, and a name that is taken (by any file, another image's original or
   another output) gets `_2`, `_3`, … In overwrite mode only the main output replaces the original (once); when it
   has a new name or format, the original goes to the Trash after the extra outputs are saved. An extra output's
   subfolder is used in every mode, overwrite included (under the original's folder there), unlike a condition's
@@ -650,6 +745,47 @@ all of the file's language variants of it (only the one you typed remains).
 4. Run the batch. The removed information is not in the output files. The color profile is always
    kept, so the images look the same.
 
+### Change one image's metadata
+
+The **metadata panel** right of the preview shows the selected image's metadata and lets you change it for that
+image's outputs. It is closed by default; open it with the sidebar button at the top right of the preview, View ▸
+Show Metadata (⌥⌘I) or a link in the privacy panel. The window widens by the panel's width (a hidden preview opens
+with it); drag its left edge to make it wider or narrower.
+
+1. Select an image. The panel lists its metadata in groups: **File**, **Camera (EXIF)**, **Location (GPS)**,
+   **Description (IPTC/XMP)**, **Rights**, **Technical (TIFF/colour)** and **Other**. Type in **Search metadata** to
+   filter by name, value or field. Values are read from the file's header only (no pixels are decoded) and shown as
+   plain text: invisible and right-to-left control characters appear as `<U+202E>`-style codes, and long values are
+   cut with **Show all**.
+2. **Edit** (pencil) a field the app can write: title, description, keywords, creator, copyright, date taken, GPS
+   position, rating (XMP `xmp:Rating`, −1 for rejected to 5 stars), and the Metadata step's allowlisted EXIF, IPTC
+   and XMP fields (see [Metadata step](#metadata-step) ▸ More fields). Type the new value and press **Apply to
+   Outputs**. A field is written everywhere the Metadata step would write it (for example a title to IPTC, XMP and PNG).
+3. **Remove** (minus) any field except the structural ones (pixel size, orientation, colour model and the like).
+   Fields the app can't write (a lens serial number, an edit history) can only be removed.
+4. **Add Field** adds a field the image doesn't have yet.
+5. Changed rows say **Edited**, **Removed** or **Added**; the arrow reverts one field, **Revert All** the whole image.
+   Edited images have a pencil badge in the filmstrip, grid and list.
+
+The panel's header says it: *Changes apply to this image's outputs. The original isn't changed.* With **Save to:
+Overwrite originals**, the output replaces the original, so the changes do end up in the original file; the panel
+then says so in amber instead of "The original isn't changed": *Overwrite originals is on: these changes end up in
+the original file when the batch runs.*
+The changes are
+applied after the Metadata step, for the image's main output and its extra outputs, in the preview's size estimate
+and Privacy row, and in the run (also for a metadata-only lossless copy, which checks them, and for *Copy original
+unchanged*, which is then converted with the note "Converted instead of copied to apply this image's metadata
+changes"). **Precedence:** a field you set here is written even when the Metadata step removes it; a field you
+remove here is left out even when the step keeps or sets it; everything else the step removes stays removed (its
+privacy floor). With the Metadata step off, the image's metadata is written as it is, with your changes. XMP-only
+fields and the rating can't be written when the step removes XMP.
+
+Changes live with the batch for this session only: they go when the image is removed or the list is cleared, aren't
+saved in presets, and aren't used by jobs, the command line, Finder services, scripts and links. A run resumed after
+the app quit (or crashed) keeps them: they are saved with the interrupted batch's journal and used for its remaining
+images. Nothing can be edited while a batch runs. Bidirectional control characters are left out of what you type, and
+a privacy link opens the row once (choosing another image afterwards doesn't jump back).
+
 ### Write alt text on this Mac
 
 Alt text is a short description of an image for people who use screen readers. imageconverter can ask Apple's
@@ -720,11 +856,15 @@ metadata settings (left out when off; older files load with both off).
 
 1. Open **Rename** (under **Always last**) and switch it on.
 2. Type a pattern, for example `{date:yyyy-MM-dd}_{camera}_{counter:000}`, or build it with
-   **Insert**, which appends at the end.
+   **Insert**, which appends at the end. Insert groups the tokens: File (name, extensions, folder, preset),
+   Date taken (in several formats), File dates (modified, created), Camera, Image (size, megapixels,
+   orientation, what the image shows) and Counter and unique (padded counters, random text, UUID).
 3. The line under the pattern shows an example from the first image in the batch (or a sample
    photo when the batch is empty), such as `Example: 2026-11-13_iPhone 15 Pro_001.jpg`. An
    unknown token like `{foo}` is flagged with a warning and kept as written (`:` still becomes `-`).
-4. Set **Counter starts at** if numbering should not begin at 1. The counter follows input order.
+4. Set **Counter starts at** if numbering should not begin at 1, and **Step** to count in steps other than 1
+   (10, 20, 30 … with start 10 and step 10). The counter follows input order; images a condition skips take no
+   number. A negative step counts down and stops at 0.
 5. In *Same folder* mode the pattern replaces the suffix (the summary says "Same folder,
    renamed"). Names that come out identical get `_2`, `_3`, …
 6. **Insert** also holds three quick patterns that replace the whole pattern: *Date + counter*
@@ -760,6 +900,18 @@ Rename tokens:
 | `{aperture}` | Aperture | `f1.8` |
 | `{shutter}` | Shutter speed | `1-250s` |
 | `{datetime}` | Capture date and time | `2026-11-13_140509` |
+| `{modified}` / `{modified:<format>}` | The source file's modification date, as the Mac's clock showed it; default `yyyy-MM-dd` | `2026-11-14`, `{modified:yyyy-MM-dd_HHmmss}` |
+| `{created}` / `{created:<format>}` | The source file's creation date (not the capture date); default `yyyy-MM-dd` | `2026-11-13` |
+| `{srcext}` | The source file's own extension, lower case | `heic` |
+| `{preset}` | Name of the preset the run uses (the selected one, a job's preset or the command line's `--preset`); empty for an unsaved pipeline | `Web export` |
+| `{megapixels}` | Megapixels of the output, one decimal | `12.2MP` |
+| `{orientation}` | Of the output: `landscape`, `portrait` or `square` | `landscape` |
+| `{labels}` / `{labels:<separator>}` | What the image shows (analysed on this Mac, like the Shows condition): up to 10 labels, most confident first; the separator is up to 3 of space `-` `_` `.` `,` `+`, default `, ` | `{labels:-}` gives `dog-grass` |
+| `{random}` / `{random:<1–32>}` | Letters and digits derived from the source file's path: random-looking, but the same file always gets the same value, so the preview shows the name the batch writes; default 8 characters | `k3x9q0ab` |
+| `{uuid}` | A UUID derived the same way (the same file gives the same UUID) | `9F1C…-…` |
+
+All tokens except `{labels}` read only the file's header and file-system dates; `{labels}` analyses a small copy
+of each image, once per file version, like the content conditions.
 
 Metadata is untrusted, so names are sanitised: `/` and `:` become `-`; control, bidi and invisible
 (zero-width) characters are removed; an empty token drops one neighbouring separator (`_`, `-` or
@@ -771,10 +923,68 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
 1. Press **+ Add step** and pick **Adjust**, then open the step.
 2. Move the sliders in **Light**, **Colour** and **Detail**; the preview updates as you go.
 3. Double-click a slider's label to set it back to 0, or press a group's **Reset** to clear the whole group.
-4. Put the step after resizing if you want sharpening to suit the final size. The step keeps each
+4. **Soft ↔ Sharp** starts in the middle: drag right to sharpen, left to soften (a gentle blur, for skin or noisy
+   photos). The coloured part of its track runs from the middle to the knob.
+5. To start from a look, open **Presets** and pick one (Vivid, Noir, Golden Hour, …; see the table under
+   Configuration). It replaces all the sliders; adjust from there. **Save current as…** keeps your own settings
+   as a preset, **Duplicate** copies a built-in look so you can rename and tweak it.
+6. Put the step after resizing if you want sharpening to suit the final size. The step keeps each
    image's RGB colour space (sRGB, Display P3, …), bit depth and transparency. Gray, CMYK and indexed
-   images come out of the step in sRGB (Core Image works in RGB); add a Color profile step set to Gray
+   images come out of the step in sRGB (Core Image works in RGB); add a Color step with the profile set to Gray
    after it to get a gray file back.
+
+### Re-color and reduce colours
+
+1. Press **+ Add step** and pick **Color**, then open the step. It has three parts that run in this order:
+   **Profile**, **Re-color**, **Reduce colours**. Set **Profile** to **Keep original** to re-color without
+   converting the profile.
+2. **Re-color**:
+   - **Tint** tones the whole image in one colour (black → the colour → white, by lightness); **Strength** mixes it
+     with the original.
+   - **Duotone** maps the darkest tones to **Shadows** and the lightest to **Highlights**.
+   - **Sepia** is a tint in a warm brown.
+   - **Replace colour**: pick the colour to replace with the first colour well and the new colour with **With**.
+     **Tolerance** (0–100 %, default 25 %) is how far a hue may be from it and still change (100 % is the whole
+     colour wheel); matching is by hue only. **Softness** (default 50 %) is how much of that range fades out instead
+     of ending sharply. **Shading**: **Keep** (default) keeps each pixel's lightness and saturation relative to the
+     picked colour, so the shading on a blue product stays when it turns red (a lighter blue becomes a lighter red);
+     **Exact colour** makes matched areas exactly the new colour. Results are kept inside the sRGB gamut by lowering
+     saturation, so the hue stays right. Greys and near-greys are never changed unless the picked colour is itself
+     grey (then only greys of a similar lightness change).
+   - **Hue shift** turns every colour around the colour wheel by −180° to 180°.
+   The colours are worked out in OKLab, a perceptual colour space, on a floating-point copy; the result keeps the
+   image's colour space, bit depth and transparency. Colours are saved as sRGB hex (`"#1E5AC8"`).
+3. **Reduce colours**: switch on **Reduce to a palette** and set **Colours** (2–256, default 16) and **Dithering**
+   (on by default; Floyd–Steinberg, alternating direction per row). The palette is found on a copy at most 512 px
+   long (median cut, refined by k-means) and mapped onto the full image; the same image and settings always give
+   the same result (a sparse image, such as a few dots on a wide transparent canvas, learns its palette from the
+   full image). An image that already has that few colours is left as it is. Fully transparent pixels stay
+   transparent and don't count toward the palette (with transparency, 256 becomes 255 so the palette PNG has room
+   for its transparent entry); partly transparent pixels keep their alpha. The result is 8-bit; a gray image stays
+   gray (and is written as a normal gray PNG, already one byte per pixel).
+4. **Palette files**: with PNG output the file is written as a palette (indexed) PNG when the image ends up with at
+   most 256 colours, is sRGB and has only fully opaque or fully transparent pixels (transparency is kept). Otherwise
+   it's written as a normal PNG and the report says why ("Not written as an indexed PNG: it has semi-transparent
+   pixels"). Only the Color step's own result is written with a palette: a later step that changes the pixels
+   (Adjust, Watermark, Rotate) gives "a step after Reduce colours changed the pixels", so put the Color step last
+   for a palette file; an extra output with its own size gives "this output's size change added colours". GIF is
+   always written with a palette by ImageIO.
+
+### Straighten a document and keep its size
+
+1. Add a **Perspective** step and open it. Switch on **Auto** to square up a photographed document, whiteboard or
+   screen, or drag **Vertical** / **Horizontal** to correct converging lines by hand (the preview follows).
+2. **Output size**: **Keep original size** writes exactly the source's width and height (handy when every page of
+   a scan must stay the same size); **Fit the corrected image** (default) lets the size follow the correction.
+3. **Empty areas** decides what fills the corners the correction leaves empty: **Crop to the image** (default; no
+   empty corners, the image is cut a little), **Fill with colour** (pick the colour; white suits paper),
+   **Transparent** or **Extend edges** (the edge pixels repeated outwards, good for photos with plain borders).
+4. With **Transparent**, PNG (and HEIC/TIFF) outputs keep the empty corners see-through; a JPEG or BMP output,
+   main or extra, gets the fill colour instead and its report row says "No transparency in JPEG; filled with
+   #FFFFFF". For a JPEG, choose **Fill with colour** to pick that colour yourself.
+
+Large images: Perspective needs several working copies of the image (about 4–6 times its decoded size), so a batch
+of 100 MP scans is converted one image at a time.
 
 ### Crop around the subject or faces
 
@@ -811,14 +1021,25 @@ versions read a Subject or Faces crop as a centred one.
    **Fill colour** (always fully opaque). A new step blurs faces; as soon as **Hide** includes text it switches to
    Solid colour (unless you chose another style). For text, use Solid colour: blur and pixelation can sometimes be
    reversed (by rendering guesses in the same font and comparing), especially for short text such as number plates.
+   With Pixelate, **Block size** is **Auto** (the default: a third of each box's shorter side, so every box gets
+   about three blocks) or **Fixed** 4–256 px; with Blur, **Strength** is **Auto** (a radius of a third of the box's
+   shorter side) or **Fixed** radius 2–200 px. Fixed sizes are pixels of the image as it reaches the step (after any
+   Resize before it); a Fixed choice starts at 16 px blocks or a 20 px radius. **Small sizes are raised where needed
+   so text and faces stay unreadable**: each box gets at least 8 px and a fifth of its shorter side (4 px blocks or a
+   2 px blur left 40 px text readable to Vision), and the report says so once per image ("Block size raised to keep
+   3 areas unreadable"). Steps saved before this version stay Auto.
 4. **Padding** grows each box on every side by that percentage of its own width and height, so hair, chins and the
    edges of letters are covered too.
 5. The preview shows the result for the selected image. After the run, each file's report row says what was
    hidden ("Redacted 2 faces, 1 text area") or "Redact: nothing found".
 
 The step looks at the image as it arrives at the step, so boxes land on the right pixels after any Crop, Rotate or
-Resize before it. Faces and text are found on a copy at most 2048 px on the long side (text as recognised lines plus
-Vision's text rectangles, which also catch stylised or handwritten text); the boxes are then mapped back to the
+Resize before it. Faces are found on a copy at most 2048 px on the long side. Text is read with Vision's accurate
+recognition on that copy (recognised lines plus Vision's text rectangles, which also catch stylised or handwritten
+text) and, for images larger than 2048 px, also in full-resolution tiles of 896 px that overlap by 192 px, so small
+text in a large photo isn't lost when the image is shrunk (measured on this Apple silicon Mac: about 1.3 s for a
+24 MP image and 5 s for 100 MP; at most two images are read this way at once, which is faster than more). The tile size was chosen by measurement: on grids of 20 lines of 20 and 24 px text
+on a busy 8000 × 6000 image, 2048 px tiles found 7 of 20 lines, 896 px tiles all 20 at every placement tried. Each box covers the whole of a line, also when it is turned; the boxes are then mapped back to the
 image, padded and clamped. Pixels outside the boxes are copied unchanged. **If Vision can't run for an image, that
 image isn't written**: it fails with "Not written: couldn't check for faces (…)" and the rest of the run goes on
 (jobs try it again later, like any failure). An **If … then … else** that would **copy the original unchanged**
@@ -828,13 +1049,17 @@ converted copy: the preset's Resize, Watermark steps"). With a Redact
 step that hides faces, face and person regions are left out of the output's metadata (MWG and Microsoft regions,
 Apple face info, IPTC *Person in image* and image regions, found by their namespace and name whatever prefix the
 file uses; "Removed face regions from metadata"). **Best effort:**
-Vision can miss a face (turned away, small, covered) or some text (stylised, tiny, at an angle), so check the
-results before you share them. Nothing is sent anywhere.
+Vision can miss a face (turned away, small, covered) or some text (heavily stylised, very small, curved), so check
+the results before you share them. The tests check a set of generated images (small and huge text, light on dark,
+low contrast, turned 10° to 180°, italic, condensed and decorative fonts, a single digit, a number plate, a
+paragraph, text on gradients and busy backgrounds, at the edges, and small text in 6000 and 8000 px images). Nothing is sent anywhere.
 
 | Option | Choices | Default |
 |--------|---------|---------|
 | Hide | Faces · Text · Faces and text | Faces |
 | Style | Blur · Pixelate · Solid colour | Blur for faces; Solid colour when text is included |
+| Block size | Auto · Fixed 4…256 px, with Pixelate | Auto (a third of each box's shorter side) |
+| Strength | Auto · Fixed radius 2…200 px, with Blur | Auto (a third of each box's shorter side) |
 | Fill colour | any colour (opaque), with Solid colour | black |
 | Padding | 0…100 % of each box's size, per side | 15 % |
 
@@ -982,7 +1207,8 @@ especially). Nothing about your images leaves the Mac.
    Vision gives with a confidence of 0.3 or more, as words (`musical instrument`), most confident first, at most 10. In
    a subfolder or note they are joined with commas (`dog, grass`) and made safe like any other token (a subfolder name
    can never gain a `/`); in tags and keywords each label is its own entry, cleaned like other tags and keywords. An
-   image with no labels gets none (the entry is left out). File names don't offer it.
+   image with no labels gets none (the entry is left out). File names offer it too (Rename, with an optional
+   separator such as `{labels:-}`).
    - **Flow**: **Skip file** (nothing is written; the file counts as *skipped by a condition*, not failed, and takes no
      counter number), **Stop checking later conditions** (later If … then … else steps are not checked for this image;
      the other actions in the branch still apply) and **Add a note to the report…** (a line in the report for this file;
@@ -1157,7 +1383,87 @@ are averaged over the last few seconds and weighted by image size, and appear on
 - The batch runs at a lower priority than the window, so the app stays responsive; the number of workers also
   drops by itself when the Mac gets hot or short of memory.
 
-## Finder, AppleScript and links
+## Automate with Shortcuts, AppleScript and the command line
+
+Four ways to run imageconverter without clicking through the window. All of them use the same engine as the
+app, never change originals unless you ask for overwrite mode (and only the window, scripts, services and the
+command line can), and never replace an existing file (`_2`, `_3`, … instead).
+
+| Way | Best for | Needs |
+| --- | --- | --- |
+| **Shortcuts actions** | Shortcuts, Spotlight, Siri, the menu bar, automations | The packaged app, opened once |
+| **AppleScript** | Script Editor, Automator, other apps' scripts | The packaged app; Automation permission for the app that runs the script |
+| **Command line** | Terminal, shell scripts, cron | The tool from `Contents/Helpers/imageconverter` (`scripts/install-cli.sh`) |
+| **Finder Quick Actions and links** | Right-click in Finder, `imageconverter://` links | The packaged app |
+
+### Shortcuts actions
+
+Open the Shortcuts app and search for **imageconverter** (or look under Apps ▸ imageconverter). The actions run
+inside the app without bringing its window forward (if the app isn't running, macOS starts it first, and its
+window opens as at any launch), and return the files they wrote, so the next action can use them (**Save File**, **Quick Look**,
+**Share**, **Get Image Metadata**, …).
+
+| Action | Parameters | Returns |
+| --- | --- | --- |
+| **Convert Images** | Images; **Preset** (the built-in and your saved presets are suggested); Format (optional: overrides the preset's); Output Folder (optional) | The converted files |
+| **Apply Preset to Folder** | Folder (its images and subfolders); Preset; Output Folder (optional) | The converted files |
+| **Run Job** | **Job** (your saved jobs are suggested) | A summary, e.g. "Job Web export: Converted 12 · 1 skipped by a condition" or "Job Photos: Converted 3 images, 2 unchanged" (waits until the run has finished) |
+| **Strip Metadata** | Images; Output Folder (optional) | Copies without any metadata, each in its own format (JPEG and HEIC image data copied untouched) |
+| **Resize Images** | Images; Long Edge in pixels (default 2048, 1–100 000); Output Folder (optional) | Copies with that longest edge, each in its own format. Smaller images are never enlarged (they keep their size) |
+| **Convert Format** | Images; Format (default JPEG); Quality 1–100 (optional, default 82; for JPEG, HEIC, AVIF and JPEG 2000); Output Folder (optional) | Copies in the new format |
+| **Get Image Metadata** | Image | The metadata as text: the file name, then each group ("File", "Camera (EXIF)", "Location (GPS)", …) with `  Label: value` lines, read from the header only |
+
+- **Load and History.** Actions run like jobs, with half the processor cores and half the memory budget, so a
+  Shortcut started during a batch doesn't double the load. Each converting action is listed in **History** as
+  "Shortcuts" (or "Shortcuts: *preset*"). Quitting while an action converts asks first and waits for it like for a
+  batch. Copies of images Shortcuts hands over as data (not as files) are deleted when the action ends; files over
+  2 GB are refused. A preset whose extra output saves *Same folder as original* (or a subfolder there) needs that
+  folder allowed in Folder Access, like an Output Folder; otherwise the action stops with the Folder Access message.
+- **Animated and multi-page files.** Like the batch, every action writes the first frame (or page) of a GIF,
+  animated PNG, HEIC sequence or multi-page TIFF only.
+- **Where files go.** Without an Output Folder the files are written to a temporary folder inside the app's
+  container and only returned: add **Save File** (or **Move File**) to put them somewhere; folders there older
+  than a day are removed. With an Output Folder they are written there and returned too.
+- **Folders and the sandbox.** Files you pass from Shortcuts can always be read. A folder (Apply Preset to
+  Folder's input, any Output Folder) must be one imageconverter may use: allow it once in **Help ▸ Folder Access…
+  ▸ Add Folder…**. Otherwise the action stops with *"imageconverter isn't allowed to use the folder … Open
+  imageconverter, choose Help ▸ Folder Access… ▸ Add Folder…, allow the folder, then run the shortcut again."*
+- **Errors** show in Shortcuts in plain words: *There is no preset named "…"*, *No files were given to the
+  action.*, *None of the given files is an image imageconverter can read.*, *This Mac can't write AVIF files.*,
+  *No image was converted. a.jpg: Couldn't read this file as an image*. When only some images fail, the action
+  returns the ones that were written.
+- **Presets and jobs by name.** A shortcut remembers the preset's or job's name, like scripts, links and the
+  command line: after renaming one, pick it again in the shortcut.
+- **Phrases.** Spotlight and Siri know "Convert images with imageconverter", "Strip metadata with
+  imageconverter", "Resize images with imageconverter", "Run a job in imageconverter" and more.
+- **Not seeing the actions?** Shortcuts indexes an app after it has been opened once from where it is installed.
+  Keep a single copy (an older copy in Downloads or a build folder may be the one Shortcuts finds), open it, and
+  restart Shortcuts. Builds made with `swift run` have no bundle and no actions.
+
+Example: a Quick Action that makes web copies of the images selected in Finder. New shortcut ▸ Shortcut details:
+**Use as Quick Action**, Receive **Images** from **Quick Actions** ▸ add **Convert Images** (Images: *Shortcut
+Input*, Preset: *Web export*) ▸ **Save File** (Ask Where to Save: off, a folder of your choice).
+
+### Quick examples
+
+```applescript
+tell application "imageconverter"
+    presets
+    convert {POSIX file "/Users/me/Pictures/a.jpg"} using preset "Web export" to folder POSIX file "/Users/me/Web"
+end tell
+```
+
+```sh
+imageconverter convert ~/Pictures/Trip --preset "Web export" --out ~/Desktop/web
+imageconverter convert a.jpg b.heic --format heic --quality 60 --resize-long 2048 --strip-all --out ~/Desktop/small
+imageconverter convert ~/Pictures/Trip --preset "Web export" --variant "name=thumb,format=png,long=400" --out ~/Web --dry-run
+imageconverter jobs run "Web export"
+```
+
+The full AppleScript dictionary is in [Finder Quick Actions, AppleScript and links](#finder-quick-actions-applescript-and-links)
+below, every command-line option in [Command line](#command-line).
+
+### Finder Quick Actions, AppleScript and links
 
 These three entry points are built into the app but **become active only in the packaged app** (milestone 6):
 macOS learns about services, the AppleScript dictionary and the `imageconverter://` scheme from the app
@@ -1219,38 +1525,9 @@ time: links that arrive meanwhile are ignored and counted in one message. Escape
 | `imageconverter://add?path=/Users/me/a.jpg&path=/Users/me/Trip` | Adds the files and folders (absolute paths). |
 | `imageconverter://jobs/run?name=Nightly` | Runs the saved job once (or once more after the run in progress). |
 
-## Folder access
+### Command line
 
-The packaged app runs in the App Sandbox: it can only open and write files and folders you gave it. Images you drop, add, open with the app (Dock icon, Open With, `open -a`) or send with a Finder Quick Action can always be read, and a dropped or opened folder can be written into for the rest of the session. Anything else is asked for once, when it is needed:
-
-- **Same folder as original** and **Overwrite original files** write into the folder each image is in. When the app doesn't have that folder yet, Run (and Finder Quick Actions, AppleScript, links and Resume) first shows an open panel already showing the folder, with the message *"imageconverter needs access to “Photos” to save next to the originals. Choose this folder (or one that contains it) to allow it."* Click **Allow**. Choosing a folder that contains several of the needed folders (your Pictures folder, say) answers all of them at once; choosing an unrelated folder asks again. **Cancel** stops the run before anything is written ("Not run: no access to …").
-- **New folder** needs only the output folder (chosen in the Output row; also asked for after a relaunch if its bookmark no longer opens it), plus the images' own folders when an image can't be read.
-- Allowed folders are remembered (up to 200, least recently used dropped first) and opened again at every launch. **Help ▸ Folder Access…** lists them, marks the ones that can't be found ("Not found") or that no longer open and must be allowed again ("Allow again"), and has **Add Folder…** (allow a folder ahead of time, for example the folders your scripts, links or jobs use), **Remove** and **Remove All**; a removed folder is asked for again next time. Remove and Remove All are unavailable while a batch or a job runs (it would lose access to the folders it is writing into). A folder you choose that doesn't contain the one asked for isn't remembered; the question comes back saying so.
-- The output folder and watermark images are stored with a bookmark next to the path, so presets, watermark templates and the saved pipeline keep working after a relaunch and follow a file or folder that was moved. When a watermark image can't be opened any more, the editor and the report say *"Couldn't open the watermark image — choose it again"*.
-- An interrupted batch's journal keeps bookmarks of the images' folders, of images added on their own (up to 2 000, when their folder couldn't be bookmarked) and of the output folder, so **Resume** opens them again. Before the resumed run is planned, the folder of every image that still can't be read is asked for (*"… to read the images"*). Images in a folder you don't allow (**Cancel**) are listed as *"N files of the interrupted batch couldn't be opened"*; add them again to convert them. Images whose folder the app can read but which are gone are listed as missing.
-- Jobs keep their own folder bookmarks (see [Process a folder automatically](#process-a-folder-automatically)).
-
-Outside the sandbox (`swift run`) nothing is asked; bookmarks are still made, so the same settings work in the packaged app. For screenshots, DEBUG builds accept `-debugSimulateSandbox` (ask as if sandboxed) and `-debugShowFolderAccess` (open the Folder Access window).
-
-## Updates
-
-imageconverter can update itself from its GitHub releases. Nothing goes online until you allow it.
-
-- **First launch:** a sheet asks *"Check for updates automatically?"* **Yes** checks now and at every launch; **No** never checks on its own. You are asked once; the answer is the checkbox below.
-- **App menu ▸ About imageconverter** has **Check Now**, the checkbox **Check for updates when the app starts** and a status line: *Checking…*, *You're up to date (1.1.0)*, *Version 1.2.0 is available* or what went wrong. Check Now always works. A check at launch stays silent when you're up to date or the check fails.
-- **When a newer version is found**, a sheet shows its release notes (as plain text) with **Install and Relaunch** and **Later**. Install first makes sure it can replace the app (see below), then downloads the release's zip and checksum and checks the checksum. A small installer service inside the app (`Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc`, not sandboxed, so the new app isn't marked as "created by a sandboxed app" and blocked) checks everything again, puts the new app in place of the old one (the old one goes to the Trash), and the app reopens itself.
-
-What is accepted, and when installing is refused:
-
-- Only GitHub's latest release of `jozeta/imageconverter`, tagged `v` + `x.y.z`, newer than the running version (never a downgrade or reinstall), not a draft or prerelease, with the assets `imageconverter-<x.y.z>.zip` and `imageconverter-<x.y.z>.zip.sha256`. The API answer may be at most 1 MB.
-- Downloads only over HTTPS from `github.com`, `objects.githubusercontent.com` or `release-assets.githubusercontent.com`, also after redirects; the zip at most 200 MB, the checksum file at most 1 KB. No cookies, cache or stored credentials are used.
-- The zip must match its SHA-256, list at most 20,000 entries and 1 GB unpacked (checked before unpacking, and watched while it unpacks: the installer stops once more than that space is actually used or less than 2 GB of disk stays free; what is unpacked must be what the zip lists), and hold exactly one `imageconverter.app` with no link pointing outside it. The app must be signed with the developer's Developer ID (team `6W6TD6P8G3`, identifier `io.github.jozeta.imageconverter`), notarized, not revoked, and have the release's version. Anything else is refused, the download deleted, and the installed app left alone. If Apple's revocation check can't be reached, it says *"Couldn't confirm the update's signature right now. Try again when you're online."*
-- Before anything is downloaded: installing is refused while a batch or a job runs (*"Finish the running batch or job first."*, checked again right before the swap), in a build that isn't the packaged app (`swift run`: *"Updates install only in the released app."*; Check Now still works there), and when the app runs from a read-only place (a disk image, or macOS's translocated copy of an app opened where it was downloaded): move it to Applications first. No folder access is asked for: the installer service writes the app's folder (usually Applications) with your own permissions. If you can't write to that folder, the installer says so and you can get the update from the release page instead.
-- The installer service accepts requests only from imageconverter itself (signed with the same Developer ID), replaces only the app it is inside, never with an older or the same version, and takes the download only from the app's own temporary folder. The swap never leaves the app's folder: the new app is copied next to the old one under a hidden name and checked again there, the old one is renamed aside, the new one renamed into place, and only then is the old one moved to the Trash. If the new one can't be put in place, the old one is renamed back. Leftovers of an interrupted update are removed the next time.
-
-## Command line and Shortcuts
-
-The package also builds a command-line tool, so batches can run from Terminal, scripts, cron or a Shortcuts "Run Shell Script" action. It uses the same engine as the app.
+The package also builds a command-line tool, so batches can run from Terminal, scripts, cron or a Shortcuts "Run Shell Script" action. It uses the same engine as the app. The metadata panel's per-image changes are app-only (session-only): the command line and jobs use the Metadata step's settings.
 
 ```sh
 scripts/install-cli.sh             # links /Applications/imageconverter.app/Contents/Helpers/imageconverter as ~/.local/bin/imageconverter
@@ -1283,7 +1560,7 @@ Convert options (options override the preset or pipeline file):
 | `--quality 0-100` | Quality for lossy formats |
 | `--max-size 500KB` | Largest file size (KB and MB are decimal) |
 | `--resize-long PX` | Scale so the longest edge is PX pixels |
-| `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"` | An extra output per image (repeatable, up to 8; replaces the preset's or file's extra outputs). Keys: `name`, `format`, `quality` (0–100), `max-size` (500KB), one of `long`, `width`, `height` (pixels, shrink only) or `percent` (1–1000), `suffix` (default `_` + name; must differ between outputs) and `folder` (a subfolder). A format this Mac can't write is a usage error. `--dry-run` lists every output |
+| `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"` | An extra output per image (repeatable, up to 8; replaces the preset's or file's extra outputs). Keys: `name`, `format`, `quality` (0–100), `max-size` (500KB), one of `long`, `width`, `height` (pixels, shrink only) or `percent` (1–1000), `suffix` (default `_` + name; must differ between outputs) and `folder` (an absolute path such as `folder=/Users/me/Web` or `folder=~/Web`: the output's own folder; a relative one such as `folder=thumbs`: a subfolder of the main output's folder; every extra output's folder is printed on stderr before the run). A format this Mac can't write is a usage error. `--dry-run` lists every output |
 | `--strip-gps`, `--strip-all` | Remove the location (GPS and place names), or all metadata (the preset's "keep when removing all" list is ignored) |
 | `--report csv\|json\|text` | Print a full report on stdout |
 | `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked; with `--overwrite`, each destination is marked "replace" or, when the name or format changes, "replace (original to Trash)"); writes nothing; honours `--report`/`--json` |
@@ -1291,13 +1568,45 @@ Convert options (options override the preset or pipeline file):
 
 Progress goes to stderr and results to stdout. Missing input paths are reported on stderr and count as failed files; options that the chosen format ignores (`--quality`, `--max-size` with PNG, TIFF, ...) print a warning. Only long options exist; file names starting with `-` go after `--`. Ctrl-C stops cleanly (no temp files left), prints the partial report and exits 130. `--strip-gps` and `--strip-all` also hold for images a preset's condition sends to its own metadata settings or to "Copy original unchanged" (those are converted instead). The tool isn't coordinated with the app: don't run it over a folder an active job watches. Exit codes: 0 all done, 1 some files failed or missing, 2 usage error, 3 nothing to do, 130 interrupted. The tool reads presets and jobs from the sandboxed app's container (`~/Library/Containers/io.github.jozeta.imageconverter/Data/Library/Application Support/imageconverter/`) when it exists, else from `~/Library/Application Support/imageconverter/` (where an unsandboxed `swift run` keeps them); `--data-dir DIR` (anywhere before `--`) reads them from DIR instead. macOS may ask once whether Terminal may access another app's data the first time the tool reads the container.
 
-Example in Shortcuts: add **Run Shell Script** (Shell: zsh, Input: as arguments) with
+Shortcuts has its own imageconverter actions (see [Shortcuts actions](#shortcuts-actions)); a shell script is still
+useful for options they don't have. Example: add **Run Shell Script** (Shell: zsh, Input: as arguments) with
 
 ```sh
 ~/.local/bin/imageconverter convert "$@" --preset "Web export" --out ~/Desktop/web --json
 ```
 
 and pass the files from a Finder action; a following **Get Dictionary from Input** reads the JSON (`summary.succeeded`, `summary.failed`, `entries`).
+
+## Folder access
+
+The packaged app runs in the App Sandbox: it can only open and write files and folders you gave it. Images you drop, add, open with the app (Dock icon, Open With, `open -a`) or send with a Finder Quick Action can always be read, and a dropped or opened folder can be written into for the rest of the session. Anything else is asked for once, when it is needed:
+
+- **Same folder as original** and **Overwrite original files** write into the folder each image is in. When the app doesn't have that folder yet, Run (and Finder Quick Actions, AppleScript, links and Resume) first shows an open panel already showing the folder, with the message *"imageconverter needs access to “Photos” to save next to the originals. Choose this folder (or one that contains it) to allow it."* Click **Allow**. Choosing a folder that contains several of the needed folders (your Pictures folder, say) answers all of them at once; choosing an unrelated folder asks again. **Cancel** stops the run before anything is written ("Not run: no access to …").
+- **New folder** needs only the output folder (chosen in the Output row; also asked for after a relaunch if its bookmark no longer opens it), plus the images' own folders when an image can't be read.
+- **Extra outputs with their own Save to** need their folders too: a chosen folder (allowed when you choose it, kept with a bookmark in the pipeline, preset or job), or the images' folders for *Same folder as original* and *Subfolder next to original*. A chosen folder that moved is followed. A folder imageconverter can't confirm as one you chose in it on this Mac (a preset from someone else, a folder that is gone) shows **Choose the folder again** on its panel, and Run asks for it before anything is written there. Jobs run in the background and can't ask: such an output isn't written (a note says so) and the image itself still is.
+- Shared presets carry the full path (and a bookmark) of an extra output's chosen folder; remove or change that output before sharing a preset if the path is private.
+- Allowed folders are remembered (up to 200, least recently used dropped first) and opened again at every launch. **Help ▸ Folder Access…** lists them, marks the ones that can't be found ("Not found") or that no longer open and must be allowed again ("Allow again"), and has **Add Folder…** (allow a folder ahead of time, for example the folders your scripts, links or jobs use), **Remove** and **Remove All**; a removed folder is asked for again next time. Remove and Remove All are unavailable while a batch or a job runs (it would lose access to the folders it is writing into). A folder you choose that doesn't contain the one asked for isn't remembered; the question comes back saying so.
+- The output folder and watermark images are stored with a bookmark next to the path, so presets, watermark templates and the saved pipeline keep working after a relaunch and follow a file or folder that was moved. When a watermark image can't be opened any more, the editor and the report say *"Couldn't open the watermark image — choose it again"*.
+- An interrupted batch's journal keeps bookmarks of the images' folders, of images added on their own (up to 2 000, when their folder couldn't be bookmarked) and of the output folder, so **Resume** opens them again. Before the resumed run is planned, the folder of every image that still can't be read is asked for (*"… to read the images"*). Images in a folder you don't allow (**Cancel**) are listed as *"N files of the interrupted batch couldn't be opened"*; add them again to convert them. Images whose folder the app can read but which are gone are listed as missing.
+- Jobs keep their own folder bookmarks (see [Process a folder automatically](#process-a-folder-automatically)).
+
+Outside the sandbox (`swift run`) nothing is asked; bookmarks are still made, so the same settings work in the packaged app. For screenshots, DEBUG builds accept `-debugSimulateSandbox` (ask as if sandboxed) and `-debugShowFolderAccess` (open the Folder Access window).
+
+## Updates
+
+imageconverter can update itself from its GitHub releases. Nothing goes online until you allow it.
+
+- **First launch:** a sheet asks *"Check for updates automatically?"* **Yes** checks now and at every launch; **No** never checks on its own. You are asked once; the answer is the checkbox below.
+- **App menu ▸ About imageconverter** has **Check Now**, the checkbox **Check for updates when the app starts** and a status line: *Checking…*, *You're up to date (1.1.0)*, *Version 1.2.0 is available* or what went wrong. Check Now always works. A check at launch stays silent when you're up to date or the check fails.
+- **When a newer version is found**, a sheet shows its release notes (as plain text) with **Install and Relaunch** and **Later**. Install first makes sure it can replace the app (see below), then downloads the release's zip and checksum and checks the checksum. A small installer service inside the app (`Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc`, not sandboxed, so the new app isn't marked as "created by a sandboxed app" and blocked) checks everything again, puts the new app in place of the old one (the old one goes to the Trash), and the app reopens itself.
+
+What is accepted, and when installing is refused:
+
+- Only GitHub's latest release of `jozeta/imageconverter`, tagged `v` + `x.y.z`, newer than the running version (never a downgrade or reinstall), not a draft or prerelease, with the assets `imageconverter-<x.y.z>.zip` and `imageconverter-<x.y.z>.zip.sha256`. The API answer may be at most 1 MB.
+- Downloads only over HTTPS from `github.com`, `objects.githubusercontent.com` or `release-assets.githubusercontent.com`, also after redirects; the zip at most 200 MB, the checksum file at most 1 KB. No cookies, cache or stored credentials are used.
+- The zip must match its SHA-256, list at most 20,000 entries and 1 GB unpacked (checked before unpacking, and watched while it unpacks: the installer stops once more than that space is actually used or less than 2 GB of disk stays free; what is unpacked must be what the zip lists), and hold exactly one `imageconverter.app` with no link pointing outside it. The app must be signed with the developer's Developer ID (team `6W6TD6P8G3`, identifier `io.github.jozeta.imageconverter`), notarized, not revoked, and have the release's version. Anything else is refused, the download deleted, and the installed app left alone. If Apple's revocation check can't be reached, it says *"Couldn't confirm the update's signature right now. Try again when you're online."*
+- Before anything is downloaded: installing is refused while a batch or a job runs (*"Finish the running batch or job first."*, checked again right before the swap), in a build that isn't the packaged app (`swift run`: *"Updates install only in the released app."*; Check Now still works there), and when the app runs from a read-only place (a disk image, or macOS's translocated copy of an app opened where it was downloaded): move it to Applications first. No folder access is asked for: the installer service writes the app's folder (usually Applications) with your own permissions. If you can't write to that folder, the installer says so and you can get the update from the release page instead.
+- The installer service accepts requests only from imageconverter itself (signed with the same Developer ID), replaces only the app it is inside, never with an older or the same version, and takes the download only from the app's own temporary folder. The swap never leaves the app's folder: the new app is copied next to the old one under a hidden name and checked again there, the old one is renamed aside, the new one renamed into place, and only then is the old one moved to the Trash. If the new one can't be put in place, the old one is renamed back. Leftovers of an interrupted update are removed the next time.
 
 ## Tests
 

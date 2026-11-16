@@ -25,6 +25,8 @@ public struct EncodedPreview: @unchecked Sendable {
 /// The estimate of one extra output: exactly what the batch would write for it, or why it can't.
 public struct VariantEstimate: Equatable, Sendable {
     public let name: String
+    /// The output's format ("JPEG").
+    public var formatName = ""
     /// Nil when the output can't be made (`failure` says why).
     public let bytes: Int?
     public let failure: String?
@@ -46,7 +48,8 @@ public enum SizeEstimator {
         presets: PresetLibrary = .standard, enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
         caches: PreviewCaches? = nil, detector: any VisionDetector = SystemVisionDetector()
     ) throws -> EncodedPreview {
-        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
+        let resolved = unresolved.withMetadataOverrides(item.metadataOverrides)
+            .resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         switch resolved.disposition {
         case .skip: throw ConversionError.skippedByCondition
         case .copyOriginal:
@@ -112,10 +115,13 @@ public enum SizeEstimator {
     private static func estimate(_ encoded: EncodedVariant, unoptimised: Bool) -> VariantEstimate {
         switch encoded.outcome {
         case .success(let item):
-            return VariantEstimate(name: encoded.variant.displayName, bytes: item.data.count, failure: nil,
-                                   note: item.note ?? (unoptimised ? unoptimisedPNGNote : nil))
+            return VariantEstimate(name: encoded.variant.displayName,
+                                   formatName: encoded.variant.settings.format.displayName, bytes: item.data.count,
+                                   failure: nil, note: item.note ?? (unoptimised ? unoptimisedPNGNote : nil))
         case .failure(let error):
-            return VariantEstimate(name: encoded.variant.displayName, bytes: nil, failure: error.reason, note: nil)
+            return VariantEstimate(name: encoded.variant.displayName,
+                                   formatName: encoded.variant.settings.format.displayName, bytes: nil,
+                                   failure: error.reason, note: nil)
         }
     }
 
@@ -124,5 +130,53 @@ public enum SizeEstimator {
         guard !variants.isEmpty else { return nil }
         let parts = variants.map { "\($0.name) \($0.bytes.map(SizeFormat.bytes) ?? "—")" }
         return (["Primary \(SizeFormat.bytes(primary))"] + parts).joined(separator: " · ")
+    }
+
+    /// One output's line in the size box behind the ⓘ: "Main JPEG", "1.1 MB at 80 % (−48 %)", its note.
+    public struct Line: Equatable, Sendable {
+        public let title: String
+        public let size: String
+        public let note: String?
+        public let failed: Bool
+    }
+
+    /// The main output's estimate, for `lines`.
+    public struct MainEstimate: Equatable, Sendable {
+        public var original: Int?
+        public var bytes: Int
+        /// The quality a searching compression mode chose.
+        public var quality: Double?
+        public var note: String?
+
+        public init(original: Int?, bytes: Int, quality: Double? = nil, note: String? = nil) {
+            self.original = original
+            self.bytes = bytes
+            self.quality = quality
+            self.note = note
+        }
+    }
+
+    /// The size box: the main output first ("Main JPEG" — original → estimate, the quality the compression chose,
+    /// the change), then every extra output ("Thumbnail JPEG" — its size and change from the original), each with
+    /// its note or why it can't be made.
+    public static func lines(main: MainEstimate, settings: OutputSettings, variants: [VariantEstimate]) -> [Line] {
+        let (original, primary, format) = (main.original, main.bytes, settings.format)
+        let (quality, mode, note) = (main.quality, settings.compression, main.note)
+        func change(_ bytes: Int) -> String {
+            original.flatMap { SizeFormat.percentChange(from: $0, to: bytes) }.map { " (\($0))" } ?? ""
+        }
+        let from = original.map { "\(SizeFormat.bytes($0)) → " } ?? ""
+        let main = Line(title: "Main \(format.displayName)",
+                        size: "\(from)about \(SizeFormat.bytes(primary))\(qualitySuffix(quality, mode: mode))"
+                            + change(primary),
+                        note: note, failed: false)
+        return [main] + variants.map { variant in
+            let title = [variant.name, variant.formatName].filter { !$0.isEmpty }.joined(separator: " ")
+            guard let bytes = variant.bytes else {
+                return Line(title: title, size: "—", note: variant.failure, failed: true)
+            }
+            return Line(title: title, size: "about \(SizeFormat.bytes(bytes))\(change(bytes))", note: variant.note,
+                        failed: false)
+        }
     }
 }

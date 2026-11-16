@@ -107,6 +107,16 @@ final class AdjustDirectionTests: XCTestCase {
         XCTAssertGreaterThan(variance(try Adjustments.apply(AdjustOptions(definition: 100), to: noisy)), before * 1.05)
     }
 
+    func testSoftenSmoothsAndGrowsWithTheAmount() throws {
+        // 400 px: at −100 the blur radius is a few pixels, enough to flatten single-pixel noise.
+        let noisy = mildNoise(size: 400)
+        let before = variance(noisy)
+        let light = variance(try Adjustments.apply(AdjustOptions(sharpness: -20), to: noisy))
+        let strong = variance(try Adjustments.apply(AdjustOptions(sharpness: -100), to: noisy))
+        XCTAssertLessThan(light, before * 0.9)
+        XCTAssertLessThan(strong, light * 0.5)
+    }
+
     func testOutOfRangeAndNaNAreClampedInApply() throws {
         let image = level(128)
         XCTAssertTrue(try Adjustments.apply(AdjustOptions(exposure: .nan), to: image) === image)

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import ImageconverterCore
 
@@ -11,17 +12,12 @@ extension AppModel {
 
     var canAddVariant: Bool { pipeline.extraOutputs.count < OutputVariant.maxCount }
 
-    /// Adds a thumbnail output (JPEG, longest edge 400 px) with a suffix no other output uses.
+    /// Adds an output panel: a copy of the main output's settings with a free name ("Output 2") and suffix, saved
+    /// beside the main output until its own Save to is changed (`OutputVariant.added`).
     @discardableResult
     func addVariant() -> OutputVariant? {
         guard canAddVariant else { return nil }
-        let count = pipeline.extraOutputs.count
-        let taken = Set(pipeline.extraOutputs.map { $0.cleanSuffix.lowercased() })
-        let candidates = [OutputVariant.defaultSuffix] + (2...OutputVariant.maxCount + 1).map {
-            "\(OutputVariant.defaultSuffix)\($0)"
-        }
-        let suffix = candidates.first { !taken.contains($0) } ?? "_\(count + 1)"
-        let variant = OutputVariant(name: count == 0 ? "Thumbnail" : "Output \(count + 2)", nameSuffix: suffix)
+        let variant = OutputVariant.added(after: pipeline.extraOutputs, main: pipeline.output)
         pipeline.extraOutputs.append(variant)
         return variant
     }
@@ -42,5 +38,96 @@ extension AppModel {
 
     func removeVariant(_ id: UUID) {
         pipeline.extraOutputs.removeAll { $0.id == id }
+    }
+}
+
+extension AppModel {
+    /// Resolves the extra outputs' chosen folders once for a run (`Pipeline.checkingVariantFolders`): a moved
+    /// folder is followed and a stale bookmark renewed (also in the edited pipeline, when it is the one running).
+    /// A folder this app can't confirm (a preset from someone else, a folder that is gone) is asked for again with
+    /// an open panel, once per folder even when several outputs share it; nothing is written there until the user
+    /// chooses it. `name`: the preset the run uses (for `{preset}`). Returns the pipeline and the folder policy for
+    /// the run: the folders chosen now are trusted even when no bookmark could be made for them. Nil when the user
+    /// cancels.
+    func confirmVariantFolders(_ base: Pipeline, named name: String?) -> (Pipeline, VariantFolderPolicy)? {
+        let pipeline = name.map { base.named($0) } ?? base
+        let check = pipeline.checkingVariantFolders()
+        var result = check.pipeline
+        var answers: [String: VariantFolder] = [:]
+        for variant in check.unconfirmed {
+            guard let folder = variant.chosenFolder, let index = result.extraOutputs.firstIndex(where: { $0.id == variant.id })
+            else { continue }
+            if let chosen = answers[folder.path] {
+                result.extraOutputs[index].destination = .folder(chosen)
+                continue
+            }
+            guard let url = askForVariantFolder(folder, name: variant.displayName) else {
+                toasts.show("Not run: choose the folder of \u{201C}\(variant.displayName)\u{201D} again", type: .info,
+                            description: "That output's folder wasn't chosen in imageconverter on this Mac.")
+                return nil
+            }
+            AccessStore.shared.remember(url)
+            let chosen = VariantFolder.chosen(url)
+            answers[folder.path] = chosen
+            result.extraOutputs[index].destination = .folder(chosen)
+            VariantFolderTrust.shared.forget()
+        }
+        if result.extraOutputs != pipeline.extraOutputs,
+           self.pipeline.extraOutputs.map(\.id) == pipeline.extraOutputs.map(\.id) {
+            self.pipeline.extraOutputs = result.extraOutputs
+        }
+        return (result, .confirmedOr(chosen: Set(answers.values.map(\.path))))
+    }
+
+    private func askForVariantFolder(_ folder: VariantFolder, name: String) -> URL? {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        var isFolder: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: folder.path, isDirectory: &isFolder) && isFolder.boolValue
+        panel.directoryURL = exists ? folder.url : folder.url.deletingLastPathComponent()
+        panel.message = "Choose the folder again for the output \u{201C}\(name)\u{201D}. It was saved as "
+            + "\u{201C}\(folder.path)\u{201D}, but imageconverter can't confirm it on this Mac."
+        panel.prompt = "Use Folder"
+        NSApp.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+
+    /// Follows moved extra-output folders and renews stale bookmarks in the edited pipeline (launch, preset load).
+    func refreshVariantFolders() {
+        let check = pipeline.checkingVariantFolders()
+        if check.changed { pipeline = check.pipeline }
+    }
+}
+
+/// Whether each chosen extra-output folder is confirmed (`VariantFolder.resolution`), cached per folder value so
+/// the panel doesn't resolve bookmarks on every redraw. A cached "confirmed" is checked against the folder still
+/// existing (one `stat`), so a folder deleted since is flagged again.
+@MainActor
+final class VariantFolderTrust {
+    static let shared = VariantFolderTrust()
+    /// The folder's resolved place when confirmed, nil when not.
+    private var cache: [VariantFolder: URL?] = [:]
+
+    func needsChoosing(_ folder: VariantFolder) -> Bool {
+        guard folder.isChosen else { return false }
+        if let known = cache[folder] {
+            guard let place = known else { return true }
+            if Self.isFolder(place) { return false }
+        }
+        let resolution = folder.resolution()
+        let confirmed = resolution.isConfirmed && Self.isFolder(resolution.url)
+        cache[folder] = confirmed ? resolution.url : URL?.none
+        return !confirmed
+    }
+
+    func forget() { cache = [:] }
+
+    private static func isFolder(_ url: URL) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
     }
 }

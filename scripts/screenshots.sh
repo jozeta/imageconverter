@@ -63,6 +63,7 @@ shot() {
     defaults write "$suite" outputModeKind newFolder
     defaults write "$suite" outputFolder "$work/Out"
     defaults write "$suite" updateCheckOnLaunch -bool false    # no first-launch question, never online
+    defaults write "$suite" compareModeDefaultSplitApplied -bool true    # a compareMode=… setting below is kept
     local pair
     for pair in ${settings[@]+"${settings[@]}"}; do defaults write "$suite" "${pair%%=*}" "${pair#*=}"; done
     "$binary" -debugDefaultsSuite "$suite" "${args[@]}" >/dev/null 2>&1 &
@@ -93,6 +94,7 @@ shot quality main -- -debugSelect 5 -debugShowQuality "${size[@]}" "${files[@]}"
 shot pipeline watermark -- -debugSelect 5 -debugExpandSteps "${size[@]}" "${files[@]}"
 shot adjust adjust -- -debugSelect 1 -debugExpandSteps "${size[@]}" "${files[@]}"
 shot output-target-size output -- -debugSelect 5 "${size[@]}" "${files[@]}"
+shot outputs outputs -- -debugSelect 5 -debugExpandSteps -debugShowEstimateInfo "${size[@]}" "${files[@]}"
 shot metadata metadata -- -debugSelect 0 -debugExpandSteps "${size[@]}" "${files[@]}"
 shot rename rename -- -debugSelect 5 -debugExpandSteps "${size[@]}" "${files[@]}"
 shot condition condition -- -debugSelect 0 -debugExpandSteps "${size[@]}" "${files[@]}"
@@ -112,6 +114,7 @@ if wanted history; then
     defaults write "$suite" outputModeKind newFolder
     defaults write "$suite" outputFolder "$work/Out"
     defaults write "$suite" updateCheckOnLaunch -bool false    # no first-launch question, never online
+    defaults write "$suite" compareModeDefaultSplitApplied -bool true    # a compareMode=… setting below is kept
     "$binary" -debugDefaultsSuite "$suite" -debugAutoRun "${files[@]}" >/dev/null 2>&1 &
     pid=$!; sleep 12; kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; pid=""
     shot history main -- -debugShowHistory -- History

@@ -16,7 +16,8 @@ public struct VariantTarget: Equatable, Sendable {
     public let variants: [OutputVariant]
     /// The rendered base name (nil keeps the source's name), as the primary output's.
     public let baseName: String?
-    /// Each variant's own folder names (outermost first), under the primary output's folder.
+    /// Each variant's own folder names (outermost first), under its base folder (`OutputVariant.baseFolder`): a
+    /// `.subfolder` destination's folders first, then its `subfolder`.
     public let subfolders: [[String]]
 
     public init(variants: [OutputVariant], baseName: String? = nil, subfolders: [[String]]? = nil) {
@@ -28,14 +29,16 @@ public struct VariantTarget: Equatable, Sendable {
 
 extension OutputPlanner {
     /// Plans every item's extra outputs, after its primary output was planned (`primaries`, the same order as
-    /// `targets`). Each goes into the primary output's folder (in overwrite mode that is the source's own folder),
-    /// under its own subfolder if it has one, as `<base name><suffix>.<ext>`: always a new file. A name is taken
+    /// `targets`). Each goes into its base folder (`OutputVariant.baseFolder`: the primary output's folder, which in
+    /// overwrite mode is the source's own folder; its chosen folder, `folders` saying where each chosen path is
+    /// now; or the source's folder), under its own subfolders if it has any, as `<base name><suffix>.<ext>`:
+    /// always a new file, in every destination. A name is taken
     /// when any item's source, a reserved source, a primary output, an earlier extra output or an existing file
     /// has it (`_2`, `_3`, ...), so an extra output never replaces anything. Items whose primary plan was refused
     /// get none, and an output with no free name is left out (`failures` lists it).
     public static func planVariants(
         _ targets: [VariantTarget], primaries: [PlannedOutput], reservedSources: [URL] = [],
-        fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+        folders: [String: URL] = [:], fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
     ) -> (plans: [[PlannedVariant]], failures: [[OutputVariant]]) {
         var claimed = Set(primaries.map { key($0.item.source) })
         claimed.formUnion(reservedSources.map(key))
@@ -48,17 +51,18 @@ extension OutputPlanner {
                 failures.append([])
                 continue
             }
-            let base = primary.destination.deletingLastPathComponent()
             let sourceName = primary.item.source.deletingPathExtension().lastPathComponent
             var planned: [PlannedVariant] = []
             var missing: [OutputVariant] = []
-            for (variant, folders) in zip(target.variants, target.subfolders) {
+            for (variant, subfolders) in zip(target.variants, target.subfolders) {
                 let suffix = variant.cleanSuffix
                 guard !suffix.isEmpty else {
                     missing.append(variant)
                     continue
                 }
-                let directory = within(base, Array(folders.filter(SubfolderTemplate.isSafeName)
+                let base = variant.baseFolder(primary: primary.destination, source: primary.item.source,
+                                              folders: folders)
+                let directory = within(base, Array(subfolders.filter(SubfolderTemplate.isSafeName)
                     .prefix(SubfolderTemplate.maxDepth)))
                 let name = fitted(target.baseName ?? sourceName, suffix: suffix)
                 let dotExt = ".\(variant.settings.format.fileExtensions[0])"

@@ -175,3 +175,40 @@ final class WindowLayoutTests: XCTestCase {
         XCTAssertEqual(WindowLayout.followingHeights(maxContent: screen), WindowLayout.minContentHeight...1200)
     }
 }
+
+/// The metadata panel right of the preview widens the open preview's minimum by its width.
+final class WindowLayoutInspectorTests: XCTestCase {
+    private let screen = CGSize(width: 1800, height: 1100)
+
+    func testOpenPanelAddsItsWidthToTheMinimum() {
+        let closed = WindowLayout.limits(previewShown: true, fittedHeight: 600, maxContent: screen)
+        let open = WindowLayout.limits(previewShown: true, fittedHeight: 600, maxContent: screen, inspectorWidth: 300)
+        XCTAssertEqual(open.width.lowerBound, closed.width.lowerBound + 300)
+        // Hidden with the preview: the window is the sidebar alone.
+        let hidden = WindowLayout.limits(previewShown: false, fittedHeight: 600, maxContent: screen, inspectorWidth: 300)
+        XCTAssertEqual(hidden.width, WindowLayout.sidebarWidth...WindowLayout.sidebarWidth)
+    }
+
+    func testTargetWidthGrowsToFitThePanelWithinTheScreen() {
+        let current = CGSize(width: 1000, height: 600)
+        let target = WindowLayout.targetSize(previewShown: true, current: current, contentHeight: 600,
+                                             requestedWidth: 1300, maxContent: screen, inspectorWidth: 300)
+        XCTAssertEqual(target.width, 1300)
+        let small = WindowLayout.targetSize(previewShown: true, current: current, contentHeight: 600,
+                                            requestedWidth: 700, maxContent: screen, inspectorWidth: 300)
+        XCTAssertEqual(small.width, WindowLayout.sidebarWidth + WindowLayout.previewMinWidth + 300)
+        let narrowScreen = WindowLayout.targetSize(previewShown: true, current: current, contentHeight: 600,
+                                                   requestedWidth: 2000, maxContent: CGSize(width: 1000, height: 800),
+                                                   inspectorWidth: 300)
+        XCTAssertEqual(narrowScreen.width, 1000)
+    }
+
+    func testPanelWidthIsClamped() {
+        XCTAssertEqual(WindowLayout.clampedInspectorWidth(100), WindowLayout.inspectorMinWidth)
+        XCTAssertEqual(WindowLayout.clampedInspectorWidth(900), WindowLayout.inspectorMaxWidth)
+        XCTAssertEqual(WindowLayout.clampedInspectorWidth(.nan), WindowLayout.defaultInspectorWidth)
+        // The preview keeps its minimum: a 1100 pt window leaves 320 pt for the panel.
+        XCTAssertEqual(WindowLayout.clampedInspectorWidth(500, windowWidth: 1100), 320)
+        XCTAssertEqual(WindowLayout.clampedInspectorWidth(500, windowWidth: 800), WindowLayout.inspectorMinWidth)
+    }
+}

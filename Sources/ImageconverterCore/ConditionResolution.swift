@@ -76,6 +76,17 @@ extension Pipeline {
         return incomplete ? Self.emptyLabelsBlocker : nil
     }
 
+    /// What reading a file's facts must include: the enabled conditions' needs, plus the labels when the Rename
+    /// step's pattern uses `{labels}`.
+    var factNeeds: FactNeeds {
+        var needs = conditionFactNeeds
+        if rename.isActive, RenameTemplate(rename.pattern).usesLabels { needs.insert(.labels) }
+        return needs
+    }
+
+    /// Whether resolving reads each file's facts: there are conditions, or the file name needs the labels.
+    public var needsFacts: Bool { hasConditions || factNeeds.contains(.labels) }
+
     /// What reading a file's facts must include for the enabled conditions.
     var conditionFactNeeds: FactNeeds {
         steps.reduce(into: FactNeeds()) { needs, step in
@@ -157,24 +168,27 @@ extension Pipeline {
                                      notes: inout [String]) -> Bool {
         let redactions = result.steps.filter { $0.isEnabled && $0.operation.kind == .redact }
         let hidesMetadata = result.metadata.hidesSourceData
-        guard !redactions.isEmpty || hidesMetadata else { return false }
+        // The metadata panel's changes are for this image's outputs, a copy included.
+        let editsMetadata = !result.metadataOverrides.isEmpty
+        guard !redactions.isEmpty || hidesMetadata || editsMetadata else { return false }
         result.steps = redactions
         result.output = .faithful(format ?? result.output.format)
         if !redactions.isEmpty { notes.append(Redaction.convertedToRedactNote) }
         if hidesMetadata { notes.append(ConditionalStep.convertedForPrivacyNote) }
+        if editsMetadata, !hidesMetadata { notes.append(ConditionalStep.convertedForMetadataEditsNote) }
         if let note = notAppliedNote(presetSteps) { notes.append(note) }
         return true
     }
 
     /// True when content checks needed an image analysis that failed: the report flags that file.
     private func analysisFailed(_ facts: ItemFacts?) -> Bool {
-        guard let facts, !conditionFactNeeds.isDisjoint(with: .analysis) else { return false }
+        guard let facts, !factNeeds.isDisjoint(with: .analysis) else { return false }
         return facts.analysis.failure != nil
     }
 
     /// Why content checks couldn't be answered for `facts` (the analysis failed, or needs macOS 15).
     private func analysisNotes(_ facts: ItemFacts?) -> [String] {
-        guard let facts, !conditionFactNeeds.isDisjoint(with: .analysis) else { return [] }
+        guard let facts, !factNeeds.isDisjoint(with: .analysis) else { return [] }
         if let failure = facts.analysis.failure { return [ImageAnalysis.unavailableNote(failure)] }
         // The flag may come from an earlier, cached read for an aesthetics check this pipeline no longer has.
         return facts.analysis.needsNewerSystem && conditionFactNeeds.contains(.aesthetics)
@@ -186,8 +200,8 @@ extension Pipeline {
     /// and the analysis only within `maxPixels`.
     public func resolved(forSource url: URL, maxPixels: Int = ImageLoader.defaultMaxPixels,
                          presets: PresetLibrary = .standard, analysis: ImageAnalysisCache = .shared) -> ResolvedPipeline {
-        guard hasConditions else { return ResolvedPipeline(pipeline: withoutConditions) }
-        let facts = ItemFacts.read(url, needs: conditionFactNeeds, maxPixels: maxPixels, analysis: analysis)
+        guard needsFacts else { return ResolvedPipeline(pipeline: withoutConditions) }
+        let facts = ItemFacts.read(url, needs: factNeeds, maxPixels: maxPixels, analysis: analysis)
         return resolved(for: facts, presets: presets)
     }
 

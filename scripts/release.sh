@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 # Builds dist/imageconverter.app (universal, sandboxed, hardened runtime) with the command-line tool inside at
 # Contents/Helpers/imageconverter and the update installer service (not sandboxed) at
-# Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc, signs it and zips it.
+# Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc and the App Intents metadata Shortcuts reads
+# (Contents/Resources/Metadata.appintents, made by Xcode's appintentsmetadataprocessor from the SwiftPM build's
+# compiler output; needs Xcode, not only the Command Line Tools), signs it and zips it.
 #
 # Usage: scripts/release.sh [--notarize]
 #
 # Environment:
 #   SIGN_IDENTITY   codesign identity (default "-": ad hoc, for local testing; nothing is notarized)
 #   NOTARY_PROFILE  notarytool keychain profile (`xcrun notarytool store-credentials`); needed for --notarize
+#   SKIP_APPINTENTS set to 1 to build without Contents/Resources/Metadata.appintents (no Shortcuts actions). Only for
+#                   CI, whose older Xcode can't run this script's metadata step; refused with a real identity or
+#                   --notarize, so a release always has the Shortcuts actions.
 #   SWIFT_FLAGS     extra `swift build` arguments, split on spaces (e.g. "-Xswiftc -DUPDATE_E2E" for the update
 #                   end-to-end test build, whose installer service accepts the ad hoc ...updatetest app). UPDATE_E2E is
 #                   refused with a real identity or --notarize, and a non-ad-hoc build whose service mentions
@@ -36,7 +41,7 @@ notarize=false
 for argument in "$@"; do
     case "$argument" in
         --notarize) notarize=true ;;
-        -h|--help) sed -n '2,15p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown option '$argument' (usage: scripts/release.sh [--notarize])" ;;
     esac
 done
@@ -45,6 +50,21 @@ identity="${SIGN_IDENTITY:--}"
 # The end-to-end test switch relaxes who may use the installer service; it must never reach a release.
 if [[ "${SWIFT_FLAGS:-}" == *UPDATE_E2E* ]] && { [ "$identity" != "-" ] || [ "$notarize" = true ]; }; then
     die "SWIFT_FLAGS has UPDATE_E2E (the update end-to-end test build); it is only allowed for ad hoc builds without --notarize."
+fi
+skip_appintents=false
+case "${SKIP_APPINTENTS:-}" in
+    "" | 0) ;;
+    1) skip_appintents=true ;;
+    *) die "SKIP_APPINTENTS must be 1 (or unset), not '${SKIP_APPINTENTS}'." ;;
+esac
+# A release without Metadata.appintents has no Shortcuts actions; the skip is only for ad hoc CI builds.
+if [ "$skip_appintents" = true ] && { [ "$identity" != "-" ] || [ "$notarize" = true ]; }; then
+    die "SKIP_APPINTENTS=1 builds an app without Shortcuts actions; it is only allowed for ad hoc builds without --notarize."
+fi
+if [ "$skip_appintents" = false ]; then
+    # Checked before building: without Xcode the metadata step can't run.
+    processor=$(xcrun --find appintentsmetadataprocessor 2>/dev/null) \
+        || die "appintentsmetadataprocessor not found: the Shortcuts actions need Xcode (xcode-select -s /Applications/Xcode.app), not only the Command Line Tools."
 fi
 if [ "$notarize" = true ]; then
     [ "$identity" != "-" ] || die "--notarize needs a Developer ID identity in SIGN_IDENTITY (ad hoc signatures can't be notarized)."
@@ -95,7 +115,8 @@ if swift build "${universal[@]}" --product "$EXECUTABLE" 2>&1 | tee "$build_log"
     && swift build "${universal[@]}" --product imageconverter-installer 2>&1 | tee -a "$build_log"; then
     bin=$(swift build "${universal[@]}" --show-bin-path)
 elif grep -Eiq "unable to find utility \"?xcbuild|xcbuild.*not found|requires xcode|multiple (--arch|architectures).*not supported" "$build_log"; then
-    # Only a toolchain that can't build a second architecture (Command Line Tools without Xcode) falls back.
+    # Only a toolchain that can't build a second architecture (Command Line Tools without Xcode) falls back. That
+    # is reachable only with SKIP_APPINTENTS=1: otherwise the missing Xcode stopped the script before the build.
     warn "this toolchain can't build a universal binary (needs Xcode); building for $(uname -m) only."
     single=(-c release ${extra[@]+"${extra[@]}"})
     swift build "${single[@]}" --product "$EXECUTABLE"
@@ -114,6 +135,47 @@ if [ "$identity" != "-" ]; then
         && die "the installer service was built with UPDATE_E2E (it accepts the test app); rebuild without it."
 fi
 
+# --- App Intents metadata (Shortcuts) ---------------------------------------------------------------------------
+# Shortcuts only lists an app's actions when the bundle has Contents/Resources/Metadata.appintents. Xcode makes it
+# in a build phase that SwiftPM doesn't run, so it is made here with Xcode's own tool from what the universal
+# (Xcode build system) `swift build` left: the app module's source list and the compiler's constant values
+# (.swiftconstvalues, one per architecture). The intents are in Sources/Imageconverter/Intents/.
+intents=(ConvertImagesIntent ApplyPresetToFolderIntent RunJobIntent StripMetadataIntent ResizeImagesIntent
+         ConvertFormatIntent GetImageMetadataIntent)
+make_appintents_metadata() {
+    intermediates="$(dirname "$(dirname "$bin")")/Intermediates.noindex"
+    module_build=$(find "$intermediates" -type d -path "*/Release/$EXECUTABLE-p.build" 2>/dev/null | head -n 1)
+    [ -n "$module_build" ] || die "no build intermediates for $EXECUTABLE in $intermediates (the universal build makes them)."
+    metadata_args=()
+    for arch in arm64 x86_64; do
+        objects="$module_build/Objects-normal/$arch"
+        [ -f "$objects/$EXECUTABLE.SwiftFileList" ] || die "no $arch source list in $objects."
+        find "$objects" -maxdepth 1 -name '*.swiftconstvalues' > "$work/constvalues-$arch.txt"
+        [ -s "$work/constvalues-$arch.txt" ] || die "no $arch .swiftconstvalues in $objects."
+        metadata_args+=(--target-triple "$arch-apple-macos14.0" --source-file-list "$objects/$EXECUTABLE.SwiftFileList"
+                        --swift-const-vals-list "$work/constvalues-$arch.txt")
+    done
+    : > "$work/no-dependency-metadata.txt"
+    toolchain=$(dirname "$(dirname "$(dirname "$(xcrun --find swift)")")")
+    xcode_build=$(xcodebuild -version 2>/dev/null | sed -n 's/^Build version //p')
+    mkdir -p "$work/appintents"
+    "$processor" --toolchain-dir "$toolchain" --module-name "$EXECUTABLE" --sdk-root "$(xcrun --sdk macosx --show-sdk-path)" \
+        --xcode-version "${xcode_build:-unknown}" --platform-family macOS --deployment-target 14.0 \
+        --bundle-identifier "$BUNDLE_ID" --output "$work/appintents" --binary-file "$bin/$EXECUTABLE" \
+        "${metadata_args[@]}" --metadata-file-list "$work/no-dependency-metadata.txt" \
+        --static-metadata-file-list "$work/no-dependency-metadata.txt" --force --compile-time-extraction \
+        --deployment-aware-processing --no-app-shortcuts-localization > "$work/appintents.log" 2>&1 \
+        || { cat "$work/appintents.log" >&2; die "the App Intents metadata processor failed."; }
+    grep -i "warning" "$work/appintents.log" >&2 || true
+    actions_data="$work/appintents/Metadata.appintents/extract.actionsdata"
+    [ -f "$actions_data" ] || { cat "$work/appintents.log" >&2; die "no Metadata.appintents was made (no intents found)."; }
+}
+if [ "$skip_appintents" = true ]; then
+    echo "==> App Intents metadata skipped (SKIP_APPINTENTS=1)"
+else
+    make_appintents_metadata
+fi
+
 # --- Assemble -------------------------------------------------------------------------------------------------
 app="$work/$APP_NAME.app"
 contents="$app/Contents"
@@ -124,6 +186,23 @@ ditto "$bin/$EXECUTABLE" "$contents/MacOS/$EXECUTABLE"
 ditto "$bin/imageconverter-cli" "$contents/Helpers/imageconverter"
 scripts/make-iconset.sh Resources/AppIcon.png "$contents/Resources/AppIcon.icns" >/dev/null
 cp Resources/imageconverter.sdef "$contents/Resources/imageconverter.sdef"
+if [ "$skip_appintents" = false ]; then
+    ditto "$work/appintents/Metadata.appintents" "$contents/Resources/Metadata.appintents"
+    # Every Shortcuts action must be listed, run without opening the app, and have its App Shortcut phrases.
+    bundled_actions="$contents/Resources/Metadata.appintents/extract.actionsdata"
+    for intent in "${intents[@]}"; do
+        [ "$(plutil -extract "actions.$intent.identifier" raw "$bundled_actions" 2>/dev/null)" = "$intent" ] \
+            || die "Metadata.appintents doesn't list the $intent action."
+        [ "$(plutil -extract "actions.$intent.openAppWhenRun" raw "$bundled_actions" 2>/dev/null)" = false ] \
+            || die "the $intent action would open the app (openAppWhenRun must be false)."
+    done
+    # `raw` prints a dictionary's keys one per line (and an array's count).
+    action_count=$(plutil -extract actions raw "$bundled_actions" 2>/dev/null | grep -c . || true)
+    [ "$action_count" = "${#intents[@]}" ] \
+        || die "Metadata.appintents lists $action_count actions, expected ${#intents[@]} (update the list in release.sh)."
+    [ "$(plutil -extract autoShortcuts raw "$bundled_actions" 2>/dev/null || echo 0)" = "${#intents[@]}" ] \
+        || die "Metadata.appintents doesn't have one App Shortcut per action."
+fi
 printf 'APPL????' > "$contents/PkgInfo"
 
 # The update installer XPC service: unpacks, checks and installs updates outside the sandbox (files the sandboxed
@@ -197,6 +276,13 @@ grep -qx "Identifier=$INSTALLER_ID" <<< "$xpc_info" || die "the installer servic
 xpc_entitlements=$(codesign -d --entitlements - --xml "$xpc" 2>/dev/null || true)
 grep -q "app-sandbox" <<< "$xpc_entitlements" && die "the installer service must not be sandboxed."
 echo "==> signed and verified: sandbox on, network client only (no server); installer service unsandboxed"
+if [ "$skip_appintents" = true ]; then
+    [ ! -e "$contents/Resources/Metadata.appintents" ] || die "SKIP_APPINTENTS=1 but the app has a Metadata.appintents."
+    echo "==> Shortcuts actions: none (App Intents metadata skipped, SKIP_APPINTENTS=1)"
+else
+    [ -f "$contents/Resources/Metadata.appintents/extract.actionsdata" ] || die "the signed app has no Metadata.appintents."
+    echo "==> Shortcuts actions: ${intents[*]}"
+fi
 
 # --- Zip (and notarize) ---------------------------------------------------------------------------------------
 if [ "$notarize" = true ]; then

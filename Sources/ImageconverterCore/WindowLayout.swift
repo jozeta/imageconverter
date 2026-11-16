@@ -14,6 +14,20 @@ public enum WindowLayout {
     /// A floor for tiny content only; normally the content is taller.
     public static let minContentHeight: CGFloat = 300
     public static let defaultPreviewWidth: CGFloat = 640
+    /// The metadata panel right of the preview (shown only with the preview): its width range and default.
+    /// Opening it widens the window by its width; its edge handle moves the border with the preview.
+    public static let inspectorMinWidth: CGFloat = 260
+    public static let inspectorMaxWidth: CGFloat = 560
+    public static let defaultInspectorWidth: CGFloat = 300
+
+    /// `width` within the panel's range and within what a window `windowWidth` wide leaves after the sidebar and
+    /// the preview's minimum (never below the panel's minimum).
+    public static func clampedInspectorWidth(_ width: CGFloat, windowWidth: CGFloat? = nil) -> CGFloat {
+        var upper = inspectorMaxWidth
+        if let windowWidth { upper = min(upper, max(inspectorMinWidth, windowWidth - sidebarWidth - previewMinWidth)) }
+        guard width.isFinite else { return defaultInspectorWidth }
+        return min(max(width, inspectorMinWidth), upper)
+    }
 
     /// The natural heights of the sidebar's parts, measured by the app; the window heights follow from them.
     public struct SidebarParts: Equatable, Sendable {
@@ -75,6 +89,18 @@ public enum WindowLayout {
         return (height, remembered)
     }
 
+    /// The remembered height once a pinned height is let go (the Output panel's handle was dragged or stepped while
+    /// the window kept its height). Measured with the parts as they are after the change: when the content now fits
+    /// in the pinned height (the steps would show empty room, e.g. after collapsing Output), the remembered height from
+    /// before the pin comes back (nil: the window fits the content again, so no gap is left); when the content is
+    /// taller (the steps scroll), the pinned height is kept, like a window the user resized.
+    public static func releasedRememberedHeight(pinned: CGFloat, parts: SidebarParts, rememberedBefore: CGFloat?,
+                                                maxContent: CGSize) -> CGFloat? {
+        let range = expandedHeights(parts: parts, maxContent: maxContent)
+        let height = min(max(pinned, range.lowerBound), range.upperBound)
+        return height >= parts.expanded - 1 ? rememberedBefore : height
+    }
+
     /// The heights an expanded window may be resized to: the minimum that keeps everything but most of
     /// the steps visible, up to the screen.
     public static func expandedHeights(parts: SidebarParts, maxContent: CGSize) -> ClosedRange<CGFloat> {
@@ -102,18 +128,22 @@ public enum WindowLayout {
     }
 
     /// The window's min/max content size for a height range (see `restHeights`).
-    public static func limits(previewShown: Bool, heights: ClosedRange<CGFloat>, maxContent: CGSize) -> Limits {
-        var limits = limits(previewShown: previewShown, fittedHeight: heights.lowerBound, maxContent: maxContent)
+    public static func limits(previewShown: Bool, heights: ClosedRange<CGFloat>, maxContent: CGSize,
+                              inspectorWidth: CGFloat = 0) -> Limits {
+        var limits = limits(previewShown: previewShown, fittedHeight: heights.lowerBound, maxContent: maxContent,
+                            inspectorWidth: inspectorWidth)
         limits.height = heights
         return limits
     }
 
     /// The window's min/max content size when no animation runs. `fittedHeight` is the content-fitted
     /// height (see `fittingHeight`); the height is fixed to it whether or not the preview is open.
-    public static func limits(previewShown: Bool, fittedHeight: CGFloat, maxContent: CGSize) -> Limits {
+    /// `inspectorWidth`: the open metadata panel's width (0 when closed), added to the open preview's minimum.
+    public static func limits(previewShown: Bool, fittedHeight: CGFloat, maxContent: CGSize,
+                              inspectorWidth: CGFloat = 0) -> Limits {
         let height = fittedHeight...fittedHeight
         if previewShown {
-            let minWidth = min(sidebarWidth + previewMinWidth, maxContent.width)
+            let minWidth = min(sidebarWidth + previewMinWidth + inspectorWidth, maxContent.width)
             return Limits(width: minWidth...CGFloat.infinity, height: height)
         }
         return Limits(width: sidebarWidth...sidebarWidth, height: height)
@@ -143,10 +173,10 @@ public enum WindowLayout {
     /// The content size the window should have. `requestedWidth` is the width a preview toggle aims
     /// for; nil keeps the current width (within the open-preview minimum and the screen).
     public static func targetSize(previewShown: Bool, current: CGSize, contentHeight: CGFloat,
-                                  requestedWidth: CGFloat?, maxContent: CGSize) -> CGSize {
+                                  requestedWidth: CGFloat?, maxContent: CGSize, inspectorWidth: CGFloat = 0) -> CGSize {
         let height = fittingHeight(contentHeight: contentHeight, maxContent: maxContent)
         guard previewShown else { return CGSize(width: sidebarWidth, height: height) }
-        let minWidth = min(sidebarWidth + previewMinWidth, maxContent.width)
+        let minWidth = min(sidebarWidth + previewMinWidth + inspectorWidth, maxContent.width)
         let width = min(max(requestedWidth ?? current.width, minWidth), maxContent.width)
         return CGSize(width: width, height: height)
     }

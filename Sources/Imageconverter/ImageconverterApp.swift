@@ -10,6 +10,8 @@ struct ImageconverterApp: App {
         directory: AppDefaults.templatesDirectory(folder: WatermarkTemplateStore.watermarkFolderName)))
     @State private var metadataTemplates = MetadataTemplatesModel(store: .metadata(
         directory: AppDefaults.templatesDirectory(folder: MetadataTemplateStore.folderName)))
+    @State private var adjustPresets = AdjustPresetsModel(store: .adjust(
+        directory: AppDefaults.templatesDirectory(folder: AdjustPresetStore.adjustFolderName)))
     @State private var settings = AppSettings(defaults: AppDefaults.store)
     /// Saved jobs, their watchers and schedules (see `JobsController`).
     @State private var jobs = JobsController.shared
@@ -35,6 +37,7 @@ struct ImageconverterApp: App {
                 .environment(model)
                 .environment(watermarkTemplates)
                 .environment(metadataTemplates)
+                .environment(adjustPresets)
                 .onChange(of: settings.afterRun, initial: true) { _, value in model.afterRunSetting = value }
                 .onChange(of: PreviewRequest(model: model, mode: settings.outputMode), initial: true) { _, request in
                     model.schedulePreview(mode: request.mode)
@@ -56,8 +59,15 @@ struct ImageconverterApp: App {
             CommandGroup(after: .toolbar) {
                 Button(model.previewCollapsed ? "Show Preview" : "Hide Preview") { model.togglePreview() }
                     .keyboardShortcut("p", modifiers: [.option, .command])
+                Button(model.inspector.isOpen && !model.previewCollapsed ? "Hide Metadata" : "Show Metadata") {
+                    model.toggleInspector()
+                }
+                .keyboardShortcut("i", modifiers: [.option, .command])
                 Button(model.pipelineCollapsed ? "Expand Pipeline" : "Collapse Pipeline") { model.togglePipeline() }
                 .keyboardShortcut("l", modifiers: [.option, .command])
+                Button(model.outputPanel.collapsed ? "Expand Output" : "Collapse Output") { model.toggleOutput() }
+                    .keyboardShortcut("u", modifiers: [.option, .command])
+                    .disabled(model.pipelineCollapsed)
                 Toggle("Low-Memory Mode", isOn: $model.lowMemoryMode)
                 Divider()
                 compareCommands
@@ -179,6 +189,16 @@ private struct MainWindowContent: View {
                     .frame(width: frozen)
                     .frame(minWidth: frozen ?? WindowLayout.previewMinWidth, maxWidth: frozen ?? .infinity)
             }
+            // Right of the preview, shown with it; the window edge clips it while it slides in or out.
+            if sizer.previewMounted, sizer.inspectorMounted {
+                MetadataInspector(model: model)
+                    .environment(\.overwritesOriginals, settings.modeKind == .overwrite)
+                    .frame(width: sizer.inspectorWidth)
+                    .overlay(alignment: .leading) {
+                        InspectorEdge(sizer: sizer) { model.setInspectorOpen(false) }
+                            .offset(x: -LadaGlass.Spacing.m / 2)
+                    }
+            }
         }
         .frame(minWidth: sizer.widthRange.lowerBound, maxWidth: sizer.widthRange.upperBound,
                minHeight: sizer.heightRange.lowerBound, maxHeight: sizer.heightRange.upperBound,
@@ -241,6 +261,7 @@ private struct MainWindowContent: View {
             model.selectedIndex = selected
         }
         if arguments.contains("-debugShowQuality") { model.compare.showsQuality = true }
+        applyMetadataDebugArguments(arguments)
         openJobsWindowIfAsked(arguments)
         // `-debugAutoRun` runs the batch once the files are in; `-debugExpandPerformance` opens the panel;
         // `-debugResumeInterrupted` presses Resume on the interrupted-batch sheet.
@@ -255,6 +276,26 @@ private struct MainWindowContent: View {
                 frame.size.width = CGFloat(width)
                 window.setFrame(frame, display: true)
             }
+        }
+    }
+    #endif
+
+    #if DEBUG
+    /// `-debugShowInspector` opens the metadata panel; `-debugEditMetadata <title>` sets that title on the selected
+    /// image's outputs, removes its GPS position and scrolls to the title (screenshots).
+    private func applyMetadataDebugArguments(_ arguments: [String]) {
+        if arguments.contains("-debugShowInspector") { model.setInspectorOpen(true) }
+        guard let index = arguments.firstIndex(of: "-debugEditMetadata"), index + 1 < arguments.count else { return }
+        let title = arguments[index + 1]
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [model] in
+            model.setMetadataOverride(.title, to: .text(title))
+            model.removeMetadata(.dictionary("{GPS}"))
+        }
+        // Then scrolls to the edited title, as a privacy link would.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [model] in
+            model.inspector.focus = .xmp("dc:title")
+            model.inspector.focusSource = model.selectedItemIndex.map { model.items[$0].source }
+            model.inspector.focusToken += 1
         }
     }
     #endif
@@ -280,7 +321,8 @@ private struct PreviewRequest: Equatable {
 
     @MainActor init(model: AppModel, mode: OutputMode?) {
         item = model.selectedItemIndex.map { model.items[$0].source }
-        pipeline = model.pipeline
+        // With the selected image's metadata panel changes, so an edit renders again.
+        pipeline = model.pipeline.withMetadataOverrides(model.selectedOverrides)
         self.mode = mode
         collapsed = model.previewCollapsed
         itemCount = model.items.count

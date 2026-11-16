@@ -1,7 +1,8 @@
 import SwiftUI
 import ImageconverterCore
 
-/// The Redact step: what to hide (faces, text, both), how (blur, pixelate, solid colour) and the padding.
+/// The Redact step: what to hide (faces, text, both), how (blur, pixelate, solid colour), the block size or blur
+/// strength, and the padding.
 struct RedactEditor: View {
     @Binding var options: RedactOptions
 
@@ -31,6 +32,15 @@ struct RedactEditor: View {
                     }), supportsOpacity: false)
                     .accessibilityLabel("Fill colour")
             }
+            if options.style == .pixelate {
+                RedactSizeRow(title: "Block size", value: $options.fixedBlockSize,
+                              range: RedactOptions.blockSizeRange, start: RedactOptions.defaultFixedBlockSize,
+                              autoHelp: "Auto: a third of each box's shorter side, so every box gets about three blocks.")
+            } else if options.style == .blur {
+                RedactSizeRow(title: "Strength", value: $options.fixedBlurRadius,
+                              range: RedactOptions.blurRadiusRange, start: RedactOptions.defaultFixedBlurRadius,
+                              autoHelp: "Auto: a blur radius of a third of each box's shorter side.")
+            }
             HStack(spacing: LadaGlass.Spacing.s) {
                 Text("Padding").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                     .frame(width: 72, alignment: .leading)
@@ -53,6 +63,54 @@ struct RedactEditor: View {
                  + "If Vision can't run, the image isn't written.")
                 .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.warnText)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// Auto or a fixed number of pixels (of the image as it arrives at the step) for Pixelate's blocks or Blur's radius.
+private struct RedactSizeRow: View {
+    let title: String
+    @Binding var value: Double?
+    let range: ClosedRange<Double>
+    let start: Double
+    let autoHelp: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
+            HStack(spacing: LadaGlass.Spacing.s) {
+                Text(title).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                    .frame(width: 72, alignment: .leading)
+                    .accessibilityHidden(true)
+                Picker(title, selection: Binding(get: { value != nil },
+                                                 set: { value = $0 ? (value ?? start) : nil })) {
+                    Text("Auto").tag(false)
+                    Text("Fixed").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityLabel(title)
+            }
+            if let fixed = value {
+                HStack(spacing: LadaGlass.Spacing.s) {
+                    Spacer().frame(width: 72)
+                    Slider(value: Binding(get: { min(max(fixed, range.lowerBound), range.upperBound) },
+                                          set: { value = $0.rounded() }), in: range)
+                        .accessibilityLabel("\(title) in pixels")
+                        .accessibilityValue("\(Int(fixed)) pixels")
+                    Text("\(Int(fixed)) px").font(LadaGlass.Typography.mono)
+                        .foregroundStyle(LadaGlass.Colors.text)
+                        .frame(width: 52, alignment: .trailing)
+                        .accessibilityHidden(true)
+                }
+                Text("In pixels of the image as it reaches this step. "
+                     + "Small sizes are raised where needed so text and faces stay unreadable.")
+                    .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(autoHelp)
+                    .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 }

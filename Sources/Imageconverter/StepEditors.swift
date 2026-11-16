@@ -30,12 +30,9 @@ struct StepEditor: View {
                 get: { if case .canvas(let opts) = operation { return opts } else { return CanvasOptions() } },
                 set: { operation = .canvas($0) }))
         case .colorProfile:
-            Picker("Profile", selection: Binding(
-                get: { if case .colorProfile(let profile) = operation { return profile } else { return .sRGB } },
-                set: { operation = .colorProfile($0) })) {
-                ForEach(ColorProfile.allCases, id: \.self) { Text($0.displayName).tag($0) }
-            }
-            .accessibilityLabel("Color profile")
+            ColorEditor(options: Binding(
+                get: { if case .colorProfile(let opts) = operation { return opts } else { return ColorOptions() } },
+                set: { operation = .colorProfile($0) }))
         case .adjust:
             AdjustEditor(options: Binding(
                 get: { if case .adjust(let opts) = operation { return opts } else { return AdjustOptions() } },
@@ -43,7 +40,13 @@ struct StepEditor: View {
         case .perspective:
             PerspectiveEditor(options: Binding(
                 get: { if case .perspective(let opts) = operation { return opts } else { return PerspectiveOptions() } },
-                set: { operation = .perspective($0) }))
+                set: { edited in
+                    // An edited step saved before the empty-area choices switches to the largest crop.
+                    var current = PerspectiveOptions()
+                    if case .perspective(let opts) = operation { current = opts }
+                    current.applyUserEdit(edited)
+                    operation = .perspective(current)
+                }))
         case .trim:
             TrimEditor(options: Binding(
                 get: { if case .trim(let opts) = operation { return opts } else { return TrimOptions() } },

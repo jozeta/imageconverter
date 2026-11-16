@@ -4,8 +4,9 @@ import ImageconverterCore
 /// Watching, schedules and runs.
 extension JobsController {
     /// Job batches run one at a time with half the cores and half the memory budget, so a manual run keeps its share.
-    nonisolated static var jobConcurrency: Int { max(1, ProcessInfo.processInfo.activeProcessorCount / 2) }
-    nonisolated static var jobMemoryBudget: Int { max(1, BatchRunner.defaultMemoryBudgetPixels / 2) }
+    /// Shortcuts actions use the same limits (`Automation.limits`).
+    nonisolated static var jobConcurrency: Int { BatchResourceLimits.background.concurrency }
+    nonisolated static var jobMemoryBudget: Int { BatchResourceLimits.background.memoryBudgetPixels }
 
     func armAll() {
         for job in jobs { arm(job) }
@@ -115,23 +116,25 @@ extension JobsController {
     }
 
     /// Every path out of a run (finished, or failed to start) ends here, so the job never stays "Running".
-    private func endRun(_ id: UUID) {
+    private func endRun(_ id: UUID, started: Bool = true) {
+        // A run that never started: whoever waits for it (a Shortcuts action) hears "didn't run".
+        if !started { resumeWaiters(id, with: nil) }
         runTasks[id] = nil
         userRuns.remove(id)
         perform(coordinator.finished(id, allowed: mayRun))
     }
 
     private func launch(_ id: UUID, _ request: JobRunRequest, origin: JobRunOrigin) {
-        guard let job = job(id) else { return endRun(id) }
+        guard let job = job(id) else { return endRun(id, started: false) }
         guard case .ready(let ready, let changed, let access) = resolveFolders(job) else {
             if origin == .user, let reason = self.job(id)?.disabledReason {
                 messenger?("Job \(job.name) didn't run. \(reason)", true)
             }
-            return endRun(id)
+            return endRun(id, started: false)
         }
         if changed {
             // Safe here: this job's batch hasn't started yet.
-            guard adopt(ready, from: job) else { return endRun(id) }
+            guard adopt(ready, from: job) else { return endRun(id, started: false) }
             // The watcher follows the moved folder too.
             if watchers[id] != nil {
                 disarm(id)
@@ -165,6 +168,7 @@ extension JobsController {
 
     private func finished(_ job: Job, _ result: JobRunResult) {
         record(result, job: job, byUser: userRuns.contains(job.id))
+        resumeWaiters(job.id, with: result)
         endRun(job.id)
         retryWaiting(job, waiting: result.waiting)
     }

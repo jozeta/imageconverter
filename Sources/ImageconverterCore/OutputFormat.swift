@@ -57,6 +57,14 @@ public enum OutputFormat: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// False for formats that can't store transparency (the encoder flattens those onto white).
+    public var supportsAlpha: Bool {
+        switch self {
+        case .jpeg, .bmp: return false
+        case .png, .heic, .tiff, .gif, .jpeg2000, .avif: return true
+        }
+    }
+
     /// Formats the system can write, in `allCases` order.
     public static func available(writableTypeIdentifiers: [String] = systemWritableTypes()) -> [OutputFormat] {
         allCases.filter { $0.isKnownType && writableTypeIdentifiers.contains($0.utType.identifier) }

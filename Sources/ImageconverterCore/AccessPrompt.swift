@@ -16,14 +16,16 @@ public enum AccessPrompt {
     /// `ask(need, again)` shows the question (`again`: the previous answer didn't contain the folder) and returns
     /// the chosen folder, or nil for Cancel. `accept(folder)` is called for each answer that is used (remember it).
     /// `unreadableFolders`: new-folder mode, the sources' folders that can't be read now (see `unreadableFolders`).
-    public static func run(sources: [URL], mode: OutputMode, covered: [URL], unreadableFolders: Set<String> = [],
+    /// `extraOutputs`: their own destinations' folders are asked for too (`AccessNeeds.needs`).
+    public static func run(sources: [URL], mode: OutputMode, extraOutputs: [OutputVariant] = [], covered: [URL],
+                           unreadableFolders: Set<String> = [],
                            caseSensitive: Bool? = nil, ask: (AccessNeeds.Need, Bool) -> URL?,
                            accept: (URL) -> Void) -> Outcome {
         var covered = covered
         var wrongAnswers: [String: Int] = [:]
         let isReadable: (URL) -> Bool = { !unreadableFolders.contains(folderKey($0.deletingLastPathComponent())) }
-        while let need = AccessNeeds.needs(sources: sources, mode: mode, covered: covered, isReadable: isReadable,
-                                           caseSensitive: caseSensitive).first {
+        while let need = AccessNeeds.needs(sources: sources, mode: mode, extraOutputs: extraOutputs, covered: covered,
+                                           isReadable: isReadable, caseSensitive: caseSensitive).first {
             let wrong = wrongAnswers[need.folder.path, default: 0]
             guard wrong < maxTries, let chosen = ask(need, wrong > 0) else { return .refused(need) }
             guard AccessNeeds.isCovered(need.folder, by: chosen, caseSensitive: caseSensitive) else {

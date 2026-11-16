@@ -3,7 +3,7 @@ import Foundation
 
 /// Remembers a Redact step's detections, so the preview doesn't run Vision again on every edit (changing the
 /// style or padding never needs a new detection). Keyed like `FocusCache`: the source file's version, the step
-/// and everything before it. Failed detections aren't kept, so the next render tries again.
+/// and everything before it. Failed and cancelled detections aren't kept, so the next render tries again.
 public final class RedactCache: @unchecked Sendable {
     struct Key: Hashable {
         let source: String
@@ -47,7 +47,7 @@ public final class RedactCache: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         runs += 1
-        guard found.failure == nil else { return found }
+        guard found.failure == nil, !found.cancelled else { return found }
         if entries.count >= limit { entries = [:] }
         entries[key] = found
         return found
@@ -70,11 +70,14 @@ extension Pipeline {
         } else {
             found = detect()
         }
+        // Cancelled (e.g. while waiting for the tile gate): the item is cancelled, nothing written.
+        if found.cancelled { throw CancellationError() }
         if let failure = found.failure { throw ConversionError.redactUnchecked(target: options.target, reason: failure) }
         let size = CGSize(width: image.width, height: image.height)
         let rects = Redaction.pixelRects(found.faces + found.text, padding: options.clampedPadding, in: size)
         let note = Redaction.note(faces: found.faces.count, text: TextBoxes.distinctCount(found.text))
         if !notes.contains(note) { notes.append(note) }
+        if let raised = options.raisedNote(for: rects), !notes.contains(raised) { notes.append(raised) }
         return rects
     }
 }

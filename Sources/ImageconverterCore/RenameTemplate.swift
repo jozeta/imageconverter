@@ -22,6 +22,16 @@ public struct RenameContext: Sendable {
     /// What `{labels}` gives (the image's classification labels); nil where the token isn't offered (file names),
     /// so it stays literal there.
     public var labels: [String]?
+    /// The source file's creation and modification dates (`{created}`, `{modified}`), as wall clocks stored as GMT.
+    public var created: Date?
+    public var modified: Date?
+    /// The source file's own extension, lower-cased (`{srcext}`).
+    public var sourceExtension = ""
+    /// The name of the preset the batch runs (`{preset}`), if any.
+    public var preset: String?
+    /// What `{random}` and `{uuid}` are derived from (the source file's path): the same file gets the same value
+    /// in the preview and in the batch.
+    public var seed = ""
 
     public init(
         name: String, ext: String, format: String, folder: String, date: Date?,
@@ -50,9 +60,10 @@ public struct RenameContext: Sendable {
     /// Builds a context from a source file and its header. The capture date is EXIF
     /// DateTimeOriginal (parsed as GMT, since EXIF has no time zone); otherwise the file's
     /// creation date, shifted so its GMT wall clock equals the wall clock in the user's time zone.
+    /// `fileCreationDate` and `fileModificationDate` also give `{created}` and `{modified}`, shifted the same way.
     public static func make(
         source: URL, header: ImageHeader?, outputSize: (Int, Int), format: OutputFormat,
-        counter: Int, fileCreationDate: Date?
+        counter: Int, fileCreationDate: Date?, fileModificationDate: Date? = nil
     ) -> RenameContext {
         let properties = header?.properties ?? [:]
         let exif = properties[kCGImagePropertyExifDictionary as String] as? [String: Any]
@@ -65,7 +76,7 @@ public struct RenameContext: Sendable {
             iso = (values.first as? NSNumber)?.intValue
         }
 
-        return RenameContext(
+        var context = RenameContext(
             name: source.deletingPathExtension().lastPathComponent,
             ext: format.fileExtensions.first ?? "",
             format: format.displayName,
@@ -81,8 +92,19 @@ public struct RenameContext: Sendable {
             focalLength: (exif?[kCGImagePropertyExifFocalLength as String] as? NSNumber)?.doubleValue,
             aperture: (exif?[kCGImagePropertyExifFNumber as String] as? NSNumber)?.doubleValue,
             exposureTime: (exif?[kCGImagePropertyExifExposureTime as String] as? NSNumber)?.doubleValue)
+        context.created = fileCreationDate.map(wallClock)
+        context.modified = fileModificationDate.map(wallClock)
+        context.sourceExtension = source.pathExtension.lowercased()
+        context.seed = source.standardizedFileURL.path
+        return context
     }
     // swiftlint:enable function_parameter_count
+
+    /// `date` shifted so its GMT wall clock equals the wall clock in the user's time zone (file dates are instants;
+    /// names show them as the Mac's clock showed them).
+    static func wallClock(_ date: Date) -> Date {
+        date.addingTimeInterval(TimeInterval(TimeZone.current.secondsFromGMT(for: date)))
+    }
 
     /// EXIF DateTimeOriginal (parsed as GMT, since EXIF has no time zone); otherwise the file's creation
     /// date, shifted so its GMT wall clock equals the wall clock in the user's time zone.
@@ -95,9 +117,7 @@ public struct RenameContext: Sendable {
             parser.dateFormat = "yyyy:MM:dd HH:mm:ss"
             if let date = parser.date(from: raw) { return date }
         }
-        guard let created = fileCreationDate else { return nil }
-        let offset = TimeZone.current.secondsFromGMT(for: created)
-        return created.addingTimeInterval(TimeInterval(offset))
+        return fileCreationDate.map(wallClock)
     }
 }
 
@@ -113,14 +133,15 @@ public struct RenameTemplate: Equatable, Sendable {
     static let knownTokens: Set<String> = [
         "name", "ext", "date", "time", "camera", "make", "lens", "iso",
         "width", "height", "format", "folder", "counter", "seq", "focal", "aperture", "shutter", "datetime",
+        "created", "modified", "megapixels", "orientation", "srcext", "preset", "random", "uuid", labelsToken,
     ]
 
-    /// Every supported token, in menu order; formatted tokens carry an example argument.
-    public static let tokenExamples = [
-        "{name}", "{ext}", "{date:yyyy-MM-dd}", "{time:HHmmss}", "{camera}", "{make}", "{lens}", "{iso}",
-        "{width}", "{height}", "{format}", "{folder}", "{counter:000}", "{seq}",
-        "{focal}", "{aperture}", "{shutter}", "{datetime}",
-    ]
+    /// Every supported token, in menu order (`tokenMenu` flattened, each once); formatted tokens carry an example
+    /// argument.
+    public static let tokenExamples: [String] = {
+        var seen = Set<String>()
+        return tokenMenu.flatMap(\.items).map(\.token).filter { seen.insert($0).inserted }
+    }()
 
     private let parts: [Part]
 
@@ -157,17 +178,22 @@ public struct RenameTemplate: Equatable, Sendable {
 
     /// True when the pattern reads the image header (size, camera, lens, ISO or a capture date).
     public var needsHeader: Bool {
-        uses(["date", "time", "datetime", "camera", "make", "lens", "iso", "width", "height", "focal", "aperture", "shutter"])
+        uses(["date", "time", "datetime", "camera", "make", "lens", "iso", "width", "height", "focal", "aperture", "shutter",
+              "megapixels", "orientation"])
     }
 
-    /// True when the pattern uses a date or time (and so the file's creation date as a fallback).
-    public var needsDate: Bool { uses(["date", "time", "datetime"]) }
+    /// True when the pattern uses a date or time (and so the file's creation date as a fallback), or the file's
+    /// own creation or modification date.
+    public var needsDate: Bool { uses(["date", "time", "datetime", "created", "modified"]) }
+
+    /// True when the pattern uses `{labels}` (so the images must be analysed).
+    public var usesLabels: Bool { uses([Self.labelsToken]) }
 
     /// Known only where the context offers it (condition subfolders and notes).
     static let labelsToken = "labels"
 
     private static func isKnown(_ name: String, _ context: RenameContext) -> Bool {
-        knownTokens.contains(name) || (name == labelsToken && context.labels != nil)
+        knownTokens.contains(name) && (name != labelsToken || context.labels != nil)
     }
 
     /// Token names outside the supported list, in order of appearance. They render literally.
@@ -244,85 +270,6 @@ public struct RenameTemplate: Equatable, Sendable {
             }
         }
         return out
-    }
-
-    private static func value(of name: String, arg: String?, context: RenameContext) -> String {
-        switch name {
-        case "name": return context.name
-        case "ext": return context.ext
-        case "date": return format(context.date, arg, default: "yyyy-MM-dd")
-        case "time": return format(context.date, arg, default: "HHmmss")
-        case "datetime":
-            let day = format(context.date, nil, default: "yyyy-MM-dd")
-            return day.isEmpty ? "" : day + "_" + format(context.date, nil, default: "HHmmss")
-        case "counter", "seq":
-            let text = String(max(context.counter, 0))
-            let width = (arg?.allSatisfy { $0 == "0" } ?? false) ? (arg?.count ?? 0) : 0
-            return String(repeating: "0", count: max(width - text.count, 0)) + text
-        default: return metadataValue(of: name, context: context)
-        }
-    }
-
-    private static func metadataValue(of name: String, context: RenameContext) -> String {
-        switch name {
-        case "camera": return context.model ?? ""
-        case "make": return context.make ?? ""
-        case "lens": return context.lens ?? ""
-        case "iso": return context.iso.map(String.init) ?? ""
-        case "width": return String(context.width)
-        case "height": return String(context.height)
-        case "format": return context.format
-        case "folder": return context.folder
-        case labelsToken:
-            // Model output: each label cleaned like metadata text, at most 10.
-            return (context.labels ?? []).prefix(ImageAnalysis.maxTokenLabels).map { MetadataFields.sanitized($0) }
-                .filter { !$0.isEmpty }.joined(separator: ", ")
-        default: return exposureValue(of: name, context: context)
-        }
-    }
-
-    private static func exposureValue(of name: String, context: RenameContext) -> String {
-        switch name {
-        case "focal":
-            // EXIF numbers are untrusted: out-of-range or non-finite values render nothing (and never reach Int()).
-            guard let focal = context.focalLength, focal.isFinite, focal >= 0.5, focal <= 10_000 else { return "" }
-            return "\(Int(focal.rounded()))mm"
-        case "aperture":
-            guard let value = context.aperture, value.isFinite, value >= 0.1, value <= 1000 else { return "" }
-            return "f" + trimmed(value)
-        case "shutter":
-            guard let seconds = context.exposureTime, seconds.isFinite, seconds >= 1e-6, seconds <= 3600 else { return "" }
-            return shutter(seconds)
-        default: return ""
-        }
-    }
-
-    /// One decimal place, without a trailing `.0` (so f/1.78 becomes `1.8`).
-    private static func trimmed(_ value: Double) -> String {
-        let text = String(format: "%.1f", value)
-        return text.hasSuffix(".0") ? String(text.dropLast(2)) : text
-    }
-
-    /// `0.004` becomes `1-250s` (no `/` in file names). From 0.3 s up it is plain seconds to one decimal
-    /// (`0.8s`, `1s`, `2s`, `1.5s`), so `1-1s` never appears. The caller has range-checked `seconds`.
-    private static func shutter(_ seconds: Double) -> String {
-        if seconds < 0.3 { return "1-\(Int((1 / seconds).rounded()))s" }
-        return trimmed(seconds) + "s"
-    }
-
-    private static func format(_ date: Date?, _ arg: String?, default fallback: String) -> String {
-        guard let date else { return "" }
-        return formatDate(date, (arg?.isEmpty ?? true) ? fallback : arg ?? fallback)
-    }
-
-    /// `date` in `pattern` (POSIX locale, Gregorian, GMT: dates here are wall clocks stored as GMT).
-    static func formatDate(_ date: Date, _ pattern: String) -> String {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(identifier: "GMT")
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.dateFormat = pattern
-        return formatter.string(from: date)
     }
 
     /// Date-field letters a user pattern may use (year, month, day, weekday, hour, minute, second, AM/PM).

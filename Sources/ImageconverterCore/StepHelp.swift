@@ -81,7 +81,8 @@ public enum StepHelp {
                     + "or covers them with a solid colour.",
                 howTo: [
                     "Choose what to hide: Faces, Text, or Faces and text.",
-                    "Style: Blur (the default for faces), Pixelate, or Solid colour (the default for text).",
+                    "Style: Blur (default for faces), Pixelate or Solid colour (default for text). "
+                        + "Pixelate's Block size and Blur's Strength: Auto, or a fixed size in pixels.",
                     Redaction.textAdvice,
                     "Padding (default 15 %) grows each box on every side by that share of its size, so hair, "
                         + "chins and letter edges are covered too.",
@@ -99,10 +100,14 @@ public enum StepHelp {
                 howTo: [
                     "Auto looks for a document or screen and squares it up.",
                     "Vertical and Horizontal sliders correct keystone distortion; they run after Auto.",
-                    "The slider correction is cropped so no empty corners show."
+                    "Empty areas: Crop to the image (the default) keeps the largest rectangle with no empty corners.",
+                    "Fill with colour, Transparent or Extend edges (edge pixels repeated) keep the whole image.",
+                    "Keep original size scales the result back to the source's size: to fit, or with Crop to fill."
                 ],
                 tips: ["If Auto finds no edges, the image is left as it is and the "
-                    + "report notes \"No document edges found\"; use the sliders."])
+                    + "report notes \"No document edges found\"; use the sliders.",
+                       "JPEG and BMP have no transparency: Transparent fills them with the chosen colour, and the "
+                    + "report says so."])
         case .step(.trim):
             return StepHelpInfo(
                 title: "Trim",
@@ -126,21 +131,37 @@ public enum StepHelp {
                 tips: ["Use a transparent background and a format with transparency, such as PNG, to keep the new space see-through."])
         case .step(.colorProfile):
             return StepHelpInfo(
-                title: "Color profile",
-                summary: "Converts the colours of each image to a standard profile so they look the same on other screens.",
+                title: "Color",
+                summary: "Converts the colour profile, re-colors the image (tint, duotone, sepia, replace a colour, "
+                    + "hue shift) and reduces it to a palette of a few colours, in that order.",
                 howTo: [
-                    "sRGB is the safest choice for the web and email.",
-                    "Display P3 keeps a wider range of colours for modern Apple screens.",
-                    "Gray makes a black-and-white image; Keep original leaves the profile alone."
+                    "Profile: sRGB suits the web and email, Display P3 keeps a wider range, Gray makes black and "
+                        + "white, Keep original converts nothing.",
+                    "Re-color: Tint tones the image in one colour, Duotone uses two (shadows and highlights), Sepia "
+                        + "a warm brown; Strength mixes in the original.",
+                    "Replace colour: pick the old and the new colour. Tolerance is how far a hue may differ, Softness "
+                        + "how gently the edge fades.",
+                    "Hue shift turns every colour around the colour wheel, from -180 to 180 degrees.",
+                    "Reduce colours: 2 to 256 colours, with or without dithering. PNG output is then written with a "
+                        + "palette (smaller files) when the image allows it."
                 ],
-                tips: ["The Metadata step never removes the colour profile, so the result stays correct."])
+                tips: ["Replace colour leaves greys alone; Shading Keep keeps light and dark areas, Exact colour "
+                        + "uses the new colour as it is.",
+                       "The Metadata step never removes the colour profile, so the result stays correct.",
+                       "A palette PNG needs sRGB and no semi-transparent pixels; otherwise the report says why it "
+                        + "was written normally."])
         case .step(.adjust):
             return StepHelpInfo(
                 title: "Adjust",
-                summary: "Corrects light, colour and detail: exposure, contrast, saturation, warmth, sharpness and more.",
+                summary: "Corrects light, colour and detail: exposure, contrast, saturation, warmth, soften or sharpen "
+                    + "and more, or applies a ready-made look.",
                 howTo: [
                     "Open the Light, Colour and Detail groups and move the sliders; the preview updates as you go.",
-                    "Most sliders run from -100 to 100, Hue from -180 to 180 degrees, Detail from 0 to 100.",
+                    "Most sliders run from -100 to 100, Hue from -180 to 180 degrees, Definition and Noise reduction "
+                        + "from 0 to 100.",
+                    "Soft ↔ Sharp starts in the middle: right sharpens, left softens.",
+                    "Presets applies a look such as Vivid, Noir or Golden Hour (it replaces every slider), "
+                        + "or saves your own.",
                     "Double-click a slider or its label to set it back to 0, or press a group's Reset."
                 ],
                 tips: [
@@ -205,9 +226,12 @@ public enum StepHelp {
                 title: "Rename",
                 summary: "Gives each output file a new name built from a pattern with tokens, such as the date, camera or a counter.",
                 howTo: [
-                    "Type a pattern like {date:yyyy-MM-dd}_{camera}_{counter:000}, or build it with Insert.",
-                    "The example line shows the name the selected image (or the first) would get.",
-                    "{counter} counts up from Counter starts at in the order of the images; {counter:000} pads it to three digits.",
+                    "Type a pattern like {date:yyyy-MM-dd}_{camera}_{counter:000}, or build it with Insert "
+                        + "(dates, camera, size, preset, labels, random text).",
+                    "The example line shows the name the selected image would get. {random} and {uuid} come from the "
+                        + "file's path, so a file always gets the same value.",
+                    "{counter} counts from Counter starts at by Step in the order of the images; {counter:000} pads it to "
+                        + "three digits. A negative step counts down and stops at 0.",
                     "Order: pattern, Find and replace, prefix and suffix, Remove spaces, Special characters, then Case."
                 ],
                 tips: [
@@ -223,16 +247,17 @@ public enum StepHelp {
                     "Format: JPEG, PNG, HEIC and TIFF, plus GIF, BMP, JPEG 2000 and AVIF where this Mac can write them.",
                     "Compression: Quality, Target size, Maximum size, or Smart (lowest quality that still looks the same, up to 95 %).",
                     "JPEG can be Progressive; Optimise PNG tries every PNG filter for "
-                        + "the smallest file. The size line is for the selected image.",
+                        + "the smallest file. The ⓘ shows every output's size for the selected image.",
                     "Save to: a new folder (flat, unless a condition picks a subfolder), the same folder (suffix "
                         + "such as _new only if the name is unchanged), or overwrite."
                 ],
                 tips: [
                     "Overwriting with the same name and format replaces the file. When the name or "
                         + "format changes, the original goes to the Trash after the new file is saved.",
-                    "Output is always the last stage, after every step and after Metadata and Rename.",
-                    "+ Add output writes more files per image (a thumbnail, a web copy), each with its own "
-                        + "format, size and suffix; always new files next to the main one."
+                    "Output is always the last stage. Click the handle above it to fold it to one line; drag it to "
+                        + "choose its height.",
+                    "+ (top right) adds an output panel: another file per image with its own format, size, "
+                        + "suffix and Save to; always a new file, never in place."
                 ])
         }
     }

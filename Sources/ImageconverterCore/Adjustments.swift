@@ -17,6 +17,8 @@ public struct AdjustOptions: Codable, Equatable, Sendable {
     public var tint: Double
     /// Degrees.
     public var hue: Double
+    /// Soft ↔ Sharp: negative softens (a blur scaled to the image), positive sharpens. Files saved before
+    /// Soften existed hold 0…100, the sharpen side, unchanged. The JSON key stays `sharpness`.
     public var sharpness: Double
     public var definition: Double
     public var noiseReduction: Double
@@ -51,7 +53,7 @@ public struct AdjustOptions: Codable, Equatable, Sendable {
         public var range: ClosedRange<Double> {
             switch self {
             case .hue: return -180...180
-            case .sharpness, .definition, .noiseReduction: return 0...100
+            case .definition, .noiseReduction: return 0...100
             default: return -100...100
             }
         }
@@ -60,6 +62,8 @@ public struct AdjustOptions: Codable, Equatable, Sendable {
             switch self {
             case .blackPoint: return "Black point"
             case .noiseReduction: return "Noise reduction"
+            // "Soften ↔ Sharpen" doesn't fit the editor's label column; the same words everywhere.
+            case .sharpness: return "Soft ↔ Sharp"
             default: return rawValue.prefix(1).uppercased() + rawValue.dropFirst()
             }
         }
@@ -134,8 +138,9 @@ public enum Adjustments {
 
     /// Renders the `rect` part of `output` into a bitmap like `image`'s, so the bit depth, colour space and
     /// alpha match it. Shared by every Core Image step.
-    static func render(_ output: CIImage, from rect: CGRect, like image: CGImage, step: String) throws -> CGImage {
-        let alpha = ImageOps.hasAlpha(image)
+    static func render(_ output: CIImage, from rect: CGRect, like image: CGImage, step: String,
+                       alpha wantsAlpha: Bool? = nil) throws -> CGImage {
+        let alpha = wantsAlpha ?? ImageOps.hasAlpha(image)
         // Core Image renders RGBA only: non-RGB sources (gray, CMYK, indexed) come out in sRGB.
         let space = image.colorSpace?.model == .rgb ? image.colorSpace : CGColorSpace(name: CGColorSpace.sRGB)
         let width = Int(rect.width)
@@ -220,7 +225,18 @@ public enum Adjustments {
         return image
     }
 
-    /// Steps 9-11: noise reduction, definition, sharpness.
+    /// The Gaussian blur radius for a soften `amount` (−100…0) on an image whose short side is `shortSide`:
+    /// a fixed fraction of the image, so −100 looks the same on a thumbnail and on a 50 MP photo. 0 when
+    /// `amount` is not negative.
+    public static func softenRadius(_ amount: Double, shortSide: Double) -> Double {
+        guard amount < 0, amount.isFinite, shortSide > 0 else { return 0 }
+        return min(100, -amount) / 100 * softenFraction * shortSide
+    }
+
+    /// The blur radius at −100, as a fraction of the short side (0.6 %: about 6 px on a 1000 px image).
+    static let softenFraction = 0.006
+
+    /// Steps 9-11: noise reduction, definition, soften or sharpen.
     private static func detail(_ input: CIImage, _ opts: AdjustOptions, shortSide: Double) -> CIImage {
         var image = input
         if opts.noiseReduction > 0 {
@@ -236,6 +252,11 @@ public enum Adjustments {
         if opts.sharpness > 0 {
             image = image.applyingFilter("CISharpenLuminance", parameters: [
                 kCIInputSharpnessKey: opts.sharpness / 100 * 1.5, kCIInputRadiusKey: 1.5
+            ])
+        } else if opts.sharpness < 0 {
+            // The input is clamped to its extent, so the blur sees edge pixels, not transparent black.
+            image = image.applyingFilter("CIGaussianBlur", parameters: [
+                kCIInputRadiusKey: softenRadius(opts.sharpness, shortSide: shortSide)
             ])
         }
         return image

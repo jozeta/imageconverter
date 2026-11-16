@@ -137,6 +137,7 @@ public struct ConditionalStep: Codable, Equatable, Sendable {
     public static let skippedReason = "Skipped by a condition"
     public static let copiedNote = "Copied unchanged"
     public static let convertedForPrivacyNote = "Converted instead of copied to remove metadata"
+    public static let convertedForMetadataEditsNote = "Converted instead of copied to apply this image's metadata changes"
     public static let ignoredForCopyPrefix = "Ignored for a copied original: "
     /// A copy converted for a Redact step or the metadata removals runs only the Redact steps.
     public static let notAppliedToConversionPrefix = "Not applied to the converted copy: "

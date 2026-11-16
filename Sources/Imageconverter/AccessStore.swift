@@ -185,9 +185,11 @@ final class AccessStore {
 
     // MARK: Before a run
 
-    /// Asks for each folder `sources` in `mode` need that isn't covered (see `AccessPrompt`). False when the user
-    /// cancels: the run must not start, and unless `quiet` a toast says why. Always true outside the sandbox.
-    func ensureAccess(sources: [URL], mode: OutputMode, toasts: LGToastCenter, quiet: Bool = false) async -> Bool {
+    /// Asks for each folder `sources` in `mode` need that isn't covered (see `AccessPrompt`), and each folder the
+    /// extra outputs' own Save to writes into. False when the user cancels: the run must not start, and unless
+    /// `quiet` a toast says why. Always true outside the sandbox.
+    func ensureAccess(sources: [URL], mode: OutputMode, extraOutputs: [OutputVariant] = [], toasts: LGToastCenter,
+                      quiet: Bool = false) async -> Bool {
         guard Sandbox.isActive else { return true }
         activate()
         var unreadable = Set<String>()
@@ -197,12 +199,17 @@ final class AccessStore {
                 AccessPrompt.unreadableFolders(of: sources)
             }.value
         }
-        let outcome = AccessPrompt.run(sources: sources, mode: mode, covered: covered, unreadableFolders: unreadable,
+        let outcome = AccessPrompt.run(sources: sources, mode: mode, extraOutputs: extraOutputs, covered: covered,
+                                       unreadableFolders: unreadable,
                                        ask: { need, again in self.ask(for: need, again: again) },
                                        accept: { self.remember($0) })
         switch outcome {
         case .granted:
-            touch(covering: Self.folders(sources: sources, mode: mode))
+            touch(covering: Self.folders(sources: sources, mode: mode)
+                + extraOutputs.compactMap { variant -> URL? in
+                    guard case .folder(let folder)? = variant.destination, folder.isChosen else { return nil }
+                    return folder.url
+                })
             return true
         case .refused(let need):
             if !quiet {

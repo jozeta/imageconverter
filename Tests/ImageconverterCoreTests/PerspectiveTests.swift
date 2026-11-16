@@ -59,7 +59,9 @@ final class PerspectiveTests: XCTestCase {
 
     func testOptionsDecodeLeniently() throws {
         let options = try JSONDecoder().decode(PerspectiveOptions.self, from: Data(#"{"vertical":500}"#.utf8))
-        XCTAssertEqual(options, PerspectiveOptions(vertical: 100))
+        var expected = PerspectiveOptions(vertical: 100)
+        expected.cropRule = .innerEnds    // saved before the empty-area choices: the earlier crop
+        XCTAssertEqual(options, expected)
         XCTAssertEqual(ImageOperation.perspective(PerspectiveOptions()).summary, "no change")
         XCTAssertEqual(ImageOperation.perspective(PerspectiveOptions(vertical: 20, horizontal: -10, auto: true)).summary,
                        "auto · vertical +20 · horizontal −10")
@@ -85,7 +87,28 @@ final class PerspectivePlanningTests: XCTestCase {
         XCTAssertTrue(Perspective.isNoOp(tiny))
         XCTAssertTrue(try Perspective.apply(tiny, to: image) === image)
         XCTAssertEqual(Pipeline.workingCopies(.perspective(tiny)), 1)
-        XCTAssertEqual(Pipeline.workingCopies(.perspective(PerspectiveOptions(auto: true))), 3)
+        XCTAssertEqual(Pipeline.workingCopies(.perspective(PerspectiveOptions(auto: true))), 4)
+    }
+
+    func testWorkingCopiesFollowTheMeasuredPeak() {
+        // Measured at 100 MP (task 4): crop 2.0 GB, colour/transparent 2.5 GB, extend with its fallback 3.6 GB.
+        func copies(_ areas: PerspectiveEmptyAreas) -> Int {
+            Pipeline.workingCopies(.perspective(PerspectiveOptions(vertical: 40, emptyAreas: areas)))
+        }
+        XCTAssertEqual(copies(.crop), 4)
+        XCTAssertEqual(copies(.color), 5)
+        XCTAssertEqual(copies(.transparent), 5)
+        XCTAssertEqual(copies(.extend), 6)
+        // A 100 MP extend step weighs 600 M pixels: on a 16 GB Mac (budget 16 GB / 4 / 12 bytes ≈ 358 M) it runs
+        // alone, never beside another such image.
+        let pipeline = Pipeline(steps: [PipelineStep(operation: .perspective(
+            PerspectiveOptions(vertical: 40, emptyAreas: .extend)))])
+        let weight = pipeline.peakPixels(sourceWidth: 12_248, sourceHeight: 8_166)
+        XCTAssertGreaterThanOrEqual(weight, 6 * 12_248 * 8_166)
+        var window = WorkWindow(maxItems: 8, maxWeight: Int(UInt64(16) << 30 / 4 / 12))
+        XCTAssertTrue(window.canStart(weight: weight))
+        window.start(weight: weight)
+        XCTAssertFalse(window.canStart(weight: weight))
     }
 
     func testAutoPlanningKeepsInputSizeAndBoundsPeak() {

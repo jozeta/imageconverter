@@ -90,13 +90,14 @@ struct PreviewPane: View {
                 titleRow
                 Spacer(minLength: LadaGlass.Spacing.s)
                 compareControls(segmented: true)
+                InspectorToggle(model: model)
             }
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-                HStack { titleRow; Spacer() }
+                HStack { titleRow; Spacer(); InspectorToggle(model: model) }
                 HStack(spacing: LadaGlass.Spacing.s) { compareControls(segmented: true); Spacer() }
             }
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-                HStack { titleRow; Spacer() }
+                HStack { titleRow; Spacer(); InspectorToggle(model: model) }
                 HStack(spacing: LadaGlass.Spacing.s) { compareControls(segmented: false); Spacer() }
             }
         }

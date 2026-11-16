@@ -100,6 +100,8 @@ enum CLIText {
                                               An extra output per image (repeatable, up to 8; replaces the
                                               preset's). Keys: name, format, quality, max-size, long, width,
                                               height or percent, suffix (default _NAME), folder
+                                              (an absolute path: the output's own folder; relative:
+                                              a subfolder of the main output's folder)
       --strip-gps | --strip-all               Remove GPS data, or all metadata (ignores the preset's keep list)
       --report csv|json|text                  Print a full report to stdout
       --dry-run                               Show what would be written; change nothing

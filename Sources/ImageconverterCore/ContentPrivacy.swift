@@ -1,8 +1,9 @@
 import Foundation
 
 /// The privacy panel's opt-in content check: whether an image shows faces or contains text, found on this Mac with
-/// the same detection and resolution as the Redact step (`Redaction.detect`). It only suggests a Redact step; it
-/// never changes anything by itself.
+/// the Redact step's detection (`Redaction.detect`) on a copy at most `Redaction.textMaxLongSide` long. A quick
+/// check: it never reads full-resolution tiles, so small text in a large image can be missed here that the Redact
+/// step itself finds. It only suggests a Redact step; it never changes anything by itself.
 public struct ContentFindings: Equatable, Sendable {
     public var faceCount: Int
     public var hasText: Bool
@@ -22,7 +23,7 @@ public enum ContentCheckResult: Equatable, Sendable {
 }
 
 public enum ContentCheck {
-    /// Decodes `url` at the Redact step's detection size (within the decode limits) and looks for faces and text.
+    /// Decodes `url` at most `Redaction.textMaxLongSide` long (within the decode limits) and looks for faces and text.
     public static func run(_ url: URL, detector: any VisionDetector = SystemVisionDetector(),
                            maxPixels: Int = ImageLoader.defaultMaxPixels) -> ContentCheckResult {
         let limits = DecodeLimits.standard.capped(maxPixels: maxPixels)
@@ -31,6 +32,7 @@ public enum ContentCheck {
         }
         let found = Redaction.detect(.both, in: image, detector: detector)
         if let failure = found.failure { return .failed(failure) }
+        if found.cancelled { return .failed("cancelled") }
         return .found(ContentFindings(faceCount: found.faces.count, hasText: !found.text.isEmpty))
     }
 }
@@ -39,7 +41,8 @@ public enum ContentCheck {
 public enum ContentPrivacySummary {
     public static let toggleTitle = "Also look for faces and text (on this Mac)"
     public static let toggleHelp = "Uses Vision on this Mac to find images that show faces or contain text, and "
-        + "suggests a Redact step. Nothing leaves your Mac; nothing is changed until you add the step."
+        + "suggests a Redact step. A quick check; the Redact step looks closer. Nothing leaves your Mac; nothing is "
+        + "changed until you add the step."
     /// The panel's explanation with the content check on, and off.
     public static let headerWithContent = "Found in the files' metadata and headers, and in the pixels with Vision. "
         + "Nothing leaves your Mac, and the originals are not changed."

@@ -111,7 +111,7 @@ struct SidebarView: View {
             .frame(maxHeight: .infinity)
             // The fixed gap above Output (Johan); extra window height shows as empty list space above it.
             .padding(.bottom, LadaGlass.Spacing.m)
-            OutputPanel(model: model, settings: settings)
+            CollapsibleOutputPanel(model: model, settings: settings)
                 .fixedSize(horizontal: false, vertical: true)
                 .measured(.output)
         }

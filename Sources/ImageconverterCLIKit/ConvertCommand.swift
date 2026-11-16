@@ -29,6 +29,7 @@ enum ConvertCommand {
         let items = InputCollector.collect(options.inputs.filter { !missing.contains($0) }
             .map { URL(fileURLWithPath: $0) })
         let mode = outputMode(options)
+        announceExtraOutputs(pipeline, mode: mode, environment: environment)
         if options.dryRun {
             return await dryRun(Setup(items: items, missing: missing, pipeline: pipeline, mode: mode),
                                 options: options, environment: environment)
@@ -42,15 +43,24 @@ enum ConvertCommand {
         let started = Date()
         let progress = CLIRunner.progressReporter(quiet: options.quiet || options.json, environment: environment)
         let batch = await environment.cancel.run {
+            // Folders named on the command line or in a file passed to it are used as given (announced above).
             await BatchRunner.run(items, pipeline: pipeline, mode: mode, trash: environment.trash,
                                   control: environment.control, presets: PresetLibrary.folder(environment.presetDirectory),
-                                  progress: progress)
+                                  variantFolders: .trustPaths, progress: progress)
         }
         var report = ProcessingReport(batch: batch, total: items.count, outputMode: mode.kind.rawValue,
                                       presetName: presetName, startedAt: started, finishedAt: Date())
         add(missing: missing, to: &report)
         return CLIRunner.finish(report, format: options.json ? .json : options.report,
                                 interrupted: batch.cancelled, environment: environment)
+    }
+
+    /// Where every extra output writes, said on stderr before anything runs (a preset or file can name any folder).
+    static func announceExtraOutputs(_ pipeline: Pipeline, mode: OutputMode, environment: CLIEnvironment) {
+        for variant in pipeline.extraOutputs {
+            environment.err("Extra output “\(ReportExporter.printable(variant.displayName))” → "
+                            + ReportExporter.printable(variant.folderDescription(main: mode)))
+        }
     }
 
     /// A path that doesn't exist counts as a failed file, so a typo can't end in a quiet "success".
@@ -95,6 +105,7 @@ enum ConvertCommand {
                 throw CLIUsageError("No preset named '\(name)'. Run 'imageconverter presets list'.")
             }
             pipeline = preset.pipeline
+            pipeline.presetName = preset.name
             presetName = preset.name
         } else if let path = options.pipelineFile {
             do { pipeline = try PipelineFile.load(URL(fileURLWithPath: path)) } catch let error as PresetError {
@@ -104,36 +115,12 @@ enum ConvertCommand {
         return (applyOverrides(options, to: pipeline), presetName)
     }
 
-    /// The flags win over the preset or file: format, quality, size cap, longest edge and metadata removal.
+    /// The flags win over the preset or file: format, quality, size cap, longest edge and metadata removal
+    /// (`PipelineOverrides`, shared with the Shortcuts actions).
     static func applyOverrides(_ options: ConvertOptions, to base: Pipeline) -> Pipeline {
-        var pipeline = base
-        if let format = options.format { pipeline.output.format = format }
-        if let quality = options.quality { pipeline.output.quality = quality }
-        if let bytes = options.maxSizeBytes { pipeline.output.compression = .maxSize(bytes: bytes) }
-        if let edge = options.resizeLongEdge { setLongestEdge(edge, in: &pipeline) }
-        if !options.variants.isEmpty { pipeline.extraOutputs = options.variants }
-        if options.stripGPS || options.stripAll {
-            pipeline.metadata.isEnabled = true
-            pipeline.metadata.isIncluded = true
-            if options.stripGPS { pipeline.metadata.location = .remove }
-            if options.stripAll {
-                // Really everything: the preset's "keep when removing all" list doesn't apply.
-                pipeline.metadata.removeAll = true
-                pipeline.metadata.keepWhenRemovingAll = []
-            }
-        }
-        return pipeline
-    }
-
-    private static func setLongestEdge(_ edge: Int, in pipeline: inout Pipeline) {
-        if let index = pipeline.steps.firstIndex(where: { $0.operation.kind == .resize }),
-           case .resize(var resize) = pipeline.steps[index].operation {
-            resize.mode = .longestEdge(edge)
-            pipeline.steps[index].operation = .resize(resize)
-            pipeline.steps[index].isEnabled = true
-        } else {
-            pipeline.steps.insert(PipelineStep(operation: .resize(ResizeOptions(mode: .longestEdge(edge)))), at: 0)
-        }
+        PipelineOverrides(format: options.format, quality: options.quality, maxSizeBytes: options.maxSizeBytes,
+                          longEdge: options.resizeLongEdge, variants: options.variants, stripGPS: options.stripGPS,
+                          stripAll: options.stripAll).applied(to: base)
     }
 
     // MARK: dry run
@@ -151,7 +138,7 @@ enum ConvertCommand {
         let started = Date()
         let planned = await environment.cancel.run {
             await BatchRunner.plan(items, pipeline: pipeline, mode: mode,
-                                   presets: PresetLibrary.folder(environment.presetDirectory))
+                                   presets: PresetLibrary.folder(environment.presetDirectory), variantFolders: .trustPaths)
         }
         guard let planned else { return CLIExit.interrupted }
         let entries = planned.flatMap { file -> [ReportEntry] in
