@@ -73,7 +73,7 @@ swiftlint           # if installed (brew install swiftlint)
     `PrivacyPanel.swift` (shield chip, panel with each finding's values and links to the metadata panel, the opt-in faces/text check and "Add a Redact step", Help ▸ Privacy… window) and `AppModel+Privacy.swift` (scan task, `PrivacyState`, the content check task and `privacyLooksForContent`); `QuitCoordinator.swift` (⌘Q while running).
     Metadata panel (right of the preview, shown only with it, closed by default): `MetadataInspector.swift` (panel, search,
     Add Field sheet, `InspectorEdge` width drag, `InspectorToggle` in the preview header), `MetadataInspectorRow.swift` (rows,
-    value editor), `AppModel+MetadataOverrides.swift` (`InspectorState`: `inspectorOpen`, privacy-link focus, edited sources
+    value editor), `AppModel+MetadataOverrides.swift` (`overwritesOriginals` environment value: amber note in Overwrite originals mode; `InspectorState`: `inspectorOpen`, privacy-link focus, edited sources
     for the badge; per-image overrides live in `items[i].metadataOverrides`, so removing/clearing drops them; no edits
     while running). `WindowSizer` adds the panel width (`inspectorWidth`, 260–560) when it opens; DEBUG
     `-debugShowInspector`, `-debugEditMetadata <title>`.
@@ -138,7 +138,7 @@ swiftlint           # if installed (brew install swiftlint)
     `FileCommitter` (atomic writes, trash replaced originals, temp file pattern, `cleanUp(in:)` for cancel/quit/stale temps),
     `DecodeLimits` (the one gate before any pixel decode: pixels, side, memory, file size, decompression-bomb heuristic; `ImageLoader.load`/`thumbnail` use it),
     `PrivacyScanner` (header/metadata-only privacy findings with severities, values (`PrivacyDetail`: escaped, ≤ 200 chars, with the field's `MetadataPath`) and suggested `MetadataOptions`),
-    `MetadataOverrides` (the metadata panel's per-image overrides: set/remove standard, rating and allowlisted fields, remove any
+    `MetadataOverrides` (`+Codable` strict; the run journal stores each item's overrides, `RunJournal.Item.metadataOverrides`, so resume keeps them) (the metadata panel's per-image overrides: set/remove standard, rating and allowlisted fields, remove any
     path; `Pipeline.metadataOverrides` (not saved) → `effectiveMetadata` before `MetadataOps.output`, `finish` (removals, rating)
     after it, so preview/estimate/batch/lossless/extra outputs share it; set wins over the step, removal wins, the step's floor
     stays for the rest; a copied original with overrides is converted), `MetadataInspection` (+`Text`: escaping; +`Groups`: GPS,
