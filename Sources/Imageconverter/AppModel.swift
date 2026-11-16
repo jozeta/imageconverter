@@ -44,6 +44,8 @@ final class AppModel {
     /// The name of the item whose render failed, shown when there is no result for it.
     var previewFailureName: String?
     var isRenderingPreview = false
+    /// The shown preview's generated alt text, or that it is being generated (see `AppModel+AltText.swift`).
+    var previewAltText: PreviewAltText?
     /// Original and estimated output size of the selected item (see `AppModel+Estimate.swift`).
     var sizeEstimate: SizeEstimate?
     @ObservationIgnored private var runInfo = (total: 0, started: Date(), mode: "")
@@ -136,13 +138,6 @@ final class AppModel {
             toasts.show("Skipped \(count) preset \(count == 1 ? "file" : "files")", type: .info,
                         description: result.skipped.map { "\($0.file): \($0.reason)" }.joined(separator: "\n"))
         }
-    }
-
-    /// An undecodable or missing value gives an empty pipeline with the default output.
-    static func loadPipeline(from defaults: UserDefaults) -> Pipeline {
-        guard let data = defaults.data(forKey: pipelineKey),
-              let pipeline = try? JSONDecoder().decode(Pipeline.self, from: data) else { return Pipeline() }
-        return pipeline
     }
 
     func persist() {
@@ -350,5 +345,14 @@ extension AppModel {
         guard let url else { return false }
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+}
+
+extension AppModel {
+    /// An undecodable or missing value gives an empty pipeline with the default output.
+    static func loadPipeline(from defaults: UserDefaults) -> Pipeline {
+        guard let data = defaults.data(forKey: pipelineKey),
+              let pipeline = try? JSONDecoder().decode(Pipeline.self, from: data) else { return Pipeline() }
+        return pipeline
     }
 }

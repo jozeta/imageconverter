@@ -143,6 +143,7 @@ extension MetadataOptions {
         }
         if !custom.isEmpty { fields.append(custom.count == 1 ? "1 field" : "\(custom.count) fields") }
         if setFileDates { fields.append("file dates") }
+        if generateAltText { fields.append(altTextAsDescription ? "alt text (also description)" : "alt text") }
         if !fields.isEmpty { text += " · set " + fields.joined(separator: ", ") }
         return text
     }

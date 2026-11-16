@@ -23,6 +23,17 @@ public struct PreviewResult: @unchecked Sendable {
     public let statusNote: String?
     /// The extra outputs' file names as planned with it (`Thumbnail: thumbs/a_thumb.jpg`), in order.
     public var extraOutputNames: [String] = []
+    /// Set when the Metadata step generates alt text: what `PreviewRenderer.altText(for:)` asks the model about.
+    public var altTextRequest: AltTextRequest?
+}
+
+/// The preview's alt text question: the rendered result as the model sees it, and a key for this file version and
+/// these pixel steps (the answer is cached under it).
+public struct AltTextRequest: @unchecked Sendable, Equatable {
+    public let key: String
+    let image: CGImage
+
+    public static func == (lhs: AltTextRequest, rhs: AltTextRequest) -> Bool { lhs.key == rhs.key }
 }
 
 public enum PreviewOutcome: Sendable {
@@ -65,6 +76,12 @@ public actor PreviewRenderer {
     private var cachedAssetKeys: [FileKey]?
     private let detector: any VisionDetector
     private let enlarger: any SuperResolutionScaler
+    private let altTextGenerator: any AltTextGenerator
+    /// Generated alt text per file version and pixel steps (the model takes seconds; editing other settings
+    /// mustn't ask again). Failures are kept too, except a timeout or cancel, which are asked again.
+    private var altTexts: [String: AltTextOutcome] = [:]
+    /// How many times the model was asked (for tests).
+    private(set) var altTextRequests = 0
     /// Detected crop focus per file version and step input, so editing doesn't run Vision again.
     let focusCache = FocusCache()
     /// Redact detections per file version and step input.
@@ -76,11 +93,37 @@ public actor PreviewRenderer {
 
     public init(maxPixels: Int = ImageLoader.defaultMaxPixels, displayMax: Int = 1600,
                 detector: any VisionDetector = SystemVisionDetector(),
-                enlarger: any SuperResolutionScaler = SystemSuperResolution.shared) {
+                enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
+                altText: any AltTextGenerator = SystemAltTextGenerator.shared) {
         self.maxPixels = maxPixels
         self.displayMax = max(1, displayMax)
         self.detector = detector
         self.enlarger = enlarger
+        self.altTextGenerator = altText
+    }
+
+    /// The alt text the batch would write for `request`'s image: cached per file version and pixel steps,
+    /// generated otherwise (seconds; the preview shows "Generating…" meanwhile). The same model, prompt, size,
+    /// sanitiser and timeout as the batch.
+    public func altText(for request: AltTextRequest) async -> AltTextOutcome {
+        if let cached = altTexts[request.key] { return cached }
+        if let reason = altTextGenerator.availability.reason { return .failed(reason) }
+        altTextRequests += 1
+        let outcome = await AltText.generate(for: request.image, with: altTextGenerator)
+        if case .failed(let reason) = outcome, reason == AltText.timedOut || reason == "cancelled" { return outcome }
+        if altTexts.count >= 200 { altTexts.removeAll() }
+        altTexts[request.key] = outcome
+        return outcome
+    }
+
+    /// The alt text question for `result`, the image `pipeline` made from `item` (nil when no alt text is asked for).
+    private func altTextRequest(for item: InputItem, pipeline: Pipeline, result: CGImage) -> AltTextRequest? {
+        guard pipeline.metadata.generatesAltText, let image = AltText.modelImage(result) else { return nil }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let steps = (try? encoder.encode(pipeline.steps.filter(\.isEnabled))).flatMap { String(bytes: $0, encoding: .utf8) }
+        return AltTextRequest(key: FocusCache.sourceKey(for: item.source) + "|" + (steps ?? UUID().uuidString),
+                              image: image)
     }
 
     /// Releases the cached source and watermark images (call when a batch starts or finishes).
@@ -139,6 +182,7 @@ public actor PreviewRenderer {
             sourceSize: (source.width, source.height), outputSize: (result.width, result.height),
             outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: resolved.statusNote)
         ready.extraOutputNames = extraOutputNames(for: item, index: index, resolved: resolved, primary: destination)
+        ready.altTextRequest = altTextRequest(for: item, pipeline: pipeline, result: result)
         return .ready(ready)
     }
 

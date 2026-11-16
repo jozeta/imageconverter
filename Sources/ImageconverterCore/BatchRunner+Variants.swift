@@ -32,9 +32,21 @@ struct WrittenExtra {
 final class ItemPreparation {
     private let make: () throws -> BatchRunner.PreparedItem
     private var result: Result<BatchRunner.PreparedItem, Error>?
+    /// The item's alt text, shared by the lossless copies and the re-encode.
+    let altText: AltTextSlot
 
-    init(_ make: @escaping () throws -> BatchRunner.PreparedItem) {
+    init(altText: AltTextSlot = AltTextSlot(generator: nil), _ make: @escaping () throws -> BatchRunner.PreparedItem) {
+        self.altText = altText
         self.make = make
+    }
+
+    /// `pipeline` with the item's alt text for a lossless copy, which never decodes the item: the model sees a
+    /// ≤ 1024 px upright thumbnail of the source, which is what the pipeline outputs (it has no pixel steps).
+    func losslessPipeline(_ pipeline: Pipeline, url: URL) throws -> (pipeline: Pipeline, note: String?) {
+        let outcome = try altText.resolve(pipeline.metadata) {
+            ImageLoader.thumbnail(of: url, maxPixelSize: AltText.maxSide)
+        }
+        return (pipeline.withGeneratedAltText(outcome?.text), outcome?.note)
     }
 
     func get() throws -> BatchRunner.PreparedItem {
@@ -89,7 +101,9 @@ extension BatchRunner {
         let pipeline = pipeline(base, for: variant)
         var losslessNote: String?
         if LosslessMetadata.applies(to: pipeline) {
-            switch try LosslessMetadata.write(url, pipeline: pipeline, maxPixels: maxPixels) {
+            // The alt text note is the primary output's; an extra output only writes the text.
+            let copying = try preparation.losslessPipeline(pipeline, url: url).pipeline
+            switch try LosslessMetadata.write(url, pipeline: copying, maxPixels: maxPixels) {
             case .written(let data, let properties)?:
                 let taken = pipeline.metadata.setFileDates ? MetadataDates.dateTaken(in: properties) : nil
                 return EncodedItem(data: data, source: nil, downsampled: false, quality: nil,

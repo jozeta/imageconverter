@@ -50,7 +50,7 @@ public enum MetadataTemplates {
     /// - text (artist, copyright, description, title): non-nil overrides (an empty string clears);
     /// - location and date taken: anything but `.keep` overrides;
     /// - keywords: non-nil overrides together with its mode, except an empty list in add mode (adds nothing);
-    /// - the removal and file-date switches: true turns them on, false never turns one off;
+    /// - the removal, file-date and alt text switches: true turns them on, false never turns one off;
     /// - removeAll: true turns it on; the keep list becomes the template's, or the intersection of both lists when
     ///   removeAll was already on; false leaves both;
     /// - custom fields: merged by namespace and key, the template's value wins.
@@ -73,6 +73,8 @@ public enum MetadataTemplates {
         result.removeIPTC = result.removeIPTC || set.removeIPTC
         result.removeXMP = result.removeXMP || set.removeXMP
         result.setFileDates = result.setFileDates || set.setFileDates
+        result.generateAltText = result.generateAltText || set.generateAltText
+        result.altTextAsDescription = result.altTextAsDescription || set.altTextAsDescription
         if let artist = set.artist { result.artist = artist }
         if let copyright = set.copyright { result.copyright = copyright }
         if let description = set.description { result.description = description }

@@ -63,6 +63,8 @@ public enum SizeEstimator {
                 note = unoptimisedPNGNote
             }
             let variants = OutputVariant.validated(pipeline.extraOutputs).kept.map(withoutPNGOptimising)
+            // No alt text generator: the estimate never asks the model (seconds per image), and one sentence of XMP
+            // doesn't change the size meaningfully (`ItemRunOptions.altText`).
             let result = try BatchRunner.encodeItem(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
                                                     options: ItemRunOptions(focus: FocusContext(enlarger: enlarger)),
                                                     variants: variants.map(\.variant))

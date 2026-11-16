@@ -70,11 +70,13 @@ public enum BatchRunner {
         journal: URL? = nil,
         presets: PresetLibrary = .standard,
         enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
+        altText: any AltTextGenerator = SystemAltTextGenerator.shared,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in },
         events: @escaping @Sendable (ItemEvent) -> Void = { _ in }
     ) async -> BatchReport {
         var hooks = BatchHooks()
         hooks.enlarger = enlarger
+        hooks.altText = altText
         return await run(items, pipeline: pipeline, mode: mode, maxPixels: maxPixels, concurrency: concurrency,
                          memoryBudgetPixels: memoryBudgetPixels, trash: trash, control: control, journal: journal,
                          presets: presets, hooks: hooks, progress: progress, events: events)
@@ -215,6 +217,129 @@ public enum BatchRunner {
         }, inputBytes)
     }
 
+    /// Everything the batch does to a file before encoding: load, watermark check, pipeline, metadata.
+    struct PreparedItem {
+        /// The upright image as decoded: full size, or smaller when a decode hint applied.
+        let source: CGImage
+        let downsampled: Bool
+        /// The pipeline's output image.
+        let image: CGImage
+        /// Output metadata properties.
+        let properties: [String: Any]
+        /// Step notes (e.g. "No document edges found").
+        let notes: [String]
+        /// The generated alt text written with every output of the item (nil: none asked for, or it failed).
+        var altText: String?
+        /// What the output properties are made from, so an extra output can make its own (its format's DPI keys).
+        var sourceProperties: [String: Any] = [:]
+        var sourceMetadata: CGImageMetadata?
+        var sourceWidth = 0
+        var sourceHeight = 0
+
+        /// The metadata properties `pipeline` writes for this item.
+        func properties(for pipeline: Pipeline) -> [String: Any] {
+            pipeline.withGeneratedAltText(altText)
+                .outputProperties(from: sourceProperties, metadata: sourceMetadata, sourceWidth: sourceWidth,
+                                  sourceHeight: sourceHeight)
+        }
+    }
+
+    /// Shared by the batch, the size estimate and the quality ladder so none of them can drift: all of them
+    /// decode a pipeline that starts by shrinking at twice the target size (`Pipeline.decodeHint`), the one
+    /// decision for all three. Metadata, DPI and the pixel guard still use the full-size source.
+    ///
+    /// Alt text (`altText`, the batch only) is generated after the pixel steps, from the image they made, so a
+    /// crop or a Redact step is reflected in what the model sees.
+    static func prepare(
+        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int,
+        options: ItemRunOptions = ItemRunOptions(), altText: AltTextSlot? = nil
+    ) throws -> PreparedItem {
+        // A watermark image that can't be read fails the file before its source is decoded.
+        if let missing = assets.missingError(for: pipeline) { throw missing }
+        options.stage(.decoding)
+        let fullSize = ImageLoader.header(of: url)?.uprightSize
+        let hint = fullSize.flatMap { pipeline.decodeHint(sourceWidth: $0.width, sourceHeight: $0.height) }
+        let loaded = try ImageLoader.load(url, maxPixels: maxPixels, maxLongSide: hint?.maxLongSide,
+                                          includeMetadata: pipeline.metadata.isActive, lowMemory: options.lowMemory)
+        options.stage(.processing)
+        var stepNotes: [String] = []
+        let textContext = pipeline.watermarkTextContext(source: url, properties: loaded.properties)
+        let image = try (hint?.pipeline ?? pipeline).apply(to: loaded.image, assets: assets, textContext: textContext,
+                                                           focus: options.focus, notes: &stepNotes)
+        let width = hint != nil ? fullSize?.width ?? loaded.image.width : loaded.image.width
+        let height = hint != nil ? fullSize?.height ?? loaded.image.height : loaded.image.height
+        let generated = try altText?.resolve(pipeline.metadata) { image }
+        let (properties, removedFaces) = pipeline.withGeneratedAltText(generated?.text)
+            .outputPropertiesNoting(from: loaded.properties, metadata: loaded.metadata,
+                                    sourceWidth: width, sourceHeight: height)
+        if removedFaces { stepNotes.append(Redaction.faceRegionsRemovedNote) }
+        if let note = generated?.note { stepNotes.append(note) }
+        var prepared = PreparedItem(source: loaded.image, downsampled: hint != nil, image: image,
+                                    properties: properties, notes: stepNotes)
+        prepared.altText = generated?.text
+        prepared.sourceProperties = loaded.properties
+        prepared.sourceMetadata = loaded.metadata
+        (prepared.sourceWidth, prepared.sourceHeight) = (width, height)
+        return prepared
+    }
+
+    /// Load, apply, metadata and encode for one file: everything the batch does before it commits.
+    /// The size estimate shares it so the estimate can't drift from what is written. A pipeline that only
+    /// changes metadata copies the image data untouched instead (`LosslessMetadata`), or says in the note why
+    /// it was re-encoded after all.
+    /// `variants` are encoded after the primary output from the same processed image (`encodeVariants`).
+    static func encodeItem(
+        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int,
+        options: ItemRunOptions = ItemRunOptions(), variants: [OutputVariant] = []
+    ) throws -> EncodedItem {
+        let altText = AltTextSlot(generator: options.altText)
+        let preparation = ItemPreparation(altText: altText) {
+            try prepare(url, pipeline: pipeline, assets: assets, maxPixels: maxPixels, options: options,
+                        altText: altText)
+        }
+        var encoded = try encodePrimary(url, pipeline: pipeline, maxPixels: maxPixels, options: options,
+                                        preparation: preparation)
+        encoded.variants = try encodeVariants(variants, url: url, pipeline: pipeline, maxPixels: maxPixels,
+                                              preparation: preparation)
+        return encoded
+    }
+
+    private static func encodePrimary(
+        _ url: URL, pipeline: Pipeline, maxPixels: Int, options: ItemRunOptions, preparation: ItemPreparation
+    ) throws -> EncodedItem {
+        var losslessNote: String?
+        if LosslessMetadata.applies(to: pipeline) {
+            options.stage(.decoding)
+            let (copying, altNote) = try preparation.losslessPipeline(pipeline, url: url)
+            switch try LosslessMetadata.write(url, pipeline: copying, maxPixels: maxPixels) {
+            case .written(let data, let properties)?:
+                options.stage(.encoding)
+                try options.beforeEncode?(url, options.attempt)
+                let taken = pipeline.metadata.setFileDates ? MetadataDates.dateTaken(in: properties) : nil
+                let note = [LosslessMetadata.pixelsUntouchedNote, altNote].compactMap { $0 }.joined(separator: "; ")
+                return EncodedItem(data: data, source: nil, downsampled: false, quality: nil,
+                                   note: note, dateTaken: taken)
+            case .reencode(let note)?: losslessNote = note
+            case nil: break
+            }
+        }
+        let prepared = try preparation.get()
+        let properties = prepared.properties
+        let stepNotes = prepared.notes
+        options.stage(.encoding)
+        try options.beforeEncode?(url, options.attempt)
+        let result = try CompressionSearch.encode(prepared.image, properties: properties, settings: pipeline.output)
+        let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
+            ? MetadataDates.dateTaken(in: properties) : nil
+        // Step notes (e.g. "No document edges found") come first, then the encoder's.
+        let notes = stepNotes + [losslessNote, result.note].compactMap { $0 }
+        return EncodedItem(data: result.data, source: prepared.source, downsampled: prepared.downsampled,
+                           quality: result.quality,
+                           note: notes.isEmpty ? nil : notes.joined(separator: "; "), dateTaken: taken)
+    }
+}
+
+extension BatchRunner {
     static func fileDates(_ url: URL) -> (created: Date?, modified: Date?)? {
         guard let values = try? url.resourceValues(forKeys: [.creationDateKey, .contentModificationDateKey]) else {
             return nil
@@ -245,114 +370,6 @@ public enum BatchRunner {
     static func fileSize(_ url: URL) -> Int? {
         (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
     }
-
-    /// Everything the batch does to a file before encoding: load, watermark check, pipeline, metadata.
-    struct PreparedItem {
-        /// The upright image as decoded: full size, or smaller when a decode hint applied.
-        let source: CGImage
-        let downsampled: Bool
-        /// The pipeline's output image.
-        let image: CGImage
-        /// Output metadata properties.
-        let properties: [String: Any]
-        /// Step notes (e.g. "No document edges found").
-        let notes: [String]
-        /// What the output properties are made from, so an extra output can make its own (its format's DPI keys).
-        var sourceProperties: [String: Any] = [:]
-        var sourceMetadata: CGImageMetadata?
-        var sourceWidth = 0
-        var sourceHeight = 0
-
-        /// The metadata properties `pipeline` writes for this item.
-        func properties(for pipeline: Pipeline) -> [String: Any] {
-            pipeline.outputProperties(from: sourceProperties, metadata: sourceMetadata, sourceWidth: sourceWidth,
-                                      sourceHeight: sourceHeight)
-        }
-    }
-
-    /// Shared by the batch, the size estimate and the quality ladder so none of them can drift: all of them
-    /// decode a pipeline that starts by shrinking at twice the target size (`Pipeline.decodeHint`), the one
-    /// decision for all three. Metadata, DPI and the pixel guard still use the full-size source.
-    static func prepare(
-        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int,
-        options: ItemRunOptions = ItemRunOptions()
-    ) throws -> PreparedItem {
-        // A watermark image that can't be read fails the file before its source is decoded.
-        if let missing = assets.missingError(for: pipeline) { throw missing }
-        options.stage(.decoding)
-        let fullSize = ImageLoader.header(of: url)?.uprightSize
-        let hint = fullSize.flatMap { pipeline.decodeHint(sourceWidth: $0.width, sourceHeight: $0.height) }
-        let loaded = try ImageLoader.load(url, maxPixels: maxPixels, maxLongSide: hint?.maxLongSide,
-                                          includeMetadata: pipeline.metadata.isActive, lowMemory: options.lowMemory)
-        options.stage(.processing)
-        var stepNotes: [String] = []
-        let textContext = pipeline.watermarkTextContext(source: url, properties: loaded.properties)
-        let image = try (hint?.pipeline ?? pipeline).apply(to: loaded.image, assets: assets, textContext: textContext,
-                                                           focus: options.focus, notes: &stepNotes)
-        let width = hint != nil ? fullSize?.width ?? loaded.image.width : loaded.image.width
-        let height = hint != nil ? fullSize?.height ?? loaded.image.height : loaded.image.height
-        let (properties, removedFaces) = pipeline.outputPropertiesNoting(from: loaded.properties,
-                                                                         metadata: loaded.metadata,
-                                                                         sourceWidth: width, sourceHeight: height)
-        if removedFaces { stepNotes.append(Redaction.faceRegionsRemovedNote) }
-        var prepared = PreparedItem(source: loaded.image, downsampled: hint != nil, image: image,
-                                    properties: properties, notes: stepNotes)
-        prepared.sourceProperties = loaded.properties
-        prepared.sourceMetadata = loaded.metadata
-        (prepared.sourceWidth, prepared.sourceHeight) = (width, height)
-        return prepared
-    }
-
-    /// Load, apply, metadata and encode for one file: everything the batch does before it commits.
-    /// The size estimate shares it so the estimate can't drift from what is written. A pipeline that only
-    /// changes metadata copies the image data untouched instead (`LosslessMetadata`), or says in the note why
-    /// it was re-encoded after all.
-    /// `variants` are encoded after the primary output from the same processed image (`encodeVariants`).
-    static func encodeItem(
-        _ url: URL, pipeline: Pipeline, assets: WatermarkAssets, maxPixels: Int,
-        options: ItemRunOptions = ItemRunOptions(), variants: [OutputVariant] = []
-    ) throws -> EncodedItem {
-        let preparation = ItemPreparation {
-            try prepare(url, pipeline: pipeline, assets: assets, maxPixels: maxPixels, options: options)
-        }
-        var encoded = try encodePrimary(url, pipeline: pipeline, maxPixels: maxPixels, options: options,
-                                        preparation: preparation)
-        encoded.variants = try encodeVariants(variants, url: url, pipeline: pipeline, maxPixels: maxPixels,
-                                              preparation: preparation)
-        return encoded
-    }
-
-    private static func encodePrimary(
-        _ url: URL, pipeline: Pipeline, maxPixels: Int, options: ItemRunOptions, preparation: ItemPreparation
-    ) throws -> EncodedItem {
-        var losslessNote: String?
-        if LosslessMetadata.applies(to: pipeline) {
-            options.stage(.decoding)
-            switch try LosslessMetadata.write(url, pipeline: pipeline, maxPixels: maxPixels) {
-            case .written(let data, let properties)?:
-                options.stage(.encoding)
-                try options.beforeEncode?(url, options.attempt)
-                let taken = pipeline.metadata.setFileDates ? MetadataDates.dateTaken(in: properties) : nil
-                return EncodedItem(data: data, source: nil, downsampled: false, quality: nil,
-                                   note: LosslessMetadata.pixelsUntouchedNote, dateTaken: taken)
-            case .reencode(let note)?: losslessNote = note
-            case nil: break
-            }
-        }
-        let prepared = try preparation.get()
-        let properties = prepared.properties
-        let stepNotes = prepared.notes
-        options.stage(.encoding)
-        try options.beforeEncode?(url, options.attempt)
-        let result = try CompressionSearch.encode(prepared.image, properties: properties, settings: pipeline.output)
-        let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
-            ? MetadataDates.dateTaken(in: properties) : nil
-        // Step notes (e.g. "No document edges found") come first, then the encoder's.
-        let notes = stepNotes + [losslessNote, result.note].compactMap { $0 }
-        return EncodedItem(data: result.data, source: prepared.source, downsampled: prepared.downsampled,
-                           quality: result.quality,
-                           note: notes.isEmpty ? nil : notes.joined(separator: "; "), dateTaken: taken)
-    }
 }
 
 /// How one item is run: low-memory decode, the attempt, and where its stages go. The defaults are what the
@@ -365,4 +382,8 @@ struct ItemRunOptions {
     var stage: (ItemEvent.Stage) -> Void = { _ in }
     /// Finds a detected crop focus (Vision; tests inject a detector).
     var focus: FocusContext = .system
+    /// Writes alt text when the Metadata step asks for it; nil generates none. Only the batch sets it: the size
+    /// estimate and the quality ladder leave it nil, since a sentence of XMP doesn't change the size meaningfully
+    /// and the model takes seconds per image.
+    var altText: (any AltTextGenerator)?
 }

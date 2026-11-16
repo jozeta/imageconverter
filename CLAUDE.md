@@ -103,7 +103,10 @@ swiftlint           # if installed (brew install swiftlint)
     handler for files opened with the app (not `application(_:open:)`, which lets SwiftUI open a window per file);
     the bridge to the model, which waits at launch for the main window; confirmation sheets, background converts), `ServicesProvider.swift` (Finder services), `Scripting.swift`
     (`NSScriptCommand` subclasses named in the sdef), `URLActions.swift` (confirmed link actions);
-    `AppModel+RenameExample.swift` (the Rename editor's live example, using the selected image's resolved branch)
+    `AppModel+RenameExample.swift` (the Rename editor's live example, using the selected image's resolved branch);
+    `AppModel+AltText.swift` (the preview's Alt text row: `PreviewAltText`, generated from `PreviewResult.altTextRequest`
+    through `PreviewRenderer.altText(for:)`, cached per file version + enabled steps); `MetadataEditor` holds
+    `AltTextControls` (hidden below macOS 27 unless used; disabled with the system's reason when not available)
 - `Sources/ImageconverterCore/`: all logic: the pipeline model, each operation as a pure function
   (`CGImage → CGImage`, metadata → metadata), rename templating, collision naming, presets
   (JSON, `schemaVersion`), the batch runner. No SwiftUI here. Files so far:
@@ -124,7 +127,16 @@ free space, SIGKILL fallback; `unpackedTreeProblem`: the unpacked tree must matc
     across processes),
     `FolderAccess`/`JobFolders` (security-scoped bookmarks, stale refresh, moved folders, plain-URL fallback),
     `JobRunner` (candidates → ledger and 2 s stability check → `BatchRunner` → ledger update → report file), `ProcessingReport` (run summary + entries),
-    `ReportExporter` (CSV with formula-injection guard, JSON with sorted keys, text, escaped self-contained HTML in `ReportExporter+HTML`; the structured `ReportEntry.warning` flag is a JSON key, a CSV column and "(warning)" in text), `ErrorLog` (rotating failure log), `RunHistory` (stored runs, 100 kept), `ZoomMath` (`ZoomState`, zoom around an anchor, pan, clamping), `WindowLayout` (main window size rules and frame maths), `NameReplacement` (find/replace in names, plain or regex), `SizeEstimator` (encodes a full-size render for the size estimate), `QualityLadder` (one image at several qualities), `ImageDifference` + `RegionCrop` (difference view maths, small region copies), `BrowserNavigation` (grid keyboard movement), `FileIdentity` (same-file keys by volume and inode), `ImageLoader+DataSize` (header-only size of encoded data), `MetadataEditorState` (Location "Set" fields), `NameTransforms` + `RenameRendering` (rename character/case rules; one renderer for batch and preview), `SizeInput` (KB/MB size field), `StoredFile` (hardened file reading for presets, templates, jobs, the journal); `SVGSanitizer+Parser`/`+Prolog`/`+Style`/`+References` and `MetadataOps+XMP`/`+Keep` are described with their main files
+    `ReportExporter` (CSV with formula-injection guard, JSON with sorted keys, text, escaped self-contained HTML in `ReportExporter+HTML`; the structured `ReportEntry.warning` flag is a JSON key, a CSV column and "(warning)" in text), `ErrorLog` (rotating failure log), `RunHistory` (stored runs, 100 kept), `ZoomMath` (`ZoomState`, zoom around an anchor, pan, clamping), `WindowLayout` (main window size rules and frame maths), `NameReplacement` (find/replace in names, plain or regex), `SizeEstimator` (encodes a full-size render for the size estimate), `QualityLadder` (one image at several qualities), `ImageDifference` + `RegionCrop` (difference view maths, small region copies), `BrowserNavigation` (grid keyboard movement), `FileIdentity` (same-file keys by volume and inode), `ImageLoader+DataSize` (header-only size of encoded data), `MetadataEditorState` (Location "Set" fields), `NameTransforms` + `RenameRendering` (rename character/case rules; one renderer for batch and preview), `SizeInput` (KB/MB size field), `StoredFile` (hardened file reading for presets, templates, jobs, the journal),
+    `AltText` (Metadata step's generated alt text: `AltTextAvailability` with plain-English reasons, `AltTextGenerator`
+    protocol (tests use a fake; never run the real model in tests), fixed prompt, ≤ 1024 px sRGB model image, the
+    sanitiser for model text), `AltText+Run` (30 s timeout on its own timer queue, `generateBlocking` for the sync
+    workers on `AltTextExecutor`, one at a time; `AltTextSlot`: one generation per item shared by lossless copy,
+    re-encode and extra outputs; a batch that generates runs on ≤ half the cores, `AltText.batchWorkers`),
+    `AltText+System` (`SystemAltTextGenerator`: `SystemLanguageModel.default` only, never the server model (a test
+    bans its name in Sources/); compiled only with `#if compiler(>=6.4) && !NO_MACOS27_SDK`, DEBUG
+    `-debugAltTextStatus`). Written to XMP `Iptc4xmpCore:AltTextAccessibility` via `MetadataOptions.generatedAltText`
+    (transient) in `MetadataOps+XMP`; the size estimate and quality ladder pass no generator (`ItemRunOptions.altText`); `SVGSanitizer+Parser`/`+Prolog`/`+Style`/`+References` and `MetadataOps+XMP`/`+Keep` are described with their main files
 - `Sources/ImageconverterInstallerKit/` + `Sources/ImageconverterInstaller/main.swift` (product `imageconverter-installer`):
   the update installer XPC service, assembled by `release.sh` as `Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc`,
   signed without entitlements (not sandboxed: sandbox-created files are quarantined and can't be opened).

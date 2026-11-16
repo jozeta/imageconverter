@@ -190,6 +190,8 @@ public enum StepHelp {
                 howTo: [
                     "Remove: Remove all metadata (with a Keep list), or single parts: location, camera, author, thumbnail, IPTC, XMP.",
                     "Describe: set title, artist, copyright, description and keywords (add or replace).",
+                    "Generate alt text on this Mac (macOS 27, Apple Intelligence): one sentence per image, on-device, "
+                        + "after the image steps. Check it before publishing.",
                     "Date: keep, set or shift the date taken. Location: keep, remove or set the GPS position.",
                     "Templates apply ready-made settings such as Privacy or Web, or save your own."
                 ],

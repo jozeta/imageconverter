@@ -194,4 +194,6 @@ struct BatchHooks: Sendable {
     var analysis: ImageAnalysisCache = .shared
     /// The super-resolution model for ML enlarge (tests inject a fake, so no test runs the real one).
     var enlarger: any SuperResolutionScaler = SystemSuperResolution.shared
+    /// Writes alt text for the Metadata step (Apple's on-device model; tests inject a fake).
+    var altText: any AltTextGenerator = SystemAltTextGenerator.shared
 }

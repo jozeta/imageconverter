@@ -15,7 +15,8 @@ Started 2026-11-13. The full design is in
 ## Privacy
 
 - **No network access except the optional update check and download from github.com.** No telemetry, no uploads. Nothing goes online until you allow it: the first launch asks once whether to check for updates when the app starts, and **Check Now** in About imageconverter checks on demand. A check asks GitHub's release API for the latest release; like any web request it shows GitHub your IP address and standard HTTP headers (such as your preferred languages), and the app adds only `User-Agent: imageconverter/<version>`. The app's only network entitlement is outgoing connections (`network.client`, no server), the networking code is one file (`Sources/Imageconverter/Update/UpdateClient.swift`), and a test fails the build if networking APIs or web addresses appear anywhere else. See [Updates](#updates).
-- **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit); no third-party code.
+- **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit, VideoToolbox, Core Video, Core Media, Foundation Models); no third-party code.
+- **Alt text stays on this Mac.** [Generated alt text](#write-alt-text-on-this-mac) comes from Apple's on-device model (Apple Intelligence, macOS 27 and later): the image and the text never leave the Mac, and no server model is used. The app never asks macOS to download the model; when it isn't ready, no alt text is written.
 - **Apple's enlargement model.** The only other network activity: if you choose to download Apple's enlargement model (for [Enlarge with machine learning](#enlarge-with-machine-learning), macOS 26 and later), macOS downloads it from Apple. imageconverter itself sends nothing; the download starts only from **Download…** in the Resize step, after you agree, and batches, jobs, the command line, services, scripts and links never start it.
 - **Your files are untrusted input.** Images, SVG watermarks, preset and template files, `imageconverter://` links and AppleScript requests are all validated before use. Limits in force: images up to 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory) of decoded memory and 2 GB per file (first frame only); SVG files up to 1 MB, 20,000 elements, 64 levels deep; preset and template files up to 1 MB; links up to 16,384 characters. Help ▸ Privacy… shows these as built. See [SECURITY.md](SECURITY.md).
 - **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed. The panel's opt-in **Also look for faces and text (on this Mac)** switch (off by default, remembered) also checks the pixels with Vision on this Mac and lists "2 images show faces" or "1 image contains text", each with **Add a Redact step**, which adds a configured [Redact step](#hide-faces-and-text) without running anything (for text a Solid colour step; an existing step that already covers it is left alone, a filling one is widened). It uses the same detection and resolution as the Redact step; images it couldn't check are listed as "Couldn't check 2 images: …" rather than counted as clean, and the panel's explanation then says it also looked at the pixels. When no metadata is found the chip says "No private metadata found", so the panel can still be opened.
@@ -159,7 +160,8 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     each image's own branch.
   - (available) **Metadata** (always last, above Output): strip everything (with a keep list) or single
     groups, set title, artist, copyright, description, keywords, date taken, GPS and allowlisted extra fields,
-    with templates; the color profile is always kept
+    with templates; the color profile is always kept. On macOS 27 with Apple Intelligence it can also
+    [write alt text on this Mac](#write-alt-text-on-this-mac)
   - (available) **Rename** (always last): a pattern such as `{date:yyyy-MM-dd}_{camera}_{counter:000}`,
     with a live example
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version, and **More ▸ Clear All…** to empty the image list and start again from an empty pipeline), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
@@ -585,6 +587,8 @@ The Metadata editor has five collapsible groups and a **Templates** menu:
   IPTC and XMP.
 - **Describe**: title, artist, copyright, description and keywords. Keywords are tokens (Return or a comma
   adds one); **Add** merges them with the file's own, **Replace** replaces them (removing the last token in Replace mode clears them; switching mode keeps the tokens).
+  On macOS 27 and later: **Generate alt text on this Mac** and **Also use it as the description**, see
+  [Write alt text on this Mac](#write-alt-text-on-this-mac).
 - **Date**: keep the date taken, **Set** it, or **Shift** it earlier or later by days, hours and minutes
   (files without a date keep none). **Set file dates to date taken** also changes the file's own dates.
 - **Location**: keep, remove, or set latitude (-90 to 90), longitude (-180 to 180) and an optional altitude in
@@ -635,6 +639,55 @@ all of the file's language variants of it (only the one you typed remains).
    written after the removal, so it survives. Untick to leave a field as it is. A ticked field with empty text removes that field.
 4. Run the batch. The removed information is not in the output files. The color profile is always
    kept, so the images look the same.
+
+### Write alt text on this Mac
+
+Alt text is a short description of an image for people who use screen readers. imageconverter can ask Apple's
+on-device language model to write one sentence per image and store it in the file.
+
+**Needs** macOS 27 or later, a Mac that supports Apple Intelligence, Apple Intelligence turned on in System
+Settings, and its model ready (macOS downloads it itself after you turn Apple Intelligence on; imageconverter never
+starts that download). Below macOS 27 the option isn't shown. On macOS 27 without a ready model it is shown
+switched off with the reason, for example "Not available: Apple Intelligence is turned off in System Settings."
+
+1. Open **Metadata** (under **Always last**), switch it on and open **Describe**.
+2. Tick **Generate alt text on this Mac**. Tick **Also use it as the description** to write the same sentence as
+   the description too.
+3. Select an image: the preview's table gets an **Alt text** row, "Generating…" and then the sentence the batch
+   would write (or why there is none). It is cached per file version and image steps, so changing the output or
+   other metadata settings doesn't ask again.
+4. Run the batch. Read the sentences before you publish them: the model can get details wrong.
+
+How it works:
+
+- The model sees the image as the pipeline made it (after Crop, Rotate, Redact, Resize, Watermark and the other
+  image steps, so redacted faces and text stay hidden from it), as an sRGB copy at most 1024 px on the long side.
+  A metadata-only run (lossless JPEG/HEIC copy) shows it a 1024 px thumbnail of the original.
+- The prompt is fixed and in English: one sentence, at most 250 characters, describing what is visible, not
+  starting with "image of" or "picture of", and no guesses about who people are.
+- The answer is treated as untrusted text: control and formatting characters (bidirectional overrides,
+  zero-width characters) are removed, line breaks and runs of spaces become one space, wrapping quotes and an
+  "Image of …" opening are dropped, and it is cut to 250 characters at a word boundary.
+- It is written to XMP `Iptc4xmpCore:AltTextAccessibility` (IPTC "Alt Text (Accessibility)", a language
+  alternative with an `x-default` entry), after the removals, so **Remove all metadata** and **Remove IPTC** keep it.
+  With **Also use it as the description** it is also the EXIF/TIFF image description, IPTC Caption and XMP
+  `dc:description`. The metadata-only lossless copy writes and verifies it like any other field.
+- **Remove XMP** leaves no place for alt text: the image then gets the note "Alt text not generated: Remove XMP is
+  on, and alt text is stored in XMP" (unless it is also the description, which EXIF and IPTC hold).
+- Each image waits at most 30 seconds. One image is described at a time, and a batch that writes alt text runs on
+  at most half the Mac's cores. When there is no text (model not ready, an error, a refusal, no answer in time, an
+  empty answer) the image is still written, without alt text, with a note such as "Alt text not generated: no
+  answer within 30 seconds".
+- The size estimate and the quality comparison don't ask the model (one sentence of XMP doesn't change the size
+  noticeably). Jobs, the command line, services, scripts and links write alt text the same way, with the same notes.
+
+| Setting | Default | What it does |
+|---|---|---|
+| Generate alt text on this Mac | off | One sentence per image from Apple's on-device model, written as IPTC alt text in XMP |
+| Also use it as the description | off | Also writes it as the description (EXIF, IPTC, XMP); when a sentence was generated it replaces **Set description** |
+
+Saved in pipelines, presets and jobs as `"generateAltText": true` and `"altTextAsDescription": true` in the
+metadata settings (left out when off; older files load with both off).
 
 ### Rename by date and camera
 

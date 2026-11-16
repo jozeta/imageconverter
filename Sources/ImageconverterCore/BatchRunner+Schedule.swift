@@ -40,8 +40,13 @@ extension BatchRunner {
         if !plan.skipped.isEmpty {
             progress(BatchProgress(completed: plan.skipped.count, failed: 0, total: items.count))
         }
+        // Workers wait for the model synchronously; at most half the cores do, so the model call always finds a free
+        // thread in the cooperative pool even if it needs one (the model answers one image at a time anyway).
+        let generates = hooks.altText.availability.isAvailable
+            && plan.jobs.contains { $0.pipeline.metadata.generatesAltText }
+        let workers = generates ? min(concurrency, AltText.batchWorkers) : concurrency
         let settings = BatchScheduler.Settings(
-            total: items.count, maxPixels: maxPixels, concurrency: concurrency, budget: memoryBudgetPixels,
+            total: items.count, maxPixels: maxPixels, concurrency: workers, budget: memoryBudgetPixels,
             trash: trash, control: control, hooks: hooks, progress: progress, events: events)
         let scheduler = BatchScheduler(plan: plan, settings: settings, writer: writer)
         await scheduler.execute()
@@ -224,13 +229,14 @@ final class BatchScheduler {
         let (assets, maxPixels, trash, events) = (assets, settings.maxPixels, settings.trash, settings.events)
         let hook = settings.hooks.beforeEncode
         let focus = FocusContext(enlarger: settings.hooks.enlarger)
+        let altText = settings.hooks.altText
         let attempt = attempts[index]
         let variants = index < plan.variants.count ? plan.variants[index] : []
         group.addTask {
             let started = Date()
             let options = ItemRunOptions(lowMemory: lowMemory, attempt: attempt, beforeEncode: hook,
                                          stage: { events(ItemEvent(index: inputIndex, source: source, stage: $0)) },
-                                         focus: focus)
+                                         focus: focus, altText: altText)
             let outcome = BatchRunner.process(planned, job: job, assets: assets, maxPixels: maxPixels, trash: trash,
                                               options: options, variants: variants)
             return WorkerResult(index: index, result: outcome.0, inputBytes: outcome.1,
