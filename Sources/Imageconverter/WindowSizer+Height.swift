@@ -5,6 +5,11 @@ import ImageconverterCore
 extension WindowSizer {
     /// The sidebar measured its parts (natural heights) with the pipeline collapsed or expanded.
     func sidebarMeasured(_ parts: WindowLayout.SidebarParts, collapsed: Bool) {
+        // The first layout after an Output resize: let the pin go, judged with these fresh parts.
+        if releasePending, pinnedHeight != nil {
+            finishRelease(parts: parts, collapsed: collapsed)
+            return
+        }
         let toggled = pipelineCollapsed.map { $0 != collapsed } ?? false
         let shownBefore = targetHeight
         self.parts = parts
@@ -86,20 +91,42 @@ extension WindowSizer {
     }
     #endif
 
-    /// The Output panel's handle is being dragged: the window keeps its current height while the panel grows or
-    /// shrinks, and the pipeline steps above take up the difference (they scroll, or get empty room).
+    /// The Output panel is being resized from its handle (a drag, an arrow key, a VoiceOver adjustment): the window
+    /// keeps its current height while the panel grows or shrinks, and the pipeline steps above take up the difference.
     func pinHeight() {
-        guard pinnedHeight == nil, pipelineCollapsed == false else { return }
-        pinnedHeight = targetHeight ?? currentContentSize?.height
+        guard pipelineCollapsed == false else { return }
+        if pinnedHeight == nil {
+            pinnedHeight = targetHeight ?? currentContentSize?.height
+            rememberedBeforePin = rememberedHeight
+        }
+        releasePending = false
     }
 
-    /// The drag ended: the window keeps the height it has (remembered like a user resize, or fitting the content
-    /// again when it is exactly the content's height), and later changes animate as usual.
-    func releaseHeight() {
+    /// The resize is done (or the drag was cancelled): the pin is let go at the next measured layout, so the
+    /// decision sees the panel's new height (`WindowLayout.releasedRememberedHeight`). A change that moves no
+    /// measured height lets it go shortly after instead.
+    func requestRelease() {
         guard pinnedHeight != nil else { return }
+        releasePending = true
+        releaseToken += 1
+        let token = releaseToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, token == releaseToken, releasePending, let parts else { return }
+            finishRelease(parts: parts, collapsed: pipelineCollapsed ?? false)
+        }
+    }
+
+    private func finishRelease(parts: WindowLayout.SidebarParts, collapsed: Bool) {
+        guard let pinned = pinnedHeight else { return }
+        releasePending = false
         pinnedHeight = nil
-        guard let parts, let height = targetHeight else { return }
-        setRemembered(abs(height - parts.expanded) < 1 ? nil : height)
+        if !collapsed {
+            setRemembered(WindowLayout.releasedRememberedHeight(pinned: pinned, parts: parts,
+                                                                rememberedBefore: rememberedBeforePin,
+                                                                maxContent: currentMaxContent))
+        }
+        // Now unpinned: the window settles by the usual rules, animated (closing a gap the change left).
+        sidebarMeasured(parts, collapsed: collapsed)
     }
 
     /// The user finished resizing: an expanded window keeps (and remembers) the height they chose.
@@ -114,7 +141,7 @@ extension WindowSizer {
         applyRestLimits()
     }
 
-    private func setRemembered(_ height: CGFloat?) {
+    func setRemembered(_ height: CGFloat?) {
         guard height != rememberedHeight else { return }
         rememberedHeight = height
         if let height { defaults.set(Double(height), forKey: Self.rememberedHeightKey) } else {

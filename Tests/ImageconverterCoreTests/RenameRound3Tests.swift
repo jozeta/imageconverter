@@ -228,7 +228,26 @@ final class RenameRound3Tests: XCTestCase {
 
     // MARK: Preview default
 
-    func testPreviewDefaultsToSplit() {
-        XCTAssertEqual(ViewDefaults.compareMode, "split")
+    /// The app's compare modes, as `CompareMode` spells them (the app target has no tests).
+    private enum Mode: String { case sideBySide, split, difference, single }
+
+    func testPreviewDefaultsToSplitAndKeepsASavedMode() throws {
+        let suite = "imageconverter-tests-compare-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            let plist = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Preferences/\(suite).plist")
+            try? FileManager.default.removeItem(at: plist)
+        }
+        XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .split, "a brand-new store")
+        defaults.set("difference", forKey: ViewDefaults.compareModeKey)
+        XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .difference, "a saved mode is kept")
+        defaults.set("sideBySide", forKey: ViewDefaults.compareModeKey)
+        XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .sideBySide)
+        defaults.set("bogus", forKey: ViewDefaults.compareModeKey)
+        XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .split, "unknown: the default")
+        defaults.removeObject(forKey: ViewDefaults.compareModeKey)
+        XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .split, "removed: the default")
     }
 }

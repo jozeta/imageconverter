@@ -544,8 +544,10 @@ unsandboxed.
    where files go. The handle on the pipeline's bottom edge (or ⌥⌘L) hides the whole list.
 6. The handle above **Output** collapses it to one line ("JPEG · 82 % · Converted") with a click, or ⌥⌘U.
    Drag it up or down to give Output any height between that line and its full content (it scrolls when
-   shorter); the window keeps its height and the steps above get the rest. With the handle focused, ↑ and ↓
-   change the height step by step.
+   shorter; within 20 pt of the line it collapses). While you drag, the window keeps its height and the steps
+   above give way; when you let go, a window left with empty room above Output fits its content again (or
+   returns to the height you gave it). With the handle focused, ↑ and ↓ (or VoiceOver's adjust actions) do the
+   same step by step; VoiceOver reads the height as "180 points of 320" or "Collapsed".
 
 Your pipeline is kept between launches.
 

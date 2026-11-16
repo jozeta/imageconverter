@@ -53,6 +53,10 @@ final class WindowSizer {
     /// While the Output panel's handle is dragged: the content height the window keeps, so the pipeline steps
     /// give way instead of the window edge moving (see `pinHeight`).
     @ObservationIgnored var pinnedHeight: CGFloat?
+    /// The remembered height when the pin was taken, and whether the pin is let go at the next measurement.
+    @ObservationIgnored var rememberedBeforePin: CGFloat?
+    @ObservationIgnored var releasePending = false
+    @ObservationIgnored var releaseToken = 0
     @ObservationIgnored let defaults: UserDefaults
     static let rememberedHeightKey = "expandedWindowHeight"
 

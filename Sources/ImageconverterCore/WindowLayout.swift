@@ -75,6 +75,18 @@ public enum WindowLayout {
         return (height, remembered)
     }
 
+    /// The remembered height once a pinned height is let go (the Output panel's handle was dragged or stepped while
+    /// the window kept its height). Measured with the parts as they are after the change: when the content now fits
+    /// in the pinned height (the steps would show empty room, e.g. after collapsing Output), the remembered height from
+    /// before the pin comes back (nil: the window fits the content again, so no gap is left); when the content is
+    /// taller (the steps scroll), the pinned height is kept, like a window the user resized.
+    public static func releasedRememberedHeight(pinned: CGFloat, parts: SidebarParts, rememberedBefore: CGFloat?,
+                                                maxContent: CGSize) -> CGFloat? {
+        let range = expandedHeights(parts: parts, maxContent: maxContent)
+        let height = min(max(pinned, range.lowerBound), range.upperBound)
+        return height >= parts.expanded - 1 ? rememberedBefore : height
+    }
+
     /// The heights an expanded window may be resized to: the minimum that keeps everything but most of
     /// the steps visible, up to the screen.
     public static func expandedHeights(parts: SidebarParts, maxContent: CGSize) -> ClosedRange<CGFloat> {

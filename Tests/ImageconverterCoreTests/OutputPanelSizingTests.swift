@@ -20,6 +20,10 @@ final class OutputPanelSizingTests: XCTestCase {
         let settle = { (height: CGFloat) in OutputPanelSizing.settled(height, collapsed: self.collapsed, full: self.full) }
         XCTAssertEqual(settle(collapsed), OutputPanelSizing.State(collapsed: true, height: nil))
         XCTAssertEqual(settle(collapsed + 3), OutputPanelSizing.State(collapsed: true, height: nil), "snaps shut")
+        XCTAssertEqual(settle(collapsed + OutputPanelSizing.collapseSnap), OutputPanelSizing.State(collapsed: true, height: nil),
+                       "no sliver of the open panel is left")
+        XCTAssertEqual(settle(collapsed + OutputPanelSizing.collapseSnap + 1),
+                       OutputPanelSizing.State(collapsed: false, height: collapsed + OutputPanelSizing.collapseSnap + 1))
         XCTAssertEqual(settle(full - 2), OutputPanelSizing.State(collapsed: false, height: nil), "snaps to full")
         XCTAssertEqual(settle(150), OutputPanelSizing.State(collapsed: false, height: 150))
     }
@@ -51,6 +55,33 @@ final class OutputPanelSizingTests: XCTestCase {
                        OutputPanelSizing.State(collapsed: true, height: nil))
         XCTAssertEqual(OutputPanelSizing.stepped(from: full, by: 1, collapsed: collapsed, full: full),
                        OutputPanelSizing.State(collapsed: false, height: nil))
+    }
+
+    private func parts(steps: CGFloat, output: CGFloat) -> WindowLayout.SidebarParts {
+        WindowLayout.SidebarParts(top: 200, steps: steps, output: output, bottom: 40, chrome: 40, stepsGap: 4, spacing: 12)
+    }
+
+    func testReleasedPinKeepsTheHeightWhileTheStepsScroll() {
+        // Output grew under a pinned window: the content (steps 300) no longer fits in 600, so 600 is kept.
+        let grown = parts(steps: 300, output: 200)
+        XCTAssertGreaterThan(grown.expanded, 600)
+        XCTAssertEqual(WindowLayout.releasedRememberedHeight(pinned: 600, parts: grown, rememberedBefore: nil,
+                                                             maxContent: CGSize(width: 2000, height: 1200)), 600)
+    }
+
+    func testReleasedPinLeavesNoGap() {
+        // Output collapsed under a pinned window: the content is shorter than the window, so the window fits it
+        // again (nothing remembered) instead of keeping an empty gap above Output.
+        let collapsed = parts(steps: 100, output: 40)
+        XCTAssertLessThan(collapsed.expanded, 600)
+        let screen = CGSize(width: 2000, height: 1200)
+        XCTAssertNil(WindowLayout.releasedRememberedHeight(pinned: 600, parts: collapsed, rememberedBefore: nil,
+                                                           maxContent: screen))
+        XCTAssertEqual(WindowLayout.releasedRememberedHeight(pinned: 600, parts: collapsed, rememberedBefore: 800,
+                                                             maxContent: screen), 800, "the user's own height comes back")
+        // The pin is clamped to what the parts allow (the screen).
+        XCTAssertEqual(WindowLayout.releasedRememberedHeight(pinned: 5000, parts: parts(steps: 3000, output: 200),
+                                                             rememberedBefore: nil, maxContent: screen), 1200)
     }
 
     func testSummaryLine() {

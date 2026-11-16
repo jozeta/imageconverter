@@ -16,8 +16,10 @@ public enum OutputPanelSizing {
         }
     }
 
-    /// Within this distance of either end a drag or key press settles at that end.
+    /// Within this distance of the full height a drag or key press settles there.
     public static let snap: CGFloat = 6
+    /// Within this distance of the collapsed line it collapses (so no sliver of the open panel is left).
+    public static let collapseSnap: CGFloat = 20
     /// What an arrow key moves the panel's top edge by.
     public static let keyStep: CGFloat = 24
     /// A stored height above this is ignored (a hand-edited setting).
@@ -29,10 +31,11 @@ public enum OutputPanelSizing {
         clamp(start - translation, collapsed: collapsed, full: full)
     }
 
-    /// Where a drag ends: collapsed near the bottom, full near the top, otherwise that height.
+    /// Where a drag ends: collapsed within `collapseSnap` of the line, full within `snap` of the top, otherwise that
+    /// height.
     public static func settled(_ height: CGFloat, collapsed: CGFloat, full: CGFloat) -> State {
         let value = clamp(height, collapsed: collapsed, full: full)
-        if value <= collapsed + snap { return State(collapsed: true, height: nil) }
+        if value <= collapsed + collapseSnap { return State(collapsed: true, height: nil) }
         if value >= full - snap { return State(collapsed: false, height: nil) }
         return State(collapsed: false, height: value)
     }
@@ -87,4 +90,13 @@ public enum OutputSummary {
 public enum ViewDefaults {
     /// The comparison mode a preview starts in when none is saved (Johan, round 3: Split).
     public static let compareMode = "split"
+    /// Where the compare mode is saved.
+    public static let compareModeKey = "compareMode"
+
+    /// The compare mode to start in: the saved one when it is a mode `Mode` knows, else `compareMode` (Split). The
+    /// app's `CompareController` reads its mode only through this.
+    public static func startingCompareMode<Mode: RawRepresentable>(in defaults: UserDefaults, as type: Mode.Type)
+        -> Mode? where Mode.RawValue == String {
+        defaults.string(forKey: compareModeKey).flatMap(Mode.init(rawValue:)) ?? Mode(rawValue: compareMode)
+    }
 }

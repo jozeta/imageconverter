@@ -32,6 +32,8 @@ extension AppModel {
 
     /// Collapses the Output panel to its summary line or opens it again (at the height it had).
     func toggleOutput() {
+        // A drag cut short by the shortcut must not leave the window pinned.
+        windowSizer.requestRelease()
         SidebarMotion.perform { outputPanel.collapsed.toggle() }
     }
 

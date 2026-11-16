@@ -48,6 +48,8 @@ struct CollapsibleOutputPanel: View {
     /// A click right after a drag is the drag's own mouse-up, not a toggle.
     @State private var lastDragEnd = Date.distantPast
     @State private var hoverCursor = false
+    /// True while a drag gesture is live; SwiftUI resets it when the gesture ends or is cancelled.
+    @GestureState private var dragging = false
 
     private var state: OutputPanelSizing.State {
         OutputPanelSizing.State(collapsed: model.outputPanel.collapsed, height: model.outputPanel.height)
@@ -100,6 +102,7 @@ struct CollapsibleOutputPanel: View {
                 @unknown default: break
                 }
             }
+            .accessibilityValue(accessibilityValue)
             .accessibilityHint("Click to collapse or expand; drag or use the arrow keys to change the height")
             .onHover { inside in
                 guard inside != hoverCursor else { return }
@@ -109,8 +112,29 @@ struct CollapsibleOutputPanel: View {
             .onDisappear {
                 if hoverCursor { NSCursor.pop() }
                 hoverCursor = false
+                endDragWithoutSettling()
+            }
+            .onChange(of: dragging) { _, live in
+                // A cancelled drag never reaches `onEnded`: once the gesture is over, a drag still open is let go
+                // (checked a turn later, after `onEnded` had its chance).
+                guard !live else { return }
+                DispatchQueue.main.async { endDragWithoutSettling() }
             }
             .frame(maxWidth: .infinity)
+    }
+
+    /// "Collapsed", or "180 points of 320" (the panel's height and its full content).
+    private var accessibilityValue: String {
+        if model.outputPanel.collapsed, dragHeight == nil { return "Collapsed" }
+        return "\(Int(currentHeight.rounded())) points of \(Int(max(fullHeight, currentHeight).rounded()))"
+    }
+
+    /// Ends a drag that didn't finish normally: the panel keeps its saved state and the window pin is let go.
+    private func endDragWithoutSettling() {
+        guard dragStart != nil else { return }
+        dragStart = nil
+        dragHeight = nil
+        model.windowSizer.requestRelease()
     }
 
     private func click() {
@@ -121,6 +145,7 @@ struct CollapsibleOutputPanel: View {
     private var drag: some Gesture {
         // Global coordinates: the handle moves with the panel's top edge while it is dragged.
         DragGesture(minimumDistance: 3, coordinateSpace: .global)
+            .updating($dragging) { _, live, _ in live = true }
             .onChanged { value in
                 if dragStart == nil {
                     dragStart = currentHeight
@@ -137,7 +162,7 @@ struct CollapsibleOutputPanel: View {
                 dragStart = nil
                 dragHeight = nil
                 lastDragEnd = Date()
-                model.windowSizer.releaseHeight()
+                model.windowSizer.requestRelease()
             }
     }
 
@@ -145,9 +170,10 @@ struct CollapsibleOutputPanel: View {
         let next = OutputPanelSizing.stepped(from: currentHeight, by: direction, collapsed: collapsedHeight,
                                              full: fullHeight)
         guard next != state else { return .handled }
+        // Like a drag: the window keeps its height until the new layout is measured.
         model.windowSizer.pinHeight()
         SidebarMotion.perform { apply(next) }
-        model.windowSizer.releaseHeight()
+        model.windowSizer.requestRelease()
         return .handled
     }
 
