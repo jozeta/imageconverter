@@ -35,12 +35,14 @@ public enum AdjustPresets {
 
     private static let looks: [(name: String, options: AdjustOptions)] = [
         ("Vivid", AdjustOptions(contrast: 10, saturation: 20, vibrance: 30)),
-        ("Vivid Warm", AdjustOptions(contrast: 10, saturation: 15, vibrance: 30, warmth: 30, tint: 4)),
+        // The warm looks: strong warmth with a little magenta and less vibrance, which on skies and grass would
+        // pull the image back to blue and green (AdjustWarmLooksTests measures them on the sample photos).
+        ("Vivid Warm", AdjustOptions(contrast: 10, saturation: 5, vibrance: 15, warmth: 70, tint: 10)),
         ("Vivid Cool", AdjustOptions(contrast: 10, saturation: 15, vibrance: 30, warmth: -30, tint: -2)),
         ("Dramatic", AdjustOptions(highlights: -30, shadows: -15, contrast: 30, blackPoint: 10, saturation: -20,
                                    definition: 25)),
         ("Dramatic Warm", AdjustOptions(highlights: -30, shadows: -15, contrast: 30, blackPoint: 10,
-                                        saturation: -10, warmth: 35, tint: 5, definition: 25)),
+                                        saturation: -15, warmth: 70, tint: 10, definition: 25)),
         ("Dramatic Cool", AdjustOptions(highlights: -30, shadows: -15, contrast: 30, blackPoint: 10,
                                         saturation: -10, warmth: -35, definition: 25)),
         ("Mono", AdjustOptions(contrast: 10, saturation: -100)),
@@ -51,8 +53,8 @@ public enum AdjustPresets {
         ("Fade", AdjustOptions(highlights: -10, contrast: -20, blackPoint: -35, saturation: -20)),
         ("Film", AdjustOptions(highlights: -15, shadows: 10, contrast: 10, blackPoint: -20, saturation: -10,
                                warmth: 12, tint: 5, sharpness: -10)),
-        ("Golden Hour", AdjustOptions(exposure: 5, highlights: -20, shadows: 15, vibrance: 20, warmth: 75,
-                                      tint: 10)),
+        ("Golden Hour", AdjustOptions(exposure: 5, highlights: -20, shadows: 15, vibrance: 10, warmth: 100,
+                                      tint: 15)),
         ("Cool Breeze", AdjustOptions(exposure: 5, contrast: -5, brightness: 5, vibrance: 10, warmth: -35,
                                       tint: -4)),
         ("Matte", AdjustOptions(brilliance: 10, highlights: -25, shadows: 10, contrast: -15, blackPoint: -30,

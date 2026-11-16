@@ -372,17 +372,17 @@ Built-in Adjust looks (values not listed are 0):
 | Look | Values |
 |------|--------|
 | Vivid | contrast +10, saturation +20, vibrance +30 |
-| Vivid Warm | contrast +10, saturation +15, vibrance +30, warmth +30, tint +4 |
+| Vivid Warm | contrast +10, saturation +5, vibrance +15, warmth +70, tint +10 |
 | Vivid Cool | contrast +10, saturation +15, vibrance +30, warmth −30, tint −2 |
 | Dramatic | highlights −30, shadows −15, contrast +30, black point +10, saturation −20, definition 25 |
-| Dramatic Warm | highlights −30, shadows −15, contrast +30, black point +10, saturation −10, warmth +35, tint +5, definition 25 |
+| Dramatic Warm | highlights −30, shadows −15, contrast +30, black point +10, saturation −15, warmth +70, tint +10, definition 25 |
 | Dramatic Cool | highlights −30, shadows −15, contrast +30, black point +10, saturation −10, warmth −35, definition 25 |
 | Mono | contrast +10, saturation −100 |
 | Silvertone | brilliance +20, highlights +20, contrast −10, black point −15, saturation −100, warmth −8 |
 | Noir | highlights +15, shadows −25, contrast +45, black point +25, saturation −100, definition 20 |
 | Fade | highlights −10, contrast −20, black point −35, saturation −20 |
 | Film | highlights −15, shadows +10, contrast +10, black point −20, saturation −10, warmth +12, tint +5, soften 10 |
-| Golden Hour | exposure +5, highlights −20, shadows +15, vibrance +20, warmth +75, tint +10 |
+| Golden Hour | exposure +5, highlights −20, shadows +15, vibrance +10, warmth +100, tint +15 |
 | Cool Breeze | exposure +5, contrast −5, brightness +5, vibrance +10, warmth −35, tint −4 |
 | Matte | brilliance +10, highlights −25, shadows +10, contrast −15, black point −30, saturation −5 |
 | Punch | contrast +25, black point +5, saturation +10, vibrance +40, sharpen +30, definition 30 |
