@@ -264,3 +264,66 @@ Agents couldn't do this: the prompt was left open on the screen during Task 5, s
   each time and Run disabled until fixed.
 - [ ] **Overwrite with extras.** Overwrite mode plus one extra output and a format change. Expected: the original
   goes to the Trash once, the main output and the extra sit in the source folder, nothing else is trashed.
+
+## 13. Vision features (smart crop, content conditions, Redact, ML enlarge, alt text)
+
+On the packaged, sandboxed app unless noted. None of these can be automated: the tests use fake Vision detectors and
+fake models, and never run the real ML enlarge or alt text model.
+
+**Smart crop**
+- [ ] **Subject and faces.** Crop 1:1 with Focus *Subject*, then *Faces*, on an off-centre portrait and a group photo.
+  Expected: the crop lands on the subject or on all the faces.
+- [ ] **Fallbacks.** A landscape with no faces, Focus *Faces*. Expected: cropped around the subject with the note
+  "No faces found; cropped around the subject" (or the centre, with its note).
+
+**Content conditions**
+- [ ] **Shows, faces, text.** *Shows* "dog", *Face count* and *Contains text* pick the right branch on real photos;
+  the label picker's search works.
+- [ ] **Shows without labels.** Add a *Shows* check and choose no labels. Expected: the red line under it and Run
+  disabled (also ⌘R), with a tooltip; choosing a label enables Run.
+- [ ] **{labels}.** `{labels}` in a subfolder and in Finder tags gives real words.
+- [ ] **macOS 14 or 15** (if a Mac is available). On macOS 14 the Aesthetics and Screenshot kinds can't be picked
+  in the kind menu, and a preset that has one gets the "needs macOS 15" note once per run; a pipeline without them
+  never shows that note.
+
+**Redact**
+- [ ] **Coverage.** Faces and text on real photos: a street sign, a document photo, a group photo, a rotated EXIF-6
+  photo, and after a Crop and a Resize. Expected: the boxes cover the right pixels.
+- [ ] **Strength.** Pixelate and blur hide the text and the faces well enough that a person can't read or recognise
+  them. Text defaults to a solid fill.
+- [ ] **Privacy panel.** The "Also look for faces and text" switch, the counts, and **Add a Redact step**.
+
+**ML enlarge**
+- [ ] **Consent and download.** On a Mac where the model is missing: the consent alert wording, then
+  **Download…**. Watch Little Snitch or the network: only Apple hosts, and only after the button. Progress, then
+  ready.
+- [ ] **Tiles.** A 4× result on a 1921 px or larger image looks seamless.
+- [ ] **Model missing in jobs and the CLI.** A job and a CLI run with the model missing say "Not enlarged… Open
+  imageconverter…", and the job retries after the download (it doesn't give up).
+- [ ] **Memory.** Activity Monitor during a 4× batch of 12 MP photos, and while editing with the preview and the size
+  estimate open: editing a later step (an Adjust slider, the quality) doesn't run the model again.
+
+**Alt text** (needs an Apple Intelligence Mac on macOS 27 with the model ready)
+- [ ] **Sentences.** Real sentences: length, no "image of", no names, no copied text (a sign, a licence plate, a
+  document). Emoji in the output survive.
+- [ ] **Latency.** Real time per image, and a 20-image batch at default concurrency: how many get "no answer within
+  30 seconds"? (Expected none on a healthy model: an image's 30 s start at its turn.)
+- [ ] **Together.** A manual batch and a job running together with alt text: no app-wide stall, the preview stays
+  responsive, and its alt text row answers ahead of the waiting batch images.
+- [ ] **Cancel.** Cancel mid-batch: it stops within about a second.
+- [ ] **Background.** The app in the background or in menu-bar mode during a job: does FoundationModels rate-limit
+  (notes say "the model was busy")?
+- [ ] **Preview edits.** Drag an Adjust slider while a job generates: do batch items get "busy" notes?
+- [ ] **Not responding.** If the model ever hangs: after three timeouts in a row the rest get "Alt text not
+  generated: the on-device model stopped responding" at once, and the preview says the same, until a restart.
+- [ ] **Apple Intelligence off, then on.** The editor's reason updates the next time it appears.
+- [ ] **Readers.** Exported XMP read by Photoshop, Lightroom or exiftool (`Iptc4xmpCore:AltTextAccessibility`,
+  lang-alt x-default). A screen reader (VoiceOver in Preview, a CMS import) picks it up.
+
+**Cross-feature**
+- [ ] **One pipeline.** Crop (Faces) → Redact (faces and text) → Resize ML 2× → Metadata alt text on 10 photos plus
+  one extra output. Expected: report notes in order, extras redacted, alt text present, no face regions in XMP.
+- [ ] **Branches.** A condition branch that adds Redact through a preset, with Copy original on the other branch.
+  Expected: the preset branch's images are redacted; the copy branch's are copied unchanged. With a Redact step in the
+  main pipeline too, the copies are converted with it instead ("Converted to redact: …"), and a preset's other image
+  steps on a copy branch are named ("Not applied to the converted copy: …").
