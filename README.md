@@ -141,7 +141,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     (the colour of the top-left pixel); **Tolerance** 0–100 % and **Padding** in pixels keep a margin
   - (available) **Canvas / padding**: padding in pixels or percent, a fixed canvas size, or a **Ratio** (1:1 … 3:4 or
     custom) that grows the shorter side without cropping, with an anchor and a background colour
-  - (available) **Color profile**: convert to sRGB, Display P3 or Gray, or keep the original
+  - (available) **Color**: convert to sRGB, Display P3 or Gray (or keep the profile), then **Re-color** (Tint,
+    Duotone, Sepia, Replace colour, Hue shift) and **Reduce colours** to a palette of 2–256 colours with or without
+    dithering (PNG is then written as a palette PNG when it can be)
   - (available) **Adjust**: exposure, brilliance, highlights, shadows, contrast, brightness, black point,
     saturation, vibrance, warmth, tint, hue, soften ↔ sharpen, definition and noise reduction, plus 16 built-in
     looks and your own Adjust presets
@@ -361,6 +363,26 @@ Built-in Adjust looks (values not listed are 0):
 | Punch | contrast +25, black point +5, saturation +10, vibrance +40, sharpen +30, definition 30 |
 | Soft Portrait | brilliance +15, highlights −15, shadows +15, contrast −10, vibrance −5, warmth +10, tint +5, soften 25 |
 
+Color (pipeline step, saved with the pipeline; runs Profile, then Re-color, then Reduce colours):
+
+| Option | What it does | Default |
+|--------|--------------|---------|
+| Profile | sRGB · Display P3 · Gray · Keep original (no conversion) | sRGB |
+| Re-color | None · Tint · Duotone · Sepia · Replace colour · Hue shift | None |
+| Tint colour | The colour Tint tones the image in (black → it → white by lightness) | #3D6EA8 |
+| Shadows / Highlights | Duotone's colours for the darkest and lightest tones | #1F1A4F / #F2C16B |
+| Strength | Tint, Duotone and Sepia: how much of the result is mixed in | 100 % |
+| Replace / With | Replace colour: the colour to replace and its new colour | #1E5AC8 / #C81E2D |
+| Tolerance | Replace colour: how far a hue may differ and still change (100 % = every hue) | 25 % |
+| Softness | Replace colour: how much of the tolerance fades out instead of a hard edge | 50 % |
+| Hue | Hue shift: degrees around the colour wheel | 0° (−180° to 180°) |
+| Reduce to a palette | Reduces the image to a palette of a few colours | off |
+| Colours | How many colours the palette has | 16 (2 to 256) |
+| Dithering | Floyd–Steinberg error diffusion, so gradients stay smooth with few colours | on |
+
+Saved files keep the old form (`{"colorProfile": {"_0": "sRGB"}}`) while Re-color and Reduce colours are untouched,
+so older versions read them; older files load as a profile-only Color step.
+
 Watermark (pipeline step, saved with the pipeline):
 
 | Option | What it does | Default |
@@ -534,7 +556,7 @@ unsandboxed.
 ### Build a pipeline
 
 1. In the sidebar, press **+ Add step** and pick Resize, Crop, Rotate / flip, Perspective, Trim, Canvas / padding,
-   Color profile, Adjust, Watermark or **If … then … else** (see below). The step is added at the end and opens so you can set it.
+   Color, Adjust, Watermark or **If … then … else** (see below). The step is added at the end and opens so you can set it.
 2. Open or close a step by clicking its row; its settings (size, anchor, colour, profile, ...) are
    inside. The muted line under the name summarises them. The header shows how many steps are on.
 3. Reorder by dragging the handle, or with the keyboard: the right-click menu has
@@ -826,8 +848,38 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
    as a preset, **Duplicate** copies a built-in look so you can rename and tweak it.
 6. Put the step after resizing if you want sharpening to suit the final size. The step keeps each
    image's RGB colour space (sRGB, Display P3, …), bit depth and transparency. Gray, CMYK and indexed
-   images come out of the step in sRGB (Core Image works in RGB); add a Color profile step set to Gray
+   images come out of the step in sRGB (Core Image works in RGB); add a Color step with the profile set to Gray
    after it to get a gray file back.
+
+### Re-color and reduce colours
+
+1. Press **+ Add step** and pick **Color**, then open the step. It has three parts that run in this order:
+   **Profile**, **Re-color**, **Reduce colours**. Set **Profile** to **Keep original** to re-color without
+   converting the profile.
+2. **Re-color**:
+   - **Tint** tones the whole image in one colour (black → the colour → white, by lightness); **Strength** mixes it
+     with the original.
+   - **Duotone** maps the darkest tones to **Shadows** and the lightest to **Highlights**.
+   - **Sepia** is a tint in a warm brown.
+   - **Replace colour**: pick the colour to replace with the first colour well and the new colour with **With**.
+     **Tolerance** (0–100 %, default 25 %) is how far a hue may be from it and still change (100 % is the whole
+     colour wheel); **Softness** (default 50 %) is how much of that range fades out instead of ending sharply. Each
+     pixel keeps its lightness and saturation relative to the picked colour, so the shading on a blue product stays
+     when it turns red. Greys and near-greys are never changed unless the picked colour is itself grey (then only
+     greys of a similar lightness change).
+   - **Hue shift** turns every colour around the colour wheel by −180° to 180°.
+   The colours are worked out in OKLab, a perceptual colour space, on a floating-point copy; the result keeps the
+   image's colour space, bit depth and transparency. Colours are saved as sRGB hex (`"#1E5AC8"`).
+3. **Reduce colours**: switch on **Reduce to a palette** and set **Colours** (2–256, default 16) and **Dithering**
+   (on by default; Floyd–Steinberg, alternating direction per row). The palette is found on a copy at most 512 px
+   long (median cut, refined by k-means) and mapped onto the full image; the same image and settings always give
+   the same result. An image that already has that few colours is left as it is. Fully transparent pixels stay
+   transparent and don't count toward the palette; partly transparent pixels keep their alpha. The result is 8-bit.
+4. **Palette files**: with PNG output the file is written as a palette (indexed) PNG when the image ends up with at
+   most 256 colours, is sRGB and has only fully opaque or fully transparent pixels (transparency is kept). Otherwise
+   it's written as a normal PNG and the report says why ("Not written as an indexed PNG: it has semi-transparent
+   pixels"). Steps after the Color step (Adjust, Watermark, a resize) can add colours; put Reduce last for a palette
+   file. GIF is always written with a palette by ImageIO.
 
 ### Crop around the subject or faces
 

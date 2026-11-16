@@ -19,14 +19,32 @@ public enum CompressionSearch {
     static let smartThreshold = 0.985
 
     /// Throws `CancellationError` if the task is cancelled during a search.
+    /// `indexedPNG` (a Color step reduced the colours): a PNG is written with a palette when the image allows it,
+    /// otherwise normally with a note saying why not.
     public static func encode(
-        _ image: CGImage, properties: [String: Any], settings: OutputSettings
+        _ image: CGImage, properties: [String: Any], settings: OutputSettings, indexedPNG: Bool = false
     ) throws -> Output {
-        try encode(image, settings: settings) { quality in
+        var indexNote: String?
+        if indexedPNG, settings.format == .png {
+            switch IndexedPNG.plan(image) {
+            case .indexed(let indexed):
+                if let data = try? ImageEncoder.encode(indexed.image, properties: properties, settings: settings),
+                   let finished = IndexedPNG.finished(data, table: indexed.table,
+                                                      transparentIndex: indexed.transparentIndex) {
+                    return (finished, nil, nil)
+                }
+                indexNote = IndexedPNG.note("the palette file couldn't be written")
+            case .notIndexed(let reason):
+                indexNote = IndexedPNG.note(reason)
+            }
+        }
+        let result = try encode(image, settings: settings) { quality in
             var settings = settings
             settings.quality = quality
             return try ImageEncoder.encode(image, properties: properties, settings: settings)
         }
+        guard let indexNote else { return result }
+        return (result.data, result.quality, [indexNote, result.note].compactMap { $0 }.joined(separator: "; "))
     }
 
     static func encode(_ image: CGImage, settings: OutputSettings, encoder: QualityEncoder) throws -> Output {

@@ -30,12 +30,9 @@ struct StepEditor: View {
                 get: { if case .canvas(let opts) = operation { return opts } else { return CanvasOptions() } },
                 set: { operation = .canvas($0) }))
         case .colorProfile:
-            Picker("Profile", selection: Binding(
-                get: { if case .colorProfile(let profile) = operation { return profile } else { return .sRGB } },
-                set: { operation = .colorProfile($0) })) {
-                ForEach(ColorProfile.allCases, id: \.self) { Text($0.displayName).tag($0) }
-            }
-            .accessibilityLabel("Color profile")
+            ColorEditor(options: Binding(
+                get: { if case .colorProfile(let opts) = operation { return opts } else { return ColorOptions() } },
+                set: { operation = .colorProfile($0) }))
         case .adjust:
             AdjustEditor(options: Binding(
                 get: { if case .adjust(let opts) = operation { return opts } else { return AdjustOptions() } },

@@ -11,7 +11,7 @@ extension ImageOperation {
         case .perspective(let options): return Self.summary(of: options)
         case .trim(let options): return Self.summary(of: options)
         case .canvas(let options): return Self.summary(of: options.mode)
-        case .colorProfile(let profile): return profile.displayName
+        case .colorProfile(let options): return options.summary
         case .adjust(let options): return options.summary
         case .watermark(let options): return options.summary
         case .condition(let conditional): return conditional.summary

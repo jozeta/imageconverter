@@ -115,7 +115,8 @@ extension BatchRunner {
         let prepared = try preparation.get()
         let image = try variant.resize.map { try ImageOps.resize(prepared.image, $0.resizeOptions) } ?? prepared.image
         let properties = prepared.properties(for: pipeline)
-        let result = try CompressionSearch.encode(image, properties: properties, settings: variant.settings)
+        let result = try CompressionSearch.encode(image, properties: properties, settings: variant.settings,
+                                                 indexedPNG: pipeline.reducesColors)
         let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
             ? MetadataDates.dateTaken(in: properties) : nil
         let notes = [losslessNote, result.note].compactMap { $0 }

@@ -94,7 +94,7 @@ public enum StepKind: String, Codable, CaseIterable, Sendable {
         case .perspective: return "Perspective"
         case .trim: return "Trim"
         case .canvas: return "Canvas / padding"
-        case .colorProfile: return "Color profile"
+        case .colorProfile: return "Color"
         case .adjust: return "Adjust"
         case .watermark: return "Watermark"
         case .condition: return "Condition"
@@ -127,7 +127,7 @@ public enum ImageOperation: Codable, Equatable, Sendable {
     case perspective(PerspectiveOptions)
     case trim(TrimOptions)
     case canvas(CanvasOptions)
-    case colorProfile(ColorProfile)
+    case colorProfile(ColorOptions) // The Color step: profile, re-color, reduce colours.
     case adjust(AdjustOptions)
     case watermark(WatermarkOptions)
     /// If/then/else on the source file's facts; replaced by its chosen branch before anything runs
@@ -254,7 +254,7 @@ extension Pipeline {
             case .perspective(let options): current = try Perspective.apply(options, to: current, notes: &notes)
             case .trim(let options): current = try Trim.apply(options, to: current)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
-            case .colorProfile(let profile): current = try ImageOps.convertColor(current, to: profile)
+            case .colorProfile(let options): current = try ImageOps.color(current, options)
             case .adjust(let options): current = try Adjustments.apply(options, to: current)
             case .watermark(let options):
                 current = try ImageOps.watermark(current, options, asset: Self.asset(for: options, in: assets),
@@ -368,6 +368,7 @@ extension Pipeline {
         switch operation {
         case .adjust(let options): return options.isNeutral ? 1 : 3
         case .perspective(let options): return Perspective.isNoOp(options) ? 1 : 3
+        case .colorProfile(let options): return options.workingCopies
         default: return 1
         }
     }

@@ -126,14 +126,24 @@ public enum StepHelp {
                 tips: ["Use a transparent background and a format with transparency, such as PNG, to keep the new space see-through."])
         case .step(.colorProfile):
             return StepHelpInfo(
-                title: "Color profile",
-                summary: "Converts the colours of each image to a standard profile so they look the same on other screens.",
+                title: "Color",
+                summary: "Converts the colour profile, re-colors the image (tint, duotone, sepia, replace a colour, "
+                    + "hue shift) and reduces it to a palette of a few colours, in that order.",
                 howTo: [
-                    "sRGB is the safest choice for the web and email.",
-                    "Display P3 keeps a wider range of colours for modern Apple screens.",
-                    "Gray makes a black-and-white image; Keep original leaves the profile alone."
+                    "Profile: sRGB suits the web and email, Display P3 keeps a wider range, Gray makes black and "
+                        + "white, Keep original converts nothing.",
+                    "Re-color: Tint tones the image in one colour, Duotone uses two (shadows and highlights), Sepia "
+                        + "a warm brown; Strength mixes in the original.",
+                    "Replace colour: pick the old and the new colour. Tolerance is how far a hue may differ, Softness "
+                        + "how gently the edge fades.",
+                    "Hue shift turns every colour around the colour wheel, from -180 to 180 degrees.",
+                    "Reduce colours: 2 to 256 colours, with or without dithering. PNG output is then written with a "
+                        + "palette (smaller files) when the image allows it."
                 ],
-                tips: ["The Metadata step never removes the colour profile, so the result stays correct."])
+                tips: ["Replace colour keeps the shading and leaves greys alone.",
+                       "The Metadata step never removes the colour profile, so the result stays correct.",
+                       "A palette PNG needs sRGB and no semi-transparent pixels; otherwise the report says why it "
+                        + "was written normally."])
         case .step(.adjust):
             return StepHelpInfo(
                 title: "Adjust",
