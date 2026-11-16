@@ -32,6 +32,7 @@ public enum ContentCheck {
         }
         let found = Redaction.detect(.both, in: image, detector: detector)
         if let failure = found.failure { return .failed(failure) }
+        if found.cancelled { return .failed("cancelled") }
         return .found(ContentFindings(faceCount: found.faces.count, hasText: !found.text.isEmpty))
     }
 }

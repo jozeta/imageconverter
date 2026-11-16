@@ -166,6 +166,8 @@ public struct RedactDetections: Equatable, Sendable {
     public var text: [CGRect]
     /// Why (part of) the detection couldn't run; nil when it ran.
     public var failure: String?
+    /// The task was cancelled while detecting (the item is cancelled, not "unchecked").
+    public var cancelled = false
 
     public init(faces: [CGRect] = [], text: [CGRect] = [], failure: String? = nil) {
         self.faces = faces
@@ -268,7 +270,9 @@ public enum Redaction {
             }
         }
         if target.includesText {
-            do { result.text = try detector.textRects(in: image).compactMap(sanitized) } catch {
+            do { result.text = try detector.textRects(in: image).compactMap(sanitized) } catch is CancellationError {
+                result.cancelled = true
+            } catch {
                 failures.append(ImageAnalysis.reason(error))
             }
         }

@@ -115,7 +115,7 @@ final class RedactCorpusTests: XCTestCase {
         }
         let counter = Counter()
         DispatchQueue.concurrentPerform(iterations: 8) { _ in
-            TextTiles.gated {
+            try? TextTiles.gated {
                 counter.change(1)
                 Thread.sleep(forTimeInterval: 0.05)
                 counter.change(-1)

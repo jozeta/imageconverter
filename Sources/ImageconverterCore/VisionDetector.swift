@@ -64,10 +64,12 @@ public enum TextTiles {
     public static let concurrentImages = 2
     private static let gate = DispatchSemaphore(value: concurrentImages)
 
-    /// Runs `body` once fewer than `concurrentImages` images are reading tiles.
-    static func gated<T>(_ body: () throws -> T) rethrows -> T {
+    /// Runs `body` once fewer than `concurrentImages` images are reading tiles. A task cancelled while it waited
+    /// throws `CancellationError` instead of reading (a cancelled batch item, not an unchecked one).
+    static func gated<T>(_ body: () throws -> T) throws -> T {
         gate.wait()
         defer { gate.signal() }
+        if Task.isCancelled { throw CancellationError() }
         return try body()
     }
 
@@ -170,6 +172,7 @@ public struct SystemVisionDetector: VisionDetector {
     private static func tileBoxes(_ tiles: [CGRect], in image: CGImage) throws -> [CGRect] {
         var boxes: [CGRect] = []
         for tile in tiles {
+            if Task.isCancelled { throw CancellationError() }
             try autoreleasepool {
                 guard let crop = image.cropping(to: tile) else { throw VisionInputError() }
                 let request = redactTextRequest()
