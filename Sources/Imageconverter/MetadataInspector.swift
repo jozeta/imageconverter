@@ -13,6 +13,9 @@ struct MetadataInspector: View {
     @State private var adding: AddingField?
 
     static let headerNote = "Changes apply to this image's outputs. The original isn't changed."
+    /// In Overwrite mode the outputs are the originals: the amber `overwriteNote` says so instead.
+    static let overwriteHeaderNote = "Changes apply to this image's outputs."
+    static func headerNote(overwrites: Bool) -> String { overwrites ? overwriteHeaderNote : headerNote }
     /// Shown (amber) while Save to is Overwrite originals: the output, with these changes, replaces the original.
     static let overwriteNote = "Overwrite originals is on: these changes end up in the original file when the batch runs."
     @Environment(\.overwritesOriginals) private var overwritesOriginals
@@ -63,7 +66,7 @@ struct MetadataInspector: View {
                     .buttonStyle(.lg(.ghost)).controlSize(.small)
                     .help("Hide the metadata panel (⌥⌘I)").accessibilityLabel("Hide metadata panel")
             }
-            Text(Self.headerNote)
+            Text(Self.headerNote(overwrites: overwritesOriginals))
                 .font(LadaGlass.Typography.label)
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -202,7 +205,7 @@ private struct AddFieldSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
             Text("Add \(field.label)").font(LadaGlass.Typography.subtitle)
-            Text(MetadataInspector.headerNote).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            Text(MetadataInspector.headerNote(overwrites: overwritesOriginals)).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
             if overwritesOriginals {
                 Text(MetadataInspector.overwriteNote).font(LadaGlass.Typography.label)
                     .foregroundStyle(LadaGlass.Colors.warnText)

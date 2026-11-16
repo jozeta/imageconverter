@@ -769,7 +769,8 @@ with it); drag its left edge to make it wider or narrower.
 
 The panel's header says it: *Changes apply to this image's outputs. The original isn't changed.* With **Save to:
 Overwrite originals**, the output replaces the original, so the changes do end up in the original file; the panel
-then says so in amber: *Overwrite originals is on: these changes end up in the original file when the batch runs.*
+then says so in amber instead of "The original isn't changed": *Overwrite originals is on: these changes end up in
+the original file when the batch runs.*
 The changes are
 applied after the Metadata step, for the image's main output and its extra outputs, in the preview's size estimate
 and Privacy row, and in the run (also for a metadata-only lossless copy, which checks them, and for *Copy original
