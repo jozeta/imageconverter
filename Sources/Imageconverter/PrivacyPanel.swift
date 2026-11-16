@@ -142,7 +142,8 @@ private struct PrivacyRowView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
             Button { show(firstPath) } label: {
-                Label(row.item.source.lastPathComponent, systemImage: "arrow.up.forward.square")
+                // File names are untrusted too: bidi and invisible characters are shown as codes.
+                Label(MetadataInspection.display(row.item.source.lastPathComponent), systemImage: "arrow.up.forward.square")
                     .font(LadaGlass.Typography.body)
                     .lineLimit(1)
                     .truncationMode(.middle)

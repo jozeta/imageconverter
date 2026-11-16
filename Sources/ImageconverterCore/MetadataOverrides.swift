@@ -69,6 +69,14 @@ public enum MetadataOverrideValue: Hashable, Sendable {
 
     public enum Kind: Sendable { case text, keywords, location, date, rating }
 
+    /// `text` without bidirectional embedding, override and isolate controls (an edit pre-filled with a hostile
+    /// source value would otherwise write them back invisibly).
+    static func withoutBidiControls(_ text: String) -> String {
+        String(String.UnicodeScalarView(text.unicodeScalars.filter {
+            !(0x202A...0x202E).contains($0.value) && !(0x2066...0x2069).contains($0.value)
+        }))
+    }
+
     /// The text of a `.text` value (nil for the others).
     public var text: String? {
         if case .text(let text) = self { return text }
@@ -80,10 +88,11 @@ public enum MetadataOverrideValue: Hashable, Sendable {
     public var validated: MetadataOverrideValue? {
         switch self {
         case .text(let text):
-            let clean = MetadataFields.sanitized(text).trimmingCharacters(in: .whitespacesAndNewlines)
+            let clean = Self.withoutBidiControls(MetadataFields.sanitized(text))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
             return clean.isEmpty ? nil : .text(clean)
         case .keywords(let list):
-            let clean = MetadataFields.normalizedKeywords(list)
+            let clean = MetadataFields.normalizedKeywords(list.map(Self.withoutBidiControls))
             return clean.isEmpty ? nil : .keywords(clean)
         case let .location(latitude, longitude, altitude):
             return LocationEdit.isValid(latitude: latitude, longitude: longitude, altitude: altitude) ? self : nil
@@ -124,9 +133,9 @@ public enum MetadataPath: Hashable, Sendable {
 /// overrides still apply: the image's metadata is written as it is, with these changes.
 public struct MetadataOverrides: Hashable, Sendable {
     /// Fields set or removed.
-    public private(set) var fields: [MetadataOverrideField: MetadataOverrideValue] = [:]
+    public internal(set) var fields: [MetadataOverrideField: MetadataOverrideValue] = [:]
     /// Other fields removed (ones the panel can't edit, e.g. a lens serial number or an XMP history).
-    public private(set) var removedPaths: Set<MetadataPath> = []
+    public internal(set) var removedPaths: Set<MetadataPath> = []
 
     public init() {}
 
@@ -175,7 +184,22 @@ public struct MetadataOverrides: Hashable, Sendable {
             if fields[field] == .removed { return true }
             if fields[field] != nil { return false }
         }
-        return removedPaths.contains(path)
+        if removedPaths.contains(path) || coveredByRemoval(path) { return true }
+        // A set position replaces the whole GPS dictionary: the old altitude, time stamp and the rest go.
+        if case .location? = fields[.location], case .property(let dictionary, _) = path,
+           dictionary == Self.gpsKey { return true }
+        return false
+    }
+
+    private static let gpsKey = kCGImagePropertyGPSDictionary as String
+
+    /// Whether a wider removal takes `path` with it: a removed dictionary (the GPS position removes all of `{GPS}`)
+    /// or the date taken (every date field, `datePaths`).
+    private func coveredByRemoval(_ path: MetadataPath) -> Bool {
+        if fields[.dateTaken] == .removed, Self.datePaths.contains(path) { return true }
+        guard case .property(let dictionary, _) = path else { return false }
+        if dictionary == Self.gpsKey, fields[.location] == .removed { return true }
+        return removedPaths.contains(.dictionary(dictionary))
     }
 
     // MARK: Applying

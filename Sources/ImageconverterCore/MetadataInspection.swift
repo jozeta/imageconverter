@@ -71,10 +71,25 @@ public struct MetadataInspection: Sendable {
     }
 
     /// The row the privacy panel's link for `path` goes to: the row at that path, else the row of its field.
+    /// A path the panel doesn't list (an XMP tag in ImageIO's EXIF mirror namespaces, such as `exif:GPSLatitude` or
+    /// `aux:SerialNumber`) lands on the row that stands for it: the GPS position for GPS names, a dictionary row
+    /// with the same field name, else the first row of the group the tag belongs to.
     public func entry(for path: MetadataPath) -> MetadataEntry? {
         if let exact = entries.first(where: { $0.path == path }) { return exact }
-        guard let field = Self.editableField(for: path) else { return nil }
-        return entries.first { $0.field == field }
+        if let field = Self.editableField(for: path), let row = entries.first(where: { $0.field == field }) { return row }
+        guard case .xmp(let tag) = path else { return nil }
+        let name = String(tag.split(separator: ":").last ?? "")
+        let lower = name.lowercased()
+        if ["gps", "latitude", "longitude", "altitude"].contains(where: lower.contains),
+           let position = entries.first(where: { $0.path == .dictionary(kCGImagePropertyGPSDictionary as String) }) {
+            return position
+        }
+        if let same = entries.first(where: { entry in
+            if case .property(_, let key)? = entry.path { return key.caseInsensitiveCompare(name) == .orderedSame }
+            return false
+        }) { return same }
+        let group = Self.xmpGroup(path: tag, name: name)
+        return entries.first { $0.group == group }
     }
 
     // MARK: Reading

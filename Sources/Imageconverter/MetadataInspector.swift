@@ -13,6 +13,11 @@ struct MetadataInspector: View {
     @State private var adding: AddingField?
 
     static let headerNote = "Changes apply to this image's outputs. The original isn't changed."
+    /// Shown (amber) while Save to is Overwrite originals: the output, with these changes, replaces the original.
+    static let overwriteNote = "Overwrite originals is on: these changes end up in the original file when the batch runs."
+    @Environment(\.overwritesOriginals) private var overwritesOriginals
+    /// The image the shown inspection was read from (a privacy link waits for its own image's rows).
+    @State private var inspectedURL: URL?
     static let precedenceHelp = "Your changes are applied after the Metadata step: a field you set here is written "
         + "even when the step removes it, and a field you remove here is left out even when the step keeps or sets "
         + "it. Everything else the step removes stays removed. With the step off, the image's metadata is written "
@@ -43,7 +48,7 @@ struct MetadataInspector: View {
             guard let url = selected?.source else { return inspection = nil }
             inspection = nil
             let read = await Task.detached(priority: .userInitiated) { MetadataInspection.read(url) }.value
-            if !Task.isCancelled { inspection = read }
+            if !Task.isCancelled { (inspection, inspectedURL) = (read, url) }
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Metadata")
@@ -63,6 +68,12 @@ struct MetadataInspector: View {
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .fixedSize(horizontal: false, vertical: true)
                 .help(Self.precedenceHelp)
+            if overwritesOriginals {
+                Label(Self.overwriteNote, systemImage: "exclamationmark.triangle.fill")
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.warnText)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -160,8 +171,11 @@ struct MetadataInspector: View {
     }
 
     /// Scrolls to and highlights the row the privacy link asked for (its field's row when the path isn't shown).
+    /// Used once: the request is cleared, so later selections don't scroll, highlight or clear the search again.
     private func focus(in inspection: MetadataInspection, proxy: ScrollViewProxy) {
-        guard let path = model.inspector.focus, let entry = inspection.entry(for: path) else { return }
+        guard let path = model.inspector.focus, model.inspector.focusSource == inspectedURL else { return }
+        model.inspector.focus = nil
+        guard let entry = inspection.entry(for: path) else { return }
         query = ""
         withAnimation(LadaGlass.Motion.standard) { proxy.scrollTo(entry.id, anchor: .center) }
         highlighted = entry.id
@@ -180,6 +194,7 @@ private struct AddingField: Identifiable {
 
 /// The sheet for adding a field to this image's outputs.
 private struct AddFieldSheet: View {
+    @Environment(\.overwritesOriginals) private var overwritesOriginals
     let field: MetadataOverrideField
     let save: (MetadataOverrideValue) -> Void
     let cancel: () -> Void
@@ -188,6 +203,10 @@ private struct AddFieldSheet: View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
             Text("Add \(field.label)").font(LadaGlass.Typography.subtitle)
             Text(MetadataInspector.headerNote).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            if overwritesOriginals {
+                Text(MetadataInspector.overwriteNote).font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.warnText)
+            }
             MetadataValueEditor(field: field, initial: nil, save: save, cancel: cancel)
         }
         .padding(LadaGlass.Spacing.l)
@@ -261,4 +280,9 @@ struct InspectorToggle: View {
         .accessibilityLabel(open ? "Hide metadata panel" : "Show metadata panel")
         .accessibilityAddTraits(open ? .isSelected : [])
     }
+}
+
+extension EnvironmentValues {
+    /// True while Save to is Overwrite originals (the metadata panel then says the changes reach the original).
+    @Entry var overwritesOriginals = false
 }

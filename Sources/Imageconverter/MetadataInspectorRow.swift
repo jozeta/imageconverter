@@ -75,7 +75,14 @@ struct MetadataInspectorRow: View {
         .overlay(RoundedRectangle(cornerRadius: LadaGlass.Radius.small)
             .strokeBorder(highlighted ? LadaGlass.accent.color : Color.clear, lineWidth: 1.5))
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(entry.label): \(entry.value)\(removed ? ", removed" : newValue != nil ? ", edited" : "")")
+        .accessibilityLabel(accessibilityText)
+    }
+
+    /// The label, the shown (cut) value and the state; an edit reads its new value.
+    private var accessibilityText: String {
+        let value = String(entry.value.prefix(Self.shortLength))
+        if let newValue { return "\(entry.label): \(MetadataValueText.text(newValue)), edited, was \(value)" }
+        return "\(entry.label): \(value)\(removed ? ", removed" : "")"
     }
 
     private func shown(_ text: String) -> String {
@@ -156,6 +163,7 @@ struct MetadataValueEditor: View {
     @State private var date = Date()
     @State private var rating = 0
     @FocusState private var focused: Bool
+    @Environment(\.overwritesOriginals) private var overwritesOriginals
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
@@ -166,7 +174,8 @@ struct MetadataValueEditor: View {
                 Button("Apply to Outputs") { if let value { save(value) } }
                     .buttonStyle(.lg(.primary)).controlSize(.small)
                     .disabled(value?.validated == nil)
-                    .help("This image's outputs get the new value; the original isn't changed")
+                    .help(overwritesOriginals ? MetadataInspector.overwriteNote
+                          : "This image's outputs get the new value; the original isn't changed")
             }
         }
         .onAppear(perform: load)

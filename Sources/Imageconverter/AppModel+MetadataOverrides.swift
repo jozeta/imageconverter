@@ -9,8 +9,9 @@ final class InspectorState {
     var isOpen: Bool {
         didSet { defaults.set(isOpen, forKey: Self.openKey) }
     }
-    /// The path the privacy link pointed at; the panel turns it into its row.
+    /// The path the privacy link pointed at, and its image; the panel turns it into its row once, then clears it.
     var focus: MetadataPath?
+    var focusSource: URL?
     /// Bumped by every link, so the same row can be shown again.
     var focusToken = 0
     /// Sources with metadata panel changes (the badge in the filmstrip, grid and list).
@@ -65,6 +66,10 @@ extension AppModel {
     func itemsChanged(from old: [InputItem]) {
         schedulePrivacyScan()
         if items.count < old.count { pruneMetadataEdited() }
+        // Items added with changes (a resumed run's images carry them from the journal) get their badge.
+        if items.count > old.count {
+            for item in items[old.count...] where !item.metadataOverrides.isEmpty { inspector.editedSources.insert(item.source) }
+        }
     }
 
     /// Drops sources that left the batch from the badge set (only when there are any, so adding images stays cheap).
@@ -94,6 +99,7 @@ extension AppModel {
         privacy.showsPanel = false
         setInspectorOpen(true)
         inspector.focus = path
+        inspector.focusSource = source
         inspector.focusToken += 1
     }
 }

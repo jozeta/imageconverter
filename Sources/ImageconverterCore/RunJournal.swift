@@ -20,12 +20,17 @@ public struct RunJournal: Codable, Equatable, Sendable {
         /// only (nil otherwise, and in older journals).
         public var size: Int?
         public var modified: Double?
+        /// The image's metadata panel changes (nil when it has none, and in older journals), so a resumed run
+        /// writes them too. Strictly decoded: a journal with unreadable changes isn't offered for resuming.
+        public var metadataOverrides: MetadataOverrides?
 
-        public init(path: String, relativeDirectory: String, size: Int? = nil, modified: Double? = nil) {
+        public init(path: String, relativeDirectory: String, size: Int? = nil, modified: Double? = nil,
+                    metadataOverrides: MetadataOverrides? = nil) {
             self.path = path
             self.relativeDirectory = relativeDirectory
             self.size = size
             self.modified = modified
+            self.metadataOverrides = metadataOverrides
         }
 
         /// False when the file at `path` no longer has the size and date recorded at the start (nil: nothing was
@@ -147,7 +152,8 @@ public struct RunJournal: Codable, Equatable, Sendable {
         self.items = items.map { item in
             let print = mode == .overwrite ? fingerprint(item.source) : nil
             return Item(path: item.source.path, relativeDirectory: item.relativeDirectory, size: print?.size,
-                        modified: print?.modified)
+                        modified: print?.modified,
+                        metadataOverrides: item.metadataOverrides.isEmpty ? nil : item.metadataOverrides)
         }
         self.pipeline = pipeline
         outputMode = mode
@@ -165,7 +171,11 @@ public struct RunJournal: Codable, Equatable, Sendable {
     }
 
     public var inputItems: [InputItem] {
-        items.map { InputItem(source: URL(fileURLWithPath: $0.path), relativeDirectory: $0.relativeDirectory) }
+        items.map { record in
+            var item = InputItem(source: URL(fileURLWithPath: record.path), relativeDirectory: record.relativeDirectory)
+            item.metadataOverrides = record.metadataOverrides ?? MetadataOverrides()
+            return item
+        }
     }
 
     /// What a resumed run would process: the items not completed, in their original order.

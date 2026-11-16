@@ -192,6 +192,7 @@ private struct MainWindowContent: View {
             // Right of the preview, shown with it; the window edge clips it while it slides in or out.
             if sizer.previewMounted, sizer.inspectorMounted {
                 MetadataInspector(model: model)
+                    .environment(\.overwritesOriginals, settings.modeKind == .overwrite)
                     .frame(width: sizer.inspectorWidth)
                     .overlay(alignment: .leading) {
                         InspectorEdge(sizer: sizer) { model.setInspectorOpen(false) }
@@ -293,6 +294,7 @@ private struct MainWindowContent: View {
         // Then scrolls to the edited title, as a privacy link would.
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [model] in
             model.inspector.focus = .xmp("dc:title")
+            model.inspector.focusSource = model.selectedItemIndex.map { model.items[$0].source }
             model.inspector.focusToken += 1
         }
     }
