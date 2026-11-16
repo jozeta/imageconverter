@@ -1040,7 +1040,8 @@ versions read a Subject or Faces crop as a centred one.
    2 px blur left 40 px text readable to Vision), and the report says so once per image ("Block size raised to keep
    3 areas unreadable"). Steps saved before this version stay Auto.
 4. **Padding** grows each box on every side by that percentage of its own width and height, so hair, chins and the
-   edges of letters are covered too.
+   edges of letters are covered too. Even at 0 % every box keeps a small safety margin (12 % of its shorter side, at
+   least 2 px), because Vision's boxes can be tighter than the letters, especially on macOS 15.
 5. The preview shows the result for the selected image. After the run, each file's report row says what was
    hidden ("Redacted 2 faces, 1 text area") or "Redact: nothing found".
 
@@ -1072,7 +1073,7 @@ paragraph, text on gradients and busy backgrounds, at the edges, and small text 
 | Block size | Auto · Fixed 4…256 px, with Pixelate | Auto (a third of each box's shorter side) |
 | Strength | Auto · Fixed radius 2…200 px, with Blur | Auto (a third of each box's shorter side) |
 | Fill colour | any colour (opaque), with Solid colour | black |
-| Padding | 0…100 % of each box's size, per side | 15 % |
+| Padding | 0…100 % of each box's size, per side (never less than a 12 %-of-the-shorter-side, 2 px minimum margin) | 15 % |
 
 ### Enlarge with machine learning
 

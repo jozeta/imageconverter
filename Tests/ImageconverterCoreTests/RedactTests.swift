@@ -19,17 +19,19 @@ final class RedactGeometryTests: XCTestCase {
     func testPixelRectsPadEachSideByAShareOfTheBox() {
         let rects = Redaction.pixelRects([CGRect(x: 0.25, y: 0.25, width: 0.5, height: 0.5)], padding: 10,
                                          in: CGSize(width: 200, height: 100))
-        // 100 × 50 box at (50, 25); 10 % → 10 px left/right, 5 px top/bottom.
-        XCTAssertEqual(rects, [CGRect(x: 40, y: 20, width: 120, height: 60)])
+        // 100 × 50 box at (50, 25); 10 % → 10 px left/right; top/bottom 5 px is below the safety margin
+        // (12 % of the 50 px shorter side = 6 px), so 6.
+        XCTAssertEqual(rects, [CGRect(x: 40, y: 19, width: 120, height: 62)])
     }
 
     func testPixelRectsAreClampedAndWholePixels() {
         let rects = Redaction.pixelRects([CGRect(x: 0.9, y: -0.2, width: 0.3, height: 0.5),
                                           CGRect(x: 0.101, y: 0.101, width: 0.1, height: 0.1)],
                                          padding: 0, in: CGSize(width: 100, height: 100))
-        XCTAssertEqual(rects[0], CGRect(x: 90, y: 0, width: 10, height: 30))
-        // Floor the start, ceil the end: the whole box is covered.
-        XCTAssertEqual(rects[1], CGRect(x: 10, y: 10, width: 11, height: 11))
+        // Padding 0 % still keeps the 2 px minimum safety margin, then clamps to the image.
+        XCTAssertEqual(rects[0], CGRect(x: 88, y: 0, width: 12, height: 32))
+        // Floor the start, ceil the end: the whole box plus the margin is covered.
+        XCTAssertEqual(rects[1], CGRect(x: 8, y: 8, width: 15, height: 15))
     }
 
     func testUntrustedBoxesAreDropped() {

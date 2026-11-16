@@ -189,7 +189,9 @@ public enum Redaction {
     public static let textAdvice = "For text, use Solid colour: blur and pixelation can sometimes be reversed."
 
     /// Normalised boxes as whole-pixel rects of an image of `size` (top-left origin), each grown by `padding`
-    /// percent of its own width and height on every side, then clamped to the image. Boxes are untrusted:
+    /// percent of its own width and height on every side — but at least a safety margin of 12 % of the box's
+    /// shorter side (2 px minimum), so even padding 0 % covers glyph edges that a detector's tight box leaves out
+    /// (macOS 15's Vision boxes are tighter than macOS 26's) — then clamped to the image. Boxes are untrusted:
     /// non-finite or empty ones are dropped, the rest clamped to the unit square first.
     public static func pixelRects(_ boxes: [CGRect], padding: Double, in size: CGSize) -> [CGRect] {
         let width = Double(size.width)
@@ -204,15 +206,21 @@ public enum Redaction {
             let boxHeight = Double(unit.height) * height
             let rect = CGRect(x: Double(unit.minX) * width, y: Double(unit.minY) * height,
                               width: boxWidth, height: boxHeight)
-                .insetBy(dx: -boxWidth * pad, dy: -boxHeight * pad)
-            let minX = floor(max(Double(rect.minX), 0))
-            let minY = floor(max(Double(rect.minY), 0))
-            let maxX = ceil(min(Double(rect.maxX), width))
-            let maxY = ceil(min(Double(rect.maxY), height))
+            let safety = max(Self.minimumMarginPixels, min(boxWidth, boxHeight) * Self.minimumMarginFraction)
+            let grown = rect.insetBy(dx: -max(boxWidth * pad, safety), dy: -max(boxHeight * pad, safety))
+            let minX = floor(max(Double(grown.minX), 0))
+            let minY = floor(max(Double(grown.minY), 0))
+            let maxX = ceil(min(Double(grown.maxX), width))
+            let maxY = ceil(min(Double(grown.maxY), height))
             guard maxX > minX, maxY > minY else { return nil }
             return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY).intersection(bounds)
         }
     }
+
+    /// The smallest margin round every box, whatever the padding: a share of the box's shorter side, at least
+    /// `minimumMarginPixels`.
+    static let minimumMarginFraction = 0.12
+    static let minimumMarginPixels = 2.0
 
     /// A box clamped to the unit square; nil when it isn't finite or is empty.
     static func sanitized(_ box: CGRect) -> CGRect? {

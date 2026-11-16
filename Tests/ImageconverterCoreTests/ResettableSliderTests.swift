@@ -17,6 +17,9 @@ final class ResettableSliderTests: XCTestCase {
     func testDoubleClickResetsAndNotifies() {
         let sink = Sink()
         let slider = ResettableSlider(value: 40, minValue: -100, maxValue: 100, target: sink, action: #selector(Sink.fire))
+        // Set again after init: on macOS 15 the custom cell class can replace the cell the convenience init configured.
+        slider.target = sink
+        slider.action = #selector(Sink.fire)
         slider.frame = NSRect(x: 0, y: 0, width: 200, height: 20)
         slider.mouseDown(with: click(2, on: slider))
         XCTAssertEqual(slider.doubleValue, 0)

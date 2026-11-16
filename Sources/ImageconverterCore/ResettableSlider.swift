@@ -22,7 +22,13 @@ public final class ResettableSlider: NSSlider {
             return
         }
         doubleValue = resetValue
-        sendAction(action, to: target)
+        // Delivered straight to the target when there is one: `sendAction` goes through `NSApp`, which a slider
+        // outside a running app (tests, macOS 15) doesn't reach.
+        if let action, let target = target as AnyObject? {
+            _ = target.perform(action, with: self)
+        } else {
+            sendAction(action, to: target)
+        }
     }
 
     /// The part of `bar` between `origin` and `value` (both clamped to the range), or `nil` for an empty range.
@@ -45,23 +51,30 @@ public final class ResettableSlider: NSSlider {
 /// Draws the standard bar, or, with a `fillOrigin`, a plain track filled from the origin to the knob's centre, with a
 /// tick at the origin drawn over the fill.
 public final class ResettableSliderCell: NSSliderCell {
-    /// Half the knob's width: how far in from the bar's ends the knob's centre stops.
-    private func knobInset(flipped: Bool) -> CGFloat { knobRect(flipped: flipped).width / 2 }
+    /// The knob's centre for `value`, as AppKit lays it out (its inset travel differs between macOS versions), found
+    /// with a copy of this cell so the real knob doesn't move.
+    func knobCentre(for value: Double, flipped: Bool) -> CGFloat {
+        guard let probe = copy() as? NSSliderCell else { return knobRect(flipped: flipped).midX }
+        probe.controlView = controlView
+        probe.doubleValue = value
+        let centre = probe.knobRect(flipped: flipped).midX
+        probe.controlView = nil
+        return centre
+    }
 
-    /// The filled part of `bar` for the current value, or `nil` without a `fillOrigin`.
+    /// The filled part of `bar` for the current value — from the knob's centre at the origin to its centre now —
+    /// or `nil` without a `fillOrigin`.
     func fillRect(in bar: CGRect, flipped: Bool) -> CGRect? {
-        guard let origin = (controlView as? ResettableSlider)?.fillOrigin else { return nil }
-        return ResettableSlider.fillRect(value: doubleValue, minValue: minValue, maxValue: maxValue, origin: origin,
-                                         in: bar, inset: knobInset(flipped: flipped))
+        guard let origin = (controlView as? ResettableSlider)?.fillOrigin, maxValue > minValue else { return nil }
+        let start = knobCentre(for: min(max(origin, minValue), maxValue), flipped: flipped)
+        let end = knobRect(flipped: flipped).midX
+        return CGRect(x: min(start, end), y: bar.minY, width: abs(end - start), height: bar.height)
     }
 
     /// Where the knob's centre is at the `fillOrigin` (the neutral tick).
     func neutralX(in bar: CGRect, flipped: Bool) -> CGFloat? {
-        guard let origin = (controlView as? ResettableSlider)?.fillOrigin,
-              let mark = ResettableSlider.fillRect(value: origin, minValue: minValue, maxValue: maxValue,
-                                                   origin: minValue, in: bar, inset: knobInset(flipped: flipped))
-        else { return nil }
-        return mark.maxX
+        guard let origin = (controlView as? ResettableSlider)?.fillOrigin, maxValue > minValue else { return nil }
+        return knobCentre(for: min(max(origin, minValue), maxValue), flipped: flipped)
     }
 
     public override func drawBar(inside rect: NSRect, flipped: Bool) {
