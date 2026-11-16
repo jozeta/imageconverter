@@ -59,24 +59,27 @@ public final class FocusCache: @unchecked Sendable {
     }
 }
 
-/// How a pipeline runs Vision for its steps (a Crop or Resize focus, Redact): the detector, and the caches for
-/// one source file (preview only).
+/// How a pipeline runs Vision and the ML enlarge model for its steps (a Crop or Resize focus, Redact, ML enlarge):
+/// the detector, the model, and the caches for one source file (preview, estimate and ladder; never the batch).
 public struct FocusContext: Sendable {
     public let detector: any VisionDetector
     public let cache: FocusCache?
-    /// Redact detections per step input (preview only).
+    /// Redact detections per step input (preview, estimate and ladder).
     public let redactCache: RedactCache?
+    /// ML enlarge results per step input, and one enlarge at a time (preview, estimate and ladder).
+    public let enlargeCache: EnlargeCache?
     /// `FocusCache.sourceKey(for:)` of the image being rendered; without it nothing is cached.
     public let sourceKey: String?
     /// The super-resolution model for a Resize step's ML enlarge (tests inject a fake).
     public let enlarger: any SuperResolutionScaler
 
     public init(detector: any VisionDetector = SystemVisionDetector(), cache: FocusCache? = nil,
-                redactCache: RedactCache? = nil, sourceKey: String? = nil,
+                redactCache: RedactCache? = nil, enlargeCache: EnlargeCache? = nil, sourceKey: String? = nil,
                 enlarger: any SuperResolutionScaler = SystemSuperResolution.shared) {
         self.detector = detector
         self.cache = cache
         self.redactCache = redactCache
+        self.enlargeCache = enlargeCache
         self.sourceKey = sourceKey
         self.enlarger = enlarger
     }

@@ -158,12 +158,13 @@ extension AppModel {
         do { try await Task.sleep(for: Self.ladderDebounce) } catch { return }
         let region = compareRegion
         let presets = presetLibrary
+        let caches = previewRenderer.caches
         let worker = Task.detached(priority: .userInitiated) { () -> LadderRender in
             let original = (try? key.item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
             do {
                 let rungs = try QualityLadder.render(item: key.item, pipeline: key.pipeline, qualities: Self.ladderQualities,
                                                      region: region, maxSide: Self.ladderMaxSide, presets: presets,
-                                                     enlarger: SystemSuperResolution.inApp)
+                                                     enlarger: SystemSuperResolution.inApp, caches: caches)
                 return LadderRender(rungs: rungs, originalBytes: original, failure: nil)
             } catch is CancellationError {
                 return LadderRender(rungs: [], originalBytes: original, failure: nil)

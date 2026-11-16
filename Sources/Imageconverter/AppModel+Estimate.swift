@@ -61,6 +61,7 @@ extension AppModel {
         estimateFailed = false
         estimateFailure = nil
         let presets = presetLibrary
+        let caches = previewRenderer.caches
         estimateTask = Task { [weak self] in
             do { try await Task.sleep(for: Self.estimateDebounce) } catch { return }
             // Wait for the superseded render so two full-size renders never overlap.
@@ -72,7 +73,7 @@ extension AppModel {
                 let original = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
                 do {
                     let preview = try SizeEstimator.render(item: item, pipeline: pipeline, presets: presets,
-                                                           enlarger: SystemSuperResolution.inApp)
+                                                           enlarger: SystemSuperResolution.inApp, caches: caches)
                     return EstimateOutcome(original: original, preview: preview, failure: nil)
                 } catch let error as ConversionError {
                     return EstimateOutcome(original: original, preview: nil, failure: error.reason)

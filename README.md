@@ -856,7 +856,10 @@ for one tile within 60 seconds, that image fails with "Not enlarged: the enlarge
 nothing is written for it. A result over the decode limits (250 MP, 65,535 px on a side, or more working memory than
 the decode memory limit) is refused before any work, for example "Not enlarged: the result would be 384 MP
 (limit 250 MP)": a 4000 × 3000 photo at 4× (192 MP) fits, 6000 × 4000 at 4× (384 MP) doesn't.
-The memory scheduler counts the 4× tile, its model buffers, the whole output and 256 MB for the model itself. "Don't enlarge" and Resampling
+The memory scheduler counts the 4× tile, its model buffers, the whole output and 256 MB for the model itself.
+The preview, the size estimate and the quality comparison enlarge one image at a time between them and keep the
+last two results (up to 200 MP in all, until a batch starts or ends), so editing a later step or the output quality
+doesn't run the model again; Smart crop and Redact detections are kept the same way. "Don't enlarge" and Resampling
 don't apply to this mode. The model adds detail that wasn't in the photo, so check the results (faces and text
 especially). Nothing about your images leaves the Mac.
 

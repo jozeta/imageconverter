@@ -89,6 +89,12 @@ public actor PreviewRenderer {
     let focusCache = FocusCache()
     /// Redact detections per file version and step input.
     let redactCache = RedactCache()
+    /// ML enlarge results per file version and step input (purged with the source).
+    let enlargeCache = EnlargeCache()
+    /// These caches, for the size estimate and the quality ladder of the same items (`PreviewCaches`).
+    public nonisolated var caches: PreviewCaches {
+        PreviewCaches(focus: focusCache, redact: redactCache, enlarge: enlargeCache)
+    }
     /// How many times a source was decoded (for tests).
     private(set) var decodeCount = 0
     /// How many times the watermark images were loaded (for tests).
@@ -135,8 +141,9 @@ public actor PreviewRenderer {
                               image: image, skipReason: skip)
     }
 
-    /// Releases the cached source and watermark images (call when a batch starts or finishes).
+    /// Releases the cached source, watermark images and ML enlarge results (call when a batch starts or finishes).
     public func purge() {
+        enlargeCache.removeAll()
         cachedSource = nil
         cachedAssets = nil
         cachedAssetKeys = nil
@@ -171,8 +178,7 @@ public actor PreviewRenderer {
         do {
             // Synchronous and not interruptible; cancellation is only seen before and after it.
             let context = pipeline.watermarkTextContext(source: item.source, properties: properties)
-            let focus = FocusContext(detector: detector, cache: focusCache, redactCache: redactCache,
-                                     sourceKey: FocusCache.sourceKey(for: item.source), enlarger: enlarger)
+            let focus = caches.context(for: item.source, detector: detector, enlarger: enlarger)
             result = try pipeline.apply(to: source, assets: assets, textContext: context, focus: focus)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)

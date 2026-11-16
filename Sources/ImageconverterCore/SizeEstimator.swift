@@ -34,7 +34,8 @@ public struct VariantEstimate: Equatable, Sendable {
 public enum SizeEstimator {
     static let unoptimisedPNGNote = "Optimised PNG may be smaller"
 
-    /// Runs the batch's load, apply, metadata and encode steps for `item`; nothing is written.
+    /// Runs the batch's load, apply, metadata and encode steps for `item`; nothing is written. `caches` (the
+    /// preview's) keep Smart crop, Redact and ML enlarge from running again for the same input.
     /// PNG optimisation (seven encodes) is left to the batch so the estimate stays quick; the estimate
     /// is then the unoptimised size, which the batch never exceeds, and says so in `note`.
     /// Conditions are resolved for `item` first: a copied original is its own file size (no decode, so no pixel
@@ -42,7 +43,8 @@ public enum SizeEstimator {
     /// item throws `.skippedByCondition`.
     public static func render(
         item: InputItem, pipeline unresolved: Pipeline, maxPixels: Int = ImageLoader.defaultMaxPixels,
-        presets: PresetLibrary = .standard, enlarger: any SuperResolutionScaler = SystemSuperResolution.shared
+        presets: PresetLibrary = .standard, enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
+        caches: PreviewCaches? = nil, detector: any VisionDetector = SystemVisionDetector()
     ) throws -> EncodedPreview {
         let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         switch resolved.disposition {
@@ -63,10 +65,13 @@ public enum SizeEstimator {
                 note = unoptimisedPNGNote
             }
             let variants = OutputVariant.validated(pipeline.extraOutputs).kept.map(withoutPNGOptimising)
+            // With the preview's caches, Vision and ML enlarge run once per file version and step input.
+            let focus = caches?.context(for: item.source, detector: detector, enlarger: enlarger)
+                ?? FocusContext(detector: detector, enlarger: enlarger)
             // No alt text generator: the estimate never asks the model (seconds per image), and one sentence of XMP
             // doesn't change the size meaningfully (`ItemRunOptions.altText`).
             let result = try BatchRunner.encodeItem(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
-                                                    options: ItemRunOptions(focus: FocusContext(enlarger: enlarger)),
+                                                    options: ItemRunOptions(focus: focus),
                                                     variants: variants.map(\.variant))
             let estimates = zip(variants, result.variants).map { estimate($1, unoptimised: $0.unoptimised) }
             let data = result.data

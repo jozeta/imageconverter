@@ -237,7 +237,7 @@ extension Pipeline {
             switch step.operation {
             case .resize(let options):
                 if case .mlEnlarge(let factor) = options.mode {
-                    current = try MLEnlarge.enlarge(current, factor: factor, scaler: focus.enlarger, notes: &notes)
+                    current = try mlEnlarged(current, factor: factor, step: index, context: focus, notes: &notes)
                     continue
                 }
                 let rect = resizeFocus(options, in: current, step: index, context: focus, notes: &notes)
