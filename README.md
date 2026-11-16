@@ -311,6 +311,7 @@ Metadata and Rename (pipeline steps, saved with the pipeline; "Always last"):
 | Special characters | Keep, Replace (each run of other characters becomes one `-`, `_`, `.` or nothing; runs at the ends are trimmed) or Remove everything except letters (any language), digits, `-`, `_` and `.` | Keep |
 | Case | Keep, lowercase, UPPERCASE, camelCase, PascalCase, snake_case, kebab-case or Title Case | Keep |
 | Counter starts at | First `{counter}` value, 0 to 999 999 999 | 1 |
+| Step | Added to `{counter}` for each image, −999 999 to 999 999; 0 is read as 1; a negative step counts down and stops at 0 (later images keep 0, and names that come out the same get `_2`, `_3`, …); saved as `counterStep` | 1 |
 
 While the Metadata step is on, the file's XMP (Lightroom/Photoshop fields such as usage terms) is carried over
 too, cleaned with the same rules: removing everything, the location, camera details, the author or IPTC also
@@ -425,7 +426,9 @@ Presets and preview:
 | Archive TIFF (built-in) | No image steps, metadata off, TIFF LZW | n/a |
 | Show preview | View → Hide Preview / Show Preview (⌥⌘P); UserDefaults key `previewCollapsed` | shown |
 | Pipeline collapsed | The handle on the pipeline's edge or View → Collapse Pipeline (⌥⌘L); key `pipelineCollapsed` | expanded |
-| Compare mode | The Compare control in the preview header or View → Side by side / Split / Difference / Single (⌘1…⌘4); key `compareMode` | Side by side |
+| Output collapsed | Click the handle above the Output panel or View → Collapse Output (⌥⌘U); collapsed it shows one line (format · quality · where files go); key `outputCollapsed` | expanded |
+| Output height | Drag the handle above the Output panel (or focus it and press ↑ / ↓) between its one-line height and its full content; a shorter panel scrolls, and the steps above give way; key `outputHeight` | full content |
+| Compare mode | The Compare control in the preview header or View → Side by side / Split / Difference / Single (⌘1…⌘4); key `compareMode` (a choice you made earlier is kept) | Split |
 | Split position | Where the split divider sits (2…98 % of the width); key `compareSplitPosition` | 50 % |
 | Batch view | Filmstrip, Grid or List under the preview; key `batchBrowserMode` | Filmstrip |
 | Window height | The window's height when you resize it by hand (the window also grows and shrinks with the pipeline and the preview); key `expandedWindowHeight` | fits the content |
@@ -516,6 +519,10 @@ unsandboxed.
 4. Switch a step off with its toggle to skip it without losing its settings; it is dimmed.
 5. Steps run top to bottom on every image. The **Output** row is always last: format, quality and
    where files go. The handle on the pipeline's bottom edge (or ⌥⌘L) hides the whole list.
+6. The handle above **Output** collapses it to one line ("JPEG · 82 % · Converted") with a click, or ⌥⌘U.
+   Drag it up or down to give Output any height between that line and its full content (it scrolls when
+   shorter); the window keeps its height and the steps above get the rest. With the handle focused, ↑ and ↓
+   change the height step by step.
 
 Your pipeline is kept between launches.
 
@@ -720,11 +727,15 @@ metadata settings (left out when off; older files load with both off).
 
 1. Open **Rename** (under **Always last**) and switch it on.
 2. Type a pattern, for example `{date:yyyy-MM-dd}_{camera}_{counter:000}`, or build it with
-   **Insert**, which appends at the end.
+   **Insert**, which appends at the end. Insert groups the tokens: File (name, extensions, folder, preset),
+   Date taken (in several formats), File dates (modified, created), Camera, Image (size, megapixels,
+   orientation, what the image shows) and Counter and unique (padded counters, random text, UUID).
 3. The line under the pattern shows an example from the first image in the batch (or a sample
    photo when the batch is empty), such as `Example: 2026-11-13_iPhone 15 Pro_001.jpg`. An
    unknown token like `{foo}` is flagged with a warning and kept as written (`:` still becomes `-`).
-4. Set **Counter starts at** if numbering should not begin at 1. The counter follows input order.
+4. Set **Counter starts at** if numbering should not begin at 1, and **Step** to count in steps other than 1
+   (10, 20, 30 … with start 10 and step 10). The counter follows input order; images a condition skips take no
+   number. A negative step counts down and stops at 0.
 5. In *Same folder* mode the pattern replaces the suffix (the summary says "Same folder,
    renamed"). Names that come out identical get `_2`, `_3`, …
 6. **Insert** also holds three quick patterns that replace the whole pattern: *Date + counter*
@@ -760,6 +771,18 @@ Rename tokens:
 | `{aperture}` | Aperture | `f1.8` |
 | `{shutter}` | Shutter speed | `1-250s` |
 | `{datetime}` | Capture date and time | `2026-11-13_140509` |
+| `{modified}` / `{modified:<format>}` | The source file's modification date, as the Mac's clock showed it; default `yyyy-MM-dd` | `2026-11-14`, `{modified:yyyy-MM-dd_HHmmss}` |
+| `{created}` / `{created:<format>}` | The source file's creation date (not the capture date); default `yyyy-MM-dd` | `2026-11-13` |
+| `{srcext}` | The source file's own extension, lower case | `heic` |
+| `{preset}` | Name of the preset the run uses (the selected one, a job's preset or the command line's `--preset`); empty for an unsaved pipeline | `Web export` |
+| `{megapixels}` | Megapixels of the output, one decimal | `12.2MP` |
+| `{orientation}` | Of the output: `landscape`, `portrait` or `square` | `landscape` |
+| `{labels}` / `{labels:<separator>}` | What the image shows (analysed on this Mac, like the Shows condition): up to 10 labels, most confident first; the separator is up to 3 of space `-` `_` `.` `,` `+`, default `, ` | `{labels:-}` gives `dog-grass` |
+| `{random}` / `{random:<1–32>}` | Letters and digits derived from the source file's path: random-looking, but the same file always gets the same value, so the preview shows the name the batch writes; default 8 characters | `k3x9q0ab` |
+| `{uuid}` | A UUID derived the same way (the same file gives the same UUID) | `9F1C…-…` |
+
+All tokens except `{labels}` read only the file's header and file-system dates; `{labels}` analyses a small copy
+of each image, once per file version, like the content conditions.
 
 Metadata is untrusted, so names are sanitised: `/` and `:` become `-`; control, bidi and invisible
 (zero-width) characters are removed; an empty token drops one neighbouring separator (`_`, `-` or
@@ -982,7 +1005,8 @@ especially). Nothing about your images leaves the Mac.
    Vision gives with a confidence of 0.3 or more, as words (`musical instrument`), most confident first, at most 10. In
    a subfolder or note they are joined with commas (`dog, grass`) and made safe like any other token (a subfolder name
    can never gain a `/`); in tags and keywords each label is its own entry, cleaned like other tags and keywords. An
-   image with no labels gets none (the entry is left out). File names don't offer it.
+   image with no labels gets none (the entry is left out). File names offer it too (Rename, with an optional
+   separator such as `{labels:-}`).
    - **Flow**: **Skip file** (nothing is written; the file counts as *skipped by a condition*, not failed, and takes no
      counter number), **Stop checking later conditions** (later If … then … else steps are not checked for this image;
      the other actions in the branch still apply) and **Add a note to the report…** (a line in the report for this file;

@@ -236,7 +236,7 @@ extension BatchRunner {
     /// is cancelled part-way.
     static func resolveAll(_ items: [InputItem], pipeline: Pipeline, maxPixels: Int, presets: PresetLibrary = .standard,
                            analysis: ImageAnalysisCache = .shared) async -> [ResolvedPipeline]? {
-        guard pipeline.hasConditions else {
+        guard pipeline.needsFacts else {
             let plain = ResolvedPipeline(pipeline: pipeline.withoutConditions)
             return items.map { _ in plain }
         }
@@ -303,7 +303,8 @@ extension BatchRunner {
             }
             if Task.isCancelled { return nil }
             guard let rendered = RenameRendering.checkedBaseName(for: item, index: index, pipeline: job.pipeline,
-                                                                 isCopy: job.disposition == .copyOriginal)
+                                                                 isCopy: job.disposition == .copyOriginal,
+                                                                 labels: job.labels)
             else { return nil }
             names.append(rendered.name)
             if rendered.timedOut { slow.insert(index) }

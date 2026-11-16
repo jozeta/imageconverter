@@ -159,7 +159,8 @@ extension ConditionalAction {
     /// True when the action's text uses `{labels}` (so the files' labels must be found).
     var usesLabels: Bool {
         switch self {
-        case .subfolder(let template), .note(let template): return template.contains(LabelToken.token)
+        case .subfolder(let template), .note(let template): return RenameTemplate(template).usesLabels
+        case .rename(let options): return RenameTemplate(options.pattern).usesLabels
         case .finderTags(let values), .addKeywords(let values): return LabelToken.isUsed(in: values)
         default: return false
         }

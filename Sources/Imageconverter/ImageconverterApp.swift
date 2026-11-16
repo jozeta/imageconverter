@@ -58,6 +58,9 @@ struct ImageconverterApp: App {
                     .keyboardShortcut("p", modifiers: [.option, .command])
                 Button(model.pipelineCollapsed ? "Expand Pipeline" : "Collapse Pipeline") { model.togglePipeline() }
                 .keyboardShortcut("l", modifiers: [.option, .command])
+                Button(model.outputPanel.collapsed ? "Expand Output" : "Collapse Output") { model.toggleOutput() }
+                    .keyboardShortcut("u", modifiers: [.option, .command])
+                    .disabled(model.pipelineCollapsed)
                 Toggle("Low-Memory Mode", isOn: $model.lowMemoryMode)
                 Divider()
                 compareCommands

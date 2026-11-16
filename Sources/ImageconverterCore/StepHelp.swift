@@ -205,9 +205,12 @@ public enum StepHelp {
                 title: "Rename",
                 summary: "Gives each output file a new name built from a pattern with tokens, such as the date, camera or a counter.",
                 howTo: [
-                    "Type a pattern like {date:yyyy-MM-dd}_{camera}_{counter:000}, or build it with Insert.",
-                    "The example line shows the name the selected image (or the first) would get.",
-                    "{counter} counts up from Counter starts at in the order of the images; {counter:000} pads it to three digits.",
+                    "Type a pattern like {date:yyyy-MM-dd}_{camera}_{counter:000}, or build it with Insert "
+                        + "(dates, camera, size, preset, labels, random text).",
+                    "The example line shows the name the selected image would get. {random} and {uuid} come from the "
+                        + "file's path, so a file always gets the same value.",
+                    "{counter} counts from Counter starts at by Step in the order of the images; {counter:000} pads it to "
+                        + "three digits. A negative step counts down and stops at 0.",
                     "Order: pattern, Find and replace, prefix and suffix, Remove spaces, Special characters, then Case."
                 ],
                 tips: [
@@ -230,7 +233,8 @@ public enum StepHelp {
                 tips: [
                     "Overwriting with the same name and format replaces the file. When the name or "
                         + "format changes, the original goes to the Trash after the new file is saved.",
-                    "Output is always the last stage, after every step and after Metadata and Rename.",
+                    "Output is always the last stage. Click the handle above it to fold it to one line; drag it to "
+                        + "choose its height.",
                     "+ Add output writes more files per image (a thumbnail, a web copy), each with its own "
                         + "format, size and suffix; always new files next to the main one."
                 ])

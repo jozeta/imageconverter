@@ -168,7 +168,7 @@ public actor ItemFactsCache {
                                     resolved: pipeline.resolved(forSource: items[index].source, maxPixels: maxPixels,
                                                                        presets: presets, analysis: analysis))
         }
-        let needs = pipeline.conditionFactNeeds
+        let needs = pipeline.factNeeds
         var counter = index
         if pipeline.canSkipByCondition {
             counter = 0

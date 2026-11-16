@@ -311,7 +311,7 @@ struct OutputPanel: View {
         .padding(.horizontal, LadaGlass.Spacing.m)
         .padding(.vertical, LadaGlass.Spacing.s)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .lgSurface()
+        // The surface is drawn by `CollapsibleOutputPanel`, around its scroll view, so a shorter panel keeps its edge.
     }
 
     // MARK: Size estimate

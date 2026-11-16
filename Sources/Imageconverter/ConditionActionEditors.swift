@@ -15,8 +15,8 @@ struct FileActionEditor: View {
         return context
     }()
 
-    /// The rename tokens, plus `{labels}` (what the image shows), which only conditions offer.
-    private static let tokens = RenameTemplate.tokenExamples + [LabelToken.token]
+    /// The rename tokens, with `{labels}` (what the image shows) in its plain form for folder names.
+    private static let tokens = RenameTemplate.tokenExamples.filter { !$0.hasPrefix("{labels") } + [LabelToken.token]
 
     var body: some View {
         switch action {

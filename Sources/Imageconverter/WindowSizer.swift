@@ -50,6 +50,9 @@ final class WindowSizer {
     /// The collapsed and expanded heights a running collapse/expand animation goes between.
     @ObservationIgnored var toggleSpan: (collapsed: CGFloat, expanded: CGFloat)?
     @ObservationIgnored var isLiveResizing = false
+    /// While the Output panel's handle is dragged: the content height the window keeps, so the pipeline steps
+    /// give way instead of the window edge moving (see `pinHeight`).
+    @ObservationIgnored var pinnedHeight: CGFloat?
     @ObservationIgnored let defaults: UserDefaults
     static let rememberedHeightKey = "expandedWindowHeight"
 

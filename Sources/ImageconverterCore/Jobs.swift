@@ -72,7 +72,10 @@ public struct Job: Equatable, Sendable, Identifiable {
     /// The pipeline to run: the linked preset's current one, or the job's own. Nil when the linked preset is gone.
     public func resolvedPipeline(presets: [Preset]) -> Pipeline? {
         guard let presetID else { return pipeline }
-        return presets.first { $0.id == presetID }?.pipeline
+        guard let preset = presets.first(where: { $0.id == presetID }) else { return nil }
+        var pipeline = preset.pipeline
+        pipeline.presetName = preset.name
+        return pipeline
     }
 
     /// The new-folder output: it may lie inside an input folder, and must never be read back as input.

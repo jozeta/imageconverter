@@ -14,6 +14,11 @@ extension WindowSizer {
         if collapsed {
             height = WindowLayout.fittingHeight(contentHeight: parts.collapsed, maxContent: maxContent)
             previousExpanded = nil
+        } else if let pinned = pinnedHeight {
+            // The Output panel is being dragged: the window stays (within what the parts allow); no animation.
+            let range = WindowLayout.expandedHeights(parts: parts, maxContent: maxContent)
+            height = min(max(pinned, range.lowerBound), range.upperBound)
+            previousExpanded = parts.expanded
         } else {
             let result = WindowLayout.expandedHeight(parts: parts, remembered: rememberedHeight,
                                                      previousContent: previousExpanded, maxContent: maxContent)
@@ -32,7 +37,8 @@ extension WindowSizer {
             applyRestLimits()
             return
         }
-        targetAnimates = didInitialSize && window != nil && !isLiveResizing && SidebarMotion.animation != nil
+        targetAnimates = didInitialSize && window != nil && !isLiveResizing && pinnedHeight == nil
+            && SidebarMotion.animation != nil
         if targetAnimates, !isAnimating { isAnimating = true }
         targetHeight = height
     }
@@ -79,6 +85,22 @@ extension WindowSizer {
         if let parts, let collapsed = pipelineCollapsed { sidebarMeasured(parts, collapsed: collapsed) }
     }
     #endif
+
+    /// The Output panel's handle is being dragged: the window keeps its current height while the panel grows or
+    /// shrinks, and the pipeline steps above take up the difference (they scroll, or get empty room).
+    func pinHeight() {
+        guard pinnedHeight == nil, pipelineCollapsed == false else { return }
+        pinnedHeight = targetHeight ?? currentContentSize?.height
+    }
+
+    /// The drag ended: the window keeps the height it has (remembered like a user resize, or fitting the content
+    /// again when it is exactly the content's height), and later changes animate as usual.
+    func releaseHeight() {
+        guard pinnedHeight != nil else { return }
+        pinnedHeight = nil
+        guard let parts, let height = targetHeight else { return }
+        setRemembered(abs(height - parts.expanded) < 1 ? nil : height)
+    }
 
     /// The user finished resizing: an expanded window keeps (and remembers) the height they chose.
     func liveResizeEnded() {

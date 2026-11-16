@@ -12,8 +12,9 @@ final class AppModel {
         didSet { persist() }
     }
     /// The image steps and output format being edited (the session's pipeline).
+    /// The pipeline being edited, carrying the selected preset's name for `{preset}` (not saved, not compared).
     var pipeline: Pipeline {
-        get { session.pipeline }
+        get { session.pipeline.named(session.selected?.name) }
         set { session.pipeline = newValue }
     }
     /// The user's saved presets, sorted by name; the built-ins are in `PresetStore.builtIns`.
@@ -63,6 +64,8 @@ final class AppModel {
     var pipelineCollapsed: Bool {
         didSet { defaults.set(pipelineCollapsed, forKey: Self.pipelineCollapsedKey) }
     }
+    /// The Output panel's collapsed state and chosen height (its grab handle, View menu).
+    let outputPanel: OutputPanelState
     /// Two workers and a quarter of the memory budget; also stops the preview during a run. Applies to a
     /// running batch from its next item on (see `AppModel+Performance.swift`).
     var lowMemoryMode: Bool {
@@ -120,6 +123,7 @@ final class AppModel {
         compare = CompareController(defaults: defaults)
         previewCollapsed = defaults.bool(forKey: Self.previewCollapsedKey)
         pipelineCollapsed = defaults.bool(forKey: Self.pipelineCollapsedKey)
+        outputPanel = OutputPanelState(defaults: defaults)
         lowMemoryMode = defaults.bool(forKey: Self.lowMemoryModeKey)
         windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey), defaults: defaults)
         let saved = Self.loadPipeline(from: defaults)
@@ -257,6 +261,8 @@ final class AppModel {
                   completion: (@MainActor (BatchReport) -> Void)? = nil) async -> AppRunStart {
         // One item per file, so the run's event indices match this list (the runner deduplicates the same way).
         let batch = InputItem.unique(batch)
+        // `{preset}` names the preset the run uses (a service or link runs a preset that isn't selected).
+        let pipeline = presetName.map { pipeline.named($0) } ?? pipeline
         guard !isRunning, !batch.isEmpty else { return .busy }
         guard await AccessStore.shared.ensureAccess(sources: batch.map(\.source), mode: mode, toasts: toasts,
                                                     quiet: quietAccess) else {

@@ -30,6 +30,11 @@ extension AppModel {
         SidebarMotion.perform { pipelineCollapsed.toggle() }
     }
 
+    /// Collapses the Output panel to its summary line or opens it again (at the height it had).
+    func toggleOutput() {
+        SidebarMotion.perform { outputPanel.collapsed.toggle() }
+    }
+
     /// After a run, forgets items whose file is gone (overwrite mode trashes originals when the name or format changes).
     /// The file checks run off the main actor; the result is applied (and announced) back on it.
     func dropMissingItems() {

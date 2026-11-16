@@ -226,7 +226,8 @@ public actor PreviewRenderer {
                                    mode: OutputMode?) -> (URL, String) {
         let pipeline = resolved.pipeline
         let copy = resolved.disposition == .copyOriginal
-        let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline, isCopy: copy)
+        let base = RenameRendering.baseName(for: item, index: index, pipeline: pipeline, isCopy: copy,
+                                            labels: resolved.labels)
         let folders = mode == .overwrite ? [] : RenameRendering.extras(for: item, index: index, job: resolved).subfolder
         let target = copy ? OutputTarget.copyOfOriginal(item, baseName: base, subfolder: folders)
             : OutputTarget(item: item, format: pipeline.output.format, baseName: base, subfolder: folders)
@@ -252,7 +253,7 @@ public actor PreviewRenderer {
         guard !variants.isEmpty else { return [] }
         var job = resolved
         job.pipeline.extraOutputs = variants
-        let base = RenameRendering.baseName(for: item, index: index, pipeline: resolved.pipeline)
+        let base = RenameRendering.baseName(for: item, index: index, pipeline: resolved.pipeline, labels: resolved.labels)
         let target = VariantTarget(variants: variants, baseName: base,
                                    subfolders: RenameRendering.variantFolders(for: item, index: index, job: job))
         let plan = PlannedOutput(item: item, destination: primary, replacesSource: false, trashesSource: false)

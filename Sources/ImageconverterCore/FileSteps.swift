@@ -186,6 +186,8 @@ public struct RenameOptions: Codable, Equatable, Sendable {
     public var isActive: Bool { isIncluded && isEnabled }
     public var pattern: String
     public var counterStart: Int
+    /// What `{counter}` adds per image (default 1). Never 0 (read as 1); negative counts down, never below 0.
+    public var counterStep: Int
     /// Find and replace rules, applied in order to the rendered name; a rule with an empty `find` does nothing.
     public var replacements: [ReplacementRule]
     /// Text put before and after the rendered name (after find and replace).
@@ -199,17 +201,20 @@ public struct RenameOptions: Codable, Equatable, Sendable {
 
     /// The counter start is limited to 0...999_999_999 when decoded.
     public static let counterRange = 0...999_999_999
+    /// The counter step is limited to this range (and 0 becomes 1) when decoded or set through `init`.
+    public static let counterStepRange = -999_999...999_999
     /// At most this many rules are kept when decoded.
     public static let maxReplacements = 20
 
     public init(isEnabled: Bool = false, isIncluded: Bool? = nil, pattern: String = "{name}", counterStart: Int = 1,
-                replacements: [ReplacementRule] = [], prefix: String = "", suffix: String = "",
+                counterStep: Int = 1, replacements: [ReplacementRule] = [], prefix: String = "", suffix: String = "",
                 removeSpaces: Bool = false, specialCharacters: SpecialCharacters = .keep,
                 replacement: String = "-", caseStyle: CaseStyle = .keep) {
         self.isEnabled = isEnabled
         self.isIncluded = isIncluded ?? isEnabled
         self.pattern = pattern
         self.counterStart = counterStart
+        self.counterStep = Self.validStep(counterStep)
         self.replacements = replacements
         self.prefix = prefix
         self.suffix = suffix
@@ -220,7 +225,7 @@ public struct RenameOptions: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case isEnabled, isIncluded, pattern, counterStart, replacements
+        case isEnabled, isIncluded, pattern, counterStart, counterStep, replacements
         case prefix, suffix, removeSpaces, specialCharacters, replacement, caseStyle
     }
 
@@ -236,6 +241,7 @@ public struct RenameOptions: Codable, Equatable, Sendable {
         pattern = try container.decodeIfPresent(String.self, forKey: .pattern) ?? "{name}"
         let start = try container.decodeIfPresent(Int.self, forKey: .counterStart) ?? 1
         counterStart = min(max(start, Self.counterRange.lowerBound), Self.counterRange.upperBound)
+        counterStep = Self.validStep((try? container.decodeIfPresent(Int.self, forKey: .counterStep)) ?? 1)
         prefix = try container.decodeIfPresent(String.self, forKey: .prefix) ?? ""
         suffix = try container.decodeIfPresent(String.self, forKey: .suffix) ?? ""
         removeSpaces = try container.decodeIfPresent(Bool.self, forKey: .removeSpaces) ?? false
@@ -258,5 +264,23 @@ public struct RenameOptions: Codable, Equatable, Sendable {
             replacements = find.isEmpty ? [] : [ReplacementRule(id: ReplacementRule.fallbackID, find: find, replace: replace,
                                                                 useRegex: regex)]
         }
+    }
+}
+
+extension RenameOptions {
+    /// `step` within `counterStepRange`, with 0 (no step at all) read as 1.
+    static func validStep(_ step: Int) -> Int {
+        step == 0 ? 1 : min(max(step, counterStepRange.lowerBound), counterStepRange.upperBound)
+    }
+
+    /// The `{counter}` value of the image at `index` (skipped images take no number): start + index × step,
+    /// saturating instead of overflowing, and never below 0 (a counting-down step stops there).
+    public func counter(at index: Int) -> Int {
+        let step = Self.validStep(counterStep)
+        let (offset, multiplyOverflow) = max(0, index).multipliedReportingOverflow(by: step)
+        if multiplyOverflow { return step > 0 ? Int.max : 0 }
+        let (sum, addOverflow) = counterStart.addingReportingOverflow(offset)
+        if addOverflow { return offset > 0 ? Int.max : 0 }
+        return max(sum, 0)
     }
 }

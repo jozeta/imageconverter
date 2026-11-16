@@ -95,6 +95,7 @@ enum ConvertCommand {
                 throw CLIUsageError("No preset named '\(name)'. Run 'imageconverter presets list'.")
             }
             pipeline = preset.pipeline
+            pipeline.presetName = preset.name
             presetName = preset.name
         } else if let path = options.pipelineFile {
             do { pipeline = try PipelineFile.load(URL(fileURLWithPath: path)) } catch let error as PresetError {

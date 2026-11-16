@@ -138,7 +138,9 @@ final class CompareController {
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
-        mode = defaults.string(forKey: Self.modeKey).flatMap(CompareMode.init(rawValue:)) ?? .sideBySide
+        // No saved choice (a new install, or the setting removed): Split (Johan, round 3).
+        mode = defaults.string(forKey: Self.modeKey).flatMap(CompareMode.init(rawValue:))
+            ?? CompareMode(rawValue: ViewDefaults.compareMode) ?? .split
         let split = defaults.object(forKey: Self.splitKey) as? Double ?? 0.5
         splitPosition = min(max(CGFloat(split), Self.splitRange.lowerBound), Self.splitRange.upperBound)
         browserMode = defaults.string(forKey: Self.browserKey).flatMap(BrowserMode.init(rawValue:)) ?? .filmstrip

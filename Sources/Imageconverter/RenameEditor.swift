@@ -24,8 +24,12 @@ struct RenameEditor: View {
                 .font(LadaGlass.Typography.mono)
                 .accessibilityLabel("Rename pattern")
             Menu("Insert") {
-                ForEach(RenameTemplate.tokenExamples, id: \.self) { token in
-                    Button(token) { options.pattern += token }
+                ForEach(RenameTemplate.tokenMenu, id: \.title) { section in
+                    Menu(section.title) {
+                        ForEach(section.items, id: \.token) { item in
+                            Button("\(item.title)  \(item.token)") { options.pattern += item.token }
+                        }
+                    }
                 }
                 Divider()
                 ForEach(Self.quickPatterns, id: \.name) { quick in
@@ -41,8 +45,14 @@ struct RenameEditor: View {
             replacementRow(index: index, id: rule.id)
         }
         cleanupFields
-        NumberField(title: "Counter starts at", value: $options.counterStart, minimum: RenameOptions.counterRange.lowerBound,
-                    maximum: RenameOptions.counterRange.upperBound, suffix: "")
+        FieldRow {
+            NumberField(title: "Counter starts at", value: $options.counterStart,
+                        minimum: RenameOptions.counterRange.lowerBound,
+                        maximum: RenameOptions.counterRange.upperBound, suffix: "")
+            NumberField(title: "Step", value: stepBinding, minimum: RenameOptions.counterStepRange.lowerBound,
+                        maximum: RenameOptions.counterStepRange.upperBound, suffix: "")
+                .help("Added to the counter for each image; negative counts down, never below 0")
+        }
         if !unknown.isEmpty {
             Text(unknown.map { "Unknown token: {\($0)}" }.joined(separator: " · "))
                 .font(LadaGlass.Typography.label)
@@ -56,6 +66,11 @@ struct RenameEditor: View {
             .textSelection(.enabled)
             .accessibilityLabel(example)
         }
+    }
+
+    /// The counter step; 0 is not a step, so it becomes 1.
+    private var stepBinding: Binding<Int> {
+        Binding(get: { options.counterStep }, set: { options.counterStep = $0 == 0 ? 1 : $0 })
     }
 
     /// Whole patterns that replace the current one (the tokens above are appended).
