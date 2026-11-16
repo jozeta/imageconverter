@@ -99,7 +99,14 @@ struct CollapsibleOutputPanel: View {
         VStack(spacing: 0) {
             handle
             if model.outputPanel.collapsed && dragHeight == nil {
+                // Clicking the collapsed line opens Output again, like the handle.
                 summary
+                    .contentShape(Rectangle())
+                    .onTapGesture { click() }
+                    .help("Click to show the Output settings")
+                    .accessibilityAddTraits(.isButton)
+                    .accessibilityHint("Expands Output")
+                    .accessibilityAction { click() }
             } else {
                 openPanel
             }
