@@ -15,15 +15,21 @@ final class FakeAltTextGenerator: AltTextGenerator, @unchecked Sendable {
     private let lock = NSLock()
     private var images: [CGImage] = []
 
-    init(_ behaviour: Behaviour = .answer("A red square on a white table."), availability: AltTextAvailability = .available) {
+    /// Blocks the model call's thread this long before answering (a slow model).
+    private let delay: TimeInterval
+
+    init(_ behaviour: Behaviour = .answer("A red square on a white table."), availability: AltTextAvailability = .available,
+         delay: TimeInterval = 0) {
         self.behaviour = behaviour
         self.availability = availability
+        self.delay = delay
     }
 
     var recorded: [CGImage] { lock.withLock { images } }
 
     func generate(for image: CGImage) async throws -> String {
         lock.withLock { images.append(image) }
+        if delay > 0 { usleep(UInt32(delay * 1_000_000)) }   // blocks its thread, like a busy model
         switch behaviour {
         case .answer(let text):
             // An actor hop and a sleep, like a real async model call.

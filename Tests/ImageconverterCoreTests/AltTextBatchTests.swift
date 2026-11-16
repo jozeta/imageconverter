@@ -51,7 +51,8 @@ final class AltTextBatchTests: XCTestCase {
             XCTAssertEqual(file.xmpArray(altPath), ["A red square on a white table."], "\(format): lang-alt")
             XCTAssertNil(file.xmp("dc:description"), "\(format)")
             XCTAssertEqual(generator.recorded.count, 1, "\(format)")
-            XCTAssertFalse(report.notes.contains { $0.text.contains("Alt text") }, "\(format)")
+            XCTAssertEqual(report.notes.count, 1, "\(format)")
+            XCTAssertTrue(report.notes.first?.text.contains(AltText.generatedNote) ?? false, "\(format): marked")
         }
     }
 
@@ -113,7 +114,8 @@ final class AltTextBatchTests: XCTestCase {
             let (file, report) = try await run(url, metadata: altOptions(description: true), format: format,
                                                generator: generator)
             let note = try XCTUnwrap(report.entries.first?.note, "\(format)")
-            XCTAssertEqual(note, LosslessMetadata.pixelsUntouchedNote, "\(format): no needless re-encode")
+            XCTAssertEqual(note, LosslessMetadata.pixelsUntouchedNote + "; " + AltText.generatedNote,
+                           "\(format): no needless re-encode")
             XCTAssertEqual(file.xmp(altPath), "A red square on a white table.", "\(format)")
             XCTAssertEqual(file.xmp("dc:description"), "A red square on a white table.", "\(format)")
             // The model saw an upright ≤ 1024 px thumbnail of the source.
@@ -196,6 +198,19 @@ final class AltTextBatchTests: XCTestCase {
         XCTAssertEqual(AltText.timeout, 30)
     }
 
+    /// A call that timed out keeps running (it ignores cancellation): its late answer is ignored, and the next item
+    /// starts its own call at once instead of waiting for it.
+    func testATimedOutCallNeitherAnswersLateNorHoldsUpTheNextItem() throws {
+        let generator = FirstCallHangs()
+        let image = TestImages.make(width: 20, height: 20)
+        XCTAssertEqual(try AltText.generateBlocking(for: image, with: generator, timeout: 0.3), .failed(AltText.timedOut))
+        let started = Date()
+        XCTAssertEqual(try AltText.generateBlocking(for: image, with: generator, timeout: 0.3), .text("Second."))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1, "didn't wait for the first call")
+        Thread.sleep(forTimeInterval: 1.8)
+        XCTAssertTrue(generator.firstFinished, "the first call did finish late")
+    }
+
     func testRemoveXMPSkipsTheModelWithANote() async throws {
         var options = altOptions()
         options.removeXMP = true
@@ -203,6 +218,7 @@ final class AltTextBatchTests: XCTestCase {
         let (_, report) = try await run(try source(), metadata: options, steps: [rotate], generator: generator)
         XCTAssertEqual(report.notes.map(\.text), [AltText.notGeneratedNote(AltText.removeXMPReason)])
         XCTAssertTrue(generator.recorded.isEmpty)
+        XCTAssertEqual(options.altTextSkipReason, AltText.removeXMPReason)
         // Also as the description: still worth generating (EXIF and IPTC hold it).
         options.altTextAsDescription = true
         let (file, _) = try await run(try source("b.jpg"), metadata: options, steps: [rotate], generator: generator)
@@ -213,141 +229,19 @@ final class AltTextBatchTests: XCTestCase {
     private var rotate: PipelineStep { PipelineStep(operation: .rotateFlip(RotateFlipOptions(rotation: .cw90))) }
 }
 
-/// What the model is shown, and the preview's alt text.
-final class AltTextPreviewTests: XCTestCase {
+/// The first call hangs for 1.5 s ignoring cancellation, then says "Late."; later calls answer "Second." at once.
+private final class FirstCallHangs: AltTextGenerator, @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    private var finished = false
+    var availability: AltTextAvailability { .available }
+    var firstFinished: Bool { lock.withLock { finished } }
 
-    private var root: URL!
-
-    override func setUpWithError() throws { root = try TestImages.tempDir().resolvingSymlinksInPath() }
-    override func tearDownWithError() throws { try? FileManager.default.removeItem(at: root) }
-
-    private let altPath = "Iptc4xmpCore:AltTextAccessibility"
-
-    private func altOptions(description: Bool = false) -> MetadataOptions {
-        var options = MetadataOptions(isEnabled: true, removeLocation: false)
-        options.generateAltText = true
-        options.altTextAsDescription = description
-        return options
+    func generate(for image: CGImage) async throws -> String {
+        let call = lock.withLock { calls += 1; return calls }
+        guard call == 1 else { return "Second." }
+        usleep(1_500_000)   // ignores cancellation
+        lock.withLock { finished = true }
+        return "Late."
     }
-
-    private func run(_ url: URL, metadata: MetadataOptions, steps: [PipelineStep] = [],
-                     format: OutputFormat = .jpeg, generator: any AltTextGenerator,
-                     extraOutputs: [OutputVariant] = []) async throws -> (WrittenFile, BatchReport) {
-        let pipeline = Pipeline(steps: steps, output: OutputSettings(format: format), metadata: metadata,
-                                extraOutputs: extraOutputs)
-        let out = root.appendingPathComponent("out-\(UUID().uuidString)", isDirectory: true)
-        let report = await BatchRunner.run([InputItem(source: url, relativeDirectory: "")], pipeline: pipeline,
-                                           mode: .newFolder(out), altText: generator)
-        XCTAssertEqual(report.failures, [])
-        return (try WrittenFile(url: try XCTUnwrap(report.written.first)), report)
-    }
-
-    private func source(_ name: String = "a.jpg", type: UTType = .jpeg, width: Int = 120, height: Int = 80) throws -> URL {
-        let url = root.appendingPathComponent(name)
-        try TestImages.write(TestImages.noise(width: width, height: height), to: url, type: type)
-        return url
-    }
-
-    // MARK: What the model sees
-
-    func testModelSeesTheImageAfterThePixelStepsAtMost1024Pixels() async throws {
-        let url = try source("big.jpg", width: 3000, height: 1000)
-        let generator = FakeAltTextGenerator()
-        let crop = PipelineStep(operation: .crop(CropOptions(mode: .aspect(width: 1, height: 1))))
-        _ = try await run(url, metadata: altOptions(), steps: [crop], generator: generator)
-        let seen = try XCTUnwrap(generator.recorded.first)
-        XCTAssertEqual(seen.width, 1000)
-        XCTAssertEqual(seen.height, 1000)
-        let wide = try source("wide.jpg", width: 3000, height: 1000)
-        let other = FakeAltTextGenerator()
-        _ = try await run(wide, metadata: altOptions(), steps: [rotate], generator: other)
-        XCTAssertEqual(other.recorded.first?.width, 341)
-        XCTAssertEqual(other.recorded.first?.height, 1024)
-    }
-
-    func testRedactIsAppliedBeforeTheModelSeesTheImage() throws {
-        let url = root.appendingPathComponent("red.png")
-        try TestImages.write(TestImages.make(width: 200, height: 100, color: CGColor(red: 1, green: 0, blue: 0, alpha: 1)),
-                             to: url, type: .png)
-        let fill = RedactOptions(target: .faces, style: .fill, fillColor: RGBAColor(red: 0, green: 1, blue: 0, alpha: 1),
-                                 padding: 0)
-        let pipeline = Pipeline(steps: [PipelineStep(operation: .redact(fill))], output: OutputSettings(format: .png),
-                                metadata: altOptions())
-        let generator = FakeAltTextGenerator()
-        var options = ItemRunOptions()
-        options.focus = FocusContext(detector: FakeVisionDetector(faces: [CGRect(x: 0, y: 0, width: 0.5, height: 1)]))
-        options.altText = generator
-        _ = try BatchRunner.encodeItem(url, pipeline: pipeline, assets: WatermarkAssets.load(for: pipeline, maxPixels: 1 << 28),
-                                       maxPixels: 250_000_000, options: options)
-        let seen = try XCTUnwrap(generator.recorded.first)
-        let left = TestImages.pixel(of: seen, x: 50, y: 50)
-        let right = TestImages.pixel(of: seen, x: 150, y: 50)
-        XCTAssertGreaterThan(left.green, 240, "the redacted half reaches the model filled")
-        XCTAssertLessThan(left.red, 15)
-        XCTAssertGreaterThan(right.red, 240, "the rest is untouched")
-    }
-
-    func testSizeEstimateAndQualityLadderNeverGenerate() throws {
-        let url = try source()
-        let pipeline = Pipeline(steps: [rotate], output: OutputSettings(format: .jpeg), metadata: altOptions())
-        let generator = FakeAltTextGenerator()
-        // The estimate path: default item options, no generator.
-        let encoded = try BatchRunner.encodeItem(url, pipeline: pipeline, assets: WatermarkAssets.load(for: pipeline,
-                                                 maxPixels: 1 << 28), maxPixels: 250_000_000)
-        XCTAssertNil(encoded.note)
-        XCTAssertNil(try WrittenFile.decode(encoded.data).xmp(altPath))
-        _ = try SizeEstimator.render(item: InputItem(source: url, relativeDirectory: ""), pipeline: pipeline)
-        XCTAssertTrue(generator.recorded.isEmpty)
-    }
-
-    // MARK: Preview
-
-    func testPreviewAsksOncePerFileVersionAndPixelSteps() async throws {
-        let url = try source()
-        let generator = FakeAltTextGenerator()
-        let renderer = PreviewRenderer(altText: generator)
-        let item = InputItem(source: url, relativeDirectory: "")
-        var pipeline = Pipeline(steps: [rotate], output: OutputSettings(format: .jpeg), metadata: altOptions())
-        guard case .ready(let first) = await renderer.render(item: item, index: 0, pipeline: pipeline) else {
-            return XCTFail("no preview")
-        }
-        let request = try XCTUnwrap(first.altTextRequest)
-        let outcome = await renderer.altText(for: request)
-        XCTAssertEqual(outcome, .text("A red square on a white table."))
-        // Another output setting: same pixels, same key, no new question.
-        pipeline.output.quality = 0.3
-        guard case .ready(let second) = await renderer.render(item: item, index: 0, pipeline: pipeline) else {
-            return XCTFail("no preview")
-        }
-        XCTAssertEqual(second.altTextRequest, request)
-        _ = await renderer.altText(for: try XCTUnwrap(second.altTextRequest))
-        let asked = await renderer.altTextRequests
-        XCTAssertEqual(asked, 1)
-        // Another pixel step: asked again.
-        pipeline.steps.append(PipelineStep(operation: .crop(CropOptions(mode: .aspect(width: 1, height: 1)))))
-        guard case .ready(let third) = await renderer.render(item: item, index: 0, pipeline: pipeline) else {
-            return XCTFail("no preview")
-        }
-        XCTAssertNotEqual(third.altTextRequest, request)
-        // No alt text asked for: no request.
-        pipeline.metadata.generateAltText = false
-        guard case .ready(let fourth) = await renderer.render(item: item, index: 0, pipeline: pipeline) else {
-            return XCTFail("no preview")
-        }
-        XCTAssertNil(fourth.altTextRequest)
-    }
-
-    func testPreviewReportsAnUnavailableModel() async throws {
-        let renderer = PreviewRenderer(altText: FakeAltTextGenerator(availability: .deviceNotEligible))
-        let pipeline = Pipeline(output: OutputSettings(format: .jpeg), metadata: altOptions())
-        guard case .ready(let result) = await renderer.render(item: InputItem(source: try source(), relativeDirectory: ""),
-                                                              index: 0, pipeline: pipeline) else {
-            return XCTFail("no preview")
-        }
-        let outcome = await renderer.altText(for: try XCTUnwrap(result.altTextRequest))
-        XCTAssertEqual(outcome, .failed(AltTextAvailability.deviceNotEligible.reason ?? ""))
-        XCTAssertEqual(outcome.note, "Alt text not generated: this Mac doesn't support Apple Intelligence")
-    }
-
-    private var rotate: PipelineStep { PipelineStep(operation: .rotateFlip(RotateFlipOptions(rotation: .cw90))) }
 }

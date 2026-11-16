@@ -70,7 +70,7 @@ public enum BatchRunner {
         journal: URL? = nil,
         presets: PresetLibrary = .standard,
         enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
-        altText: any AltTextGenerator = SystemAltTextGenerator.shared,
+        altText: any AltTextGenerator = AltText.standardGenerator,
         progress: @escaping @Sendable (BatchProgress) -> Void = { _ in },
         events: @escaping @Sendable (ItemEvent) -> Void = { _ in }
     ) async -> BatchReport {

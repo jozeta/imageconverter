@@ -32,6 +32,9 @@ public struct PreviewResult: @unchecked Sendable {
 public struct AltTextRequest: @unchecked Sendable, Equatable {
     public let key: String
     let image: CGImage
+    /// Why the batch wouldn't ask the model for this pipeline (`MetadataOptions.altTextSkipReason`); the preview then
+    /// doesn't either.
+    var skipReason: String?
 
     public static func == (lhs: AltTextRequest, rhs: AltTextRequest) -> Bool { lhs.key == rhs.key }
 }
@@ -94,7 +97,7 @@ public actor PreviewRenderer {
     public init(maxPixels: Int = ImageLoader.defaultMaxPixels, displayMax: Int = 1600,
                 detector: any VisionDetector = SystemVisionDetector(),
                 enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
-                altText: any AltTextGenerator = SystemAltTextGenerator.shared) {
+                altText: any AltTextGenerator = AltText.standardGenerator) {
         self.maxPixels = maxPixels
         self.displayMax = max(1, displayMax)
         self.detector = detector
@@ -106,6 +109,7 @@ public actor PreviewRenderer {
     /// generated otherwise (seconds; the preview shows "Generating…" meanwhile). The same model, prompt, size,
     /// sanitiser and timeout as the batch.
     public func altText(for request: AltTextRequest) async -> AltTextOutcome {
+        if let reason = request.skipReason { return .failed(reason) }
         if let cached = altTexts[request.key] { return cached }
         if let reason = altTextGenerator.availability.reason { return .failed(reason) }
         altTextRequests += 1
@@ -122,8 +126,10 @@ public actor PreviewRenderer {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let steps = (try? encoder.encode(pipeline.steps.filter(\.isEnabled))).flatMap { String(bytes: $0, encoding: .utf8) }
-        return AltTextRequest(key: FocusCache.sourceKey(for: item.source) + "|" + (steps ?? UUID().uuidString),
-                              image: image)
+        let skip = pipeline.metadata.altTextSkipReason
+        return AltTextRequest(key: FocusCache.sourceKey(for: item.source) + "|" + (steps ?? UUID().uuidString)
+                                  + (skip == nil ? "" : "|skip"),
+                              image: image, skipReason: skip)
     }
 
     /// Releases the cached source and watermark images (call when a batch starts or finishes).

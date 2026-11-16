@@ -654,7 +654,8 @@ switched off with the reason, for example "Not available: Apple Intelligence is 
 2. Tick **Generate alt text on this Mac**. Tick **Also use it as the description** to write the same sentence as
    the description too.
 3. Select an image: the preview's table gets an **Alt text** row, "Generating…" and then the sentence the batch
-   would write (or why there is none). It is cached per file version and image steps, so changing the output or
+   would write (or why there is none; with **Remove XMP** on and no description it doesn't ask the model, like the
+   batch). It is cached per file version and image steps, so changing the output or
    other metadata settings doesn't ask again.
 4. Run the batch. Read the sentences before you publish them: the model can get details wrong.
 
@@ -664,9 +665,11 @@ How it works:
   image steps, so redacted faces and text stay hidden from it), as an sRGB copy at most 1024 px on the long side.
   A metadata-only run (lossless JPEG/HEIC copy) shows it a 1024 px thumbnail of the original.
 - The prompt is fixed and in English: one sentence, at most 250 characters, describing what is visible, not
-  starting with "image of" or "picture of", and no guesses about who people are.
+  starting with "image of" or "picture of", and no guesses about who people are. Text in the image is mentioned
+  (a sign, a document, a screen) but not copied: the prompt asks for no names, numbers, addresses or licence plates.
+  The model can still slip; add a [Redact step](#hide-faces-and-text) to keep text and faces from it entirely.
 - The answer is treated as untrusted text: control and formatting characters (bidirectional overrides,
-  zero-width characters) are removed, line breaks and runs of spaces become one space, wrapping quotes and an
+  zero-width spaces) are removed (emoji joined with a zero-width joiner stay whole), line breaks and runs of spaces become one space, wrapping quotes and an
   "Image of …" opening are dropped, and it is cut to 250 characters at a word boundary.
 - It is written to XMP `Iptc4xmpCore:AltTextAccessibility` (IPTC "Alt Text (Accessibility)", a language
   alternative with an `x-default` entry), after the removals, so **Remove all metadata** and **Remove IPTC** keep it.
@@ -674,10 +677,15 @@ How it works:
   `dc:description`. The metadata-only lossless copy writes and verifies it like any other field.
 - **Remove XMP** leaves no place for alt text: the image then gets the note "Alt text not generated: Remove XMP is
   on, and alt text is stored in XMP" (unless it is also the description, which EXIF and IPTC hold).
-- Each image waits at most 30 seconds. One image is described at a time, and a batch that writes alt text runs on
-  at most half the Mac's cores. When there is no text (model not ready, an error, a refusal, no answer in time, an
-  empty answer) the image is still written, without alt text, with a note such as "Alt text not generated: no
-  answer within 30 seconds".
+- Each image waits at most 30 seconds, counted from when it is ready for the model: waiting behind other images,
+  or behind a model still busy with an image that timed out (whose late answer is ignored), counts too. One image is
+  described at a time, and across all batches running at once (the main window, jobs, services, scripts) at most
+  half the Mac's cores work on images that get alt text; other images aren't held back.
+- Every image that got alt text has the report note "Alt text generated on this Mac" (it is machine-written:
+  check it). When there is no text (model not ready, an error, a refusal, no answer in time, an empty answer) the
+  image is still written, without alt text, with a note such as "Alt text not generated: no answer within 30
+  seconds". A copy of imageconverter built without the macOS 27 SDK says "this build of imageconverter can't
+  generate alt text" on macOS 27.
 - The size estimate and the quality comparison don't ask the model (one sentence of XMP doesn't change the size
   noticeably). Jobs, the command line, services, scripts and links write alt text the same way, with the same notes.
 

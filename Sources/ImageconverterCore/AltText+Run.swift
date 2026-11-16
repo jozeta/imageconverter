@@ -42,32 +42,43 @@ extension AltText {
 
     // MARK: From the batch's synchronous workers
 
-    /// The most workers a batch that generates alt text runs at once: half the cores (see `BatchRunner.run`).
-    /// Workers waiting for the model hold their threads; with every thread of the cooperative pool held, anything
-    /// the model call needs from the global queues (a sleep, a continuation resumed there) never runs (measured with
-    /// fakes: a `Task.sleep` or a continuation resumed on a global queue then hangs, an actor hop doesn't).
+    /// The most batch workers, across every batch in the process (manual runs, jobs, services, scripts), that may
+    /// work on an item that generates alt text at once: half the cores (`AltTextWorkerLimiter`). Workers waiting for
+    /// the model hold their threads; with every thread of the cooperative pool held, anything the model call needs
+    /// from the global queues (a sleep, a continuation resumed there) never runs (measured with fakes: a
+    /// `Task.sleep` or a continuation resumed on a global queue then hangs, an actor hop doesn't).
     static var batchWorkers: Int { max(1, ProcessInfo.processInfo.activeProcessorCount / 2) }
 
-    /// One generation at a time from the batch: the model answers one request after another anyway, and the
-    /// timeout should time the model, not the queue.
+    /// One generation at a time from the batch: the model answers one request after another anyway.
     private static let batchGate = NSLock()
 
-    /// `generate(for:with:timeout:)` for the batch's synchronous worker: waits for its turn, then at most
-    /// `timeout` for the answer (the timer has a queue of its own, so it fires however busy the pool is). The model
-    /// call's own code runs on `AltTextExecutor`, not on the cooperative pool the waiting workers hold; the batch
-    /// also runs at most `batchWorkers` at once. Throws `CancellationError` when the batch is cancelled (before or
-    /// while waiting).
+    /// Workers inside `generateBlocking` right now and the most there were at once (for tests).
+    static let waiting = WaitingCounter()
+
+    /// `generate(for:with:timeout:)` for the batch's synchronous worker. The item's `timeout` starts when it gets
+    /// here: waiting for its turn behind other items counts, and so does a model still busy with an earlier item that
+    /// timed out (its late answer is ignored; the next item doesn't wait for it, it just starts its own call, which
+    /// the system may queue). So no item waits more than its own 30 s. The timer has a queue of its own, so it fires
+    /// however busy the pool is; the model call's own code runs on `AltTextExecutor`, not on the cooperative pool the
+    /// waiting workers hold. Throws `CancellationError` when the batch is cancelled (before or while waiting).
     static func generateBlocking(for image: CGImage, with generator: any AltTextGenerator,
                                  timeout: TimeInterval = AltText.timeout) throws -> AltTextOutcome {
         if let reason = generator.availability.reason { return .failed(reason) }
-        batchGate.lock()
+        waiting.enter()
+        defer { waiting.leave() }
+        let deadline = Date().addingTimeInterval(max(0, timeout))
+        // Wait for the turn in slices, so a cancelled batch stops waiting and the deadline holds.
+        while !batchGate.lock(before: min(deadline, Date().addingTimeInterval(0.25))) {
+            if Task.isCancelled { throw CancellationError() }
+            if Date() >= deadline { return .failed(timedOut) }
+        }
         defer { batchGate.unlock() }
         if Task.isCancelled { throw CancellationError() }
         guard let small = modelImage(image) else { return .failed(unreadable) }
         let box = OutcomeBox()
         let done = DispatchSemaphore(value: 0)
         let run = AltTextRun()
-        run.start(small, generator: generator, timeout: timeout) { outcome in
+        run.start(small, generator: generator, timeout: max(0, deadline.timeIntervalSinceNow)) { outcome in
             box.set(outcome)
             done.signal()
         }
@@ -77,6 +88,83 @@ extension AltText {
         }
         if Task.isCancelled { throw CancellationError() }
         return box.value ?? .failed(timedOut)
+    }
+}
+
+/// How many callers are inside a section, and the most there were at once.
+final class WaitingCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var now = 0
+    private var most = 0
+
+    func enter() { lock.withLock { now += 1; most = max(most, now) } }
+    func leave() { lock.withLock { now -= 1 } }
+    var peak: Int { lock.withLock { most } }
+    func resetPeak() { lock.withLock { most = now } }
+}
+
+/// The process-wide limit on batch workers working on an item that generates alt text (`AltText.batchWorkers`),
+/// shared by every batch. The scheduler's worker waits here asynchronously (suspended, holding no thread) before it
+/// starts such an item, and releases it when the item is done; items that don't generate never wait here.
+public final class AltTextWorkerLimiter: @unchecked Sendable {
+    public static let shared = AltTextWorkerLimiter(limit: AltText.batchWorkers)
+
+    private let lock = NSLock()
+    private let limit: Int
+    private var inUse = 0
+    private var waiters: [(id: UUID, continuation: CheckedContinuation<Bool, Never>)] = []
+
+    init(limit: Int) {
+        self.limit = max(1, limit)
+    }
+
+    /// Waits for a slot; false when the task was cancelled while waiting (no slot is then held).
+    func acquire() async -> Bool {
+        let id = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+                lock.lock()
+                if Task.isCancelled {
+                    lock.unlock()
+                    continuation.resume(returning: false)
+                } else if inUse < limit {
+                    inUse += 1
+                    lock.unlock()
+                    continuation.resume(returning: true)
+                } else {
+                    waiters.append((id, continuation))
+                    lock.unlock()
+                }
+            }
+        } onCancel: {
+            lock.lock()
+            let index = waiters.firstIndex { $0.id == id }
+            let waiter = index.map { waiters.remove(at: $0) }
+            lock.unlock()
+            waiter?.continuation.resume(returning: false)
+        }
+    }
+
+    /// Without waiting: true when a slot was free (tests).
+    func tryAcquire() -> Bool {
+        lock.withLock {
+            guard inUse < limit else { return false }
+            inUse += 1
+            return true
+        }
+    }
+
+    func release() {
+        lock.lock()
+        if waiters.isEmpty {
+            inUse = max(0, inUse - 1)
+            lock.unlock()
+        } else {
+            // The slot passes straight to the next waiter.
+            let next = waiters.removeFirst()
+            lock.unlock()
+            next.continuation.resume(returning: true)
+        }
     }
 }
 
@@ -148,12 +236,13 @@ private final class OutcomeBox: @unchecked Sendable {
     var value: AltTextOutcome? { lock.withLock { outcome } }
 }
 
-/// Runs the batch's alt text tasks on one dedicated serial queue instead of the cooperative pool, whose threads
-/// the batch's synchronous workers may all be holding while they wait.
+/// Runs the alt text tasks on a dedicated queue instead of the cooperative pool, whose threads the batch's
+/// synchronous workers may all be holding while they wait. Concurrent, so a call that timed out but keeps a thread
+/// busy can't hold up the next item's call (each task still runs its own jobs one at a time).
 @available(macOS 15, *)
 final class AltTextExecutor: TaskExecutor, @unchecked Sendable {
     static let shared = AltTextExecutor()
-    private let queue = DispatchQueue(label: "imageconverter.alt-text", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "imageconverter.alt-text", qos: .userInitiated, attributes: .concurrent)
 
     func enqueue(_ job: consuming ExecutorJob) {
         let job = UnownedJob(job)
@@ -179,8 +268,8 @@ final class AltTextSlot {
         guard metadata.generatesAltText, let generator else { return nil }
         if let outcome { return outcome }
         let made: AltTextOutcome
-        if metadata.removeXMP && !metadata.altTextAsDescription {
-            made = .failed(AltText.removeXMPReason)
+        if let reason = metadata.altTextSkipReason {
+            made = .failed(reason)
         } else if let reason = generator.availability.reason {
             made = .failed(reason)
         } else if let image = image() {

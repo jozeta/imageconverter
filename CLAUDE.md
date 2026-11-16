@@ -132,7 +132,9 @@ free space, SIGKILL fallback; `unpackedTreeProblem`: the unpacked tree must matc
     protocol (tests use a fake; never run the real model in tests), fixed prompt, ≤ 1024 px sRGB model image, the
     sanitiser for model text), `AltText+Run` (30 s timeout on its own timer queue, `generateBlocking` for the sync
     workers on `AltTextExecutor`, one at a time; `AltTextSlot`: one generation per item shared by lossless copy,
-    re-encode and extra outputs; a batch that generates runs on ≤ half the cores, `AltText.batchWorkers`),
+    re-encode and extra outputs; `AltTextWorkerLimiter.shared`: process-wide, ≤ half the cores (`AltText.batchWorkers`)
+    of all batches' workers may be on items that generate, acquired asynchronously in the scheduler's worker task;
+    `AltText.standardGenerator` is the default everywhere, swappable in tests),
     `AltText+System` (`SystemAltTextGenerator`: `SystemLanguageModel.default` only, never the server model (a test
     bans its name in Sources/); compiled only with `#if compiler(>=6.4) && !NO_MACOS27_SDK`, DEBUG
     `-debugAltTextStatus`). Written to XMP `Iptc4xmpCore:AltTextAccessibility` via `MetadataOptions.generatedAltText`

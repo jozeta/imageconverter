@@ -46,6 +46,19 @@ final class AltTextTests: XCTestCase {
         XCTAssertEqual(AltText.sanitized(raw), "A dog on the beach.")
     }
 
+    func testSanitiserKeepsEmojiSequencesButNotBidiControls() {
+        let technologist = "\u{1F469}\u{1F3FD}\u{200D}\u{1F4BB}"        // woman technologist, medium skin tone
+        let rainbow = "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}"             // rainbow flag (variation selector + ZWJ)
+        let scotland = "\u{1F3F4}\u{E0067}\u{E0062}\u{E0073}\u{E0063}\u{E0074}\u{E007F}"
+        let text = "A \(technologist) at a desk with a \(rainbow) and a \(scotland) flag."
+        XCTAssertEqual(AltText.sanitized(text), text)
+        XCTAssertEqual(AltText.sanitized(technologist)?.count, 1, "one character, not three")
+        // A joiner anywhere else, bidi overrides and isolates, and stray tags still go.
+        XCTAssertEqual(AltText.sanitized("a\u{200D}b \u{202E}c\u{2066}d\u{2069} \u{E0067}e \u{1F600}\u{200D}x"),
+                       "ab cd e \u{1F600}x")
+        XCTAssertEqual(AltText.sanitized("\u{1F600}\u{202E}\u{200D}\u{1F600}"), "\u{1F600}\u{1F600}")
+    }
+
     func testSanitiserCollapsesWhitespaceAndLineBreaks() {
         XCTAssertEqual(AltText.sanitized("  A cat\n\n sleeping\t on\u{2028}a  sofa.  "), "A cat sleeping on a sofa.")
     }
@@ -167,6 +180,39 @@ final class AltTextTests: XCTestCase {
         XCTAssertLessThanOrEqual(active.peak, AltText.batchWorkers)
     }
 
+    /// Two generating batches at once (a manual run and a job, say) never have more than `batchWorkers` workers
+    /// waiting for the model between them.
+    func testTwoGeneratingBatchesShareOneProcessWideCap() async throws {
+        let urls = try (0..<12).map { try source("p\($0).jpg") }
+        let pipeline = Pipeline(steps: [rotate], output: OutputSettings(format: .jpeg), metadata: altOptions())
+        let slow = FakeAltTextGenerator(.answer("Slow."), delay: 0.05)
+        AltText.waiting.resetPeak()
+        async let first = BatchRunner.run(urls.prefix(6).map { InputItem(source: $0, relativeDirectory: "") },
+                                          pipeline: pipeline, mode: .newFolder(root.appendingPathComponent("a")),
+                                          concurrency: 64, altText: slow)
+        async let second = BatchRunner.run(urls.suffix(6).map { InputItem(source: $0, relativeDirectory: "") },
+                                           pipeline: pipeline, mode: .newFolder(root.appendingPathComponent("b")),
+                                           concurrency: 64, altText: slow)
+        let reports = await [first, second]
+        XCTAssertEqual(reports.map(\.written.count), [6, 6])
+        XCTAssertGreaterThan(AltText.waiting.peak, 0)
+        XCTAssertLessThanOrEqual(AltText.waiting.peak, AltText.batchWorkers)
+        XCTAssertEqual(slow.recorded.count, 12)
+    }
+
+    /// With every slot of the process-wide cap taken, a batch that doesn't generate alt text still runs.
+    func testANonGeneratingBatchIgnoresTheCap() async throws {
+        var held = 0
+        while AltTextWorkerLimiter.shared.tryAcquire() { held += 1 }
+        defer { for _ in 0..<held { AltTextWorkerLimiter.shared.release() } }
+        XCTAssertEqual(held, AltText.batchWorkers)
+        let pipeline = Pipeline(steps: [rotate], output: OutputSettings(format: .jpeg))
+        let report = await BatchRunner.run([InputItem(source: try source(), relativeDirectory: "")], pipeline: pipeline,
+                                           mode: .newFolder(root.appendingPathComponent("plain")),
+                                           altText: FakeAltTextGenerator())
+        XCTAssertEqual(report.written.count, 1)
+    }
+
     func testCancelledBatchStopsWaiting() async throws {
         let image = TestImages.make(width: 20, height: 20)
         let task = Task.detached { () -> Result<AltTextOutcome, Error> in
@@ -186,12 +232,29 @@ final class AltTextTests: XCTestCase {
     /// must never make macOS download anything).
     func testSystemGeneratorReportsAvailabilityWithoutGenerating() {
         let availability = SystemAltTextGenerator.shared.availability
+        let onMacOS27 = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0))
         if !SystemAltTextGenerator.isCompiledIn {
-            XCTAssertEqual(availability, .unsupportedOS)
-        } else if #unavailable(macOS 27) {
+            XCTAssertEqual(availability, onMacOS27 ? .notInThisBuild : .unsupportedOS)
+        } else if !onMacOS27 {
             XCTAssertEqual(availability, .unsupportedOS)
         }
         XCTAssertEqual(availability.reason == nil, availability == .available)
+    }
+
+    func testABuildWithoutTheImageAPISaysSoOnMacOS27() {
+        XCTAssertEqual(SystemAltTextGenerator.fallback(onMacOS27: false), .unsupportedOS)
+        XCTAssertEqual(SystemAltTextGenerator.fallback(onMacOS27: true),
+                       SystemAltTextGenerator.isCompiledIn ? .unsupportedOS : .notInThisBuild)
+        XCTAssertEqual(AltTextOutcome.failed(AltTextAvailability.notInThisBuild.reason ?? "").note,
+                       "Alt text not generated: this build of imageconverter can't generate alt text")
+    }
+
+    func testPromptAsksNotToCopyVisibleText() {
+        XCTAssertTrue(AltText.prompt.contains("don't copy it: no names, numbers, addresses or licence plates"))
+        XCTAssertTrue(AltText.prompt.contains("say that text is there and what kind it is"))
+        XCTAssertFalse(AltText.prompt.contains("important text"))
+        XCTAssertEqual(AltTextOutcome.text("A cat.").note, "Alt text generated on this Mac")
     }
 
     /// Only Apple's on-device model: the server model class must not appear anywhere in the sources.

@@ -2,7 +2,8 @@ import CoreGraphics
 import Foundation
 // Image attachments for the language model are in the macOS 27 SDK (Swift 6.4, Xcode 27) and later; the macOS 26
 // SDKs (Swift 6.2/6.3) have FoundationModels but no image input, and CI's Xcode 16 (Swift 6.1) has neither. Below
-// that the generator is compiled out and reports `.unsupportedOS`. `-Xswiftc -DNO_MACOS27_SDK` compiles that same
+// that the generator is compiled out and reports `.unsupportedOS` (`.notInThisBuild` when running on macOS 27+).
+// `-Xswiftc -DNO_MACOS27_SDK` compiles that same
 // fallback on a newer toolchain.
 #if compiler(>=6.4) && !NO_MACOS27_SDK
 import FoundationModels
@@ -30,7 +31,13 @@ public struct SystemAltTextGenerator: AltTextGenerator {
         #if compiler(>=6.4) && !NO_MACOS27_SDK
         if #available(macOS 27, *) { return FoundationModelsAltText.availability() }
         #endif
-        return .unsupportedOS
+        return Self.fallback(onMacOS27: ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 27, minorVersion: 0, patchVersion: 0)))
+    }
+
+    /// Without the model call: below macOS 27 it needs a newer macOS; on 27 or later this build lacks it.
+    static func fallback(onMacOS27: Bool) -> AltTextAvailability {
+        onMacOS27 && !isCompiledIn ? .notInThisBuild : .unsupportedOS
     }
 
     public func generate(for image: CGImage) async throws -> String {
@@ -44,12 +51,12 @@ public struct SystemAltTextGenerator: AltTextGenerator {
         #if compiler(>=6.4) && !NO_MACOS27_SDK
         if #available(macOS 27, *) { return try await FoundationModelsAltText.generate(for: image) }
         #endif
-        throw AltTextError(AltTextAvailability.unsupportedOS.reason ?? "unavailable")
+        throw AltTextError(availability.reason ?? "unavailable")
     }
 
     static let simulatedText = "Simulated alt text: a sunset over calm water with a wooden pier in the foreground."
 
-    /// DEBUG builds accept `-debugAltTextStatus available|unsupportedOS|deviceNotEligible|appleIntelligenceNotEnabled|
+    /// DEBUG builds accept `-debugAltTextStatus available|unsupportedOS|notInThisBuild|deviceNotEligible|appleIntelligenceNotEnabled|
     /// modelNotReady|noImageSupport` (screenshots). The editor, preview and batch all see it; a simulated status never
     /// calls the model ("available" gives `simulatedText`).
     public static let simulatedStatus: AltTextAvailability? = {
@@ -57,7 +64,8 @@ public struct SystemAltTextGenerator: AltTextGenerator {
         let args = ProcessInfo.processInfo.arguments
         guard let index = args.firstIndex(of: "-debugAltTextStatus"), index + 1 < args.count else { return nil }
         let all: [String: AltTextAvailability] = [
-            "available": .available, "unsupportedOS": .unsupportedOS, "deviceNotEligible": .deviceNotEligible,
+            "available": .available, "unsupportedOS": .unsupportedOS, "notInThisBuild": .notInThisBuild,
+            "deviceNotEligible": .deviceNotEligible,
             "appleIntelligenceNotEnabled": .appleIntelligenceNotEnabled, "modelNotReady": .modelNotReady,
             "noImageSupport": .noImageSupport,
         ]
@@ -66,6 +74,18 @@ public struct SystemAltTextGenerator: AltTextGenerator {
         return nil
         #endif
     }()
+}
+
+extension AltText {
+    private static let standardLock = NSLock()
+    nonisolated(unsafe) private static var standard: any AltTextGenerator = SystemAltTextGenerator.shared
+
+    /// The generator every default uses (batches, jobs, the command line, the preview): Apple's on-device model.
+    /// Tests swap in a fake to prove a path never asks (the size estimate, the quality ladder).
+    public internal(set) static var standardGenerator: any AltTextGenerator {
+        get { standardLock.withLock { standard } }
+        set { standardLock.withLock { standard = newValue } }
+    }
 }
 
 #if compiler(>=6.4) && !NO_MACOS27_SDK

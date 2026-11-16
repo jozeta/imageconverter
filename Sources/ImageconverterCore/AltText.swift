@@ -5,8 +5,10 @@ import Foundation
 /// Intelligence on, the model downloaded by macOS, and a model that takes images).
 public enum AltTextAvailability: Equatable, Sendable {
     case available
-    /// Below macOS 27, or a build made without the macOS 27 SDK.
+    /// Below macOS 27.
     case unsupportedOS
+    /// macOS 27 or later, but this build was made without the macOS 27 SDK (no image input compiled in).
+    case notInThisBuild
     case deviceNotEligible
     case appleIntelligenceNotEnabled
     /// Apple Intelligence is on but macOS hasn't finished getting the model (the app never asks it to).
@@ -21,6 +23,7 @@ public enum AltTextAvailability: Equatable, Sendable {
         switch self {
         case .available: return nil
         case .unsupportedOS: return "needs macOS 27 or later"
+        case .notInThisBuild: return "this build of imageconverter can't generate alt text"
         case .deviceNotEligible: return "this Mac doesn't support Apple Intelligence"
         case .appleIntelligenceNotEnabled: return "Apple Intelligence is turned off in System Settings"
         case .modelNotReady: return "Apple Intelligence isn't ready yet (macOS may still be downloading its model)"
@@ -41,10 +44,13 @@ public enum AltTextOutcome: Equatable, Sendable {
         return nil
     }
 
-    /// "Alt text not generated: …" for a failure; nil for text.
-    public var note: String? {
-        if case .failed(let reason) = self { return AltText.notGeneratedNote(reason) }
-        return nil
+    /// The report note: "Alt text generated on this Mac" (marks machine-generated text) or "Alt text not
+    /// generated: …".
+    public var note: String {
+        switch self {
+        case .text: return AltText.generatedNote
+        case .failed(let reason): return AltText.notGeneratedNote(reason)
+        }
     }
 }
 
@@ -70,11 +76,14 @@ public enum AltText {
         + "Answer with the alt text only: one plain sentence in English, at most 250 characters."
     /// The prompt sent with the image (English, fixed).
     public static let prompt = "Write one sentence of alt text for this image, at most 250 characters. Describe what "
-        + "is visible: the main subject, the setting and any important text. Don't start with \"image of\", "
-        + "\"picture of\" or \"photo of\". Don't guess who people are or name them; describe them only by what can "
-        + "be seen."
+        + "is visible: the main subject and the setting. If the image contains text, say that text is there and what "
+        + "kind it is (a sign, a document, a screen, a licence plate), but don't copy it: no names, numbers, addresses "
+        + "or licence plates. Don't start with \"image of\", \"picture of\" or \"photo of\". Don't guess who people "
+        + "are or name them; describe them only by what can be seen."
 
     public static func notGeneratedNote(_ reason: String) -> String { "Alt text not generated: \(reason)" }
+    /// The report note on every item that got alt text (it is machine-generated; review it).
+    public static let generatedNote = "Alt text generated on this Mac"
 
     static let emptyAnswer = "the model gave no usable text"
     static let timedOut = "no answer within 30 seconds"
@@ -90,13 +99,16 @@ public enum AltText {
     private static let quotes: [(Character, Character)] = [("\"", "\""), ("\u{201C}", "\u{201D}"), ("'", "'"),
                                                            ("\u{2018}", "\u{2019}")]
 
-    /// The model's answer made safe to write: control, format (bidi overrides, zero-width), private-use and
-    /// unassigned characters removed; every run of whitespace one space; wrapping quotes and an "Image of" lead-in
-    /// dropped; at most `maxLength` characters, cut at a word boundary. Nil when nothing is left.
+    /// The model's answer made safe to write: control, format (bidi overrides and isolates, zero-width spaces, BOM),
+    /// private-use and unassigned characters removed, except a zero-width joiner between two emoji and the tag
+    /// characters of a flag (variation selectors are marks, so they stay); every run of whitespace one space; wrapping
+    /// quotes and an "Image of" lead-in dropped; at most `maxLength` characters, cut at a word boundary. Nil when
+    /// nothing is left.
     public static func sanitized(_ raw: String) -> String? {
         var scalars = String.UnicodeScalarView()
         var pendingSpace = false
-        for scalar in raw.unicodeScalars {
+        let input = Array(raw.unicodeScalars)
+        for (index, scalar) in input.enumerated() {
             let category = scalar.properties.generalCategory
             if scalar.properties.isWhitespace || category == .lineSeparator || category == .paragraphSeparator
                 || scalar == "\n" || scalar == "\r" || scalar == "\t" {
@@ -104,6 +116,9 @@ public enum AltText {
                 continue
             }
             switch category {
+            case .format where keepsFormat(scalar, after: index > 0 ? input[index - 1] : nil,
+                                           before: index + 1 < input.count ? input[index + 1] : nil):
+                break
             case .control, .format, .privateUse, .surrogate, .unassigned: continue
             default: break
             }
@@ -120,6 +135,30 @@ public enum AltText {
         }
         text = capped(text.trimmingCharacters(in: .whitespaces))
         return text.isEmpty ? nil : text
+    }
+
+    /// A format character that belongs to an emoji: a zero-width joiner between two emoji (👩‍💻), or a tag
+    /// character continuing a flag (🏴 + tags, e.g. Scotland). Bidi controls and every other one are dropped.
+    private static func keepsFormat(_ scalar: Unicode.Scalar, after previous: Unicode.Scalar?,
+                                    before next: Unicode.Scalar?) -> Bool {
+        guard let previous else { return false }
+        if scalar == "\u{200D}", let next {
+            return isEmojiPart(previous) && isEmoji(next)
+        }
+        if (0xE0020...0xE007F).contains(scalar.value) {
+            return previous == "\u{1F3F4}" || (0xE0020...0xE007E).contains(previous.value)
+        }
+        return false
+    }
+
+    /// An emoji scalar (not the digits, `#` and `*` that are also emoji bases).
+    private static func isEmoji(_ scalar: Unicode.Scalar) -> Bool {
+        scalar.properties.isEmoji && scalar.value > 0x7F
+    }
+
+    /// An emoji, or what may end one before a joiner: a variation selector or a skin-tone modifier.
+    private static func isEmojiPart(_ scalar: Unicode.Scalar) -> Bool {
+        isEmoji(scalar) || scalar == "\u{FE0F}" || scalar.properties.isEmojiModifier
     }
 
     private static func unquoted(_ text: String) -> String {
@@ -163,8 +202,14 @@ public enum AltText {
 }
 
 extension MetadataOptions {
-    /// Whether the batch asks the model for alt text (the step is on and the option ticked).
+    /// Whether the batch asks for alt text (the step is on and the option ticked).
     public var generatesAltText: Bool { isActive && generateAltText }
+
+    /// Why the batch asks for alt text but won't ask the model (nothing could store it); nil otherwise. Shared by the
+    /// batch (`AltTextSlot`) and the preview.
+    public var altTextSkipReason: String? {
+        generatesAltText && removeXMP && !altTextAsDescription ? AltText.removeXMPReason : nil
+    }
 
     /// These options with `text` as the generated alt text (and as the description when asked); nil changes nothing.
     func withGeneratedAltText(_ text: String?) -> MetadataOptions {

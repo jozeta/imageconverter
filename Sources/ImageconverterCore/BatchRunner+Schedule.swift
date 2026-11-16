@@ -40,13 +40,8 @@ extension BatchRunner {
         if !plan.skipped.isEmpty {
             progress(BatchProgress(completed: plan.skipped.count, failed: 0, total: items.count))
         }
-        // Workers wait for the model synchronously; at most half the cores do, so the model call always finds a free
-        // thread in the cooperative pool even if it needs one (the model answers one image at a time anyway).
-        let generates = hooks.altText.availability.isAvailable
-            && plan.jobs.contains { $0.pipeline.metadata.generatesAltText }
-        let workers = generates ? min(concurrency, AltText.batchWorkers) : concurrency
         let settings = BatchScheduler.Settings(
-            total: items.count, maxPixels: maxPixels, concurrency: workers, budget: memoryBudgetPixels,
+            total: items.count, maxPixels: maxPixels, concurrency: concurrency, budget: memoryBudgetPixels,
             trash: trash, control: control, hooks: hooks, progress: progress, events: events)
         let scheduler = BatchScheduler(plan: plan, settings: settings, writer: writer)
         await scheduler.execute()
@@ -230,9 +225,20 @@ final class BatchScheduler {
         let hook = settings.hooks.beforeEncode
         let focus = FocusContext(enlarger: settings.hooks.enlarger)
         let altText = settings.hooks.altText
+        // Workers wait for the model synchronously, holding a cooperative thread. Across every batch in the process at
+        // most half the cores may, so a model call that needs a pool thread always finds one (`AltTextWorkerLimiter`).
+        let limiter: AltTextWorkerLimiter? = job.disposition == .process && job.pipeline.metadata.generatesAltText
+            && altText.availability.isAvailable ? AltTextWorkerLimiter.shared : nil
         let attempt = attempts[index]
         let variants = index < plan.variants.count ? plan.variants[index] : []
         group.addTask {
+            if let limiter {
+                // Suspended while waiting (no thread held); a cancel while waiting leaves the item unstarted.
+                guard await limiter.acquire() else {
+                    return WorkerResult(index: index, result: .success(nil), inputBytes: nil, duration: 0)
+                }
+            }
+            defer { limiter?.release() }
             let started = Date()
             let options = ItemRunOptions(lowMemory: lowMemory, attempt: attempt, beforeEncode: hook,
                                          stage: { events(ItemEvent(index: inputIndex, source: source, stage: $0)) },
