@@ -154,6 +154,23 @@ final class AltTextGateTests: XCTestCase {
         XCTAssertTrue(gate.isStopped)
     }
 
+    /// A call abandoned before its timeout (the preview's selection changed, a batch was cancelled) on a model that
+    /// hangs still counts for the stuck limit: the next item gets "not responding" instead of waiting for the hang.
+    func testACancelledHungCallStillStopsTheModel() async throws {
+        let gate = AltTextModelGate(tripAfterTimeouts: 3, stuckAfter: 0.5)
+        let model = Model(seconds: 3, block: true)
+        let picture = image()
+        let preview = Task { await AltText.generate(for: picture, with: model, timeout: 0.3, gate: gate) }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        preview.cancel()
+        _ = await preview.value
+        let started = Date()
+        let next = try AltText.generateBlocking(for: picture, with: model, timeout: 0.3, gate: gate)
+        XCTAssertEqual(next, .failed(AltText.notResponding))
+        XCTAssertLessThan(Date().timeIntervalSince(started), 1.5, "didn't wait for the hung call to end")
+        XCTAssertTrue(gate.isStopped)
+    }
+
     /// The preview goes through the same gate: never beside a batch call, and ahead of the batch's waiting items.
     func testThePreviewSharesTheGateAndGoesAheadOfWaitingItems() async {
         let gate = AltTextModelGate()

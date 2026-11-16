@@ -131,6 +131,8 @@ final class AltTextModelGate: @unchecked Sendable {
                     waiter.deliver(.cancelled)
                 } else {
                     enqueue(waiter)
+                    // A cancel between the check above and `enqueue` found nothing to withdraw: withdraw now.
+                    if Task.isCancelled, withdraw(waiter) { waiter.deliver(.cancelled) }
                 }
             }
         } onCancel: {
@@ -173,7 +175,9 @@ final class AltTextModelGate: @unchecked Sendable {
                 return
             }
         case .failed("cancelled"):
-            break
+            // Abandoned, not answered: like a timeout for the stuck check (a hung model must still stop the gate),
+            // but not counted toward the timeout streak.
+            if current?.id == id { current?.timedOut = true }
         case .failed:
             timeoutStreak = 0
         }
