@@ -98,4 +98,30 @@ final class RedactCorpusTests: XCTestCase {
         XCTAssertEqual(TextTiles.bounds(of: [CGPoint(x: 0.5, y: 0.25), CGPoint(x: 0.25, y: 0.75)]),
                        CGRect(x: 0.25, y: 0.25, width: 0.25, height: 0.5))
     }
+
+    /// Tile reading is gated process-wide: 8 batch workers reading tiles at once took 41 s for 8 large images, at
+    /// most 2 at a time about 18 s.
+    func testAtMostTwoImagesReadTilesAtOnce() {
+        final class Counter: @unchecked Sendable {
+            let lock = NSLock()
+            var inside = 0
+            var most = 0
+            func change(_ delta: Int) {
+                lock.lock()
+                inside += delta
+                most = max(most, inside)
+                lock.unlock()
+            }
+        }
+        let counter = Counter()
+        DispatchQueue.concurrentPerform(iterations: 8) { _ in
+            TextTiles.gated {
+                counter.change(1)
+                Thread.sleep(forTimeInterval: 0.05)
+                counter.change(-1)
+            }
+        }
+        XCTAssertEqual(TextTiles.concurrentImages, 2)
+        XCTAssertEqual(counter.most, 2)
+    }
 }

@@ -58,6 +58,18 @@ public struct VisionInputError: LocalizedError {
 public enum TextTiles {
     public static let side = 896
     public static let overlap = 192
+    /// How many images read their tiles at once, process-wide. Measured with the command line on 8 large images
+    /// (6000 and 8000 px): every batch worker reading tiles at once took 41 s, at most 1, 2 or 3 images at a time
+    /// 17–22 s (Vision's accurate recognition contends with itself).
+    public static let concurrentImages = 2
+    private static let gate = DispatchSemaphore(value: concurrentImages)
+
+    /// Runs `body` once fewer than `concurrentImages` images are reading tiles.
+    static func gated<T>(_ body: () throws -> T) rethrows -> T {
+        gate.wait()
+        defer { gate.signal() }
+        return try body()
+    }
 
     /// Top-left-origin pixel rects; empty when the image fits one Vision copy (`Redaction.textMaxLongSide`).
     public static func tiles(width: Int, height: Int, side: Int = side, overlap: Int = overlap) -> [CGRect] {
@@ -146,18 +158,28 @@ public struct SystemVisionDetector: VisionDetector {
         let rectangles = VNDetectTextRectanglesRequest()
         try VNImageRequestHandler(cgImage: input, options: [:]).perform([request, rectangles])
         var recognized = Self.textBoxes(request.results ?? [])
-        for tile in TextTiles.tiles(width: image.width, height: image.height) {
+        let tiles = TextTiles.tiles(width: image.width, height: image.height)
+        if !tiles.isEmpty {
+            recognized += try TextTiles.gated { try Self.tileBoxes(tiles, in: image) }
+        }
+        return TextBoxes.combined(recognized: recognized,
+                                  rectangles: (rectangles.results ?? []).map { Self.topLeft($0.boundingBox) })
+    }
+
+    /// Recognised lines in each of `tiles` of `image`, as boxes normalised to the whole image.
+    private static func tileBoxes(_ tiles: [CGRect], in image: CGImage) throws -> [CGRect] {
+        var boxes: [CGRect] = []
+        for tile in tiles {
             try autoreleasepool {
                 guard let crop = image.cropping(to: tile) else { throw VisionInputError() }
-                let tileRequest = Self.redactTextRequest()
-                try VNImageRequestHandler(cgImage: crop, options: [:]).perform([tileRequest])
-                recognized += Self.textBoxes(tileRequest.results ?? []).map {
+                let request = redactTextRequest()
+                try VNImageRequestHandler(cgImage: crop, options: [:]).perform([request])
+                boxes += textBoxes(request.results ?? []).map {
                     TextTiles.imageBox($0, tile: tile, width: image.width, height: image.height)
                 }
             }
         }
-        return TextBoxes.combined(recognized: recognized,
-                                  rectangles: (rectangles.results ?? []).map { Self.topLeft($0.boundingBox) })
+        return boxes
     }
 
     /// Accurate recognition without language correction (which only changes the words read, never where).
