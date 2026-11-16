@@ -115,36 +115,12 @@ enum ConvertCommand {
         return (applyOverrides(options, to: pipeline), presetName)
     }
 
-    /// The flags win over the preset or file: format, quality, size cap, longest edge and metadata removal.
+    /// The flags win over the preset or file: format, quality, size cap, longest edge and metadata removal
+    /// (`PipelineOverrides`, shared with the Shortcuts actions).
     static func applyOverrides(_ options: ConvertOptions, to base: Pipeline) -> Pipeline {
-        var pipeline = base
-        if let format = options.format { pipeline.output.format = format }
-        if let quality = options.quality { pipeline.output.quality = quality }
-        if let bytes = options.maxSizeBytes { pipeline.output.compression = .maxSize(bytes: bytes) }
-        if let edge = options.resizeLongEdge { setLongestEdge(edge, in: &pipeline) }
-        if !options.variants.isEmpty { pipeline.extraOutputs = options.variants }
-        if options.stripGPS || options.stripAll {
-            pipeline.metadata.isEnabled = true
-            pipeline.metadata.isIncluded = true
-            if options.stripGPS { pipeline.metadata.location = .remove }
-            if options.stripAll {
-                // Really everything: the preset's "keep when removing all" list doesn't apply.
-                pipeline.metadata.removeAll = true
-                pipeline.metadata.keepWhenRemovingAll = []
-            }
-        }
-        return pipeline
-    }
-
-    private static func setLongestEdge(_ edge: Int, in pipeline: inout Pipeline) {
-        if let index = pipeline.steps.firstIndex(where: { $0.operation.kind == .resize }),
-           case .resize(var resize) = pipeline.steps[index].operation {
-            resize.mode = .longestEdge(edge)
-            pipeline.steps[index].operation = .resize(resize)
-            pipeline.steps[index].isEnabled = true
-        } else {
-            pipeline.steps.insert(PipelineStep(operation: .resize(ResizeOptions(mode: .longestEdge(edge)))), at: 0)
-        }
+        PipelineOverrides(format: options.format, quality: options.quality, maxSizeBytes: options.maxSizeBytes,
+                          longEdge: options.resizeLongEdge, variants: options.variants, stripGPS: options.stripGPS,
+                          stripAll: options.stripAll).applied(to: base)
     }
 
     // MARK: dry run

@@ -327,3 +327,59 @@ fake models, and never run the real ML enlarge or alt text model.
   Expected: the preset branch's images are redacted; the copy branch's are copied unchanged. With a Redact step in the
   main pipeline too, the copies are converted with it instead ("Converted to redact: …"), and a preset's other image
   steps on a copy branch are named ("Not applied to the converted copy: …").
+
+## 14. Automation: Shortcuts, AppleScript, command line
+
+Build with `scripts/release.sh`, install the app where you keep it and **open it once**: Shortcuts (linkd) indexes
+an app's actions only after it has been launched from that location, and never from `/tmp`. An ad hoc build is
+indexed too (verified 2026-11-16 with a test bundle in `dist/`). If an older copy with the same bundle identifier
+is registered elsewhere (e.g. `dist/` and `/Applications`), Shortcuts may bind to either: keep one.
+
+**Shortcuts** (Shortcuts app ▸ new shortcut ▸ search "imageconverter"; the 7 actions also appear under Apps ▸
+imageconverter). Agents can't import or run a shortcut without clicking, so these are by hand.
+- [ ] **Listed.** All seven actions show: Convert Images, Apply Preset to Folder, Run Job, Strip Metadata, Resize
+  Images, Convert Format, Get Image Metadata; Spotlight finds "Convert images with imageconverter".
+- [ ] **Convert Images.** Shortcut: *Select File* (allow multiple, two JPEGs) → *Convert Images* (Preset: pick from
+  the suggestions, which list the built-in and your saved presets; Format: PNG) → *Quick Look*. Expected: two PNGs
+  shown, the app's window does not come forward, the originals are unchanged. Again with Output Folder set to a
+  folder allowed in Help ▸ Folder Access: the files land there (`_2` on a second run, never replaced).
+- [ ] **Not allowed folder.** Output Folder set to a folder that is *not* in Folder Access. Expected: the shortcut
+  stops with "imageconverter isn't allowed to use the folder … Open imageconverter, choose Help ▸ Folder Access… ▸
+  Add Folder…, allow the folder, then run the shortcut again." Allow it there, run again: it works.
+- [ ] **Missing preset.** Rename the preset the shortcut uses, run it. Expected: "There is no preset named "…"."
+- [ ] **Empty input.** Run Convert Images with no images (e.g. *Select File* cancelled, or a text file). Expected:
+  "No files were given to the action." or "None of the given files is an image imageconverter can read."
+- [ ] **Apply Preset to Folder.** An allowed folder with subfolders → *Apply Preset to Folder* → *Count* items.
+  Expected: the count of images; without Output Folder the files are only returned (save them with *Save File*).
+  A folder not allowed: the Folder Access message.
+- [ ] **Strip Metadata.** A photo with GPS → *Strip Metadata* → *Get Image Metadata* → *Show Result*. Expected: no
+  "Location (GPS)" group; the format is kept (a HEIC stays HEIC).
+- [ ] **Resize Images.** Long Edge 800 on a 4000×3000 JPEG and a PNG. Expected: 800×600 JPEG and a PNG, each in
+  its own format. Long Edge 0 is refused by Shortcuts' field (1–100 000).
+- [ ] **Convert Format.** HEIC, Quality 50. Expected: `.heic` files; quality left empty uses 82. AVIF on a Mac that
+  can't write it: "This Mac can't write AVIF files."
+- [ ] **Get Image Metadata.** Expected: text starting with the file name, then groups ("File", "Camera (EXIF)",
+  …) with "  Label: value" lines.
+- [ ] **Run Job.** *Run Job* (Job: pick from the suggestions) → *Show Result*. Expected: waits for the run and
+  returns "Job Name: n converted…"; the job's history entry appears. A job whose folder is gone: "The job … didn't
+  run." with the reason. While the job is already running, the action waits for the follow-up run.
+- [ ] **App not running.** Quit the app, run a shortcut with Convert Images. Expected: the app launches (its window
+  may appear: macOS starts the app to run the action) and the shortcut gets the files.
+- [ ] **Siri / Spotlight phrases.** "Strip metadata with imageconverter" in Spotlight runs the action after asking
+  for images.
+
+**AppleScript** (section 8 too). The first `osascript` from a terminal makes macOS ask "“iTerm” wants access to
+control “imageconverter”". Agents ran into a timeout (-1712) because the screen was locked and the question
+couldn't be answered; allow it once (or in System Settings ▸ Privacy & Security ▸ Automation ▸ iTerm ▸
+imageconverter), then:
+- [ ] `osascript -e 'tell application "imageconverter" to presets'`. Expected: the preset names.
+- [ ] `osascript -e 'tell application "imageconverter" to convert {POSIX file "/allowed/a.jpg"} using preset "Web export" to folder POSIX file "/allowed/out"'`.
+  Expected: the written file(s) as a list.
+- [ ] `osascript -e 'tell application "imageconverter" to add files {"/allowed/a.jpg"}'` then
+  `… to run batch`. Expected: added, then converted per Save to.
+
+**Command line** (verified by agents from `dist/imageconverter.app/Contents/Helpers/imageconverter` with
+`--data-dir`; repeat once against the real data):
+- [ ] `imageconverter presets list` lists the same presets as the app (macOS may ask whether Terminal may access
+  the app's data: allow).
+- [ ] `imageconverter jobs run "<job>"` runs a saved job and prints the counts.

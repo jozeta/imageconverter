@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Builds dist/imageconverter.app (universal, sandboxed, hardened runtime) with the command-line tool inside at
 # Contents/Helpers/imageconverter and the update installer service (not sandboxed) at
-# Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc, signs it and zips it.
+# Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc and the App Intents metadata Shortcuts reads
+# (Contents/Resources/Metadata.appintents, made by Xcode's appintentsmetadataprocessor from the SwiftPM build's
+# compiler output; needs Xcode, not only the Command Line Tools), signs it and zips it.
 #
 # Usage: scripts/release.sh [--notarize]
 #
@@ -114,6 +116,42 @@ if [ "$identity" != "-" ]; then
         && die "the installer service was built with UPDATE_E2E (it accepts the test app); rebuild without it."
 fi
 
+# --- App Intents metadata (Shortcuts) ---------------------------------------------------------------------------
+# Shortcuts only lists an app's actions when the bundle has Contents/Resources/Metadata.appintents. Xcode makes it
+# in a build phase that SwiftPM doesn't run, so it is made here with Xcode's own tool from what the universal
+# (Xcode build system) `swift build` left: the app module's source list and the compiler's constant values
+# (.swiftconstvalues, one per architecture). The intents are in Sources/Imageconverter/Intents/.
+intents=(ConvertImagesIntent ApplyPresetToFolderIntent RunJobIntent StripMetadataIntent ResizeImagesIntent
+         ConvertFormatIntent GetImageMetadataIntent)
+processor=$(xcrun --find appintentsmetadataprocessor 2>/dev/null) \
+    || die "appintentsmetadataprocessor not found: the Shortcuts actions need Xcode (xcode-select -s /Applications/Xcode.app)."
+intermediates="$(dirname "$(dirname "$bin")")/Intermediates.noindex"
+module_build=$(find "$intermediates" -type d -path "*/Release/$EXECUTABLE-p.build" 2>/dev/null | head -n 1)
+[ -n "$module_build" ] || die "no build intermediates for $EXECUTABLE in $intermediates (the universal build makes them)."
+metadata_args=()
+for arch in arm64 x86_64; do
+    objects="$module_build/Objects-normal/$arch"
+    [ -f "$objects/$EXECUTABLE.SwiftFileList" ] || die "no $arch source list in $objects."
+    find "$objects" -maxdepth 1 -name '*.swiftconstvalues' > "$work/constvalues-$arch.txt"
+    [ -s "$work/constvalues-$arch.txt" ] || die "no $arch .swiftconstvalues in $objects."
+    metadata_args+=(--target-triple "$arch-apple-macos14.0" --source-file-list "$objects/$EXECUTABLE.SwiftFileList"
+                    --swift-const-vals-list "$work/constvalues-$arch.txt")
+done
+: > "$work/no-dependency-metadata.txt"
+toolchain=$(dirname "$(dirname "$(dirname "$(xcrun --find swift)")")")
+xcode_build=$(xcodebuild -version 2>/dev/null | sed -n 's/^Build version //p')
+mkdir -p "$work/appintents"
+"$processor" --toolchain-dir "$toolchain" --module-name "$EXECUTABLE" --sdk-root "$(xcrun --sdk macosx --show-sdk-path)" \
+    --xcode-version "${xcode_build:-unknown}" --platform-family macOS --deployment-target 14.0 \
+    --bundle-identifier "$BUNDLE_ID" --output "$work/appintents" --binary-file "$bin/$EXECUTABLE" \
+    "${metadata_args[@]}" --metadata-file-list "$work/no-dependency-metadata.txt" \
+    --static-metadata-file-list "$work/no-dependency-metadata.txt" --force --compile-time-extraction \
+    --deployment-aware-processing --no-app-shortcuts-localization > "$work/appintents.log" 2>&1 \
+    || { cat "$work/appintents.log" >&2; die "the App Intents metadata processor failed."; }
+grep -i "warning" "$work/appintents.log" >&2 || true
+actions_data="$work/appintents/Metadata.appintents/extract.actionsdata"
+[ -f "$actions_data" ] || { cat "$work/appintents.log" >&2; die "no Metadata.appintents was made (no intents found)."; }
+
 # --- Assemble -------------------------------------------------------------------------------------------------
 app="$work/$APP_NAME.app"
 contents="$app/Contents"
@@ -124,6 +162,21 @@ ditto "$bin/$EXECUTABLE" "$contents/MacOS/$EXECUTABLE"
 ditto "$bin/imageconverter-cli" "$contents/Helpers/imageconverter"
 scripts/make-iconset.sh Resources/AppIcon.png "$contents/Resources/AppIcon.icns" >/dev/null
 cp Resources/imageconverter.sdef "$contents/Resources/imageconverter.sdef"
+ditto "$work/appintents/Metadata.appintents" "$contents/Resources/Metadata.appintents"
+# Every Shortcuts action must be listed, run without opening the app, and have its App Shortcut phrases.
+bundled_actions="$contents/Resources/Metadata.appintents/extract.actionsdata"
+for intent in "${intents[@]}"; do
+    [ "$(plutil -extract "actions.$intent.identifier" raw "$bundled_actions" 2>/dev/null)" = "$intent" ] \
+        || die "Metadata.appintents doesn't list the $intent action."
+    [ "$(plutil -extract "actions.$intent.openAppWhenRun" raw "$bundled_actions" 2>/dev/null)" = false ] \
+        || die "the $intent action would open the app (openAppWhenRun must be false)."
+done
+# `raw` prints a dictionary's keys one per line (and an array's count).
+action_count=$(plutil -extract actions raw "$bundled_actions" 2>/dev/null | grep -c . || true)
+[ "$action_count" = "${#intents[@]}" ] \
+    || die "Metadata.appintents lists $action_count actions, expected ${#intents[@]} (update the list in release.sh)."
+[ "$(plutil -extract autoShortcuts raw "$bundled_actions" 2>/dev/null || echo 0)" = "${#intents[@]}" ] \
+    || die "Metadata.appintents doesn't have one App Shortcut per action."
 printf 'APPL????' > "$contents/PkgInfo"
 
 # The update installer XPC service: unpacks, checks and installs updates outside the sandbox (files the sandboxed
@@ -196,7 +249,9 @@ xpc_info=$(codesign -d --verbose=2 "$xpc" 2>&1)
 grep -qx "Identifier=$INSTALLER_ID" <<< "$xpc_info" || die "the installer service's identifier is not $INSTALLER_ID."
 xpc_entitlements=$(codesign -d --entitlements - --xml "$xpc" 2>/dev/null || true)
 grep -q "app-sandbox" <<< "$xpc_entitlements" && die "the installer service must not be sandboxed."
+[ -f "$contents/Resources/Metadata.appintents/extract.actionsdata" ] || die "the signed app has no Metadata.appintents."
 echo "==> signed and verified: sandbox on, network client only (no server); installer service unsandboxed"
+echo "==> Shortcuts actions: ${intents[*]}"
 
 # --- Zip (and notarize) ---------------------------------------------------------------------------------------
 if [ "$notarize" = true ]; then

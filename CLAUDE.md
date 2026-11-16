@@ -120,7 +120,13 @@ swiftlint           # if installed (brew install swiftlint)
     handler for files opened with the app (not `application(_:open:)`, which lets SwiftUI open a window per file);
     the bridge to the model, which waits at launch for the main window; confirmation sheets, background converts), `ServicesProvider.swift` (Finder services), `Scripting.swift`
     (`NSScriptCommand` subclasses named in the sdef), `URLActions.swift` (confirmed link actions);
-    `AppModel+RenameExample.swift` (the Rename editor's live example, using the selected image's resolved branch);
+    `AppModel+RenameExample.swift` (the Rename editor's live example, using the selected image's resolved branch)
+  - Shortcuts (App Intents, `Intents/`): `ConvertIntents.swift` (Convert Images, Apply Preset to Folder, Strip
+    Metadata, Resize Images, Convert Format), `InfoIntents.swift` (Run Job, Get Image Metadata), `IntentEntities.swift`
+    (`PresetEntity`/`JobEntity` by name with suggestion queries, `ImageFormatOption`), `AppShortcuts.swift` (phrases),
+    `IntentSupport.swift` (`IntentFailure` plain-message errors, `IntentContext.convert`, `IntentInputs`: Shortcuts'
+    file URLs with their security scope, else a copy of the data). All `openAppWhenRun = false`; thin over Core
+    `Automation`. `JobsController+Waiting.swift`: `runNowAndWait` (Run Job waits for the run's `JobRunResult`).;
     `AppModel+AltText.swift` and `PreviewAltTextRow.swift` (the preview's Alt text row: `PreviewAltText`, generated from `PreviewResult.altTextRequest`
     through `PreviewRenderer.altText(for:)`, cached per file version + enabled steps); `MetadataEditor` holds
     `AltTextControls` (hidden below macOS 27 unless used; disabled with the system's reason when not available)
@@ -157,7 +163,11 @@ free space, SIGKILL fallback; `unpackedTreeProblem`: the unpacked tree must matc
     across processes),
     `FolderAccess`/`JobFolders` (security-scoped bookmarks, stale refresh, moved folders, plain-URL fallback),
     `JobRunner` (candidates → ledger and 2 s stability check → `BatchRunner` → ledger update → report file), `ProcessingReport` (run summary + entries),
-    `ReportExporter` (CSV with formula-injection guard, JSON with sorted keys, text, escaped self-contained HTML in `ReportExporter+HTML`; the structured `ReportEntry.warning` flag is a JSON key, a CSV column and "(warning)" in text), `ErrorLog` (rotating failure log), `RunHistory` (stored runs, 100 kept), `ZoomMath` (`ZoomState`, zoom around an anchor, pan, clamping), `WindowLayout` (main window size rules and frame maths), `NameReplacement` (find/replace in names, plain or regex), `SizeEstimator` (encodes a full-size render for the size estimate), `QualityLadder` (one image at several qualities), `ImageDifference` + `RegionCrop` (difference view maths, small region copies), `BrowserNavigation` (grid keyboard movement), `FileIdentity` (same-file keys by volume and inode), `ImageLoader+DataSize` (header-only size of encoded data), `MetadataEditorState` (Location "Set" fields), `NameTransforms` + `RenameRendering` (rename character/case rules; one renderer for batch and preview), `SizeInput` (KB/MB size field), `StoredFile` (hardened file reading for presets, templates, jobs, the journal),
+    `Automation` (the Shortcuts actions' logic: `AutomationRequest` convert/strip/resize/convertFormat, `run` through
+  `BatchRunner` into a new-folder output (one run per source format when each image keeps its own), scratch folders
+  under `scratchBase` (removed after a day), `checkedFolder` (Folder Access message), `metadataText`, `message(for:)`),
+  `PipelineOverrides` (the CLI's and the actions' format/quality/max-size/long-edge/variants/strip overrides),
+  `ReportExporter` (CSV with formula-injection guard, JSON with sorted keys, text, escaped self-contained HTML in `ReportExporter+HTML`; the structured `ReportEntry.warning` flag is a JSON key, a CSV column and "(warning)" in text), `ErrorLog` (rotating failure log), `RunHistory` (stored runs, 100 kept), `ZoomMath` (`ZoomState`, zoom around an anchor, pan, clamping), `WindowLayout` (main window size rules and frame maths), `NameReplacement` (find/replace in names, plain or regex), `SizeEstimator` (encodes a full-size render for the size estimate), `QualityLadder` (one image at several qualities), `ImageDifference` + `RegionCrop` (difference view maths, small region copies), `BrowserNavigation` (grid keyboard movement), `FileIdentity` (same-file keys by volume and inode), `ImageLoader+DataSize` (header-only size of encoded data), `MetadataEditorState` (Location "Set" fields), `NameTransforms` + `RenameRendering` (rename character/case rules; one renderer for batch and preview), `SizeInput` (KB/MB size field), `StoredFile` (hardened file reading for presets, templates, jobs, the journal),
     `AltText` (Metadata step's generated alt text: `AltTextAvailability` with plain-English reasons, `AltTextGenerator`
     protocol (tests use a fake; never run the real model in tests), fixed prompt, ≤ 1024 px sRGB model image, the
     sanitiser for model text), `AltText+Run` (30 s timeout on its own timer queue, counted from the item's turn, `generateBlocking` for the sync
@@ -201,7 +211,14 @@ free space, SIGKILL fallback; `unpackedTreeProblem`: the unpacked tree must matc
   `Contents/XPCServices` (signed without entitlements, checked: exists, verifies, `XPC!`, not sandboxed).
   `SWIFT_FLAGS` adds `swift build` arguments (`"-Xswiftc -DUPDATE_E2E"` only for the update end-to-end test build;
   refused with a real identity or `--notarize`, and a non-ad-hoc build whose service names `.updatetest` is refused).
-  The signed app must have exactly its four entitlements. `BUNDLE_ID` there must equal
+  The signed app must have exactly its four entitlements. **Shortcuts:** after the universal build it runs Xcode's
+  `appintentsmetadataprocessor` on `.build/out/Intermediates.noindex/…/Imageconverter-p.build/Objects-normal/<arch>/`
+  (`Imageconverter.SwiftFileList` + `*.swiftconstvalues`, which the universal, Xcode-build-system `swift build`
+  emits) and copies `Metadata.appintents` into `Contents/Resources/`; it checks every intent in its `intents=(…)`
+  list is there with `openAppWhenRun` false, the action count equals the list and there is one App Shortcut each
+  (add a new intent to that list). Needs Xcode. Chosen (Task 8, round 3) over `xcodebuild` on the package scheme
+  (runs the metadata step only for library targets, not the executable) and a hand-written .xcodeproj. linkd
+  indexes an app's actions only after it was launched from its location (never from /tmp). `BUNDLE_ID` there must equal
   `CLIDataDirectory.bundleIdentifier` (the script checks). `scripts/install-cli.sh` links the CLI into `~/.local/bin`.
   `dist/` is gitignored. Credentials stay in the keychain.
 

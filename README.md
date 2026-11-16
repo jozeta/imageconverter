@@ -15,7 +15,7 @@ Started 2026-11-13. The full design is in
 ## Privacy
 
 - **No network access except the optional update check and download from github.com.** No telemetry, no uploads. Nothing goes online until you allow it: the first launch asks once whether to check for updates when the app starts, and **Check Now** in About imageconverter checks on demand. A check asks GitHub's release API for the latest release; like any web request it shows GitHub your IP address and standard HTTP headers (such as your preferred languages), and the app adds only `User-Agent: imageconverter/<version>`. The app's only network entitlement is outgoing connections (`network.client`, no server), the networking code is one file (`Sources/Imageconverter/Update/UpdateClient.swift`), and a test fails the build if networking APIs or web addresses appear anywhere else. See [Updates](#updates).
-- **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit, VideoToolbox, Core Video, Core Media, Foundation Models); no third-party code.
+- **Built only on Apple frameworks** (SwiftUI, AppKit, Foundation, Observation, Charts, ImageIO, Core Graphics, Core Image, Core Text, Core Services, Metal, Accelerate, Vision, UniformTypeIdentifiers, UserNotifications, Security, CryptoKit, VideoToolbox, Core Video, Core Media, Foundation Models, App Intents); no third-party code.
 - **Alt text stays on this Mac.** [Generated alt text](#write-alt-text-on-this-mac) comes from Apple's on-device model (Apple Intelligence, macOS 27 and later): the image and the text never leave the Mac, and no server model is used. The app never asks macOS to download the model; when it isn't ready, no alt text is written.
 - **Apple's enlargement model.** The only other network activity: if you choose to download Apple's enlargement model (for [Enlarge with machine learning](#enlarge-with-machine-learning), macOS 26 and later), macOS downloads it from Apple. imageconverter itself sends nothing; the download starts only from **Download…** in the Resize step, after you agree, and batches, jobs, the command line, services, scripts and links never start it.
 - **Your files are untrusted input.** Images, SVG watermarks, preset and template files, `imageconverter://` links and AppleScript requests are all validated before use. Limits in force: images up to 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory) of decoded memory and 2 GB per file (first frame only); SVG files up to 1 MB, 20,000 elements, 64 levels deep; preset and template files up to 1 MB; links up to 16,384 characters. Help ▸ Privacy… shows these as built. See [SECURITY.md](SECURITY.md).
@@ -273,7 +273,8 @@ The script reads the version from `VERSION` (must be `x.y.z`, three numbers with
 universal (arm64 + x86_64) release (falling back to this Mac's architecture, with a warning, only when the
 toolchain can't build a second architecture, i.e. Command Line Tools without Xcode; any other build error
 stops the script), and assembles the bundle in a temporary folder:
-the app, `AppIcon.icns` (from `Resources/AppIcon.png`), the AppleScript dictionary, and an `Info.plist` made
+the app, `AppIcon.icns` (from `Resources/AppIcon.png`), the AppleScript dictionary, the Shortcuts actions'
+metadata (`Contents/Resources/Metadata.appintents`, see below), and an `Info.plist` made
 from `scripts/Info.plist.template` plus `Resources/Info-fragments.plist` (Services, AppleScript, `imageconverter://`
 links), with `CFBundleShortVersionString` = `VERSION`, `CFBundleVersion` = the number of commits and the
 copyright year from the last commit (holder from `LICENSE`). Only a signed and verified bundle is moved into
@@ -291,6 +292,13 @@ App Sandbox, user-selected read/write files and app-scoped bookmarks, and outgoi
 that the sandbox and network client entitlements are there and that no network server entitlement is. The command-line helper is signed **without** the sandbox: you run it from Terminal with your
 own permissions on whatever paths you name. A real identity without `--notarize` gives
 `…-not-notarized.zip`. Every zip gets a `.sha256` file next to it. Credentials stay in the keychain.
+
+**Shortcuts metadata.** Shortcuts lists an app's actions only when its bundle carries
+`Contents/Resources/Metadata.appintents`. Xcode makes that file in a build step that `swift build` doesn't run, so
+the release script runs Xcode's own `appintentsmetadataprocessor` on what the universal `swift build` leaves behind
+(the app module's source list and the compiler's `.swiftconstvalues` for arm64 and x86_64), copies the result into
+the bundle and checks that it lists all seven actions, that none opens the app, and that each has its App Shortcut.
+This needs Xcode (not only the Command Line Tools). `swift build`, `swift run` and `swift test` are unchanged.
 
 ## Configuration
 
@@ -1347,6 +1355,78 @@ are averaged over the last few seconds and weighted by image size, and appear on
 - The batch runs at a lower priority than the window, so the app stays responsive; the number of workers also
   drops by itself when the Mac gets hot or short of memory.
 
+## Automate with Shortcuts, AppleScript and the command line
+
+Four ways to run imageconverter without clicking through the window. All of them use the same engine as the
+app, never change originals unless you ask for overwrite mode (and only the window, scripts, services and the
+command line can), and never replace an existing file (`_2`, `_3`, … instead).
+
+| Way | Best for | Needs |
+| --- | --- | --- |
+| **Shortcuts actions** | Shortcuts, Spotlight, Siri, the menu bar, automations | The packaged app, opened once |
+| **AppleScript** | Script Editor, Automator, other apps' scripts | The packaged app; Automation permission for the app that runs the script |
+| **Command line** | Terminal, shell scripts, cron | The tool from `Contents/Helpers/imageconverter` (`scripts/install-cli.sh`) |
+| **Finder Quick Actions and links** | Right-click in Finder, `imageconverter://` links | The packaged app |
+
+### Shortcuts actions
+
+Open the Shortcuts app and search for **imageconverter** (or look under Apps ▸ imageconverter). The actions run
+inside the app without bringing its window forward (if the app isn't running, macOS starts it first, and its
+window opens as at any launch), and return the files they wrote, so the next action can use them (**Save File**, **Quick Look**,
+**Share**, **Get Image Metadata**, …).
+
+| Action | Parameters | Returns |
+| --- | --- | --- |
+| **Convert Images** | Images; **Preset** (the built-in and your saved presets are suggested); Format (optional: overrides the preset's); Output Folder (optional) | The converted files |
+| **Apply Preset to Folder** | Folder (its images and subfolders); Preset; Output Folder (optional) | The converted files |
+| **Run Job** | **Job** (your saved jobs are suggested) | A summary, e.g. "Job Web export: 12 converted, 1 skipped" (waits until the run has finished) |
+| **Strip Metadata** | Images; Output Folder (optional) | Copies without any metadata, each in its own format (JPEG and HEIC image data copied untouched) |
+| **Resize Images** | Images; Long Edge in pixels (default 2048, 1–100 000); Output Folder (optional) | Copies with that longest edge, each in its own format |
+| **Convert Format** | Images; Format (default JPEG); Quality 1–100 (optional, default 82; for JPEG, HEIC, AVIF and JPEG 2000); Output Folder (optional) | Copies in the new format |
+| **Get Image Metadata** | Image | The metadata as text: the file name, then each group ("File", "Camera (EXIF)", "Location (GPS)", …) with `  Label: value` lines, read from the header only |
+
+- **Where files go.** Without an Output Folder the files are written to a temporary folder inside the app's
+  container and only returned: add **Save File** (or **Move File**) to put them somewhere; folders there older
+  than a day are removed. With an Output Folder they are written there and returned too.
+- **Folders and the sandbox.** Files you pass from Shortcuts can always be read. A folder (Apply Preset to
+  Folder's input, any Output Folder) must be one imageconverter may use: allow it once in **Help ▸ Folder Access…
+  ▸ Add Folder…**. Otherwise the action stops with *"imageconverter isn't allowed to use the folder … Open
+  imageconverter, choose Help ▸ Folder Access… ▸ Add Folder…, allow the folder, then run the shortcut again."*
+- **Errors** show in Shortcuts in plain words: *There is no preset named "…"*, *No files were given to the
+  action.*, *None of the given files is an image imageconverter can read.*, *This Mac can't write AVIF files.*,
+  *No image was converted. a.jpg: Couldn't read this file as an image*. When only some images fail, the action
+  returns the ones that were written.
+- **Presets and jobs by name.** A shortcut remembers the preset's or job's name, like scripts, links and the
+  command line: after renaming one, pick it again in the shortcut.
+- **Phrases.** Spotlight and Siri know "Convert images with imageconverter", "Strip metadata with
+  imageconverter", "Resize images with imageconverter", "Run a job in imageconverter" and more.
+- **Not seeing the actions?** Shortcuts indexes an app after it has been opened once from where it is installed.
+  Keep a single copy (an older copy in Downloads or a build folder may be the one Shortcuts finds), open it, and
+  restart Shortcuts. Builds made with `swift run` have no bundle and no actions.
+
+Example: a Quick Action that makes web copies of the images selected in Finder. New shortcut ▸ Shortcut details:
+**Use as Quick Action**, Receive **Images** from **Quick Actions** ▸ add **Convert Images** (Images: *Shortcut
+Input*, Preset: *Web export*) ▸ **Save File** (Ask Where to Save: off, a folder of your choice).
+
+### AppleScript and the command line
+
+```applescript
+tell application "imageconverter"
+    presets
+    convert {POSIX file "/Users/me/Pictures/a.jpg"} using preset "Web export" to folder POSIX file "/Users/me/Web"
+end tell
+```
+
+```sh
+imageconverter convert ~/Pictures/Trip --preset "Web export" --out ~/Desktop/web
+imageconverter convert a.jpg b.heic --format heic --quality 60 --resize-long 2048 --strip-all --out ~/Desktop/small
+imageconverter convert ~/Pictures/Trip --preset "Web export" --variant "name=thumb,format=png,long=400" --out ~/Web --dry-run
+imageconverter jobs run "Web export"
+```
+
+The full AppleScript dictionary is under [Finder, AppleScript and links](#finder-applescript-and-links), every
+command-line option under [Command line and Shortcuts](#command-line-and-shortcuts).
+
 ## Finder, AppleScript and links
 
 These three entry points are built into the app but **become active only in the packaged app** (milestone 6):
@@ -1483,7 +1563,8 @@ Convert options (options override the preset or pipeline file):
 
 Progress goes to stderr and results to stdout. Missing input paths are reported on stderr and count as failed files; options that the chosen format ignores (`--quality`, `--max-size` with PNG, TIFF, ...) print a warning. Only long options exist; file names starting with `-` go after `--`. Ctrl-C stops cleanly (no temp files left), prints the partial report and exits 130. `--strip-gps` and `--strip-all` also hold for images a preset's condition sends to its own metadata settings or to "Copy original unchanged" (those are converted instead). The tool isn't coordinated with the app: don't run it over a folder an active job watches. Exit codes: 0 all done, 1 some files failed or missing, 2 usage error, 3 nothing to do, 130 interrupted. The tool reads presets and jobs from the sandboxed app's container (`~/Library/Containers/io.github.jozeta.imageconverter/Data/Library/Application Support/imageconverter/`) when it exists, else from `~/Library/Application Support/imageconverter/` (where an unsandboxed `swift run` keeps them); `--data-dir DIR` (anywhere before `--`) reads them from DIR instead. macOS may ask once whether Terminal may access another app's data the first time the tool reads the container.
 
-Example in Shortcuts: add **Run Shell Script** (Shell: zsh, Input: as arguments) with
+Shortcuts has its own imageconverter actions (see [Shortcuts actions](#shortcuts-actions)); a shell script is still
+useful for options they don't have. Example: add **Run Shell Script** (Shell: zsh, Input: as arguments) with
 
 ```sh
 ~/.local/bin/imageconverter convert "$@" --preset "Web export" --out ~/Desktop/web --json
