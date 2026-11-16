@@ -99,6 +99,35 @@ struct PerspectiveEditor: View {
                 .controlSize(.small)
                 .disabled(options.vertical == 0 && options.horizontal == 0)
                 .accessibilityLabel("Reset keystone sliders")
+            Picker("Output size", selection: $options.size) {
+                ForEach(PerspectiveSize.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            }
+            .accessibilityLabel("Output size")
+            .help("Keep original size scales the corrected image back to the source's width and height")
+            Picker("Empty areas", selection: $options.emptyAreas) {
+                ForEach(PerspectiveEmptyAreas.allCases, id: \.self) { Text($0.displayName).tag($0) }
+            }
+            .accessibilityLabel("Empty areas")
+            .help("What fills the corners the correction leaves empty")
+            if options.emptyAreas == .color || options.emptyAreas == .transparent {
+                ColorField(title: options.emptyAreas == .color ? "Fill colour" : "Colour for JPEG and BMP",
+                           color: $options.fillColor)
+            }
+            Text(Self.caption(options))
+                .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// One line on what the size and empty-area choices do together.
+    private static func caption(_ options: PerspectiveOptions) -> String {
+        switch (options.size, options.emptyAreas) {
+        case (.fit, .crop): return "Cropped to the largest rectangle with no empty corners."
+        case (.keepOriginal, .crop): return "Cropped, then scaled to fill the original size (the edges are cut)."
+        case (.fit, .transparent), (.keepOriginal, .transparent):
+            return "Empty corners stay transparent; JPEG and BMP have no transparency and get the colour."
+        case (.fit, _): return "The whole corrected image is kept; its empty corners are filled."
+        case (.keepOriginal, _): return "Scaled to fit the original size; empty corners and bars are filled."
         }
     }
 }

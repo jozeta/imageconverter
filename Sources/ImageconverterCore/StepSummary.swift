@@ -92,7 +92,15 @@ extension ImageOperation {
         let horizontal = PerspectiveOptions.clamped(options.horizontal)
         if vertical != 0 { parts.append("vertical " + signed(vertical)) }
         if horizontal != 0 { parts.append("horizontal " + signed(horizontal)) }
-        return parts.isEmpty ? "no change" : parts.joined(separator: " · ")
+        guard !parts.isEmpty else { return "no change" }
+        if options.size == .keepOriginal { parts.append("keep size") }
+        switch options.emptyAreas {
+        case .crop: break
+        case .color: parts.append("fill " + hex(options.fillColor))
+        case .transparent: parts.append("transparent")
+        case .extend: parts.append("extend edges")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private static func summary(of options: TrimOptions) -> String {
@@ -113,7 +121,7 @@ extension ImageOperation {
         return (plus ? "+" : "") + number(value)
     }
 
-    private static func hex(_ color: RGBAColor) -> String {
+    static func hex(_ color: RGBAColor) -> String {
         let byte: (Double) -> Int = { Int((($0.isFinite ? min(1, max(0, $0)) : 0) * 255).rounded()) }
         return String(format: "#%02X%02X%02X", byte(color.red), byte(color.green), byte(color.blue))
     }

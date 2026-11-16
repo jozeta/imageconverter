@@ -78,7 +78,7 @@ public enum ImageEncoder {
     }
 
     private static func needsOpaque(_ format: OutputFormat) -> Bool {
-        format == .jpeg || format == .bmp
+        !format.supportsAlpha
     }
 
     private static func flattenedOnWhite(_ image: CGImage) -> CGImage? {

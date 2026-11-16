@@ -136,7 +136,12 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     [Hide faces and text](#hide-faces-and-text)
   - (available) **Perspective**: **Auto** finds a document or screen and squares it up (the report says "No
     document edges found" if there is none); **Vertical** and **Horizontal** keystone sliders (−100…100) are
-    applied after it, with the result cropped so no empty corners show
+    applied after it. **Output size**: **Fit the corrected image** (default) or **Keep original size** (exactly
+    the source's width and height: the corrected image is scaled to fit inside, centred, or with *Crop to the
+    image* scaled to fill and cut from the centre). **Empty areas**: **Crop to the image** (default; the largest
+    rectangle with no empty corners), **Fill with colour** (default white), **Transparent** (JPEG and BMP have no
+    transparency: they get the fill colour, and the report says "No transparency in JPEG; filled with #FFFFFF")
+    or **Extend edges** (the image's edge pixels repeated outwards). The same choices apply to Auto
   - (available) **Trim**: removes a border of transparent pixels, one **Colour**, or the **Edge colour**
     (the colour of the top-left pixel); **Tolerance** 0–100 % and **Padding** in pixels keep a margin
   - (available) **Canvas / padding**: padding in pixels or percent, a fixed canvas size, or a **Ratio** (1:1 … 3:4 or

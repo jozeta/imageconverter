@@ -251,7 +251,7 @@ extension Pipeline {
             case .redact(let options):
                 let rects = try redactRects(options, in: current, step: index, context: focus, notes: &notes)
                 current = try ImageOps.redact(current, options, rects: rects)
-            case .perspective(let options): current = try Perspective.apply(options, to: current, notes: &notes)
+            case .perspective(let options): current = try Perspective.apply(options, to: current, for: output.format, notes: &notes)
             case .trim(let options): current = try Trim.apply(options, to: current)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
             case .colorProfile(let options): current = try ImageOps.color(current, options)
@@ -341,10 +341,9 @@ extension Pipeline {
         case .rotateFlip(let options):
             return Geometry.rotated(source: size, options: options)
         case .perspective(let options):
-            // Auto correction depends on the content, and the keystone then runs on the corrected image,
-            // so its size is unknown: keep the input size. The manual keystone alone is planned exactly.
-            if options.auto { return size }
-            return Geometry.perspectiveCrop(source: size, options: options)?.size ?? size
+            // Auto correction depends on the content, so its size is unknown (the input size); the keystone
+            // alone and keep original size are planned exactly.
+            return Geometry.perspectiveOutputSize(source: size, options: options)
         case .canvas(let options):
             return Geometry.canvas(source: size, options: options).canvas
         case .trim, .redact, .colorProfile, .adjust, .watermark, .condition:

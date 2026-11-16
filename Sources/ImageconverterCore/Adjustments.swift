@@ -137,8 +137,9 @@ public enum Adjustments {
 
     /// Renders the `rect` part of `output` into a bitmap like `image`'s, so the bit depth, colour space and
     /// alpha match it. Shared by every Core Image step.
-    static func render(_ output: CIImage, from rect: CGRect, like image: CGImage, step: String) throws -> CGImage {
-        let alpha = ImageOps.hasAlpha(image)
+    static func render(_ output: CIImage, from rect: CGRect, like image: CGImage, step: String,
+                       alpha wantsAlpha: Bool? = nil) throws -> CGImage {
+        let alpha = wantsAlpha ?? ImageOps.hasAlpha(image)
         // Core Image renders RGBA only: non-RGB sources (gray, CMYK, indexed) come out in sRGB.
         let space = image.colorSpace?.model == .rgb ? image.colorSpace : CGColorSpace(name: CGColorSpace.sRGB)
         let width = Int(rect.width)
