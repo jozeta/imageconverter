@@ -383,3 +383,86 @@ imageconverter), then:
 - [ ] `imageconverter presets list` lists the same presets as the app (macOS may ask whether Terminal may access
   the app's data: allow).
 - [ ] `imageconverter jobs run "<job>"` runs a saved job and prints the counts.
+- [ ] `imageconverter jobs run "<job>"` with an extra output: an `Extra output “…” → <folder>` line comes first.
+
+## 15. Feedback round 3
+
+Use a copy of some photos; never your only originals. Agents can't click, so every item here was built and
+tested in code only.
+
+**Output panel and its handle**
+- [ ] **Click.** Click the grab handle above Output. Expected: Output collapses to one summary line (format ·
+  quality · where files go); the pipeline steps above get the space. Click the handle again, or **the summary line
+  itself**: Output opens again.
+- [ ] **Drag.** Drag the handle up and down. Expected: Output's height follows between the summary line and its
+  full content (the content scrolls inside a shorter panel); the window keeps its height; dragging to within
+  20 pt of the summary line collapses it. Quit and relaunch: the height and the collapsed state are remembered.
+- [ ] **Keys and VoiceOver.** Tab to the handle, press ↑ / ↓. Expected: the same steps as a drag. With
+  VoiceOver: "Collapse Output, adjustable", value "180 points of 320" / "Collapsed"; swipe up/down adjusts.
+- [ ] **⌥⌘U** (View ▸ Collapse Output) toggles it.
+- [ ] **Output panels.** Add an extra output (top right of Output). Expected: a full panel of its own (name,
+  format, compression, size, suffix, its own **Save to**: beside the main output, a folder, same folder as
+  original, a subfolder there). The ⓘ right of the format opens a small box that doesn't take focus.
+- [ ] **Own folder.** Give the extra output its own folder, run. Expected: its files land there. Open a preset
+  made on another Mac (or edit the JSON so the folder has no bookmark). Expected: the panel says **Choose the folder
+  again** in red; Run opens a folder panel once per folder (two outputs sharing it: one panel), and the files land
+  in the folder you chose.
+
+**Metadata panel and privacy links**
+- [ ] **Open.** ⌥⌘I (or the toolbar button). Expected: the panel opens right of the preview (the preview opens if
+  it was collapsed), closed by default on a fresh install, remembered once opened.
+- [ ] **Edit, remove, add.** Change the title, remove GPS, add a keyword. Expected: a pencil badge on the image in
+  the filmstrip, grid and list; Revert / Revert All undo it; the preview's Privacy row and size estimate follow;
+  the written file has the changes and the original doesn't.
+- [ ] **Overwrite note.** Set Save to: Overwrite originals. Expected: the header no longer says "The original
+  isn't changed"; an amber note says the changes end up in the original file.
+- [ ] **Resume.** Start a batch with panel edits, quit mid-run (Stop and Quit), relaunch and resume. Expected: the
+  resumed files still have the edits (GPS still removed).
+- [ ] **Privacy links.** In the privacy panel, a finding shows its value ("GPS position: 59.33° N, …"); clicking
+  its link selects that image, opens the preview and the metadata panel, scrolls to the row and highlights it.
+
+**Previews**
+- [ ] **Split once.** On the first launch of this version the compare mode is **Split**, even if you used Side by
+  side before. Choose another mode, relaunch: your choice is kept.
+
+**Adjust**
+- [ ] **Sliders.** Every slider with 0 in the middle (Exposure … Tint, Hue, Soft ↔ Sharp) fills from the centre to
+  the knob in both directions; the fill ends under the knob's centre (check at −100, −40, +40, +100); the small
+  centre tick stays visible over the fill; double-click resets.
+- [ ] **Looks.** Presets ▸ each built-in on a landscape and a portrait. Expected: Golden Hour, Vivid Warm and
+  Dramatic Warm look golden/warm, not green; Mono, Silvertone and Noir are black and white; Cool looks are bluer.
+  Save as preset, rename, delete work and survive a relaunch.
+- [ ] **Soft ↔ Sharp.** Left softens, right sharpens; an old preset with Sharpness 40 loads as Sharpen +40.
+
+**Color**
+- [ ] **Re-colour.** Tint, Duotone, Sepia, Replace colour (with and without Exact), Hue shift on a photo. Expected:
+  the preview matches the written file.
+- [ ] **Reduce colours.** 16 colours with and without dither on a photo and on a logo with transparency.
+  Expected: banding without dither, grain with it; transparency kept; a PNG output is a palette PNG (Finder ▸ Get
+  Info, or `file`), and the report says why when it isn't.
+
+**Perspective**
+- [ ] **Modes.** On a photographed document: Auto; then Vertical/Horizontal. **Keep original size**: the output
+  has exactly the source's size. Each **Empty areas** choice: Crop (no empty corners), Fill with colour (your
+  colour), Transparent (PNG see-through, JPEG filled with the note), Extend edges (edge pixels repeated).
+- [ ] **Old preset.** A preset saved before this version with a Perspective step gives the same crop as before.
+
+**Redact**
+- [ ] **Fixed sizes.** Pixelate Block size Fixed 8 / 64 / 256 px and Blur Strength Fixed on a large image with
+  text and faces. Expected: the blocks get bigger with the size; a small size on a big box is raised (editor hint
+  and report note) so nothing stays readable.
+- [ ] **Text.** A screenshot and a large photo with small text (signs, number plates). Expected: every legible
+  line is covered; the note's count of text areas is plausible (one line found twice counts once).
+
+**Rename**
+- [ ] **Insert menus.** Rename ▸ Insert: grouped submenus (date, camera, image, counter, …); each token inserts
+  at the cursor and the live example follows.
+- [ ] **Counter step.** Counter starts at 10, Step 5. Expected: names 10, 15, 20, …
+
+**Shortcuts (with section 14)**
+- [ ] **History and quit.** Run Convert Images from Shortcuts. Expected: History lists "Shortcuts: <preset>". Run a
+  long one and press ⌘Q: "Stop and quit?" names "a Shortcuts action"; Stop and Quit waits and leaves no temp files.
+- [ ] **Beside the originals.** A preset whose extra output saves Same folder as original, on files from a folder
+  not in Folder Access. Expected: the action stops with the Folder Access message (nothing written).
+- [ ] **Siri/Spotlight job names.** After saving a job "Nightly", "Run Nightly in imageconverter" in Spotlight
+  offers it.
