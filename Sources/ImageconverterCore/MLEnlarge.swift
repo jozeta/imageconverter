@@ -3,8 +3,10 @@ import Foundation
 
 /// Whether Apple's image super-resolution model (VideoToolbox, macOS 26 and later) can run on this Mac.
 public enum MLEnlargeAvailability: Equatable, Sendable {
-    /// Older than macOS 26, or a build made without the macOS 26 SDK.
+    /// Older than macOS 26.
     case unsupportedOS
+    /// macOS 26 or later, but this build was made without the macOS 26 SDK (the scaler is compiled out).
+    case notInThisBuild
     /// macOS 26 or later, but the system reports that this Mac can't run the scaler.
     case unsupportedHardware
     case ready
@@ -24,7 +26,7 @@ public enum MLEnlargeAvailability: Equatable, Sendable {
     }
 
     /// Whether the Resize editor offers the mode at all (hidden on older macOS and on Macs that can't run it).
-    public var offersMode: Bool { self != .unsupportedOS && self != .unsupportedHardware }
+    public var offersMode: Bool { self != .unsupportedOS && self != .unsupportedHardware && self != .notInThisBuild }
 
     /// Why an image isn't enlarged here, as jobs, the command line, services, scripts and links report it.
     public var refusal: String { refusal(inApp: false) }
@@ -34,6 +36,7 @@ public enum MLEnlargeAvailability: Equatable, Sendable {
         switch self {
         case .ready: return ""
         case .unsupportedOS: return "Not enlarged: machine-learning enlargement needs macOS 26 or later."
+        case .notInThisBuild: return "Not enlarged: this build of imageconverter can't enlarge with machine learning."
         case .unsupportedHardware: return "Not enlarged: this Mac can't run Apple's enlargement model."
         case .downloadRequired:
             return inApp ? "Not enlarged: Apple's enlargement model isn't downloaded. Download it in the Resize step."
@@ -49,6 +52,7 @@ public enum MLEnlargeAvailability: Equatable, Sendable {
         switch self {
         case .ready: return nil
         case .unsupportedOS: return "Needs macOS 26 or later."
+        case .notInThisBuild: return "This build of imageconverter can't enlarge with machine learning."
         case .unsupportedHardware: return "This Mac can't run Apple's enlargement model."
         case .downloadRequired: return "Apple's enlargement model isn't on this Mac yet."
         case .downloading(let progress):

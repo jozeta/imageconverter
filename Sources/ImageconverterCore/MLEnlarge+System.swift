@@ -3,7 +3,8 @@ import CoreGraphics
 import Foundation
 // VideoToolbox's super-resolution scaler is in the macOS 26 SDK (Swift 6.2, Xcode 26) and later. CI builds with
 // Xcode 16 (Swift 6.1, macOS 15 SDK), where the symbols don't exist: there the scaler is compiled out and reports
-// `.unsupportedOS`. `-Xswiftc -DNO_MACOS26_SDK` compiles that same fallback on a newer toolchain.
+// `.unsupportedOS` (`.notInThisBuild` when running on macOS 26+). `-Xswiftc -DNO_MACOS26_SDK` compiles that same
+// fallback on a newer toolchain.
 #if compiler(>=6.2) && !NO_MACOS26_SDK
 import CoreMedia
 import CoreVideo
@@ -39,10 +40,18 @@ public struct SystemSuperResolution: SuperResolutionScaler {
         #if compiler(>=6.2) && !NO_MACOS26_SDK
         if #available(macOS 26, *) { return VideoToolboxScaler.availability() }
         #endif
-        return .unsupportedOS
+        return Self.fallback(onMacOS26: ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0)))
     }
 
-    /// DEBUG builds accept `-debugMLEnlargeStatus downloadRequired|downloading|ready|unsupportedHardware|unsupportedOS`
+    /// Without the scaler: a build that lacks the macOS 26 SDK says so on macOS 26 and later (`.notInThisBuild`);
+    /// otherwise the system is too old.
+    static func fallback(onMacOS26: Bool) -> MLEnlargeAvailability {
+        onMacOS26 && !isCompiledIn ? .notInThisBuild : .unsupportedOS
+    }
+
+    /// DEBUG builds accept `-debugMLEnlargeStatus downloadRequired|downloading|ready|unsupportedHardware|unsupportedOS|`
+    /// `notInThisBuild`
     /// (screenshots): the editor, preview, estimate and batch all see that status. Nothing is downloaded, and a
     /// simulated "ready" still needs the real model to run.
     public static let simulatedStatus: MLEnlargeAvailability? = {
@@ -55,6 +64,7 @@ public struct SystemSuperResolution: SuperResolutionScaler {
         case "ready": return .ready
         case "unsupportedHardware": return .unsupportedHardware
         case "unsupportedOS": return .unsupportedOS
+        case "notInThisBuild": return .notInThisBuild
         default: return nil
         }
         #else
@@ -69,7 +79,8 @@ public struct SystemSuperResolution: SuperResolutionScaler {
                                                   inApp: speaksFromApp)
         }
         #endif
-        throw ConversionError.mlEnlargeUnavailable(.unsupportedOS, inApp: speaksFromApp)
+        throw ConversionError.mlEnlargeUnavailable(Self.fallback(onMacOS26: ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))), inApp: speaksFromApp)
     }
 }
 

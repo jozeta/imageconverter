@@ -833,7 +833,8 @@ results before you share them. Nothing is sent anywhere.
 Needs **macOS 26 or later** on a Mac that can run Apple's model. On older systems, and on Macs whose hardware
 can't run it, the mode isn't offered; a preset that uses it fails those images with "Not enlarged:
 machine-learning enlargement needs macOS 26 or later." or "Not enlarged: this Mac can't run Apple's enlargement
-model."
+model." A copy of imageconverter built without the macOS 26 SDK says "Not enlarged: this build of imageconverter
+can't enlarge with machine learning." on macOS 26 and later.
 
 1. Add a **Resize** step and choose **Mode ▸ Enlarge with machine learning**, then **2×**, **3×** or **4×**.
 2. The first time, the editor may say **"Apple's enlargement model isn't on this Mac yet."** Press **Download…**.

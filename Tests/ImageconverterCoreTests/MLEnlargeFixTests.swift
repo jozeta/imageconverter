@@ -124,6 +124,26 @@ final class MLEnlargeFixTests: XCTestCase {
         XCTAssertFalse(MLEnlargeAvailability.unsupportedHardware.awaitsDownload)
     }
 
+    /// A build without the macOS 26 SDK running on macOS 26 or later says the build can't, not "needs macOS 26".
+    func testABuildWithoutTheSDKSaysSoOnMacOS26() {
+        XCTAssertEqual(SystemSuperResolution.fallback(onMacOS26: false), .unsupportedOS)
+        XCTAssertEqual(SystemSuperResolution.fallback(onMacOS26: true),
+                       SystemSuperResolution.isCompiledIn ? .unsupportedOS : .notInThisBuild)
+        XCTAssertEqual(MLEnlargeAvailability.notInThisBuild.refusal,
+                       "Not enlarged: this build of imageconverter can't enlarge with machine learning.")
+        XCTAssertEqual(MLEnlargeAvailability.notInThisBuild.refusal(inApp: true),
+                       MLEnlargeAvailability.notInThisBuild.refusal)
+        XCTAssertEqual(MLEnlargeAvailability.notInThisBuild.editorMessage,
+                       "This build of imageconverter can't enlarge with machine learning.")
+        XCTAssertFalse(MLEnlargeAvailability.notInThisBuild.offersMode)
+        XCTAssertFalse(MLEnlargeAvailability.notInThisBuild.awaitsDownload)
+        let onMacOS26 = ProcessInfo.processInfo.isOperatingSystemAtLeast(
+            OperatingSystemVersion(majorVersion: 26, minorVersion: 0, patchVersion: 0))
+        if !SystemSuperResolution.isCompiledIn, SystemSuperResolution.simulatedStatus == nil {
+            XCTAssertEqual(SystemSuperResolution.shared.availability(), onMacOS26 ? .notInThisBuild : .unsupportedOS)
+        }
+    }
+
     // MARK: Jobs
 
     func testJobsDontCountWaitingForTheModelAsAnAttempt() async throws {
