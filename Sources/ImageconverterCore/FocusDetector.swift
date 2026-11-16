@@ -18,8 +18,9 @@ public final class FocusCache: @unchecked Sendable {
     private let lock = NSLock()
     private var entries: [Key: FocusOutcome] = [:]
     private let limit: Int
+    private var detections = 0
     /// How many detections ran (for tests).
-    public private(set) var detectionCount = 0
+    public var detectionCount: Int { lock.withLock { detections } }
 
     public init(limit: Int = 256) {
         self.limit = max(1, limit)
@@ -41,7 +42,9 @@ public final class FocusCache: @unchecked Sendable {
         let outcome = detect()
         lock.lock()
         defer { lock.unlock() }
-        detectionCount += 1
+        detections += 1
+        // A failed detection is asked again next time.
+        guard !outcome.detectionFailed else { return outcome }
         if entries.count >= limit { entries = [:] }
         entries[key] = outcome
         return outcome

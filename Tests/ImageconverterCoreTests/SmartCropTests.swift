@@ -152,12 +152,6 @@ final class SmartCropPipelineTests: XCTestCase {
                                                subject: { XCTFail("not asked"); return [] }), FocusOutcome(rect: nil))
     }
 
-    func testDetectionErrorsCountAsNothingFound() {
-        struct Failure: Error {}
-        XCTAssertEqual(FocusResolution.resolve(.subject, faces: { [] }, subject: { throw Failure() }),
-                       FocusOutcome(rect: nil, note: FocusResolution.subjectToCenterNote))
-    }
-
     func testFocusNotesStayOutOfTheEstimate() {
         XCTAssertNil(FocusResolution.withoutFocusNotes(FocusResolution.facesToCenterNote))
         XCTAssertEqual(FocusResolution.withoutFocusNotes("No document edges found; " + FocusResolution.subjectToCenterNote),
@@ -362,7 +356,7 @@ final class SmartCropSavingTests: XCTestCase {
     }
 
     func testSystemDetectorFindsASingleHighContrastObject() throws {
-        // A black square on the right of a white image.
+        // A red disc in the top right corner of a white image (context y is up: y 180…280 of 300 is the top).
         guard let ctx = CGContext(data: nil, width: 600, height: 300, bitsPerComponent: 8, bytesPerRow: 0,
                                   space: CGColorSpaceCreateDeviceRGB(),
                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
@@ -371,13 +365,17 @@ final class SmartCropSavingTests: XCTestCase {
         ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
         ctx.fill(CGRect(x: 0, y: 0, width: 600, height: 300))
         ctx.setFillColor(CGColor(red: 0.9, green: 0.1, blue: 0.1, alpha: 1))
-        ctx.fillEllipse(in: CGRect(x: 440, y: 100, width: 100, height: 100))
+        ctx.fillEllipse(in: CGRect(x: 440, y: 180, width: 100, height: 100))
         let image = try XCTUnwrap(ctx.makeImage())
         guard let rects = try? SystemVisionDetector().subjectRects(in: image), !rects.isEmpty,
               let union = FocusResolution.union(rects) else {
             throw XCTSkip("Vision saliency found nothing here")
         }
         XCTAssertGreaterThan(union.midX, 0.5, "the subject is on the right: \(rects)")
-        XCTAssertTrue(try SystemVisionDetector().faceRects(in: image).isEmpty)
+        XCTAssertLessThan(union.midY, 0.5, "the subject is at the top (a y-flip would put it at the bottom): \(rects)")
+        guard let faces = try? SystemVisionDetector().faceRects(in: image) else {
+            throw XCTSkip("Vision face detection isn't available here")
+        }
+        XCTAssertTrue(faces.isEmpty)
     }
 }

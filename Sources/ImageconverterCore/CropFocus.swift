@@ -109,10 +109,13 @@ public struct CropOptions: Codable, Equatable, Sendable {
 public struct FocusOutcome: Equatable, Sendable {
     public let rect: CGRect?
     public let note: String?
+    /// A detection failed (a Vision error, not "nothing found"): the preview doesn't cache it.
+    public let detectionFailed: Bool
 
-    public init(rect: CGRect?, note: String? = nil) {
+    public init(rect: CGRect?, note: String? = nil, detectionFailed: Bool = false) {
         self.rect = rect
         self.note = note
+        self.detectionFailed = detectionFailed
     }
 }
 
@@ -125,34 +128,72 @@ public enum FocusResolution {
     /// Every fallback note; they belong in the report only (the preview shows the crop itself).
     public static let notes: Set<String> = [facesToSubjectNote, facesToCenterNote, subjectToCenterNote]
 
-    /// An item's joined note ("a; b") without the focus fallback notes; nil when nothing is left.
+    /// "Subject detection unavailable: …" and "Face detection unavailable: …" notes (with their fallback).
+    private static let unavailablePattern = try? NSRegularExpression(
+        pattern: "(No faces found; subject|Face|Subject) detection unavailable: [^;]*; cropped (around the subject|at the center)")
+
+    /// An item's joined note ("a; b") without the focus notes (fallbacks and unavailable detection); nil when
+    /// nothing is left.
     public static func withoutFocusNotes(_ note: String?) -> String? {
         guard var text = note else { return nil }
-        // The notes contain "; " themselves, so they are removed as whole texts, not split.
-        for focusNote in notes {
-            text = text.replacingOccurrences(of: "; " + focusNote, with: "")
-                .replacingOccurrences(of: focusNote + "; ", with: "")
-                .replacingOccurrences(of: focusNote, with: "")
+        // The notes contain "; " themselves, so they are marked as whole texts first, then removed with their
+        // separators (not split).
+        let mark = "\u{0}"
+        for focusNote in notes { text = text.replacingOccurrences(of: focusNote, with: mark) }
+        if let unavailablePattern {
+            text = unavailablePattern.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text),
+                                                               withTemplate: mark)
         }
+        text = text.replacingOccurrences(of: "; " + mark, with: "").replacingOccurrences(of: mark + "; ", with: "")
+            .replacingOccurrences(of: mark, with: "")
         return text.isEmpty ? nil : text
     }
 
     /// Faces: the union of all faces, else the subject, else the centre. Subject: the union of the salient
-    /// regions, else the centre. A fixed anchor detects nothing. The closures run only when needed; a detection
-    /// that throws counts as nothing found (Vision never fails a run).
+    /// regions, else the centre. A fixed anchor detects nothing. The closures run only when needed. A detection
+    /// that throws falls back the same way, but its note says detection was unavailable and why (never "nothing
+    /// found"); Vision never fails a run.
     public static func resolve(_ focus: CropFocus, faces: () throws -> [CGRect],
                                subject: () throws -> [CGRect]) -> FocusOutcome {
         switch focus {
         case .anchor:
             return FocusOutcome(rect: nil)
         case .subject:
-            if let rect = union((try? subject()) ?? []) { return FocusOutcome(rect: rect) }
-            return FocusOutcome(rect: nil, note: subjectToCenterNote)
+            switch Result(catching: subject) {
+            case .success(let rects):
+                if let rect = union(rects) { return FocusOutcome(rect: rect) }
+                return FocusOutcome(rect: nil, note: subjectToCenterNote)
+            case .failure(let error):
+                return unavailable("Subject", error, rect: nil)
+            }
         case .faces:
-            if let rect = union((try? faces()) ?? []) { return FocusOutcome(rect: rect) }
-            if let rect = union((try? subject()) ?? []) { return FocusOutcome(rect: rect, note: facesToSubjectNote) }
+            return resolveFaces(faces, subject: subject)
+        }
+    }
+
+    private static func resolveFaces(_ faces: () throws -> [CGRect], subject: () throws -> [CGRect]) -> FocusOutcome {
+        let found = Result(catching: faces)
+        if case .success(let rects) = found, let rect = union(rects) { return FocusOutcome(rect: rect) }
+        switch (found, Result(catching: subject)) {
+        case (.failure(let error), .success(let rects)):
+            return unavailable("Face", error, rect: union(rects))
+        case (.failure(let error), .failure):
+            return unavailable("Face", error, rect: nil)
+        case (.success, .failure(let error)):
+            return unavailable("No faces found; subject", error, rect: nil)
+        case (.success, .success(let rects)):
+            if let rect = union(rects) { return FocusOutcome(rect: rect, note: facesToSubjectNote) }
             return FocusOutcome(rect: nil, note: facesToCenterNote)
         }
+    }
+
+    private static func unavailable(_ what: String, _ error: Error, rect: CGRect?) -> FocusOutcome {
+        let text = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        var reason = MetadataFields.sanitized(text, limit: 160).replacingOccurrences(of: ";", with: ",")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if reason.isEmpty { reason = "Vision failed" }
+        let fallback = rect == nil ? "cropped at the center" : "cropped around the subject"
+        return FocusOutcome(rect: rect, note: "\(what) detection unavailable: \(reason); \(fallback)", detectionFailed: true)
     }
 
     /// The union of the usable rectangles, each clamped to the unit square; nil when none is left.

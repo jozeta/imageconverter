@@ -776,7 +776,9 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
    the image where it would stick out; a region larger than the crop keeps the crop on its centre.
 4. When nothing is found, the image is cropped at the centre and the report has a note for that file: "No faces
    found; cropped around the subject", "No faces or subject found; cropped at the center" or "No subject found;
-   cropped at the center". Detection never fails a run.
+   cropped at the center". If Vision itself fails, the note says so instead, with the reason, for example "Subject
+   detection unavailable: …; cropped at the center" or "Face detection unavailable: …; cropped around the subject".
+   Detection never fails a run.
 
 Detection runs on this Mac with Apple's Vision framework, on a copy at most 1024 px on the long side, on the image
 as it arrives at the step (after any Rotate or Resize before it). Nothing is sent anywhere. It is best effort:
