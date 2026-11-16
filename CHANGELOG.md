@@ -4,6 +4,8 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+## 1.4.0 (2026-11-16)
+
 - Output: clicking the collapsed summary line opens Output again (like the handle above it; a button for VoiceOver).
 - Redact: an item cancelled while it waits for the text-tile gate (or between tiles) is cancelled, not reported as "couldn't check for text"; the note's text-area count is tested for one line found on the whole-image copy and again in overlapping tiles (counted once, every box still redacted).
 - Shortcuts actions: they run with the background limits jobs use (half the cores, half the memory budget; `BatchResourceLimits.background`); each converting action is recorded in History ("Shortcuts: *preset*") and quitting waits for it like for a batch (`AutomationRuns`); copies of data Shortcuts passed are removed when the action ends and capped at the decode limit's 2 GB; a preset whose extra output saves beside the originals stops with the Folder Access message when that folder isn't allowed (it failed per file before); job names reach Siri and Spotlight phrases (`updateAppShortcutParameters` at launch and after a preset or job changes). Run Job's summary reads "Job Web export: Converted 12 · 1 skipped by a condition" (`Automation.jobSummary`, tested). Resize Images never enlarges; every action writes the first frame of animated and multi-page files (README).
