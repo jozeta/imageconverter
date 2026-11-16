@@ -56,6 +56,40 @@ final class MetadataOverridesResumeTests: XCTestCase {
         }
     }
 
+    func testAJournalWithOneHostileOverrideIsRejectedWhole() async throws {
+        let urls = try [photo("a.jpg"), photo("b.jpg")]
+        var edits = MetadataOverrides()
+        edits.set(.title, to: .text("T"))
+        let items = urls.map { url -> InputItem in
+            var item = InputItem(source: url, relativeDirectory: "")
+            item.metadataOverrides = edits
+            return item
+        }
+        let journalURL = root.appendingPathComponent("support/journal.json")
+        let crash = root.appendingPathComponent("crash/journal.json")
+        try FileManager.default.createDirectory(at: crash.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = await BatchRunner.run(items, pipeline: Pipeline(output: OutputSettings(format: .png)),
+                                  mode: .newFolder(root.appendingPathComponent("out", isDirectory: true)),
+                                  concurrency: 1, journal: journalURL, events: { event in
+            guard event.index == 0, event.stage == .done,
+                  !FileManager.default.fileExists(atPath: crash.path) else { return }
+            try? FileManager.default.copyItem(at: journalURL, to: crash)
+        })
+        XCTAssertNotNil(RunJournal.pending(at: crash), "the journal as written is accepted")
+        // The second item's changes replaced by a field outside the allowlist (a MakerNote): nothing is resumed,
+        // not even the first item.
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: crash)) as? [String: Any])
+        var journalItems = try XCTUnwrap(object["items"] as? [[String: Any]])
+        XCTAssertEqual(journalItems.count, 2)
+        journalItems[1]["metadataOverrides"] = ["fields": [[
+            "field": ["kind": "custom", "namespace": "exif", "key": "MakerNote"],
+            "value": ["kind": "text", "text": "x"],
+        ]]]
+        object["items"] = journalItems
+        try JSONSerialization.data(withJSONObject: object).write(to: crash)
+        XCTAssertNil(RunJournal.pending(at: crash))
+    }
+
     func testOldJournalItemsDecodeWithoutOverrides() throws {
         let json = #"{"path": "/p/a.jpg", "relativeDirectory": ""}"#
         let item = try JSONDecoder().decode(RunJournal.Item.self, from: Data(json.utf8))
