@@ -70,7 +70,7 @@ struct ImageconverterApp: App {
                     .disabled(model.isRunning)
                 Button("Run") { model.run(settings: settings) }
                     .keyboardShortcut("r", modifiers: .command)
-                    .disabled(model.items.isEmpty || model.isRunning || model.isAdding || model.hasVariantProblems)
+                    .disabled(model.items.isEmpty || model.isRunning || model.isAdding || model.runBlocker != nil)
                 Button("Cancel Run") { model.cancel() }
                     .keyboardShortcut(".", modifiers: .command)
                     .disabled(!model.isRunning)

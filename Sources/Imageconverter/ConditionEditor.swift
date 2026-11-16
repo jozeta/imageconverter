@@ -85,6 +85,8 @@ private struct ConditionRow: View {
                             ForEach(group.kinds, id: \.self) { kind in
                                 Text(kind.displayName + (kind.unavailableReason.map { " (\($0.lowercased()))" } ?? ""))
                                     .tag(kind)
+                                    // Can't be picked on a Mac that can't run it (a loaded preset may still have it).
+                                    .selectionDisabled(kind.unavailableReason != nil && kind != self.kind)
                             }
                         }
                     }

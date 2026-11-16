@@ -919,7 +919,9 @@ especially). Nothing about your images leaves the Mac.
      is sent anywhere), on a copy at most 1024 px on the long side. Best effort: check the results on a few images first.
      - **Shows**: **any of** / **all of** the labels you pick with **Choose Labels…** (a searchable list of the about
        1,300 things Vision's classifier knows, such as dog, beach, food, document; saved by their identifiers), with
-       **Confidence at least** 0.05 … 1 (default **0.3**; higher finds fewer images, with fewer mistakes).
+       **Confidence at least** 0.05 … 1 (default **0.3**; higher finds fewer images, with fewer mistakes). Until at
+       least one label is chosen the editor says so in red and **Run** stays off; a saved preset with an empty Shows
+       check keeps it (jobs and the command line run it as a check that never matches, with **Not** either).
      - **Face count**: is more than, is less than, is at least or is at most a number of faces (0 when none are found).
      - **Contains text**: contains text / contains no text (fast text recognition; only whether there is any).
      - **Aesthetics score** (macOS 15 or later): Vision's overall rating from −1 (poor) to 1 (excellent), compared with
@@ -928,9 +930,12 @@ especially). Nothing about your images leaves the Mac.
        similar rather than a photo.
 
      The analysis runs only when a condition (or `{labels}`) needs it, once per file version: the preview, the size
-     estimate and the batch share it. On macOS 14 the last two never match (with **Not** either) and the report says
-     once per run "Aesthetics and screenshot checks need macOS 15 or later; they don't match on this Mac"; the kind menu
-     marks them "(needs macOS 15 or later)". If Vision can't analyse an image, its content checks don't match and the
+     estimate and the batch share it (two reads of one file at the same time share one analysis). It reads a
+     thumbnail-sized decode (ImageIO's thumbnail API, upright, at most 1024 px), and at most two images are analysed
+     at once across the app. On macOS 14 the last two can't be picked (the kind menu marks them "(needs macOS 15 or
+     later)"); a preset that already has one keeps it, it never matches (with **Not** either), and the report says
+     once per run "Aesthetics and screenshot checks need macOS 15 or later; they don't match on this Mac" (only when the
+     pipeline has such a check). If Vision can't analyse an image, its content checks don't match and the
      report says "Image analysis unavailable: …" for that file; the file is still processed.
 
    Tick **Not** to turn a check around: "name does not start with “IMG”", "has no date taken", "is not 16-bit". A
@@ -955,8 +960,9 @@ especially). Nothing about your images leaves the Mac.
      notes) and **Copy original unchanged** (the file is copied as it is, nothing is decoded; added keywords and a
      preset's image steps are then ignored, with the note "Ignored for a copied original: …").
    - **Metadata**: **Set metadata…** and **Add keywords…** (comma-separated; added to the file's keywords, or to the ones
-     the Metadata step sets; turns that step on with nothing removed when it was off; `{labels}` adds one keyword per
-     label, and `ai-{labels}` gives `ai-dog`, `ai-grass`, …).
+     the Metadata step sets; turns that step on with nothing removed when it was off, unless nothing is added, such as
+     only `{labels}` on an image with no labels; `{labels}` adds one keyword per label, and `ai-{labels}` gives
+     `ai-dog`, `ai-grass`, …).
 
    **`{labels}`**: in a subfolder, a note, Finder tags and keywords, `{labels}` is what the image shows: the labels
    Vision gives with a confidence of 0.3 or more, as words (`musical instrument`), most confident first, at most 10. In

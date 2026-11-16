@@ -20,7 +20,8 @@ public struct ResolvedPipeline: Equatable, Sendable {
     public var noteTemplates: [String]
     /// Labels of extra outputs the planner found no free name for (set by the batch's planning).
     public var unplannedOutputs: [String] = []
-    /// What `{labels}` gives in the subfolder and note templates (empty when no template uses it).
+    /// What `{labels}` gives for this image (`ImageAnalysis.tokenLabels`): set whenever labels were analysed, for a
+    /// Shows check too, and empty when they weren't; only templates that use the token read it.
     public var labels: [String] = []
     /// A note needs attention: a content check's image analysis failed (`ReportEntry.warning`).
     public var warning = false
@@ -59,6 +60,20 @@ extension Pipeline {
             if step.isEnabled, case .condition = step.operation { return true }
             return false
         }
+    }
+
+    static let emptyLabelsBlocker = "Choose at least one label for each “Shows” condition first"
+
+    /// Why the app's Run stays off for the enabled conditions (a Shows check without labels), or nil.
+    public var conditionRunBlocker: String? {
+        let incomplete = steps.contains { step in
+            guard step.isEnabled, case .condition(let conditional) = step.operation else { return false }
+            return conditional.conditions.contains { condition in
+                if case .shows(let match) = condition.check { return !match.isComplete }
+                return false
+            }
+        }
+        return incomplete ? Self.emptyLabelsBlocker : nil
     }
 
     /// What reading a file's facts must include for the enabled conditions.
@@ -147,7 +162,9 @@ extension Pipeline {
     private func analysisNotes(_ facts: ItemFacts?) -> [String] {
         guard let facts, !conditionFactNeeds.isDisjoint(with: .analysis) else { return [] }
         if let failure = facts.analysis.failure { return [ImageAnalysis.unavailableNote(failure)] }
-        return facts.analysis.needsNewerSystem ? [ImageAnalysis.needsNewerSystemNote] : []
+        // The flag may come from an earlier, cached read for an aesthetics check this pipeline no longer has.
+        return facts.analysis.needsNewerSystem && conditionFactNeeds.contains(.aesthetics)
+            ? [ImageAnalysis.needsNewerSystemNote] : []
     }
 
     /// Resolves for the file at `url`, reading its facts only when there are conditions (and only what they
@@ -255,12 +272,14 @@ private struct Resolution {
     /// Adds to the keywords the metadata settings already set (or to the file's own, in add mode); switches
     /// the Metadata step on with nothing else changed when it was off. The removals stay as they are.
     private mutating func addKeywords(_ keywords: [String]) {
+        let added = LabelToken.expand(keywords, labels: labels)
+        // Nothing to add (only `{labels}` and no labels): the Metadata step stays as it is.
+        guard !added.isEmpty else { return }
         if !pipeline.metadata.isActive {
             var options = MetadataOptions(isEnabled: true, location: .keep)
             options.keywordsMode = .add
             pipeline.metadata = options.withRemovals(from: floor)
         }
-        let added = LabelToken.expand(keywords, labels: labels)
         pipeline.metadata.keywords = MetadataFields.normalizedKeywords((pipeline.metadata.keywords ?? []) + added)
         addedKeywords = true
     }

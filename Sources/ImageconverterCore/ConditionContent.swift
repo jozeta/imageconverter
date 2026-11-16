@@ -29,11 +29,15 @@ public struct LabelMatch: Codable, Equatable, Sendable {
             ?? ImageAnalysis.defaultConfidence
     }
 
-    /// 1...20 valid identifiers and a confidence in 0.05...1.
+    /// At most 20 valid identifiers and a confidence in 0.05...1. No labels is valid (kept when loading, so the
+    /// editor can say so), but not complete: it never matches, and Run waits for labels (`isComplete`).
     public var isValid: Bool {
-        !labels.isEmpty && labels.count <= Self.maxLabels && labels.allSatisfy(ImageLabel.isValidIdentifier)
+        labels.count <= Self.maxLabels && labels.allSatisfy(ImageLabel.isValidIdentifier)
             && minimumConfidence.isFinite && Self.confidenceRange.contains(minimumConfidence)
     }
+
+    /// At least one label chosen.
+    public var isComplete: Bool { !labels.isEmpty }
 
     public func matches(_ found: [ImageLabel]) -> Bool {
         let seen = Set(found.filter { $0.confidence >= minimumConfidence }.map(\.identifier))
@@ -61,10 +65,11 @@ extension ConditionCheck {
         }
     }
 
-    /// False when the analysis has no value for this check (not asked for, failed, or needs a newer system).
+    /// False when the analysis has no value for this check (not asked for, failed, or needs a newer system), or
+    /// when a Shows check has no labels (it then matches in neither form).
     func hasContentValue(in analysis: ImageAnalysis) -> Bool {
         switch self {
-        case .shows: return analysis.labels != nil
+        case .shows(let match): return match.isComplete && analysis.labels != nil
         case .faceCount: return analysis.faceCount != nil
         case .containsText: return analysis.hasText != nil
         case .aesthetics: return analysis.aestheticsScore != nil

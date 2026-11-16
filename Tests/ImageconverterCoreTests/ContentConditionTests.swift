@@ -135,7 +135,8 @@ final class ContentConditionTests: XCTestCase {
 
     func testValidityAndNeeds() {
         XCTAssertTrue(ConditionCheck.shows(LabelMatch(["dog", "musical_instrument"])).isValid)
-        XCTAssertFalse(ConditionCheck.shows(LabelMatch([])).isValid)
+        XCTAssertTrue(ConditionCheck.shows(LabelMatch([])).isValid, "kept on load; Run waits for labels")
+        XCTAssertFalse(LabelMatch([]).isComplete)
         XCTAssertFalse(ConditionCheck.shows(LabelMatch(["Dog/../x"])).isValid, "only identifier characters")
         XCTAssertFalse(ConditionCheck.shows(LabelMatch(["dog"], minimumConfidence: 0)).isValid)
         XCTAssertFalse(ConditionCheck.shows(LabelMatch(["dog"], minimumConfidence: .nan)).isValid)

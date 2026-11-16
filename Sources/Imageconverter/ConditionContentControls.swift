@@ -87,11 +87,17 @@ private struct LabelMatchControls: View {
                         LabelPickerList(chosen: match.labels) { update(labels: $0) }
                     }
             }
-            Text(match.labels.isEmpty ? "No labels chosen"
-                 : match.labels.map(ImageLabel.displayName).joined(separator: ", "))
-                .font(LadaGlass.Typography.body)
-                .fixedSize(horizontal: false, vertical: true)
-                .accessibilityLabel("Chosen labels: \(match.labels.map(ImageLabel.displayName).joined(separator: ", "))")
+            if match.labels.isEmpty {
+                Text("No labels chosen. Choose at least one: Run stays off until you do.")
+                    .font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.badText)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(match.labels.map(ImageLabel.displayName).joined(separator: ", "))
+                    .font(LadaGlass.Typography.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityLabel("Chosen labels: \(match.labels.map(ImageLabel.displayName).joined(separator: ", "))")
+            }
             HStack(spacing: LadaGlass.Spacing.xs) {
                 Text("Confidence at least").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 DecimalField(title: "Condition \(number) confidence", value: Binding(get: { match.minimumConfidence }, set: {
