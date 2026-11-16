@@ -83,6 +83,8 @@ struct RotateFlipEditor: View {
 // MARK: - Perspective
 
 struct PerspectiveEditor: View {
+    /// Callers pass edits through `PerspectiveOptions.applyUserEdit`, so a step saved before the empty-area choices
+    /// takes the largest crop once the user changes it.
     @Binding var options: PerspectiveOptions
 
     var body: some View {
@@ -99,19 +101,26 @@ struct PerspectiveEditor: View {
                 .controlSize(.small)
                 .disabled(options.vertical == 0 && options.horizontal == 0)
                 .accessibilityLabel("Reset keystone sliders")
+            if Perspective.isNoOp(options) {
+                Text("Turn on Auto or move a slider to use these.")
+                    .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            }
             Picker("Output size", selection: $options.size) {
                 ForEach(PerspectiveSize.allCases, id: \.self) { Text($0.displayName).tag($0) }
             }
             .accessibilityLabel("Output size")
+            .disabled(Perspective.isNoOp(options))
             .help("Keep original size scales the corrected image back to the source's width and height")
             Picker("Empty areas", selection: $options.emptyAreas) {
                 ForEach(PerspectiveEmptyAreas.allCases, id: \.self) { Text($0.displayName).tag($0) }
             }
             .accessibilityLabel("Empty areas")
+            .disabled(Perspective.isNoOp(options))
             .help("What fills the corners the correction leaves empty")
             if options.emptyAreas == .color || options.emptyAreas == .transparent {
                 ColorField(title: options.emptyAreas == .color ? "Fill colour" : "Colour for JPEG and BMP",
                            color: $options.fillColor)
+                    .disabled(Perspective.isNoOp(options))
             }
             Text(Self.caption(options))
                 .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)

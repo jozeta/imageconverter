@@ -40,6 +40,15 @@ public enum PerspectiveEmptyAreas: String, Codable, CaseIterable, Sendable {
     }
 }
 
+/// Which rectangle "Crop to the image" keeps.
+public enum PerspectiveCropRule: String, Codable, CaseIterable, Sendable {
+    /// Before the empty-area choices: each side at the inner end of its edge. Kept for steps saved then, so they
+    /// write exactly what they did (only both sliders together differ from `largest`).
+    case innerEnds
+    /// The largest axis-aligned rectangle inside the corrected image.
+    case largest
+}
+
 /// Perspective correction: optional automatic document straightening, then a manual keystone.
 public struct PerspectiveOptions: Codable, Equatable, Sendable {
     /// −100...100. +100 pulls the top edge in by 25 % of the width on each side, −100 the bottom edge.
@@ -52,20 +61,34 @@ public struct PerspectiveOptions: Codable, Equatable, Sendable {
     public var emptyAreas: PerspectiveEmptyAreas
     /// For `.color`, and for `.transparent` when the output has no alpha.
     public var fillColor: RGBAColor
+    /// `.innerEnds` for steps saved before the empty-area choices (no `emptyAreas` key) until the user edits them.
+    public var cropRule: PerspectiveCropRule
 
     public static let range: ClosedRange<Double> = -100...100
 
     public init(vertical: Double = 0, horizontal: Double = 0, auto: Bool = false, size: PerspectiveSize = .fit,
-                emptyAreas: PerspectiveEmptyAreas = .crop, fillColor: RGBAColor = .white) {
+                emptyAreas: PerspectiveEmptyAreas = .crop, fillColor: RGBAColor = .white,
+                cropRule: PerspectiveCropRule = .largest) {
         self.vertical = vertical
         self.horizontal = horizontal
         self.auto = auto
         self.size = size
         self.emptyAreas = emptyAreas
         self.fillColor = fillColor
+        self.cropRule = cropRule
     }
 
-    private enum CodingKeys: String, CodingKey { case vertical, horizontal, auto, size, emptyAreas, fillColor }
+    /// Takes `edited` as the user's change in the editor: a step that really changed uses the largest crop from now
+    /// on (a saved step left alone keeps its rule).
+    public mutating func applyUserEdit(_ edited: PerspectiveOptions) {
+        guard edited != self else { return }
+        self = edited
+        cropRule = .largest
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case vertical, horizontal, auto, size, emptyAreas, fillColor, cropRule
+    }
 
     /// Lenient: missing or unreadable keys are "no change" (fit, crop, white), out-of-range values are clamped.
     public init(from decoder: Decoder) throws {
@@ -73,11 +96,16 @@ public struct PerspectiveOptions: Codable, Equatable, Sendable {
         let size = (try? container.decodeIfPresent(String.self, forKey: .size)).flatMap { PerspectiveSize(rawValue: $0) }
         let empty = (try? container.decodeIfPresent(String.self, forKey: .emptyAreas))
             .flatMap { PerspectiveEmptyAreas(rawValue: $0) }
+        let saved = (try? container.decodeIfPresent(String.self, forKey: .cropRule))
+            .flatMap { PerspectiveCropRule(rawValue: $0) }
+        // Saved before the empty-area choices existed: keep the crop those versions made.
+        let rule = saved ?? (container.contains(.emptyAreas) ? .largest : .innerEnds)
         self.init(vertical: Self.clamped(try container.decodeIfPresent(Double.self, forKey: .vertical) ?? 0),
                   horizontal: Self.clamped(try container.decodeIfPresent(Double.self, forKey: .horizontal) ?? 0),
                   auto: try container.decodeIfPresent(Bool.self, forKey: .auto) ?? false,
                   size: size ?? .fit, emptyAreas: empty ?? .crop,
-                  fillColor: (try? container.decodeIfPresent(RGBAColor.self, forKey: .fillColor)) ?? .white)
+                  fillColor: (try? container.decodeIfPresent(RGBAColor.self, forKey: .fillColor)) ?? .white,
+                  cropRule: rule)
     }
 
     /// The value limited to −100...100; non-finite values become 0.
@@ -101,21 +129,15 @@ public enum Perspective {
         return try apply(options, to: image, notes: &notes)
     }
 
-    /// As `apply(_:to:)`, adding `noEdgesNote` to `notes` when auto correction found no rectangle. `noAlpha` is the
-    /// output format when it has no alpha: transparent empty areas are then filled with the colour, and noted.
-    public static func apply(_ options: PerspectiveOptions, to image: CGImage, noAlpha: OutputFormat? = nil,
-                             notes: inout [String]) throws -> CGImage {
-        try apply(options, to: image, noAlpha: noAlpha, notes: &notes, detect: detectRectangle)
-    }
-
-    /// As `apply(_:to:notes:)` for a pipeline writing `format`.
-    public static func apply(_ options: PerspectiveOptions, to image: CGImage, for format: OutputFormat,
-                             notes: inout [String]) throws -> CGImage {
-        try apply(options, to: image, noAlpha: format.supportsAlpha ? nil : format, notes: &notes)
+    /// As `apply(_:to:)`, adding `noEdgesNote` to `notes` when auto correction found no rectangle. Transparent
+    /// empty areas always keep alpha here; each output without alpha is flattened onto the fill colour when it is
+    /// encoded (`Pipeline.matted`).
+    public static func apply(_ options: PerspectiveOptions, to image: CGImage, notes: inout [String]) throws -> CGImage {
+        try apply(options, to: image, notes: &notes, detect: detectRectangle)
     }
 
     /// The whole step with the rectangle detection passed in (tests use a fixed rectangle).
-    static func apply(_ options: PerspectiveOptions, to image: CGImage, noAlpha: OutputFormat?, notes: inout [String],
+    static func apply(_ options: PerspectiveOptions, to image: CGImage, notes: inout [String],
                       detect: (CGImage) throws -> Quad?) throws -> CGImage {
         var current = image
         if options.auto {
@@ -133,22 +155,14 @@ public enum Perspective {
         let target = options.size == .keepOriginal && original != box.size ? original : nil
         guard quad != nil || target != nil else { return current }
 
-        var empty = options.emptyAreas
-        var fill = options.fillColor
-        let bars = target.map { Geometry.fitPlacement(content: box.size, target: $0).size != $0 } ?? false
-        if empty == .transparent, let format = noAlpha {
-            empty = .color
-            fill.alpha = 1
-            if quad != nil || bars { notes.append(noTransparencyNote(format, color: fill)) }
-        }
-        var chosen = options
-        (chosen.emptyAreas, chosen.fillColor) = (empty, fill)
         var layer = CIImage(cgImage: current)
         // Core Image is y-up.
         var rect = CGRect(x: box.minX, y: size.height - box.maxY, width: box.width, height: box.height)
-        if let quad { layer = keystoned(current, quad, chosen, in: rect) }
-        if let target { (layer, rect) = sized(layer, rect, to: target, chosen) }
-        let alpha = ImageOps.hasAlpha(current) || empty == .transparent || (empty == .color && fill.alpha < 1)
+        if let quad { layer = keystoned(current, quad, options, in: rect) }
+        if let target { (layer, rect) = sized(layer, rect, to: target, options) }
+        let empty = options.emptyAreas
+        let alpha = ImageOps.hasAlpha(current) || empty == .transparent
+            || (empty == .color && options.fillColor.alpha < 1)
         return try Adjustments.render(layer, from: rect, like: current, step: StepKind.perspective.displayName,
                                       alpha: alpha)
     }
@@ -206,11 +220,12 @@ public enum Perspective {
             // Core Image can't warp an infinite image). The filter maps `inputExtent`, the image itself, onto the quad.
             let extent = source.extent
             parameters["inputExtent"] = CIVector(cgRect: extent)
-            warped = source.clampedToExtent().cropped(to: extendedSource(quad, box: rect, size: extent.size))
+            let (area, covered) = extendedSource(quad, box: rect, size: extent.size)
+            warped = source.clampedToExtent().cropped(to: area)
                 .applyingFilter("CIPerspectiveTransformWithExtent", parameters: parameters)
             // Past the horizon (extreme combined sliders) no source pixel lands: the corrected image's inner
-            // rectangle, its edges repeated, fills what is left.
-            if let crop = Geometry.perspectiveCrop(source: extent.size, options: options) {
+            // rectangle, its edges repeated, fills what is left. Only then: it is a second warp.
+            if !covered, let crop = Geometry.perspectiveCrop(source: extent.size, options: options) {
                 let inner = CGRect(x: crop.minX, y: extent.height - crop.maxY, width: crop.width, height: crop.height)
                 let plain = source.applyingFilter("CIPerspectiveTransform", parameters: vectors(quad, height: extent.height))
                 warped = warped.composited(over: plain.cropped(to: inner).clampedToExtent())
@@ -224,10 +239,11 @@ public enum Perspective {
 
     /// The source area (Core Image coordinates) whose warp covers what it can of `box` (Core Image coordinates):
     /// the image plus the reach of the box's edge back into the source, at most two image sizes out, and kept in
-    /// front of the warp's horizon (Core Image's output extent breaks past it).
-    private static func extendedSource(_ quad: Quad, box: CGRect, size: CGSize) -> CGRect {
+    /// front of the warp's horizon (Core Image's output extent breaks past it). `covered` is false when part of the
+    /// box can't be reached that way (past the horizon, or beyond the limit).
+    static func extendedSource(_ quad: Quad, box: CGRect, size: CGSize) -> (area: CGRect, covered: Bool) {
         let image = CGRect(origin: .zero, size: size)
-        guard let map = Homography(quad), size.width > 0, size.height > 0 else { return image }
+        guard let map = Homography(quad), size.width > 0, size.height > 0 else { return (image, false) }
         // Top-left coordinates for the quad maths; the box's outline, sampled.
         let top = size.height - box.maxY
         let bottom = size.height - box.minY
@@ -241,10 +257,13 @@ public enum Perspective {
         }
         let limit = image.insetBy(dx: -2 * size.width, dy: -2 * size.height)
         var area = image
+        var covered = true
         for point in outline {
-            guard let unit = map.unit(for: point) else { continue }
-            let source = CGPoint(x: min(limit.maxX, max(limit.minX, unit.x * size.width)),
-                                 y: min(limit.maxY, max(limit.minY, size.height - unit.y * size.height)))
+            guard let unit = map.unit(for: point) else { covered = false; continue }
+            let exact = CGPoint(x: unit.x * size.width, y: size.height - unit.y * size.height)
+            let source = CGPoint(x: min(limit.maxX, max(limit.minX, exact.x)),
+                                 y: min(limit.maxY, max(limit.minY, exact.y)))
+            if source != exact { covered = false }
             area = area.union(CGRect(origin: source, size: .zero))
         }
         area = area.insetBy(dx: -2, dy: -2).intersection(limit)
@@ -255,12 +274,13 @@ public enum Perspective {
                 map.weight(CGPoint(x: $0.x / size.width, y: 1 - $0.y / size.height)) > 0.05
             }
         }
+        if !safe(area) { covered = false }
         for _ in 0..<24 where !safe(area) {
             area = CGRect(x: area.minX + (image.minX - area.minX) / 4, y: area.minY + (image.minY - area.minY) / 4,
                           width: area.width + (image.width - area.width) / 4,
                           height: area.height + (image.height - area.height) / 4)
         }
-        return safe(area) ? area.integral : image
+        return safe(area) ? (area.integral, covered) : (image, false)
     }
 
     /// `layer`'s `rect` scaled to exactly `target`, aspect kept: to fill and centre-cropped when cropping, else to
@@ -282,9 +302,9 @@ public enum Perspective {
             return (scaled.cropped(to: output), output)
         }
         let placed = Geometry.fitPlacement(content: rect.size, target: target)
-        let scaled = content.transformed(by: CGAffineTransform(scaleX: placed.width / rect.width,
-                                                               y: placed.height / rect.height),
-                                         highQualityDownsample: true)
+        // One scale for both axes, so the aspect is kept exactly.
+        let scale = min(target.width / rect.width, target.height / rect.height)
+        let scaled = content.transformed(by: CGAffineTransform(scaleX: scale, y: scale), highQualityDownsample: true)
             .transformed(by: CGAffineTransform(translationX: placed.minX, y: placed.minY))
         switch empty {
         case .extend: return (scaled.cropped(to: output), output)

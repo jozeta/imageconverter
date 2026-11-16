@@ -328,12 +328,13 @@ public enum BatchRunner {
         let stepNotes = prepared.notes
         options.stage(.encoding)
         try options.beforeEncode?(url, options.attempt)
-        let result = try CompressionSearch.encode(prepared.image, properties: properties, settings: pipeline.output,
+        let (image, matteNote) = pipeline.matted(prepared.image, for: pipeline.output.format)
+        let result = try CompressionSearch.encode(image, properties: properties, settings: pipeline.output,
                                                  indexedPNG: pipeline.reducesColors)
         let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
             ? MetadataDates.dateTaken(in: properties) : nil
         // Step notes (e.g. "No document edges found") come first, then the encoder's.
-        let notes = stepNotes + [losslessNote, result.note].compactMap { $0 }
+        let notes = stepNotes + [losslessNote, matteNote, result.note].compactMap { $0 }
         return EncodedItem(data: result.data, source: prepared.source, downsampled: prepared.downsampled,
                            quality: result.quality,
                            note: notes.isEmpty ? nil : notes.joined(separator: "; "), dateTaken: taken)

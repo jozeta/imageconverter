@@ -18,6 +18,11 @@ final class PerspectiveFillTests: XCTestCase {
         XCTAssertEqual(old.size, .fit)
         XCTAssertEqual(old.emptyAreas, .crop)
         XCTAssertEqual(old.fillColor, .white)
+        XCTAssertEqual(old.cropRule, .innerEnds)
+        XCTAssertEqual(PerspectiveOptions().cropRule, .largest)
+        // Re-saved, an old step keeps its rule.
+        XCTAssertEqual(try JSONDecoder().decode(PerspectiveOptions.self, from: JSONEncoder().encode(old)).cropRule,
+                       .innerEnds)
         let odd = try JSONDecoder().decode(PerspectiveOptions.self,
                                            from: Data(#"{"size":"huge","emptyAreas":7,"fillColor":"x"}"#.utf8))
         XCTAssertEqual(odd, PerspectiveOptions())
@@ -56,30 +61,29 @@ final class PerspectiveFillTests: XCTestCase {
         }
     }
 
-    func testCropIsInsideAndAsLargeAsABruteForceSearch() {
-        let source = CGSize(width: 200, height: 160)
-        for (vertical, horizontal) in [(-40.0, 30.0), (100, 100), (-100, -100), (70, -25), (15, 90)] {
+    func testCropIsInsideAndWithinATenthOfAPercentOfABruteForceSearch() throws {
+        let source = CGSize(width: 600, height: 400)
+        let cases: [(Double, Double)] = [(-40, 30), (100, 100), (-100, -100), (70, -25), (15, 90), (80, 100),
+                                         (-80, 100), (20, -100), (-20, -100), (60, 60), (-100, 40)]
+        for (vertical, horizontal) in cases {
             let options = PerspectiveOptions(vertical: vertical, horizontal: horizontal)
-            guard let quad = Geometry.keystoneQuad(source: source, options: options),
-                  let crop = Geometry.perspectiveCrop(source: source, options: options) else { return XCTFail("crop") }
-            for point in [CGPoint(x: crop.minX, y: crop.minY), CGPoint(x: crop.maxX, y: crop.minY),
-                          CGPoint(x: crop.minX, y: crop.maxY), CGPoint(x: crop.maxX, y: crop.maxY)] {
+            let quad = try XCTUnwrap(Geometry.keystoneQuad(source: source, options: options))
+            let inner = try XCTUnwrap(quad.largestInnerRectangle())
+            for point in [CGPoint(x: inner.minX, y: inner.minY), CGPoint(x: inner.maxX, y: inner.minY),
+                          CGPoint(x: inner.minX, y: inner.maxY), CGPoint(x: inner.maxX, y: inner.maxY)] {
                 XCTAssertTrue(quad.contains(point), "\(options) \(point)")
             }
-            // Every whole-pixel top/bottom pair: the best rectangle's area.
+            // Every whole-pixel top/bottom pair (a lower bound for the true best).
             var best: CGFloat = 0
-            for top in 0...160 {
-                for bottom in top...160 {
-                    guard let upper = quad.span(atY: CGFloat(top)), let lower = quad.span(atY: CGFloat(bottom)) else {
-                        continue
-                    }
+            for top in 0...400 {
+                guard let upper = quad.span(atY: CGFloat(top)) else { continue }
+                for bottom in top...400 {
+                    guard let lower = quad.span(atY: CGFloat(bottom)) else { continue }
                     let width = min(upper.upperBound, lower.upperBound) - max(upper.lowerBound, lower.lowerBound)
                     best = max(best, max(0, width) * CGFloat(bottom - top))
                 }
             }
-            // The crop keeps a pixel clear on each side, so allow that border.
-            let found = (crop.width + 2) * (crop.height + 2)
-            XCTAssertGreaterThanOrEqual(found, best * 0.98, "\(options)")
+            XCTAssertGreaterThanOrEqual(inner.width * inner.height, best * 0.999, "\(options)")
         }
     }
 
@@ -139,24 +143,6 @@ final class PerspectiveFillTests: XCTestCase {
         XCTAssertEqual(TestImages.pixel(of: out, x: 200, y: 150).alpha, 255)
     }
 
-    func testTransparentInJPEGFillsWithTheColourAndSaysSo() throws {
-        let image = TestImages.make(width: 400, height: 300, color: red)
-        let options = PerspectiveOptions(vertical: 60, emptyAreas: .transparent, fillColor: blue)
-        let pipeline = Pipeline(steps: [PipelineStep(operation: .perspective(options))], output: .init(format: .jpeg))
-        var notes: [String] = []
-        let out = try pipeline.apply(to: image, notes: &notes)
-        XCTAssertEqual(notes, ["No transparency in JPEG; filled with #0000FF"])
-        let corner = TestImages.pixel(of: out, x: 0, y: 0)
-        XCTAssertEqual(corner.alpha, 255)
-        XCTAssertGreaterThan(corner.blue, 240)
-        // Nothing empty (sliders at 0, fit): no note.
-        var none: [String] = []
-        _ = try Pipeline(steps: [PipelineStep(operation: .perspective(PerspectiveOptions(auto: false,
-                                                                                         emptyAreas: .transparent)))],
-                         output: .init(format: .jpeg)).apply(to: image, notes: &none)
-        XCTAssertTrue(none.isEmpty)
-    }
-
     func testExtendEdgesLeavesNoEmptyCorners() throws {
         // Left half green, right half red: the clamped corners repeat the nearest edge colour.
         let image = halves(width: 400, height: 300)
@@ -186,6 +172,18 @@ final class PerspectiveFillTests: XCTestCase {
         }
     }
 
+    func testExtendEdgesAddsTheFallbackWarpOnlyPastTheHorizon() throws {
+        let size = CGSize(width: 300, height: 200)
+        let box = CGRect(origin: .zero, size: size)
+        for (vertical, horizontal, expected) in [(60.0, -30.0, true), (100, 0, true), (-50, 50, true),
+                                                 (100, 100, false), (-100, -100, false)] {
+            let quad = try XCTUnwrap(Geometry.keystoneQuad(source: size, options: PerspectiveOptions(
+                vertical: vertical, horizontal: horizontal)))
+            XCTAssertEqual(Perspective.extendedSource(quad, box: box, size: size).covered, expected,
+                           "\(vertical) \(horizontal)")
+        }
+    }
+
     // MARK: Keep original size
 
     func testKeepSizeWithCropScalesToFill() throws {
@@ -204,13 +202,12 @@ final class PerspectiveFillTests: XCTestCase {
     }
 
     /// Auto finds a 200 x 100 rectangle in a 400 x 300 image: corrected 200 x 100, kept at 400 x 300.
-    private func autoKeep(_ empty: PerspectiveEmptyAreas, opaque: Bool = false,
-                          notes: inout [String]) throws -> CGImage {
+    private func autoKeep(_ empty: PerspectiveEmptyAreas, notes: inout [String]) throws -> CGImage {
         let image = halves(width: 400, height: 300)
         let found = Quad(topLeft: CGPoint(x: 100, y: 100), topRight: CGPoint(x: 300, y: 100),
                          bottomRight: CGPoint(x: 300, y: 200), bottomLeft: CGPoint(x: 100, y: 200))
         let options = PerspectiveOptions(auto: true, size: .keepOriginal, emptyAreas: empty, fillColor: blue)
-        return try Perspective.apply(options, to: image, noAlpha: opaque ? .jpeg : nil, notes: &notes, detect: { _ in found })
+        return try Perspective.apply(options, to: image, notes: &notes, detect: { _ in found })
     }
 
     func testKeepSizeFitsAutoCorrectionAndFillsTheBars() throws {
@@ -233,9 +230,10 @@ final class PerspectiveFillTests: XCTestCase {
         XCTAssertGreaterThan(TestImages.pixel(of: extended, x: 10, y: 10).green, 200)
         XCTAssertEqual(TestImages.pixel(of: extended, x: 10, y: 10).alpha, 255)
 
-        let jpeg = try autoKeep(.transparent, opaque: true, notes: &notes)
-        XCTAssertGreaterThan(TestImages.pixel(of: jpeg, x: 200, y: 10).blue, 240)
-        XCTAssertEqual(notes, ["No transparency in JPEG; filled with #0000FF"])
+        // Fit keeps the aspect exactly: 2:1 content in a 4:3 frame, one scale for both axes.
+        XCTAssertEqual(Geometry.fitPlacement(content: CGSize(width: 333, height: 100),
+                                             target: CGSize(width: 400, height: 300)).height,
+                       400.0 / 333.0 * 100, accuracy: 1e-9)
     }
 
     func testKeepSizeWithCropCentreCropsTheAutoCorrection() throws {
@@ -247,22 +245,6 @@ final class PerspectiveFillTests: XCTestCase {
         XCTAssertGreaterThan(TestImages.pixel(of: out, x: 5, y: 5).green, 200)
         XCTAssertGreaterThan(TestImages.pixel(of: out, x: 394, y: 294).red, 200)
         XCTAssertEqual(TestImages.pixel(of: out, x: 5, y: 5).alpha, 255)
-    }
-
-    func testTransparentInJPEGNoteReachesTheReport() async throws {
-        let dir = try TestImages.tempDir()
-        defer { try? FileManager.default.removeItem(at: dir) }
-        let url = dir.appendingPathComponent("plain.png")
-        try TestImages.write(TestImages.make(width: 160, height: 120), to: url, type: .png)
-        let item = InputItem(source: url, relativeDirectory: "")
-        let options = PerspectiveOptions(vertical: 40, emptyAreas: .transparent)
-        let pipeline = Pipeline(steps: [PipelineStep(operation: .perspective(options))], output: .init(format: .jpeg))
-        let estimate = try SizeEstimator.render(item: item, pipeline: pipeline)
-        XCTAssertEqual(estimate.note, "No transparency in JPEG; filled with #FFFFFF")
-        let report = await BatchRunner.run([item], pipeline: pipeline,
-                                           mode: .newFolder(dir.appendingPathComponent("out", isDirectory: true)))
-        XCTAssertEqual(report.written.count, 1)
-        XCTAssertEqual(report.notes.map(\.text), ["No transparency in JPEG; filled with #FFFFFF"])
     }
 
     /// Left half green, right half red.

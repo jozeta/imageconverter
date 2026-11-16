@@ -186,7 +186,8 @@ public actor PreviewRenderer {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
         if Task.isCancelled { return cancelled }
-        guard let after = fit(result) else {
+        // Shown as the main output is written: a format without alpha gets the step's fill colour (`matted`).
+        guard let after = fit(pipeline.matted(result, for: pipeline.output.format).image) else {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
         let (destination, outputName) = outputDestination(for: item, index: index, resolved: resolved, mode: mode)

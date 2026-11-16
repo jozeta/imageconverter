@@ -59,7 +59,9 @@ final class PerspectiveTests: XCTestCase {
 
     func testOptionsDecodeLeniently() throws {
         let options = try JSONDecoder().decode(PerspectiveOptions.self, from: Data(#"{"vertical":500}"#.utf8))
-        XCTAssertEqual(options, PerspectiveOptions(vertical: 100))
+        var expected = PerspectiveOptions(vertical: 100)
+        expected.cropRule = .innerEnds    // saved before the empty-area choices: the earlier crop
+        XCTAssertEqual(options, expected)
         XCTAssertEqual(ImageOperation.perspective(PerspectiveOptions()).summary, "no change")
         XCTAssertEqual(ImageOperation.perspective(PerspectiveOptions(vertical: 20, horizontal: -10, auto: true)).summary,
                        "auto · vertical +20 · horizontal −10")

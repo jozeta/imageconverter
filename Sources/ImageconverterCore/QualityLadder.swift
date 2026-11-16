@@ -61,7 +61,8 @@ public enum QualityLadder {
                     var settings = pipeline.output
                     settings.compression = .quality
                     settings.quality = quality
-                    let data = try CompressionSearch.encode(prepared.image, properties: prepared.properties,
+                    let data = try CompressionSearch.encode(pipeline.matted(prepared.image, for: settings.format).image,
+                                                            properties: prepared.properties,
                                                             settings: settings).data
                     guard let image = crop(data, region: region, maxSide: maxSide) else { throw ConversionError.encodeFailed }
                     return Rung(quality: quality, bytes: data.count, data: data, image: image)

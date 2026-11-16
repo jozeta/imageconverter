@@ -251,7 +251,7 @@ extension Pipeline {
             case .redact(let options):
                 let rects = try redactRects(options, in: current, step: index, context: focus, notes: &notes)
                 current = try ImageOps.redact(current, options, rects: rects)
-            case .perspective(let options): current = try Perspective.apply(options, to: current, for: output.format, notes: &notes)
+            case .perspective(let options): current = try Perspective.apply(options, to: current, notes: &notes)
             case .trim(let options): current = try Trim.apply(options, to: current)
             case .canvas(let options): current = try ImageOps.canvas(current, options)
             case .colorProfile(let options): current = try ImageOps.color(current, options)

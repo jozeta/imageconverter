@@ -90,7 +90,8 @@ struct Quad: Equatable {
         var rounds = 0
         while step > 0.001, rounds < 4_000 {
             rounds += 1
-            let moves = [(step, 0.0), (-step, 0.0), (0.0, step), (0.0, -step), (step, step), (-step, -step)]
+            let moves = [(step, 0.0), (-step, 0.0), (0.0, step), (0.0, -step), (step, step), (-step, -step),
+                         (step, -step), (-step, step)]
             var moved = false
             for (deltaTop, deltaBottom) in moves {
                 let top = min(box.maxY, max(box.minY, current.top + deltaTop))
@@ -149,6 +150,7 @@ extension Geometry {
     /// pixels), or nil when the sliders are at 0. One pixel is kept clear of the antialiased edges.
     public static func perspectiveCrop(source: CGSize, options: PerspectiveOptions) -> CGRect? {
         guard let quad = keystoneQuad(source: source, options: options) else { return nil }
+        if options.cropRule == .innerEnds { return innerEndsCrop(quad) }
         guard let inner = quad.largestInnerRectangle() else {
             return CGRect(x: 0, y: 0, width: 1, height: 1)
         }
@@ -156,6 +158,16 @@ extension Geometry {
         let right = (inner.maxX - 1).rounded(.down)
         let top = (inner.minY + 1).rounded(.up)
         let bottom = (inner.maxY - 1).rounded(.down)
+        return CGRect(x: left, y: top, width: max(1, right - left), height: max(1, bottom - top))
+    }
+
+    /// The crop of the release before the empty-area choices, unchanged: each side at the inner end of its edge
+    /// (inside for a quad whose corners only move inwards), one pixel clear, whole pixels.
+    static func innerEndsCrop(_ quad: Quad) -> CGRect {
+        let left = (max(quad.topLeft.x, quad.bottomLeft.x) + 1).rounded(.up)
+        let right = (min(quad.topRight.x, quad.bottomRight.x) - 1).rounded(.down)
+        let top = (max(quad.topLeft.y, quad.topRight.y) + 1).rounded(.up)
+        let bottom = (min(quad.bottomLeft.y, quad.bottomRight.y) - 1).rounded(.down)
         return CGRect(x: left, y: top, width: max(1, right - left), height: max(1, bottom - top))
     }
 
@@ -175,12 +187,13 @@ extension Geometry {
         return keystoneBox(source: source, options: options)?.size ?? source
     }
 
-    /// Where `content` lands when scaled to fit inside `target` (aspect kept, centred, whole pixels).
+    /// Where `content` lands when scaled to fit inside `target`: one scale for both axes (the aspect kept exactly),
+    /// centred at a whole-pixel origin.
     static func fitPlacement(content: CGSize, target: CGSize) -> CGRect {
         guard content.width > 0, content.height > 0 else { return CGRect(origin: .zero, size: target) }
         let scale = min(target.width / content.width, target.height / content.height)
-        let wide = min(target.width, max(1, (content.width * scale).rounded()))
-        let high = min(target.height, max(1, (content.height * scale).rounded()))
+        let wide = min(target.width, content.width * scale)
+        let high = min(target.height, content.height * scale)
         return CGRect(x: ((target.width - wide) / 2).rounded(.down), y: ((target.height - high) / 2).rounded(.down),
                       width: wide, height: high)
     }

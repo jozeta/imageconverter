@@ -40,7 +40,13 @@ struct StepEditor: View {
         case .perspective:
             PerspectiveEditor(options: Binding(
                 get: { if case .perspective(let opts) = operation { return opts } else { return PerspectiveOptions() } },
-                set: { operation = .perspective($0) }))
+                set: { edited in
+                    // An edited step saved before the empty-area choices switches to the largest crop.
+                    var current = PerspectiveOptions()
+                    if case .perspective(let opts) = operation { current = opts }
+                    current.applyUserEdit(edited)
+                    operation = .perspective(current)
+                }))
         case .trim:
             TrimEditor(options: Binding(
                 get: { if case .trim(let opts) = operation { return opts } else { return TrimOptions() } },

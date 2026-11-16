@@ -82,17 +82,29 @@ public enum ImageEncoder {
     }
 
     private static func flattenedOnWhite(_ image: CGImage) -> CGImage? {
+        flattened(image, onto: .white)
+    }
+
+    /// `image` drawn over `matte` (its alpha ignored: opaque) into an opaque 8-bit RGB image.
+    static func flattened(_ image: CGImage, onto matte: RGBAColor) -> CGImage? {
         // Prefer the image's own RGB color space (wide gamut); extended-range spaces can't back an
         // 8-bit context, so fall back to sRGB.
         var spaces: [CGColorSpace] = []
         if let own = image.colorSpace, own.model == .rgb { spaces.append(own) }
-        if let srgb = CGColorSpace(name: CGColorSpace.sRGB) { spaces.append(srgb) }
+        guard let srgb = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+        spaces.append(srgb)
+        let clean: (Double) -> CGFloat = { CGFloat($0.isFinite ? min(1, max(0, $0)) : 1) }
+        // The matte is an sRGB colour, matched into the context's space.
+        guard let color = CGColor(colorSpace: srgb,
+                                  components: [clean(matte.red), clean(matte.green), clean(matte.blue), 1]) else {
+            return nil
+        }
         for space in spaces {
             guard let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8,
                                       bytesPerRow: 0, space: space,
                                       bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { continue }
             let rect = CGRect(x: 0, y: 0, width: image.width, height: image.height)
-            ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+            ctx.setFillColor(color)
             ctx.fill(rect)
             ctx.draw(image, in: rect)
             return ctx.makeImage()

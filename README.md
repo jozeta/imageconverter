@@ -139,8 +139,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     applied after it. **Output size**: **Fit the corrected image** (default) or **Keep original size** (exactly
     the source's width and height: the corrected image is scaled to fit inside, centred, or with *Crop to the
     image* scaled to fill and cut from the centre). **Empty areas**: **Crop to the image** (default; the largest
-    rectangle with no empty corners), **Fill with colour** (default white), **Transparent** (JPEG and BMP have no
-    transparency: they get the fill colour, and the report says "No transparency in JPEG; filled with #FFFFFF")
+    rectangle with no empty corners; steps saved by 1.3 or earlier keep their earlier crop until you change them),
+    **Fill with colour** (default white), **Transparent** (each output decides: JPEG and BMP outputs, extra outputs
+    too, get the fill colour and the report says "No transparency in JPEG; filled with #FFFFFF"; PNG keeps alpha)
     or **Extend edges** (the image's edge pixels repeated outwards). The same choices apply to Auto
   - (available) **Trim**: removes a border of transparent pixels, one **Colour**, or the **Edge colour**
     (the colour of the top-left pixel); **Tolerance** 0–100 % and **Padding** in pixels keep a margin
