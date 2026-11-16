@@ -9,22 +9,32 @@ final class RedactCorpusTests: XCTestCase {
     struct Outcome {
         let name: String
         let legible: Bool
-        let coverages: [Double]
+        /// Per padding in `paddings`, the coverage of each text.
+        let coverages: [Double: [Double]]
         let seconds: Double
-        var covered: Bool { coverages.allSatisfy { $0 >= RedactCorpusTests.required } }
+        func covered(at padding: Double) -> Bool {
+            (coverages[padding] ?? []).allSatisfy { $0 >= RedactCorpusTests.required(at: padding) }
+        }
+        var covered: Bool { RedactCorpusTests.paddings.allSatisfy(covered(at:)) }
     }
 
-    /// Anti-aliased edge pixels at the very end of a glyph may fall outside; 99.5 % of the ink must be inside.
-    static let required = 0.995
+    /// Anti-aliased edge pixels at the very end of a glyph may fall outside: 99.5 % of the ink must be inside, 98 %
+    /// without padding (Vision's boxes hug the glyphs; measured lowest: 98.7 %, a single "7").
+    static func required(at padding: Double) -> Double { padding > 0 ? 0.995 : 0.98 }
+    /// No padding, the default and a generous one: Vision's own boxes must cover the ink without help.
+    static let paddings = [0, RedactOptions.defaultPadding, 30]
 
     static func run(_ item: RedactCorpus.Case, detector: any VisionDetector = SystemVisionDetector()) -> Outcome {
         let image = RedactCorpus.image(item)
         let start = Date()
         let found = Redaction.detect(.text, in: image, detector: detector)
         let seconds = Date().timeIntervalSince(start)
-        let rects = Redaction.pixelRects(found.text, padding: RedactOptions.defaultPadding,
-                                         in: CGSize(width: image.width, height: image.height))
-        let coverages = item.texts.map { RedactCorpus.coverage(of: $0, in: item, rects: rects) }
+        var coverages: [Double: [Double]] = [:]
+        for padding in paddings {
+            let rects = Redaction.pixelRects(found.text, padding: padding,
+                                             in: CGSize(width: image.width, height: image.height))
+            coverages[padding] = item.texts.map { RedactCorpus.coverage(of: $0, in: item, rects: rects) }
+        }
         return Outcome(name: item.name, legible: item.legible, coverages: coverages, seconds: seconds)
     }
 
@@ -36,14 +46,16 @@ final class RedactCorpusTests: XCTestCase {
 
     func testEveryLegibleCorpusTextIsCovered() throws {
         try skipWithoutVision()
-        var lines = ["| Case | Coverage | Covered | Seconds |", "|---|---|---|---|"]
+        var lines = ["| Case | Lowest coverage at padding 0 / 15 / 30 % | Covered | Seconds |", "|---|---|---|---|"]
         var misses: [String] = []
         for item in RedactCorpus.all {
             let outcome = Self.run(item)
-            let coverage = outcome.coverages.map { String(format: "%.0f %%", $0 * 100) }.joined(separator: ", ")
-            lines.append("| \(item.name)\(item.legible ? "" : " (not required)") | \(coverage) | "
+            let lowest = Self.paddings.map { padding in
+                String(format: "%.1f %%", (outcome.coverages[padding]?.min() ?? 1) * 100)
+            }.joined(separator: " / ")
+            lines.append("| \(item.name)\(item.legible ? "" : " (not required)") | \(lowest) | "
                          + "\(outcome.covered ? "yes" : "NO") | \(String(format: "%.2f", outcome.seconds)) |")
-            if item.legible, !outcome.covered { misses.append("\(item.name): \(coverage)") }
+            if item.legible, !outcome.covered { misses.append("\(item.name): \(lowest)") }
         }
         print(lines.joined(separator: "\n"))
         XCTAssertEqual(misses, [], "text left visible")
@@ -57,16 +69,20 @@ final class RedactCorpusTests: XCTestCase {
     }
 
     func testTilesCoverLargeImagesWithOverlapAndFullSizeTiles() {
+        XCTAssertEqual(TextTiles.side, 896)
+        XCTAssertEqual(TextTiles.overlap, 192)
         XCTAssertEqual(TextTiles.tiles(width: 2048, height: 1500), [], "one Vision copy is enough")
-        let tiles = TextTiles.tiles(width: 6000, height: 4000)
         XCTAssertEqual(TextTiles.origins(length: 6000, side: 2048, overlap: 256), [0, 1792, 3584, 3952])
-        XCTAssertEqual(tiles.count, 4 * 3)
-        XCTAssertTrue(tiles.allSatisfy { $0.width == 2048 && $0.height == 2048 })
+        XCTAssertEqual(TextTiles.origins(length: 6000, side: 896, overlap: 192),
+                       [0, 704, 1408, 2112, 2816, 3520, 4224, 4928, 5104])
+        let tiles = TextTiles.tiles(width: 6000, height: 4000)
+        XCTAssertEqual(tiles.count, 9 * 6)
+        XCTAssertTrue(tiles.allSatisfy { $0.width == 896 && $0.height == 896 })
         XCTAssertEqual(tiles.map(\.maxX).max(), 6000)
         XCTAssertEqual(tiles.map(\.maxY).max(), 4000)
-        let narrow = TextTiles.tiles(width: 900, height: 5000)
-        XCTAssertEqual(narrow.map(\.width), [900, 900, 900])
-        XCTAssertEqual(narrow.map(\.minY), [0, 1792, 2952])
+        let narrow = TextTiles.tiles(width: 800, height: 3000)
+        XCTAssertEqual(Set(narrow.map(\.width)), [800])
+        XCTAssertEqual(narrow.map(\.minY), [0, 704, 1408, 2104])
     }
 
     func testTileBoxesMapBackToTheImage() {

@@ -75,6 +75,7 @@ extension Pipeline {
         let rects = Redaction.pixelRects(found.faces + found.text, padding: options.clampedPadding, in: size)
         let note = Redaction.note(faces: found.faces.count, text: TextBoxes.distinctCount(found.text))
         if !notes.contains(note) { notes.append(note) }
+        if let raised = options.raisedNote(for: rects), !notes.contains(raised) { notes.append(raised) }
         return rects
     }
 }

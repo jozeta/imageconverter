@@ -48,7 +48,22 @@ enum RedactCorpus {
 
     // MARK: - Cases
 
-    static let all: [Case] = basics + rotations + fonts + layouts + large
+    static let all: [Case] = basics + rotations + fonts + layouts + large + sweeps
+
+    /// 20 lines of small text spread over a 5 × 4 grid of a busy image, alternately black and white: one placement
+    /// can pass by luck, a grid can't (at 8000 × 6000, 2048 px tiles covered 7 of 20 lines of 20 or 24 px).
+    static let sweeps: [Case] = [(20.0, 8000, 6000), (24.0, 8000, 6000), (24.0, 2600, 1950), (16.0, 2048, 1536)]
+        .map { size, width, height in
+        let texts = (0..<20).map { index in
+            Text(string: "Serial \(1000 + index) 7781", font: "Helvetica", size: size,
+                 color: index.isMultiple(of: 2) ? RGBAColor(red: 0, green: 0, blue: 0, alpha: 1) : white,
+                 center: CGPoint(x: Double(width) * (Double(index / 4) + 0.5) / 5 + 37,
+                                 y: Double(height) * (Double(index % 4) + 0.5) / 4 + 11))
+        }
+        return Case(name: "\(width) px grid, 20 lines of \(Int(size)) px", width: width, height: height,
+                    background: .photo,
+                    texts: texts)
+    }
 
     private static let white = RGBAColor(red: 1, green: 1, blue: 1, alpha: 1)
     private static func gray(_ value: Double) -> RGBAColor { RGBAColor(red: value, green: value, blue: value, alpha: 1) }

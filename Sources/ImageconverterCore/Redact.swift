@@ -94,10 +94,36 @@ public struct RedactOptions: Codable, Equatable, Sendable {
     /// The fixed blur radius within `blurRadiusRange`; nil for Auto.
     public var clampedBlurRadius: Double? { Self.clamped(fixedBlurRadius, to: Self.blurRadiusRange) }
 
-    /// Pixelate's block size for `rect` (whole pixels of the step's input).
-    public func blockSize(for rect: CGRect) -> Double { clampedBlockSize ?? Redaction.blockSize(for: rect) }
-    /// Blur's radius for `rect`.
-    public func blurRadius(for rect: CGRect) -> Double { clampedBlurRadius ?? Redaction.blurRadius(for: rect) }
+    /// Pixelate's block size for `rect` (whole pixels of the step's input): Auto, or the fixed size raised to
+    /// `Redaction.minimumFixedSize(for:)` so small blocks never leave text or a face readable.
+    public func blockSize(for rect: CGRect) -> Double {
+        clampedBlockSize.map { max($0, Redaction.minimumFixedSize(for: rect)) } ?? Redaction.blockSize(for: rect)
+    }
+
+    /// Blur's radius for `rect`: Auto, or the fixed radius raised to the same floor.
+    public func blurRadius(for rect: CGRect) -> Double {
+        clampedBlurRadius.map { max($0, Redaction.minimumFixedSize(for: rect)) } ?? Redaction.blurRadius(for: rect)
+    }
+
+    /// True when the chosen style's fixed size is below the floor for `rect`, so it is drawn larger.
+    public func raisesFixedSize(for rect: CGRect) -> Bool {
+        let fixed: Double?
+        switch style {
+        case .pixelate: fixed = clampedBlockSize
+        case .blur: fixed = clampedBlurRadius
+        case .fill: fixed = nil
+        }
+        guard let fixed else { return false }
+        return fixed < Redaction.minimumFixedSize(for: rect)
+    }
+
+    /// "Block size raised to keep 2 areas unreadable"; nil when no box needed it.
+    public func raisedNote(for rects: [CGRect]) -> String? {
+        let count = rects.filter(raisesFixedSize(for:)).count
+        guard count > 0 else { return nil }
+        let what = style == .pixelate ? "Block size" : "Blur strength"
+        return "\(what) raised to keep \(count) \(count == 1 ? "area" : "areas") unreadable"
+    }
 
     private static func clamped(_ value: Double?, to range: ClosedRange<Double>) -> Double? {
         guard let value, value.isFinite else { return nil }
@@ -201,6 +227,12 @@ public enum Redaction {
         max(6, Double(min(rect.width, rect.height)) / 3)
     }
 
+    /// The smallest fixed block size or blur radius for a box: 8 px, or a fifth of its shorter side when that is
+    /// more (smaller blocks or radii left 40 px text readable to Vision).
+    public static func minimumFixedSize(for rect: CGRect) -> Double {
+        max(8, Double(min(rect.width, rect.height)) / 5)
+    }
+
     /// The pixel block size for a box: a third of its shorter side (at least 6 px), so about three blocks span
     /// it: a face or a line of text keeps no readable detail.
     public static func blockSize(for rect: CGRect) -> Double {
@@ -222,12 +254,13 @@ public enum Redaction {
     /// detection records the reason; the step then fails the image rather than write it unchecked.
     public static func detect(_ target: RedactTarget, in image: CGImage, detector: any VisionDetector)
         -> RedactDetections {
-        guard let input = VisionInput.prepared(image, maxSide: textMaxLongSide) else {
-            return RedactDetections(failure: "the image couldn't be prepared")
-        }
         var result = RedactDetections()
         var failures: [String] = []
         if target.includesFaces {
+            // Only faces need the copy made here; the text detector makes its own.
+            guard let input = VisionInput.prepared(image, maxSide: textMaxLongSide) else {
+                return RedactDetections(failure: "the image couldn't be prepared")
+            }
             do {
                 result.faces = try detector.faceRects(in: input, maxSide: textMaxLongSide).compactMap(sanitized)
             } catch {

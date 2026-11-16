@@ -1,4 +1,5 @@
 import CoreGraphics
+import Vision
 import XCTest
 @testable import ImageconverterCore
 
@@ -15,8 +16,39 @@ final class RedactSizeTests: XCTestCase {
         fixed.fixedBlockSize = 12
         fixed.fixedBlurRadius = 9
         XCTAssertEqual(fixed.blockSize(for: small), 12)
-        XCTAssertEqual(fixed.blockSize(for: large), 12)
-        XCTAssertEqual(fixed.blurRadius(for: large), 9)
+        XCTAssertEqual(fixed.blurRadius(for: small), 9)
+        // The safety floor: at least 8 px and a fifth of the box's shorter side (300 → 60).
+        XCTAssertEqual(fixed.blockSize(for: large), 60)
+        XCTAssertEqual(fixed.blurRadius(for: large), 60)
+        XCTAssertTrue(fixed.raisesFixedSize(for: large))
+        XCTAssertFalse(fixed.raisesFixedSize(for: small))
+        fixed.fixedBlockSize = 4
+        XCTAssertEqual(fixed.blockSize(for: small), 8, "never below 8 px")
+        XCTAssertEqual(Redaction.minimumFixedSize(for: CGRect(x: 0, y: 0, width: 200, height: 10)), 8)
+        XCTAssertEqual(Redaction.minimumFixedSize(for: large), 60)
+        XCTAssertFalse(auto.raisesFixedSize(for: large), "Auto is never raised")
+        var fill = fixed
+        fill.style = .fill
+        XCTAssertFalse(fill.raisesFixedSize(for: large), "a solid colour has no size")
+    }
+
+    func testRaisedSizesAreNotedOnce() throws {
+        let image = TestImages.noise(width: 400, height: 200)
+        let boxes = [CGRect(x: 0, y: 0, width: 0.5, height: 0.5), CGRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5),
+                     CGRect(x: 0.6, y: 0, width: 0.02, height: 0.02)]
+        // 12 px blocks: below the floor of the two large boxes (20 px), above it for the tiny one (8 px).
+        var options = RedactOptions(target: .text, style: .pixelate)
+        options.fixedBlockSize = 12
+        var notes: [String] = []
+        let pipeline = Pipeline(steps: [PipelineStep(operation: .redact(options))])
+        _ = try pipeline.apply(to: image, focus: FocusContext(detector: FakeVisionDetector(text: boxes)), notes: &notes)
+        XCTAssertEqual(notes, ["Redacted 3 text areas", "Block size raised to keep 2 areas unreadable"])
+        options.style = .blur
+        options.fixedBlurRadius = 2
+        notes = []
+        _ = try Pipeline(steps: [PipelineStep(operation: .redact(options))])
+            .apply(to: image, focus: FocusContext(detector: FakeVisionDetector(text: [boxes[0]])), notes: &notes)
+        XCTAssertEqual(notes, ["Redacted 1 text area", "Blur strength raised to keep 1 area unreadable"])
     }
 
     func testFixedValuesAreClamped() {
@@ -70,35 +102,63 @@ final class RedactSizeTests: XCTestCase {
         var options = RedactOptions(style: .pixelate)
         options.fixedBlockSize = 4
         let out = try ImageOps.redact(image, options, rects: [rect])
-        // Blocks start at the box's corner: (0…3, 0…3) is one colour, (4, 0) the next block.
+        // Raised to the floor of 16 px (a fifth of 80): blocks start at the box's corner, (0…15) is one colour.
         let first = TestImages.pixel(of: out, x: 0, y: 0)
-        let same = TestImages.pixel(of: out, x: 3, y: 3)
+        let same = TestImages.pixel(of: out, x: 15, y: 15)
         XCTAssertEqual(first.red, same.red, accuracy: 1)
         XCTAssertEqual(first.green, same.green, accuracy: 1)
         var differs = 0
-        for block in 1..<10 where abs(TestImages.pixel(of: out, x: block * 4, y: 0).red
-                                     - TestImages.pixel(of: out, x: block * 4 - 1, y: 0).red) > 2 {
+        for block in 1..<5 where abs(TestImages.pixel(of: out, x: block * 16, y: 0).red
+                                    - TestImages.pixel(of: out, x: block * 16 - 1, y: 0).red) > 2 {
             differs += 1
         }
-        XCTAssertGreaterThan(differs, 5, "4 px blocks, not Auto's 27 px")
+        XCTAssertGreaterThan(differs, 2, "16 px blocks, not Auto's 27 px")
     }
 
-    func testFixedBlurRadiusKeepsMoreDetailWhenSmall() throws {
+    func testFixedBlurRadiusIsRaisedToTheFloorAndUsedAboveIt() throws {
         let image = TestImages.noise(width: 120, height: 120)
         let rect = CGRect(x: 0, y: 0, width: 120, height: 120)
         var light = RedactOptions(style: .blur)
         light.fixedBlurRadius = 2
-        let soft = try ImageOps.redact(image, light, rects: [rect])
-        let strong = try ImageOps.redact(image, RedactOptions(style: .blur), rects: [rect])
-        XCTAssertGreaterThan(Self.roughness(soft), Self.roughness(strong) * 3)
+        var floor = light
+        floor.fixedBlurRadius = 24
+        let raised = try ImageOps.redact(image, light, rects: [rect])
+        let atFloor = try ImageOps.redact(image, floor, rects: [rect])
+        XCTAssertEqual(raised.dataProvider?.data as Data?, atFloor.dataProvider?.data as Data?, "2 px is drawn as 24 px")
+        var above = light
+        above.fixedBlurRadius = 30
+        let stronger = try ImageOps.redact(image, above, rects: [rect])
+        XCTAssertNotEqual(stronger.dataProvider?.data as Data?, atFloor.dataProvider?.data as Data?,
+                          "above the floor the fixed radius is used")
     }
 
-    /// Mean difference between horizontal neighbours on the middle row (red).
-    private static func roughness(_ image: CGImage) -> Double {
-        var sum = 0.0
-        for col in 30..<90 {
-            sum += abs(TestImages.pixel(of: image, x: col, y: 60).red - TestImages.pixel(of: image, x: col + 1, y: 60).red)
+    /// Real Vision reads the result back: the smallest fixed sizes, raised by the floor, leave 40 px text unreadable.
+    func testSmallFixedSizesLeaveTextUnreadable() throws {
+        let item = RedactCorpus.Case(name: "40 px", width: 1200, height: 400, background: .white,
+                                     texts: [RedactCorpus.Text(string: "Membership 77341", font: "Helvetica", size: 40,
+                                                               center: CGPoint(x: 600, y: 200))])
+        let image = RedactCorpus.image(item)
+        let found = Redaction.detect(.text, in: image, detector: SystemVisionDetector())
+        try XCTSkipIf(found.failure != nil || found.text.isEmpty, "Vision found no text here (CI virtual machine?)")
+        let rects = Redaction.pixelRects(found.text, padding: RedactOptions.defaultPadding,
+                                         in: CGSize(width: image.width, height: image.height))
+        var pixelate = RedactOptions(target: .text, style: .pixelate)
+        pixelate.fixedBlockSize = 4
+        var blur = RedactOptions(target: .text, style: .blur)
+        blur.fixedBlurRadius = 2
+        for options in [pixelate, blur] {
+            let out = try ImageOps.redact(image, options, rects: rects)
+            let read = try Self.readText(in: out)
+            XCTAssertFalse(read.contains("773") || read.contains("341") || read.lowercased().contains("member"),
+                           "\(options.summary) read back as \(read)")
         }
-        return sum / 60
+    }
+
+    /// Everything accurate recognition reads in `image`.
+    private static func readText(in image: CGImage) throws -> String {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        try VNImageRequestHandler(cgImage: image, options: [:]).perform([request])
+        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
     }
 }

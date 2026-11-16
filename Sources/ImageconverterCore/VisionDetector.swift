@@ -52,10 +52,12 @@ public struct VisionInputError: LocalizedError {
 
 /// The full-resolution tiles text detection reads in a large image: `side` pixels square (smaller images: none),
 /// overlapping by `overlap` so a glyph cut by one tile's edge is whole in its neighbour; the last tile on each
-/// side ends at the image's edge, so every tile is full size.
+/// side ends at the image's edge, so every tile is full size. Chosen by measurement on 20-line grids of 20 and 24 px
+/// text on a busy 8000 × 6000 image at four grid offsets: 2048 px tiles found 7 of 20 lines, 1024/192 and 1024/256
+/// missed one line at some offsets, 896/192 found 20 of 20 at every offset (24 MP: about 1.3 s).
 public enum TextTiles {
-    public static let side = 2048
-    public static let overlap = 256
+    public static let side = 896
+    public static let overlap = 192
 
     /// Top-left-origin pixel rects; empty when the image fits one Vision copy (`Redaction.textMaxLongSide`).
     public static func tiles(width: Int, height: Int, side: Int = side, overlap: Int = overlap) -> [CGRect] {
@@ -132,8 +134,9 @@ public struct SystemVisionDetector: VisionDetector {
 
     /// Text for Redact: the whole image on a copy of up to `Redaction.textMaxLongSide` pixels (recognised lines and
     /// text rectangles), and, when the image is larger, recognised lines in full-resolution tiles
-    /// (`TextTiles`): Vision reads at about 2 000 pixels whatever it is given, so small text in a large image would
-    /// vanish. Accurate recognition: fast recognition misses single digits, text turned 30° or more and text cut
+    /// (`TextTiles`): small text shrunk onto the copy is lost, and handing Vision the whole full-resolution image
+    /// found none of it either (measured; `minimumTextHeight` made no difference), while small tiles did. Accurate
+    /// recognition: fast recognition misses single digits, text turned 30° or more and text cut
     /// by an edge. Throws when the image or a tile can't be prepared, so the step fails closed.
     public func textRects(in image: CGImage) throws -> [CGRect] {
         guard let input = VisionInput.prepared(image, maxSide: Redaction.textMaxLongSide) else {

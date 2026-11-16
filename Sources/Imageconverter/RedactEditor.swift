@@ -102,7 +102,8 @@ private struct RedactSizeRow: View {
                         .frame(width: 52, alignment: .trailing)
                         .accessibilityHidden(true)
                 }
-                Text("In pixels of the image as it reaches this step; the same for every box.")
+                Text("In pixels of the image as it reaches this step. "
+                     + "Small sizes are raised where needed so text and faces stay unreadable.")
                     .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
