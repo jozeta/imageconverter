@@ -206,6 +206,18 @@ public enum VariantFolderPolicy: Sendable {
     /// The app and jobs: such an output is not written (a note says to choose its folder again); never written
     /// silently to a folder the user didn't choose in this app.
     case confirmedOnly
+    /// The app's run: like `confirmedOnly`, but folders the user chose in this run's open panels (`chosen`: stored
+    /// paths) are written to even when no bookmark could be made for them (the panel gave this process access).
+    case confirmedOr(chosen: Set<String>)
+
+    /// Whether an unconfirmed folder stored as `path` is written to.
+    func trustsUnconfirmed(_ path: String) -> Bool {
+        switch self {
+        case .trustPaths: return true
+        case .confirmedOnly: return false
+        case .confirmedOr(let chosen): return chosen.contains(path)
+        }
+    }
 }
 
 /// The chosen folders of a batch's extra outputs, resolved once per run (`VariantFolder.resolution`): where each is
@@ -213,7 +225,7 @@ public enum VariantFolderPolicy: Sendable {
 final class VariantFolderAccess: @unchecked Sendable {
     /// Stored path → the folder now.
     let folders: [String: URL]
-    /// Stored paths that weren't confirmed and, under `.confirmedOnly`, are not written to.
+    /// Stored paths that weren't confirmed and that `policy` doesn't trust: not written to.
     let refused: Set<String>
     private let grant: FolderAccess.Grant
 
@@ -225,7 +237,7 @@ final class VariantFolderAccess: @unchecked Sendable {
             guard case .folder(let folder)? = variant.destination, folder.isChosen, folders[folder.path] == nil,
                   !refused.contains(folder.path) else { continue }
             let resolution = folder.resolution(resolver: resolver)
-            if !resolution.isConfirmed, policy == .confirmedOnly {
+            if !resolution.isConfirmed, !policy.trustsUnconfirmed(folder.path) {
                 refused.insert(folder.path)
             } else {
                 folders[folder.path] = resolution.url

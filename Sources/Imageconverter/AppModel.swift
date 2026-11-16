@@ -257,7 +257,9 @@ final class AppModel {
         // `{preset}` names the preset the run uses (a service or link runs a preset that isn't selected).
         guard !isRunning, !batch.isEmpty else { return .busy }
         // Extra outputs' folders resolved once (moved ones followed) and unconfirmed ones asked for again.
-        guard let pipeline = confirmVariantFolders(pipeline, named: presetName) else { return .noAccess }
+        guard let (pipeline, variantFolders) = confirmVariantFolders(pipeline, named: presetName) else {
+            return .noAccess
+        }
         guard await AccessStore.shared.ensureAccess(sources: batch.map(\.source), mode: mode,
                                                     extraOutputs: pipeline.extraOutputs, toasts: toasts,
                                                     quiet: quietAccess) else {
@@ -285,6 +287,7 @@ final class AppModel {
             let report = await BatchRunner.run(batch, pipeline: pipeline, mode: mode, control: control,
                                                journal: AppDefaults.journalURL, presets: presets,
                                                enlarger: external ? SystemSuperResolution.shared : SystemSuperResolution.inApp,
+                                               variantFolders: variantFolders,
                                                progress: { update in
                 // `.userInitiated`: inheriting the batch's `.utility` would let the bar lag behind the workers.
                 Task(priority: .userInitiated) { @MainActor in

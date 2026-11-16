@@ -93,6 +93,24 @@ final class VariantFolderResolutionTests: XCTestCase {
         XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: elsewhere.path), [])
     }
 
+    func testAFolderJustChosenWithoutABookmarkIsWritten() async throws {
+        // The user chose the folder in this run's open panel, but no bookmark could be made: the run still
+        // writes there (the panel gave access), other unconfirmed folders are still refused.
+        let photo = try source("a.jpg", in: root.appendingPathComponent("src"))
+        let chosen = root.appendingPathComponent("Chosen", isDirectory: true)
+        let other = root.appendingPathComponent("Other", isDirectory: true)
+        for folder in [chosen, other] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let pipeline = Pipeline(output: OutputSettings(format: .jpeg), extraOutputs: [
+            OutputVariant(name: "Web", nameSuffix: "_web", destination: .folder(VariantFolder(path: chosen.path))),
+            OutputVariant(name: "Print", nameSuffix: "_print", destination: .folder(VariantFolder(path: other.path))),
+        ])
+        let report = await BatchRunner.run(items([photo]), pipeline: pipeline, mode: .newFolder(out),
+                                           variantFolders: .confirmedOr(chosen: [chosen.path]))
+        XCTAssertEqual(report.written.map(relative), ["out/a.jpg", "Chosen/a_web.jpg"])
+        XCTAssertTrue(report.entries.contains { ($0.note ?? "").contains("“Print” not written") },
+                      "\(report.entries.map(\.note))")
+    }
+
     func testAPlainBookmarkToTheStoredPathIsConfirmedOnlyOutsideTheSandbox() throws {
         let folderURL = root.appendingPathComponent("Same", isDirectory: true)
         try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: true)

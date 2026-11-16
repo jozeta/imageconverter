@@ -164,6 +164,27 @@ final class ColorReduceTests: XCTestCase {
         XCTAssertEqual(colourType(encoded.data), 3)
     }
 
+    func testResizedPNGExtraOutputSaysItsOwnSizeChangeAddedColours() throws {
+        let dir = try TestImages.tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appendingPathComponent("noise.png")
+        try TestImages.write(TestImages.noise(width: 96, height: 64), to: source, type: .png)
+        var pipeline = Pipeline(steps: [PipelineStep(operation: .colorProfile(
+            ColorOptions(profile: .sRGB, reduce: ColorReduction(isEnabled: true, count: 16, dither: true))))])
+        pipeline.output.format = .png
+        let small = OutputVariant(name: "Small", settings: png(), resize: .longestEdge(40))
+        let same = OutputVariant(name: "Same", settings: png(), resize: nil)
+        pipeline.extraOutputs = [small, same]
+        let item = try BatchRunner.encodeItem(source, pipeline: pipeline, assets: .empty, maxPixels: 10_000_000,
+                                              variants: [small, same])
+        let resized = try XCTUnwrap(item.variants.first).outcome.get()
+        XCTAssertEqual(resized.note, IndexedPNG.note(IndexedPNG.resizedByOutput))
+        XCTAssertFalse((resized.note ?? "").contains("a step after"))
+        let unchanged = try XCTUnwrap(item.variants.last).outcome.get()
+        XCTAssertEqual(colourType(unchanged.data), 3, "an extra output without its own size is still indexed")
+        XCTAssertNil(unchanged.note)
+    }
+
     func testCRC() {
         XCTAssertEqual(IndexedPNG.crc32(Array("IEND".utf8)), 0xAE42_6082)
     }

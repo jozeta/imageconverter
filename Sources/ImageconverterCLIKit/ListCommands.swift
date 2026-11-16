@@ -39,6 +39,10 @@ enum JobsCommand {
             return CLIExit.usage
         }
         let presets = PresetStore(directory: environment.presetDirectory)
+        // Like `convert`: every extra output's folder is named first (one the app can't confirm isn't written).
+        if let pipeline = job.resolvedPipeline(presets: presets.loadAll().presets) {
+            ConvertCommand.announceExtraOutputs(pipeline, mode: job.output, environment: environment)
+        }
         let progress = CLIRunner.progressReporter(quiet: quiet, environment: environment)
         let result = await environment.cancel.run {
             await JobRunner.run(job, store: jobStore, presetStore: presets, trash: environment.trash,

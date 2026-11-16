@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- Extra outputs' folders: a folder you choose again in Run's open panel is written to even when no bookmark could be made for it (it was refused with a note before; `VariantFolderPolicy.confirmedOr`); two outputs that share a folder to choose again ask once; the panel flags a confirmed folder again when it has been deleted since; `imageconverter jobs run` names every extra output's folder first, like `convert`; a resized PNG extra output of a reduced-colour image says "this output's size change added colours" instead of blaming a later step.
 - **Warm Adjust looks are golden**: Golden Hour, Vivid Warm and Dramatic Warm use much more warmth, a little magenta and less vibrance (which pulled skies and grass back to blue and green); on the sample meadow and sunset photos the mean red minus blue now rises by 20–39 levels and nothing turns greener (`AdjustWarmLooksTests`).
 - **Adjust sliders with 0 in the middle** (every −100…+100 slider and Hue) now fill from the centre to the knob, like Soft ↔ Sharp; the fill ends exactly under the knob's centre (the knob's inset travel is taken into account), the neutral tick is drawn over the fill and the track is easier to see. The slider is called **Soft ↔ Sharp** everywhere (editor, step summary help, README).
 

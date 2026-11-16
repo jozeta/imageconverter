@@ -47,6 +47,8 @@ enum IndexedPNG {
 
     static let maxColors = 256
     static let changedAfterReduce = "a step after Reduce colours changed the pixels"
+    /// An extra output's own size change blends neighbouring palette colours into new ones.
+    static let resizedByOutput = "this output's size change added colours"
 
     static func note(_ reason: String) -> String { "Not written as an indexed PNG: \(reason)" }
 

@@ -120,7 +120,12 @@ extension BatchRunner {
                                                  indexedPNG: pipeline.reducesColors)
         let taken = pipeline.metadata.isActive && pipeline.metadata.setFileDates
             ? MetadataDates.dateTaken(in: properties) : nil
-        let notes = [losslessNote, matteNote, result.note].compactMap { $0 }
+        // The palette was lost to this output's own resize, not to a pipeline step: say so.
+        var encodeNote = result.note
+        if resized !== prepared.image, encodeNote == IndexedPNG.note(IndexedPNG.changedAfterReduce) {
+            encodeNote = IndexedPNG.note(IndexedPNG.resizedByOutput)
+        }
+        let notes = [losslessNote, matteNote, encodeNote].compactMap { $0 }
         return EncodedItem(data: result.data, source: prepared.source, downsampled: prepared.downsampled,
                            quality: result.quality, note: notes.isEmpty ? nil : notes.joined(separator: "; "),
                            dateTaken: taken)
