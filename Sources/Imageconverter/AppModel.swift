@@ -5,7 +5,9 @@ import ImageconverterCore
 
 @MainActor @Observable
 final class AppModel {
-    var items: [InputItem] = [] { didSet { schedulePrivacyScan() } }
+    var items: [InputItem] = [] { didSet { itemsChanged(from: oldValue) } }
+    /// The metadata panel: open or closed, the row to highlight, the images with changes (`AppModel+MetadataOverrides`).
+    let inspector: InspectorState
     let privacy = PrivacyState()  // the privacy scan's results and panel (`AppModel+Privacy.swift`)
     /// The selected preset and the pipeline being edited; both are saved to `UserDefaults` on every change.
     var session: PresetSession {
@@ -125,7 +127,9 @@ final class AppModel {
         pipelineCollapsed = defaults.bool(forKey: Self.pipelineCollapsedKey)
         outputPanel = OutputPanelState(defaults: defaults)
         lowMemoryMode = defaults.bool(forKey: Self.lowMemoryModeKey)
-        windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey), defaults: defaults)
+        inspector = InspectorState(defaults: defaults)
+        windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey),
+                                  inspectorShown: inspector.isOpen, defaults: defaults)
         let saved = Self.loadPipeline(from: defaults)
         session = PresetSession(selected: nil, pipeline: saved)
         let result = presetStore.loadAll()
@@ -170,17 +174,6 @@ final class AppModel {
             operation = .watermark(options)
         }
         return operation
-    }
-
-    func removeStep(_ id: PipelineStep.ID) {
-        pipeline.steps.removeAll { $0.id == id }
-    }
-
-    func moveStep(_ id: PipelineStep.ID, by offset: Int) {
-        guard let index = pipeline.steps.firstIndex(where: { $0.id == id }) else { return }
-        let target = index + offset
-        guard pipeline.steps.indices.contains(target) else { return }
-        pipeline.steps.swapAt(index, target)
     }
 
     /// Drag and drop: puts `id` where `target` is now.
@@ -338,6 +331,17 @@ enum AppRunStart: Equatable {
 }
 
 extension AppModel {
+    func removeStep(_ id: PipelineStep.ID) {
+        pipeline.steps.removeAll { $0.id == id }
+    }
+
+    func moveStep(_ id: PipelineStep.ID, by offset: Int) {
+        guard let index = pipeline.steps.firstIndex(where: { $0.id == id }) else { return }
+        let target = index + offset
+        guard pipeline.steps.indices.contains(target) else { return }
+        pipeline.steps.swapAt(index, target)
+    }
+
     /// Asks for files and folders to add (not while a run is in progress).
     func chooseInputs() {
         guard !isRunning else { return }

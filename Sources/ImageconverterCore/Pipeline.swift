@@ -175,6 +175,7 @@ public struct Pipeline: Codable, Equatable, Sendable {
     public var loadNotes = PipelineLoadNotes()
     /// The preset name for `{preset}` (`Pipeline+PresetName.swift`; not saved, never makes pipelines unequal).
     var presetTag = PresetNameTag()
+    public var metadataOverrides = MetadataOverrides()  // one image's metadata panel changes; not saved
 
     public init(schemaVersion: Int = 1, steps: [PipelineStep] = [], output: OutputSettings = OutputSettings(),
                 metadata: MetadataOptions = MetadataOptions(), rename: RenameOptions = RenameOptions(),

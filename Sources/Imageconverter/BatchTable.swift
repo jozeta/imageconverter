@@ -27,11 +27,14 @@ struct BatchTable: View {
             })
         Table(rows, selection: selection) {
             TableColumn("Name") { row in
-                Text(row.item.source.lastPathComponent)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .help(row.item.source.path)
-                    .task(id: row.id) { await model.loadSummary(for: row.id) }
+                HStack(spacing: LadaGlass.Spacing.xs) {
+                    Text(row.item.source.lastPathComponent)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .help(row.item.source.path)
+                    if model.hasMetadataEdits(row.id) { MetadataEditBadge() }
+                }
+                .task(id: row.id) { await model.loadSummary(for: row.id) }
             }
             .width(min: 120, ideal: 200)
             TableColumn("Dimensions") { row in

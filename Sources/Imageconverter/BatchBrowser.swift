@@ -55,7 +55,31 @@ struct BatchThumbnail: View {
         .overlay(alignment: .bottomTrailing) {
             if let stage = model.monitor.stage(for: item.source) { StageRing(stage: stage).padding(2) }
         }
+        // This image's outputs get metadata panel changes.
+        .overlay(alignment: .topTrailing) {
+            if model.hasMetadataEdits(item.source) { MetadataEditBadge().padding(2) }
+        }
         .task(id: item.source) { await model.loadThumbnail(for: item.source) }
+    }
+}
+
+/// The mark on an image whose outputs get metadata panel changes.
+struct MetadataEditBadge: View {
+    var body: some View {
+        Image(systemName: "pencil.circle.fill")
+            .font(.system(size: 12, weight: .semibold))
+            .symbolRenderingMode(.palette)
+            .foregroundStyle(LadaGlass.Colors.onAccent, LadaGlass.accent.color)
+            .help("Metadata changed for this image's outputs")
+            .accessibilityLabel("Metadata changed")
+    }
+}
+
+extension AppModel {
+    /// A batch cell's VoiceOver value: its run stage, and whether its metadata is changed.
+    func cellAccessibilityValue(_ source: URL) -> String {
+        [monitor.stage(for: source)?.title, hasMetadataEdits(source) ? "metadata changed" : nil]
+            .compactMap { $0 }.joined(separator: ", ")
     }
 }
 
@@ -103,7 +127,7 @@ struct Filmstrip: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.source.lastPathComponent)
-        .accessibilityValue(model.monitor.stage(for: item.source)?.title ?? "")
+        .accessibilityValue(model.cellAccessibilityValue(item.source))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .processNextMenu(model: model, sources: [item.source])
     }
@@ -175,7 +199,7 @@ struct BatchGrid: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(item.source.lastPathComponent)
-        .accessibilityValue(model.monitor.stage(for: item.source)?.title ?? "")
+        .accessibilityValue(model.cellAccessibilityValue(item.source))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .processNextMenu(model: model, sources: [item.source])
     }

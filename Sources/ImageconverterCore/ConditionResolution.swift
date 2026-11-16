@@ -168,11 +168,14 @@ extension Pipeline {
                                      notes: inout [String]) -> Bool {
         let redactions = result.steps.filter { $0.isEnabled && $0.operation.kind == .redact }
         let hidesMetadata = result.metadata.hidesSourceData
-        guard !redactions.isEmpty || hidesMetadata else { return false }
+        // The metadata panel's changes are for this image's outputs, a copy included.
+        let editsMetadata = !result.metadataOverrides.isEmpty
+        guard !redactions.isEmpty || hidesMetadata || editsMetadata else { return false }
         result.steps = redactions
         result.output = .faithful(format ?? result.output.format)
         if !redactions.isEmpty { notes.append(Redaction.convertedToRedactNote) }
         if hidesMetadata { notes.append(ConditionalStep.convertedForPrivacyNote) }
+        if editsMetadata, !hidesMetadata { notes.append(ConditionalStep.convertedForMetadataEditsNote) }
         if let note = notAppliedNote(presetSteps) { notes.append(note) }
         return true
     }

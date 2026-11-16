@@ -48,7 +48,8 @@ public enum SizeEstimator {
         presets: PresetLibrary = .standard, enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
         caches: PreviewCaches? = nil, detector: any VisionDetector = SystemVisionDetector()
     ) throws -> EncodedPreview {
-        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
+        let resolved = unresolved.withMetadataOverrides(item.metadataOverrides)
+            .resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         switch resolved.disposition {
         case .skip: throw ConversionError.skippedByCondition
         case .copyOriginal:

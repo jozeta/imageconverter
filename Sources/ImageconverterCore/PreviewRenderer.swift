@@ -157,7 +157,8 @@ public actor PreviewRenderer {
                        presets: PresetLibrary = .standard) async -> PreviewOutcome {
         let cancelled = PreviewOutcome.failed(reason: "Cancelled")
         if Task.isCancelled { return cancelled }
-        let resolved = unresolved.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
+        let resolved = unresolved.withMetadataOverrides(item.metadataOverrides)
+            .resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         let pipeline = resolved.pipeline
         if resolved.disposition != .process { return unchanged(item: item, index: index, resolved: resolved, mode: mode) }
         let assets = watermarkAssets(for: pipeline)

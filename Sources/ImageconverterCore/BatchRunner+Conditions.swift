@@ -258,8 +258,8 @@ extension BatchRunner {
     static func resolveAll(_ items: [InputItem], pipeline: Pipeline, maxPixels: Int, presets: PresetLibrary = .standard,
                            analysis: ImageAnalysisCache = .shared) async -> [ResolvedPipeline]? {
         guard pipeline.needsFacts else {
-            let plain = ResolvedPipeline(pipeline: pipeline.withoutConditions)
-            return items.map { _ in plain }
+            let plain = pipeline.withoutConditions
+            return items.map { ResolvedPipeline(pipeline: plain.withMetadataOverrides($0.metadataOverrides)) }
         }
         var resolved = [ResolvedPipeline?](repeating: nil, count: items.count)
         let finished = await withTaskGroup(of: (Int, ResolvedPipeline).self) { group -> Bool in
@@ -267,9 +267,12 @@ extension BatchRunner {
             func startNext() {
                 let index = next
                 let url = items[index].source
+                // The item's metadata panel changes travel with its pipeline through the resolution.
+                let itemPipeline = pipeline.withMetadataOverrides(items[index].metadataOverrides)
                 next += 1
                 group.addTask {
-                    (index, pipeline.resolved(forSource: url, maxPixels: maxPixels, presets: presets, analysis: analysis))
+                    (index, itemPipeline.resolved(forSource: url, maxPixels: maxPixels, presets: presets,
+                                                  analysis: analysis))
                 }
             }
             while next < min(items.count, factReaders) { startNext() }

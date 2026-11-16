@@ -42,7 +42,8 @@ public enum QualityLadder {
         caches: PreviewCaches? = nil, detector: any VisionDetector = SystemVisionDetector()
     ) throws -> [Rung] {
         // A copied or skipped item has no quality to choose.
-        let resolved = pipeline.resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
+        let resolved = pipeline.withMetadataOverrides(item.metadataOverrides)
+            .resolved(forSource: item.source, maxPixels: maxPixels, presets: presets)
         guard resolved.disposition == .process else { return [] }
         let pipeline = resolved.pipeline
         // A metadata-only edit copies the image data: the quality isn't used.

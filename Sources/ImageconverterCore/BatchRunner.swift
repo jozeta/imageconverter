@@ -262,7 +262,8 @@ public enum BatchRunner {
         let fullSize = ImageLoader.header(of: url)?.uprightSize
         let hint = fullSize.flatMap { pipeline.decodeHint(sourceWidth: $0.width, sourceHeight: $0.height) }
         let loaded = try ImageLoader.load(url, maxPixels: maxPixels, maxLongSide: hint?.maxLongSide,
-                                          includeMetadata: pipeline.metadata.isActive, lowMemory: options.lowMemory)
+                                          includeMetadata: pipeline.effectiveMetadata.isActive,
+                                          lowMemory: options.lowMemory)
         options.stage(.processing)
         var stepNotes: [String] = []
         let textContext = pipeline.watermarkTextContext(source: url, properties: loaded.properties)

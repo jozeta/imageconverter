@@ -75,7 +75,7 @@ struct PrivacyPanel: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
                     ForEach(model.privacyRows) { row in
-                        PrivacyRowView(row: row)
+                        PrivacyRowView(model: model, row: row)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -95,7 +95,7 @@ struct PrivacyPanel: View {
             }
         }
         .padding(LadaGlass.Spacing.l)
-        .frame(width: 380)
+        .frame(width: 420)
     }
 }
 
@@ -133,28 +133,63 @@ private struct PrivacyContentSection: View {
     }
 }
 
+/// One image's findings: the image name links to its metadata (selects it, shows it in the preview and opens the
+/// metadata panel at the first finding), and each value found links to its own row there.
 private struct PrivacyRowView: View {
+    let model: AppModel
     let row: AppModel.PrivacyRow
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-            Text(row.item.source.lastPathComponent)
-                .font(LadaGlass.Typography.body)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            Button { show(firstPath) } label: {
+                Label(row.item.source.lastPathComponent, systemImage: "arrow.up.forward.square")
+                    .font(LadaGlass.Typography.body)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .buttonStyle(.link)
+            .help("Select this image and show its metadata")
+            .accessibilityLabel("Show the metadata of \(row.item.source.lastPathComponent)")
             ForEach(row.findings.findings, id: \.kind) { finding in
                 HStack(alignment: .firstTextBaseline, spacing: LadaGlass.Spacing.s) {
                     LGChip(finding.severity.label, status: finding.severity.chipStatus)
-                    VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: LadaGlass.Spacing.xxs) {
                         Text(finding.kind.title).font(LadaGlass.Typography.label)
-                        Text(finding.fields.joined(separator: ", "))
-                            .font(LadaGlass.Typography.label)
-                            .foregroundStyle(LadaGlass.Colors.muted)
+                        if finding.details.isEmpty {
+                            Text(finding.fields.joined(separator: ", "))
+                                .font(LadaGlass.Typography.label)
+                                .foregroundStyle(LadaGlass.Colors.muted)
+                        }
+                        ForEach(finding.details, id: \.self) { detail in detailRow(detail) }
                     }
                 }
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(finding.severity.label): \(finding.kind.title). \(finding.fields.joined(separator: ", "))")
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("\(finding.severity.label): \(finding.kind.title)")
             }
+        }
+    }
+
+    private var firstPath: MetadataPath? {
+        row.findings.findings.lazy.flatMap(\.details).compactMap(\.path).first
+    }
+
+    private func show(_ path: MetadataPath?) { model.showMetadata(of: row.item.source, at: path) }
+
+    /// "Body serial number: SN 123…": the value is untrusted text (escaped and shortened by Core), in full on hover.
+    @ViewBuilder private func detailRow(_ detail: PrivacyDetail) -> some View {
+        let line = Text(detail.field + ": ").foregroundStyle(LadaGlass.Colors.muted) + Text(detail.value)
+        if let path = detail.path {
+            Button { show(path) } label: {
+                line.font(LadaGlass.Typography.label).lineLimit(1).truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+            .help(detail.value + " — click to show it in the metadata panel")
+            .accessibilityLabel("\(detail.field): \(detail.value)")
+            .accessibilityHint("Shows it in the metadata panel")
+        } else {
+            line.font(LadaGlass.Typography.label).lineLimit(1).truncationMode(.tail)
+                .help(detail.value)
         }
     }
 }

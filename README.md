@@ -19,7 +19,7 @@ Started 2026-11-13. The full design is in
 - **Alt text stays on this Mac.** [Generated alt text](#write-alt-text-on-this-mac) comes from Apple's on-device model (Apple Intelligence, macOS 27 and later): the image and the text never leave the Mac, and no server model is used. The app never asks macOS to download the model; when it isn't ready, no alt text is written.
 - **Apple's enlargement model.** The only other network activity: if you choose to download Apple's enlargement model (for [Enlarge with machine learning](#enlarge-with-machine-learning), macOS 26 and later), macOS downloads it from Apple. imageconverter itself sends nothing; the download starts only from **Download…** in the Resize step, after you agree, and batches, jobs, the command line, services, scripts and links never start it.
 - **Your files are untrusted input.** Images, SVG watermarks, preset and template files, `imageconverter://` links and AppleScript requests are all validated before use. Limits in force: images up to 250 megapixels, 65,535 px on a side, min(4 GB, a quarter of the Mac's memory) of decoded memory and 2 GB per file (first frame only); SVG files up to 1 MB, 20,000 elements, 64 levels deep; preset and template files up to 1 MB; links up to 16,384 characters. Help ▸ Privacy… shows these as built. See [SECURITY.md](SECURITY.md).
-- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image and **Remove these from the output**, which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed. The panel's opt-in **Also look for faces and text (on this Mac)** switch (off by default, remembered) also checks the pixels with Vision on this Mac and lists "2 images show faces" or "1 image contains text", each with **Add a Redact step**, which adds a configured [Redact step](#hide-faces-and-text) without running anything (for text a Solid colour step; an existing step that already covers it is left alone, a filling one is widened). It is a quick check with the Redact step's detection on a copy at most 2048 px long (the Redact step looks closer: small text in a large image may only be found by the step itself); images it couldn't check are listed as "Couldn't check 2 images: …" rather than counted as clean, and the panel's explanation then says it also looked at the pixels. When no metadata is found the chip says "No private metadata found", so the panel can still be opened.
+- **Privacy scan.** When you add images, the app reads each file's header and metadata (never the pixels) and looks for: GPS location (high), camera and lens serial numbers (high), an embedded thumbnail whose shape differs from the image, which may show the uncropped photo (high), owner or author names (medium), edit history and document IDs (medium), capture dates (low) and camera, device or software (low). A shield chip under the image count says what was found ("2 images share their location"); click it for a list per image with the values found (for example "GPS position: 59.3293° N, 18.0686° E" or "Body serial number: SN 1234…"; shown as plain text, shortened, the full value on hover) and **Remove these from the output**. Each image's name is a link: it selects the image, shows it in the preview (opening the preview when it is hidden) and opens the [metadata panel](#change-one-images-metadata) at the first finding; each value links to its own row there, highlighted. **Remove these from the output** which turns on the Metadata step with the matching removals (anything you already remove stays removed). The Metadata step's removals are a floor: images an **If … then … else** step sends to its own **Set metadata…** or to **Copy original unchanged** lose them too. The preview table's **Privacy** row shows what the original has and what the result would still carry, scanned from the output the app would write. Originals are never changed. The panel's opt-in **Also look for faces and text (on this Mac)** switch (off by default, remembered) also checks the pixels with Vision on this Mac and lists "2 images show faces" or "1 image contains text", each with **Add a Redact step**, which adds a configured [Redact step](#hide-faces-and-text) without running anything (for text a Solid colour step; an existing step that already covers it is left alone, a filling one is widened). It is a quick check with the Redact step's detection on a copy at most 2048 px long (the Redact step looks closer: small text in a large image may only be found by the step itself); images it couldn't check are listed as "Couldn't check 2 images: …" rather than counted as clean, and the panel's explanation then says it also looked at the pixels. When no metadata is found the chip says "No private metadata found", so the panel can still be opened.
 - **Temporary files are deleted, not wiped.** Output is written to a hidden temporary file next to its destination and moved into place; on cancel, quit or a failed write the app deletes these files. On SSDs and APFS, deleting (or overwriting) a file does not reliably erase its old blocks, so the app does not claim to securely wipe anything.
 
 <table>
@@ -187,6 +187,7 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version, and **More ▸ Clear All…** to empty the image list and start again from an empty pipeline), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
 - **Live preview** of the selected image before and after the pipeline, with its new name and
   size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and the batch as a filmstrip, grid or list; pinch to zoom in sync in every comparison mode (side by side, split, difference, single), with a checkerboard behind transparent images and a quality ladder to choose the output quality. Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
+- **Metadata panel** (⌥⌘I): the selected image's metadata by group, searchable; edit, remove or add fields for that image's outputs only (the original is never changed). See [Change one image's metadata](#change-one-images-metadata).
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
   half-written files, and name collisions resolved with `_2`, `_3`, …
 - **Updates**: Check Now in About imageconverter (and, if you allow it, a check at every launch) finds a newer
@@ -488,6 +489,8 @@ Presets and preview:
 | Compare mode | The Compare control in the preview header or View → Side by side / Split / Difference / Single (⌘1…⌘4); key `compareMode` (a choice you made earlier is kept) | Split |
 | Split position | Where the split divider sits (2…98 % of the width); key `compareSplitPosition` | 50 % |
 | Batch view | Filmstrip, Grid or List under the preview; key `batchBrowserMode` | Filmstrip |
+| Metadata panel | The panel right of the preview: the sidebar button in the preview header, View → Show Metadata / Hide Metadata (⌥⌘I) or a privacy link; it shows with the preview (opening it opens a hidden preview); key `inspectorOpen` | closed |
+| Metadata panel width | Drag the panel's left edge (or focus its handle and press ← / →), 260–560 pt; the preview gives way; key `inspectorWidth` | 300 pt |
 | Window height | The window's height when you resize it by hand (the window also grows and shrinks with the pipeline and the preview); key `expandedWindowHeight` | fits the content |
 | Grid / list height | Drag the bar above the grid or list (90…420 pt); key `batchBrowserHeight` | 180 pt |
 
@@ -728,6 +731,41 @@ all of the file's language variants of it (only the one you typed remains).
    written after the removal, so it survives. Untick to leave a field as it is. A ticked field with empty text removes that field.
 4. Run the batch. The removed information is not in the output files. The color profile is always
    kept, so the images look the same.
+
+### Change one image's metadata
+
+The **metadata panel** right of the preview shows the selected image's metadata and lets you change it for that
+image's outputs. It is closed by default; open it with the sidebar button at the top right of the preview, View ▸
+Show Metadata (⌥⌘I) or a link in the privacy panel. The window widens by the panel's width (a hidden preview opens
+with it); drag its left edge to make it wider or narrower.
+
+1. Select an image. The panel lists its metadata in groups: **File**, **Camera (EXIF)**, **Location (GPS)**,
+   **Description (IPTC/XMP)**, **Rights**, **Technical (TIFF/colour)** and **Other**. Type in **Search metadata** to
+   filter by name, value or field. Values are read from the file's header only (no pixels are decoded) and shown as
+   plain text: invisible and right-to-left control characters appear as `<U+202E>`-style codes, and long values are
+   cut with **Show all**.
+2. **Edit** (pencil) a field the app can write: title, description, keywords, creator, copyright, date taken, GPS
+   position, rating (XMP `xmp:Rating`, −1 for rejected to 5 stars), and the Metadata step's allowlisted EXIF, IPTC
+   and XMP fields (see [Metadata step](#metadata-step) ▸ More fields). Type the new value and press **Apply to
+   Outputs**. A field is written everywhere the Metadata step would write it (for example a title to IPTC, XMP and PNG).
+3. **Remove** (minus) any field except the structural ones (pixel size, orientation, colour model and the like).
+   Fields the app can't write (a lens serial number, an edit history) can only be removed.
+4. **Add Field** adds a field the image doesn't have yet.
+5. Changed rows say **Edited**, **Removed** or **Added**; the arrow reverts one field, **Revert All** the whole image.
+   Edited images have a pencil badge in the filmstrip, grid and list.
+
+The panel's header says it: *Changes apply to this image's outputs. The original isn't changed.* The changes are
+applied after the Metadata step, for the image's main output and its extra outputs, in the preview's size estimate
+and Privacy row, and in the run (also for a metadata-only lossless copy, which checks them, and for *Copy original
+unchanged*, which is then converted with the note "Converted instead of copied to apply this image's metadata
+changes"). **Precedence:** a field you set here is written even when the Metadata step removes it; a field you
+remove here is left out even when the step keeps or sets it; everything else the step removes stays removed (its
+privacy floor). With the Metadata step off, the image's metadata is written as it is, with your changes. XMP-only
+fields and the rating can't be written when the step removes XMP.
+
+Changes live with the batch for this session only: they go when the image is removed or the list is cleared, aren't
+saved in presets, and aren't used by jobs, the command line, Finder services, scripts and links, or a run resumed
+after the app quit. Nothing can be edited while a batch runs.
 
 ### Write alt text on this Mac
 
@@ -1404,7 +1442,7 @@ What is accepted, and when installing is refused:
 
 ## Command line and Shortcuts
 
-The package also builds a command-line tool, so batches can run from Terminal, scripts, cron or a Shortcuts "Run Shell Script" action. It uses the same engine as the app.
+The package also builds a command-line tool, so batches can run from Terminal, scripts, cron or a Shortcuts "Run Shell Script" action. It uses the same engine as the app. The metadata panel's per-image changes are app-only (session-only): the command line and jobs use the Metadata step's settings.
 
 ```sh
 scripts/install-cli.sh             # links /Applications/imageconverter.app/Contents/Helpers/imageconverter as ~/.local/bin/imageconverter

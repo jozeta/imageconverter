@@ -15,6 +15,9 @@ import ImageconverterCore
 /// and the content move as one. The height range is loose while that runs and set to the rest range once
 /// the window has arrived.
 ///
+/// The metadata panel (inspector) sits right of the preview and only shows with it: opening it widens the window by
+/// its width (the preview keeps its own), closing it narrows the window again; its width is the user's (persisted).
+///
 /// Width (preview shown/hidden): the ranges are first widened to cover both the current and the new size,
 /// then the frame is animated with AppKit, and the ranges are tightened (and a hidden preview unmounted)
 /// once the animation has finished, so SwiftUI never resizes the window on its own mid-animation.
@@ -30,6 +33,10 @@ final class WindowSizer {
     /// The preview's fixed width while an animation reveals or hides it (the window edge clips it);
     /// nil when the pane follows the window width.
     private(set) var previewFrozenWidth: CGFloat?
+    /// Whether the metadata panel is in the view hierarchy; it stays while its hide animation runs.
+    private(set) var inspectorMounted: Bool
+    /// The metadata panel's width (persisted), within `WindowLayout.clampedInspectorWidth`.
+    private(set) var inspectorWidth: CGFloat
     /// True while a frame or height animation runs; the sidebar hides its scroller then, so the content
     /// that is briefly taller than the growing window doesn't flash one.
     var isAnimating = false
@@ -59,11 +66,16 @@ final class WindowSizer {
     @ObservationIgnored var releaseToken = 0
     @ObservationIgnored let defaults: UserDefaults
     static let rememberedHeightKey = "expandedWindowHeight"
+    static let inspectorWidthKey = "inspectorWidth"
 
     @ObservationIgnored weak var window: NSWindow?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
     @ObservationIgnored private var behaviorObservation: NSKeyValueObservation?
     @ObservationIgnored var previewShown: Bool
+    /// Whether the metadata panel is open (it shows only with the preview).
+    @ObservationIgnored private(set) var inspectorShown: Bool
+    /// The width the open metadata panel takes in the window: 0 when it is closed or the preview is hidden.
+    var openInspectorWidth: CGFloat { previewShown && inspectorShown ? inspectorWidth : 0 }
     @ObservationIgnored private var rememberedPreviewWidth: CGFloat?
     /// The width a running preview toggle aims for.
     @ObservationIgnored private var targetWidth: CGFloat?
@@ -72,14 +84,20 @@ final class WindowSizer {
     @ObservationIgnored var isResizing = false
     @ObservationIgnored var didInitialSize = false
 
-    init(previewShown: Bool, defaults: UserDefaults = .standard) {
+    init(previewShown: Bool, inspectorShown: Bool = false, defaults: UserDefaults = .standard) {
         self.previewShown = previewShown
+        self.inspectorShown = inspectorShown
         self.defaults = defaults
+        let width = defaults.double(forKey: Self.inspectorWidthKey)
+        let panelWidth = WindowLayout.clampedInspectorWidth(width > 0 ? CGFloat(width) : WindowLayout.defaultInspectorWidth)
+        inspectorWidth = panelWidth
+        inspectorMounted = previewShown && inspectorShown
         let remembered = defaults.double(forKey: Self.rememberedHeightKey)
         rememberedHeight = remembered > 0 ? CGFloat(remembered) : nil
         previewMounted = previewShown
         let limits = WindowLayout.limits(previewShown: previewShown, fittedHeight: WindowLayout.minContentHeight,
-                                         maxContent: CGSize(width: CGFloat.infinity, height: CGFloat.infinity))
+                                         maxContent: CGSize(width: CGFloat.infinity, height: CGFloat.infinity),
+                                         inspectorWidth: previewShown && inspectorShown ? panelWidth : 0)
         widthRange = limits.width
         // The height is unknown until the sidebar has been measured.
         heightRange = WindowLayout.minContentHeight...CGFloat.infinity
@@ -134,19 +152,49 @@ final class WindowSizer {
         if shown {
             let previewWidth = max(rememberedPreviewWidth ?? WindowLayout.defaultPreviewWidth,
                                    WindowLayout.previewMinWidth)
-            targetWidth = sidebar + previewWidth
+            targetWidth = sidebar + previewWidth + openInspectorWidth
             previewMounted = true
+            inspectorMounted = inspectorShown
             // Inserted at its final width but clipped by the window edge, then revealed by the frame animation.
             previewFrozenWidth = max(previewFrozenWidth ?? 0, previewWidth)
         } else {
-            if previewFrozenWidth == nil, currentWidth - sidebar >= WindowLayout.previewMinWidth {
-                rememberedPreviewWidth = currentWidth - sidebar
+            let panel = inspectorMounted ? inspectorWidth : 0
+            if previewFrozenWidth == nil, currentWidth - sidebar - panel >= WindowLayout.previewMinWidth {
+                rememberedPreviewWidth = currentWidth - sidebar - panel
             }
             targetWidth = sidebar
             // Keeps its current width while the window edge slides over it.
-            previewFrozenWidth = max(previewFrozenWidth ?? 0, currentWidth - sidebar)
+            previewFrozenWidth = max(previewFrozenWidth ?? 0, currentWidth - sidebar - panel)
         }
         resize(animated: true, width: targetWidth)
+    }
+
+    /// Opens or closes the metadata panel: with the preview shown, the window grows or shrinks by the panel's width
+    /// (animated) while the preview keeps its width; with the preview hidden only the state is recorded.
+    func setInspectorShown(_ shown: Bool) {
+        guard shown != inspectorShown else { return }
+        let panelBefore = inspectorMounted ? inspectorWidth : 0
+        inspectorShown = shown
+        guard previewShown, let currentWidth = currentContentSize?.width else {
+            inspectorMounted = previewShown && shown
+            return
+        }
+        let previewWidth = max(previewFrozenWidth ?? (currentWidth - WindowLayout.sidebarWidth - panelBefore),
+                               WindowLayout.previewMinWidth)
+        previewFrozenWidth = previewWidth
+        if shown { inspectorMounted = true }
+        targetWidth = WindowLayout.sidebarWidth + previewWidth + (shown ? inspectorWidth : 0)
+        resize(animated: true, width: targetWidth)
+    }
+
+    /// Sets the metadata panel's width (its edge handle): the border moves, the window keeps its width and the
+    /// preview gives way down to its minimum.
+    func setInspectorWidth(_ width: CGFloat) {
+        let clamped = WindowLayout.clampedInspectorWidth(width, windowWidth: currentContentSize?.width)
+        guard abs(clamped - inspectorWidth) > 0.5 else { return }
+        inspectorWidth = clamped
+        defaults.set(Double(clamped), forKey: Self.inspectorWidthKey)
+        applyRestLimits()
     }
 
     /// The size of the area the root view gets: the window uses a full-size content view, so the
@@ -181,7 +229,8 @@ final class WindowSizer {
         // A height change during a running preview toggle keeps aiming for that toggle's width.
         let width = requestedWidth ?? (isResizing && previewShown ? targetWidth : nil)
         let target = WindowLayout.targetSize(previewShown: previewShown, current: current, contentHeight: content,
-                                             requestedWidth: width, maxContent: maxContent)
+                                             requestedWidth: width, maxContent: maxContent,
+                                             inspectorWidth: openInspectorWidth)
         targetWidth = target.width
         let final = restLimits(height: target.height, maxContent: maxContent)
         let during = WindowLayout.transitional(final, current: current, target: target)
@@ -202,6 +251,7 @@ final class WindowSizer {
                 heightRange = final.height
                 previewFrozenWidth = nil
                 previewMounted = previewShown
+                inspectorMounted = previewShown && inspectorShown
                 isResizing = false
                 isAnimating = false
                 didInitialSize = true

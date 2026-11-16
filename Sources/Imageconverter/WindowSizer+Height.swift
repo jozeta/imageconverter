@@ -64,7 +64,7 @@ extension WindowSizer {
         let chrome = Self.chrome(of: window)
         let maxContent = CGSize(width: visible.width - chrome.width, height: visible.height - chrome.height)
         let size = WindowLayout.targetSize(previewShown: previewShown, current: current, contentHeight: shown,
-                                           requestedWidth: nil, maxContent: maxContent)
+                                           requestedWidth: nil, maxContent: maxContent, inspectorWidth: openInspectorWidth)
         let rest = restLimits(height: size.height, maxContent: maxContent)
         let heights = settled ? rest.height : WindowLayout.followingHeights(maxContent: maxContent)
         if widthRange != rest.width { widthRange = rest.width }
@@ -80,7 +80,8 @@ extension WindowSizer {
             WindowLayout.restHeights(collapsed: pipelineCollapsed ?? true, parts: $0, height: height,
                                      maxContent: maxContent)
         } ?? height...height
-        return WindowLayout.limits(previewShown: previewShown, heights: heights, maxContent: maxContent)
+        return WindowLayout.limits(previewShown: previewShown, heights: heights, maxContent: maxContent,
+                                   inspectorWidth: openInspectorWidth)
     }
 
     #if DEBUG
@@ -160,7 +161,7 @@ extension WindowSizer {
         if abs(value - pipelineReveal) > 0.0001 { pipelineReveal = value }
     }
 
-    private func applyRestLimits() {
+    func applyRestLimits() {
         guard !isResizing, let height = currentContentSize?.height else { return }
         let rest = restLimits(height: height, maxContent: currentMaxContent)
         if widthRange != rest.width { widthRange = rest.width }

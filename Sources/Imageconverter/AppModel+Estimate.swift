@@ -49,7 +49,8 @@ extension AppModel {
         }
         let item = items[index]
         let pipeline = self.pipeline
-        let key = EstimateKey(item: item.source, pipeline: pipeline)
+        // The item's metadata panel changes are part of what the estimate depends on.
+        let key = EstimateKey(item: item.source, pipeline: pipeline.withMetadataOverrides(item.metadataOverrides))
         if key == estimateKey { return }
         let previous = estimateTask
         previous?.cancel()
