@@ -11,17 +11,12 @@ extension AppModel {
 
     var canAddVariant: Bool { pipeline.extraOutputs.count < OutputVariant.maxCount }
 
-    /// Adds a thumbnail output (JPEG, longest edge 400 px) with a suffix no other output uses.
+    /// Adds an output panel: a copy of the main output's settings with a free name ("Output 2") and suffix, saved
+    /// beside the main output until its own Save to is changed (`OutputVariant.added`).
     @discardableResult
     func addVariant() -> OutputVariant? {
         guard canAddVariant else { return nil }
-        let count = pipeline.extraOutputs.count
-        let taken = Set(pipeline.extraOutputs.map { $0.cleanSuffix.lowercased() })
-        let candidates = [OutputVariant.defaultSuffix] + (2...OutputVariant.maxCount + 1).map {
-            "\(OutputVariant.defaultSuffix)\($0)"
-        }
-        let suffix = candidates.first { !taken.contains($0) } ?? "_\(count + 1)"
-        let variant = OutputVariant(name: count == 0 ? "Thumbnail" : "Output \(count + 2)", nameSuffix: suffix)
+        let variant = OutputVariant.added(after: pipeline.extraOutputs, main: pipeline.output)
         pipeline.extraOutputs.append(variant)
         return variant
     }

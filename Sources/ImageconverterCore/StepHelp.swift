@@ -247,7 +247,7 @@ public enum StepHelp {
                     "Format: JPEG, PNG, HEIC and TIFF, plus GIF, BMP, JPEG 2000 and AVIF where this Mac can write them.",
                     "Compression: Quality, Target size, Maximum size, or Smart (lowest quality that still looks the same, up to 95 %).",
                     "JPEG can be Progressive; Optimise PNG tries every PNG filter for "
-                        + "the smallest file. The size line is for the selected image.",
+                        + "the smallest file. The ⓘ shows every output's size for the selected image.",
                     "Save to: a new folder (flat, unless a condition picks a subfolder), the same folder (suffix "
                         + "such as _new only if the name is unchanged), or overwrite."
                 ],
@@ -256,8 +256,8 @@ public enum StepHelp {
                         + "format changes, the original goes to the Trash after the new file is saved.",
                     "Output is always the last stage. Click the handle above it to fold it to one line; drag it to "
                         + "choose its height.",
-                    "+ Add output writes more files per image (a thumbnail, a web copy), each with its own "
-                        + "format, size and suffix; always new files next to the main one."
+                    "+ (top right) adds an output panel: another file per image with its own format, size, "
+                        + "suffix and Save to; always a new file, never in place."
                 ])
         }
     }

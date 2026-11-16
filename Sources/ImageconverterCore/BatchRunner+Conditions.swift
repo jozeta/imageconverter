@@ -25,6 +25,8 @@ extension BatchRunner {
         let jobs: [ResolvedPipeline]
         /// The extra outputs of each plan (empty for copies, skipped extras and refused plans).
         var variants: [[PlannedVariant]] = []
+        /// The extra outputs' chosen folders, resolved, with access held while the plan is (the run).
+        var folderAccess = VariantFolderAccess.none
         /// Sources a condition skipped or another run holds, in input order, with the reason for each.
         let skipped: [URL]
         let skipReasons: [String]
@@ -76,20 +78,24 @@ extension BatchRunner {
             return nil
         }
         let primaries = OutputPlanner.plan(targets, mode: mode, reservedSources: skipped)
-        guard let variants = plannedVariants(active.map { items[$0] }, jobs: &jobs, baseNames: baseNames,
-                                             primaries: primaries, reserved: skipped) else { return nil }
+        guard let (variants, folderAccess) = plannedVariants(active.map { items[$0] }, jobs: &jobs,
+                                                             baseNames: baseNames, primaries: primaries,
+                                                             reserved: skipped) else { return nil }
         var run = RunPlan(plans: primaries, jobs: jobs, skipped: skipped, skipReasons: reasons,
                           busyIndices: busyIndices, planIndices: active, skippedIndices: skippedIndices,
                           assetPipeline: assetPipeline(pipeline, resolved: jobs))
         run.variants = variants
+        run.folderAccess = folderAccess
         return run
     }
 
     /// Each plan's extra outputs, named like its primary output (`OutputPlanner.planVariants`). Outputs that
-    /// can't run or found no free name are left out with a note on the item. Nil when cancelled part-way.
+    /// can't run or found no free name are left out with a note on the item. Chosen folders are resolved once (their
+    /// bookmarks followed) and opened for the run. Nil when cancelled part-way.
     private static func plannedVariants(_ items: [InputItem], jobs: inout [ResolvedPipeline], baseNames: [String?],
-                                        primaries: [PlannedOutput], reserved: [URL]) -> [[PlannedVariant]]? {
-        guard jobs.contains(where: { !$0.pipeline.extraOutputs.isEmpty }) else { return jobs.map { _ in [] } }
+                                        primaries: [PlannedOutput], reserved: [URL])
+        -> ([[PlannedVariant]], VariantFolderAccess)? {
+        guard jobs.contains(where: { !$0.pipeline.extraOutputs.isEmpty }) else { return (jobs.map { _ in [] }, .none) }
         var targets: [VariantTarget] = []
         for (index, item) in items.enumerated() {
             if Task.isCancelled { return nil }
@@ -100,12 +106,14 @@ extension BatchRunner {
                                          subfolders: RenameRendering.variantFolders(for: item, index: index,
                                                                                     job: jobs[index])))
         }
-        let (plans, failures) = OutputPlanner.planVariants(targets, primaries: primaries, reservedSources: reserved)
+        let access = VariantFolderAccess(targets.flatMap(\.variants))
+        let (plans, failures) = OutputPlanner.planVariants(targets, primaries: primaries, reservedSources: reserved,
+                                                           folders: access.folders)
         for (index, missing) in failures.enumerated() {
             jobs[index].notes += missing.map { noFreeNameNote($0.displayName) }
             jobs[index].unplannedOutputs = missing.map(\.displayName)
         }
-        return plans
+        return (plans, access)
     }
 
     /// The note when an extra output found no free name (it isn't written; the item is).

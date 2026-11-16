@@ -52,8 +52,11 @@ public enum AccessNeeds {
     }
 
     /// `foldersNeedingAccess` with the reason for each folder. In new-folder mode, sources for which
-    /// `isReadable` is false add their parent folders too (`.readOriginals`), unless covered.
-    public static func needs(sources: [URL], mode: OutputMode, covered: [URL],
+    /// `isReadable` is false add their parent folders too (`.readOriginals`), unless covered. `extraOutputs`: the
+    /// extra outputs' own destinations add their folders: a chosen folder (`.saveToOutputFolder`), or the sources'
+    /// folders for one next to the originals (`.saveNextToOriginals`). One without a destination writes beside the
+    /// main output, which `mode` already covers.
+    public static func needs(sources: [URL], mode: OutputMode, extraOutputs: [OutputVariant] = [], covered: [URL],
                              isReadable: (URL) -> Bool = { _ in true }, caseSensitive: Bool? = nil) -> [Need] {
         let roots = covered.map { Key($0, caseSensitive: caseSensitive) }
         var candidates: [(key: Key, need: Need)] = []
@@ -76,7 +79,26 @@ public enum AccessNeeds {
         case .overwrite:
             for source in sources { consider(source.deletingLastPathComponent(), .replaceOriginals) }
         }
+        for (folder, purpose) in extraFolders(extraOutputs, sources: sources) { consider(folder, purpose) }
         return collapse(candidates)
+    }
+
+    /// The folders the extra outputs' own destinations write into: a chosen folder, or each source's folder.
+    private static func extraFolders(_ variants: [OutputVariant], sources: [URL]) -> [(URL, Purpose)] {
+        var folders: [(URL, Purpose)] = []
+        var besideOriginals = false
+        for destination in variants.compactMap(\.destination) {
+            switch destination {
+            case .folder(let folder):
+                if folder.isChosen { folders.append((folder.url, .saveToOutputFolder)) }
+            case .sameFolder, .subfolder:
+                besideOriginals = true
+            }
+        }
+        if besideOriginals {
+            folders += sources.map { ($0.deletingLastPathComponent(), .saveNextToOriginals) }
+        }
+        return folders
     }
 
     /// The folders of `sources` (files that can't be read now) that no folder in `covered` contains, each as

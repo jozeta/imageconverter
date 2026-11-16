@@ -247,7 +247,8 @@ public actor PreviewRenderer {
     }
 
     /// The item's extra outputs, named as the batch would name them next to `primary` (planned alone, so no
-    /// collision numbers), with the folder below the primary output's one: `Thumbnail: thumbs/a_thumb.jpg`.
+    /// collision numbers), with the folder below the primary output's one: `Thumbnail: thumbs/a_thumb.jpg` (an output
+    /// in another folder shows that folder's name: `Web: site/a_web.jpg`).
     private func extraOutputNames(for item: InputItem, index: Int, resolved: ResolvedPipeline,
                                   primary: URL) -> [String] {
         let variants = OutputVariant.validated(resolved.pipeline.extraOutputs).kept
@@ -262,8 +263,11 @@ public actor PreviewRenderer {
         let folder = primary.deletingLastPathComponent().standardizedFileURL.path
         return planned.map { variant in
             let path = variant.destination.standardizedFileURL.path
+            // Another folder (its own Save to): that folder's name and the file.
             let shown = path.hasPrefix(folder + "/") ? String(path.dropFirst(folder.count + 1))
-                : variant.destination.lastPathComponent
+                : variant.variant.destination == nil ? variant.destination.lastPathComponent
+                : "\(variant.destination.deletingLastPathComponent().lastPathComponent)/"
+                    + variant.destination.lastPathComponent
             return "\(variant.variant.displayName): \(shown)"
         }
     }

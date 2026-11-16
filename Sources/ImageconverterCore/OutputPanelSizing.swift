@@ -52,6 +52,21 @@ public enum OutputPanelSizing {
         return clamp(height, collapsed: collapsed, full: full)
     }
 
+    /// The tallest the open panel grows by itself (several output panels): this share of the screen's usable height,
+    /// at least `minOpenCap`; taller content scrolls inside it, so the window never outgrows the screen.
+    public static let screenShare: CGFloat = 0.6
+    public static let minOpenCap: CGFloat = 240
+
+    public static func maxOpenHeight(screenHeight: CGFloat) -> CGFloat {
+        guard screenHeight.isFinite, screenHeight > 0 else { return .infinity }
+        return max(minOpenCap, (screenHeight * screenShare).rounded())
+    }
+
+    /// The height the content can be shown at: all of it, or the cap when it is taller.
+    public static func reachable(full: CGFloat, cap: CGFloat) -> CGFloat {
+        min(full, cap)
+    }
+
     /// A stored height, if it is a usable one.
     public static func storedHeight(_ value: Double?) -> CGFloat? {
         guard let value, value.isFinite, value > 0, value <= Double(maxStoredHeight) else { return nil }

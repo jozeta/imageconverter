@@ -102,8 +102,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
 - **Writes** JPEG, PNG, HEIC and TIFF, plus GIF, BMP and JPEG 2000 where macOS supports them, with
   quality and compression options.
 - **Several outputs per image**: besides the main output, up to 8 extra outputs (for example a thumbnail and
-  a web-sized copy), each with its own format, quality, size, name suffix and subfolder, written in the same
-  run from one decode (see [Write several outputs per image](#write-several-outputs-per-image)).
+  a web-sized copy), each a full output panel with its own format, quality, size, name suffix and **Save to**
+  (beside the main output, next to the original, in a subfolder next to it, or a folder of its own), written in
+  the same run from one decode (see [Write several outputs per image](#write-several-outputs-per-image)).
 - **Pipeline** of steps, applied in order to every image. Steps can be switched off and reordered:
   - (available) **Resize**: a grouped mode picker. *Pixels*: max width, max height, fit inside a box,
     exact size (stretch, fit and pad, or fill and crop, which has the same **Focus** as Crop), longest edge,
@@ -210,6 +211,10 @@ Generated with `scripts/screenshots.sh` from synthetic sample images (nothing pe
     <td width="50%"><img src="docs/screenshots/output-target-size.png" alt="Output with a target size" width="400"><br>The Output row set to a target size: the quality is chosen to fit the size</td>
   </tr>
   <tr>
+    <td width="50%"><img src="docs/screenshots/outputs.png" alt="Output panel with two extra outputs" width="400"><br>Two extra outputs, each with its own format and Save to; the ⓘ box lists every output's size</td>
+    <td width="50%"></td>
+  </tr>
+  <tr>
     <td width="50%"><img src="docs/screenshots/metadata.png" alt="Metadata step" width="400"><br>The Metadata step: remove location and camera details, and see what the result still carries</td>
     <td width="50%"><img src="docs/screenshots/rename.png" alt="Rename step" width="400"><br>The Rename step with tokens and a live example of the new name</td>
   </tr>
@@ -294,7 +299,7 @@ The output settings are in the Output row of the sidebar (there is no Settings w
 |---------|---------|---------|
 | Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
 | When finished | Nothing · Reveal in Finder · Notify me · Reveal and notify (the "When finished" dropdown under Save to). Applies to every run of the main window, including runs started from Finder Services, AppleScript and links; jobs have their own notifications. Reveal selects the written files in Finder (up to 50; with more it opens their folders). Notify posts "Run finished" with the counts and space saved, only when imageconverter is not the frontmost app. The first time you pick a notify choice macOS asks for permission; if notifications are off, a note says where to turn them on. Not stored in presets | Nothing |
-| Extra outputs | Up to 8 more files per image, added with **+ Add output** under the Output format controls. Each has a name (its label in the report), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case; `/` and `:` become `-`) and an optional **subfolder** (rename tokens allowed, under the main output's folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
+| Extra outputs | Up to 8 more files per image, added with the **+** at the top right of the Output panel; each is an output panel of its own. Each has a name (its label in the report; new ones are *Output 2*, *Output 3*, …, starting from the main output's settings), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case, also between outputs in different folders; `/` and `:` become `-`), a **Save to** (*Beside the main output* (default), *Same folder as original*, *Subfolder next to original* with a folder name, or *New folder* with a chosen folder; never overwrite) and an optional **subfolder** (rename tokens allowed, under the main output's folder or the chosen folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Check for updates when the app starts | Checkbox in About imageconverter. Set by the question at the first launch (**Yes** / **No**); until you answer, nothing goes online. UserDefaults key `updateCheckOnLaunch` (absent until answered). See [Updates](#updates) | off until answered |
 | Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
@@ -591,8 +596,8 @@ Your pipeline is kept between launches.
    *Target size* (the highest quality that fits a size you type, in KB or MB, 1 KB = 1000 bytes), *Maximum size* (the slider's quality, lowered
    only as far as needed; files that can't fit are skipped) or *Smart* (the lowest quality that still looks the same, up to 95 %). JPEG has a
    *Progressive* toggle, PNG an *Optimise PNG* toggle (smaller, slower), TIFF a compression choice.
-3. Below the controls, the size estimate shows "Original → about" for the selected image, with the chosen quality ("at 74 %") when a size
-   or Smart mode searched for one, or why a maximum size can't be met. Use **Save to** to pick *Overwrite original
+3. The **ⓘ** right of the format picker shows the size estimate for the selected image ("2.1 MB → about 1.1 MB"), with the chosen quality ("at 74 %") when a size
+   or Smart mode searched for one, or why a maximum size can't be met; with extra outputs, every output's size. Use **Save to** to pick *Overwrite original
    files* (originals that are renamed or change format go to the Trash after the new file is saved), *Same folder as original* (the suffix, default `_new`, is added only if the output would have the same name as the original; or the Rename pattern applies) or *New folder*.
 4. Press **Run on N images** (⌘R). In *New folder* mode with no folder chosen yet, you are asked to
    pick one first. Cancel with ⌘. at any time; files already finished stay, and no half-written
@@ -606,19 +611,31 @@ One run can write more than one file for every image, for example the full-size 
 web-sized HEIC:
 
 1. Set up the pipeline and the main output as usual.
-2. Under the Output format controls press **+ Add output**. A *Thumbnail* row appears (JPEG, 70 %, longest edge
-   400 px, suffix `_thumb`); open it to change its name, format, compression, size, suffix and subfolder. Add more
-   with **+ Add output** (up to 8); the bin removes one.
-3. The size line under Output lists every file for the selected image: "Primary 1.1 MB · Thumbnail 48 KB · Web
-   620 KB". In the preview table the Result name has a "+2 outputs" chip; hover it to see each file's name.
+2. Press **+** at the top right of the Output panel (VoiceOver: "Add output"). A new output panel appears under the
+   main one, named *Output 2* with the main output's format and compression, the same size and the suffix `_out2`.
+   It has the same controls as the main output: name, format, compression (quality, target or maximum size, Smart),
+   Progressive / Optimise PNG, a size (*Same as main output*, longest edge, max width or height, percentage), the
+   name suffix and its own **Save to**:
+   - *Beside the main output* (the default): into the main output's folder (in overwrite mode, the original's
+     folder), with an optional subfolder under it.
+   - *Same folder as original*: next to each original, as a new file.
+   - *Subfolder next to original*: a folder inside each original's folder (rename tokens allowed, `thumbs/{date:yyyy}`).
+   - *New folder*: a folder of its own (**Choose folder…**), with an optional subfolder under it.
+   There is no *Overwrite* here: an extra output never replaces an original. Click the chevron or the title to fold
+   a panel, the bin to remove it; add more with **+** (up to 8).
+3. The **ⓘ** right of the main format picker shows the size estimate for the selected image when you point at it
+   (click it, or press Space when it has keyboard focus, to keep the box open): one line per output, for example
+   "Main JPEG 2.1 MB → about 1.1 MB (−48 %)", "Thumbnail JPEG about 48 KB (−98 %)", with any notes. In the preview
+   table the Result name has a "+2 outputs" chip; hover it to see each file's name (an output in another folder
+   shows that folder's name).
 4. Run as usual. Every image is loaded and processed once; each extra output is then resized (if it says so) and
-   encoded with its own settings, as `<name><suffix>.<ext>` next to the main output (in its subfolder, if set). The
+   encoded with its own settings, as `<name><suffix>.<ext>` where its Save to says (in its subfolder, if set). The
    Rename step's name is the base name for all of them.
 
 Rules worth knowing:
 
-- Extra outputs are always new files. In *Same folder* and *Overwrite* modes they go into the original's folder;
-  they never replace or trash anything, and a name that is taken (by any file, another image's original or
+- Extra outputs are always new files, whatever their Save to. Beside the main output in *Same folder* and
+  *Overwrite* modes they go into the original's folder; they never replace or trash anything, and a name that is taken (by any file, another image's original or
   another output) gets `_2`, `_3`, … In overwrite mode only the main output replaces the original (once); when it
   has a new name or format, the original goes to the Trash after the extra outputs are saved. An extra output's
   subfolder is used in every mode, overwrite included (under the original's folder there), unlike a condition's
@@ -1356,6 +1373,7 @@ The packaged app runs in the App Sandbox: it can only open and write files and f
 
 - **Same folder as original** and **Overwrite original files** write into the folder each image is in. When the app doesn't have that folder yet, Run (and Finder Quick Actions, AppleScript, links and Resume) first shows an open panel already showing the folder, with the message *"imageconverter needs access to “Photos” to save next to the originals. Choose this folder (or one that contains it) to allow it."* Click **Allow**. Choosing a folder that contains several of the needed folders (your Pictures folder, say) answers all of them at once; choosing an unrelated folder asks again. **Cancel** stops the run before anything is written ("Not run: no access to …").
 - **New folder** needs only the output folder (chosen in the Output row; also asked for after a relaunch if its bookmark no longer opens it), plus the images' own folders when an image can't be read.
+- **Extra outputs with their own Save to** need their folders too: a chosen folder (allowed when you choose it, kept with a bookmark in the pipeline, preset or job, and asked for before a run if it no longer opens), or the images' folders for *Same folder as original* and *Subfolder next to original*. Jobs use the folder's bookmark in the background; if it doesn't open, that output fails with a note and the image itself is still written.
 - Allowed folders are remembered (up to 200, least recently used dropped first) and opened again at every launch. **Help ▸ Folder Access…** lists them, marks the ones that can't be found ("Not found") or that no longer open and must be allowed again ("Allow again"), and has **Add Folder…** (allow a folder ahead of time, for example the folders your scripts, links or jobs use), **Remove** and **Remove All**; a removed folder is asked for again next time. Remove and Remove All are unavailable while a batch or a job runs (it would lose access to the folders it is writing into). A folder you choose that doesn't contain the one asked for isn't remembered; the question comes back saying so.
 - The output folder and watermark images are stored with a bookmark next to the path, so presets, watermark templates and the saved pipeline keep working after a relaunch and follow a file or folder that was moved. When a watermark image can't be opened any more, the editor and the report say *"Couldn't open the watermark image — choose it again"*.
 - An interrupted batch's journal keeps bookmarks of the images' folders, of images added on their own (up to 2 000, when their folder couldn't be bookmarked) and of the output folder, so **Resume** opens them again. Before the resumed run is planned, the folder of every image that still can't be read is asked for (*"… to read the images"*). Images in a folder you don't allow (**Cancel**) are listed as *"N files of the interrupted batch couldn't be opened"*; add them again to convert them. Images whose folder the app can read but which are gone are listed as missing.
@@ -1414,7 +1432,7 @@ Convert options (options override the preset or pipeline file):
 | `--quality 0-100` | Quality for lossy formats |
 | `--max-size 500KB` | Largest file size (KB and MB are decimal) |
 | `--resize-long PX` | Scale so the longest edge is PX pixels |
-| `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"` | An extra output per image (repeatable, up to 8; replaces the preset's or file's extra outputs). Keys: `name`, `format`, `quality` (0–100), `max-size` (500KB), one of `long`, `width`, `height` (pixels, shrink only) or `percent` (1–1000), `suffix` (default `_` + name; must differ between outputs) and `folder` (a subfolder). A format this Mac can't write is a usage error. `--dry-run` lists every output |
+| `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"` | An extra output per image (repeatable, up to 8; replaces the preset's or file's extra outputs). Keys: `name`, `format`, `quality` (0–100), `max-size` (500KB), one of `long`, `width`, `height` (pixels, shrink only) or `percent` (1–1000), `suffix` (default `_` + name; must differ between outputs) and `folder` (an absolute path such as `folder=/Users/me/Web` or `folder=~/Web`: the output's own folder; a relative one such as `folder=thumbs`: a subfolder of the main output's folder). A format this Mac can't write is a usage error. `--dry-run` lists every output |
 | `--strip-gps`, `--strip-all` | Remove the location (GPS and place names), or all metadata (the preset's "keep when removing all" list is ignored) |
 | `--report csv\|json\|text` | Print a full report on stdout |
 | `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked; with `--overwrite`, each destination is marked "replace" or, when the name or format changes, "replace (original to Trash)"); writes nothing; honours `--report`/`--json` |

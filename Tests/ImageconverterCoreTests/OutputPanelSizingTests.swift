@@ -103,4 +103,12 @@ final class OutputPanelSizingTests: XCTestCase {
                                           extraOutputs: 2),
                        "PNG · overwrite originals · +2 outputs")
     }
+
+    func testSeveralPanelsScrollInsideAScreenShare() {
+        XCTAssertEqual(OutputPanelSizing.maxOpenHeight(screenHeight: 1000), 600)
+        XCTAssertEqual(OutputPanelSizing.maxOpenHeight(screenHeight: 300), OutputPanelSizing.minOpenCap)
+        XCTAssertEqual(OutputPanelSizing.maxOpenHeight(screenHeight: 0), .infinity)
+        XCTAssertEqual(OutputPanelSizing.reachable(full: 900, cap: 600), 600)
+        XCTAssertEqual(OutputPanelSizing.reachable(full: 400, cap: 600), 400)
+    }
 }

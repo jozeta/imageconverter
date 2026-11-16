@@ -264,7 +264,8 @@ final class AppModel {
         // `{preset}` names the preset the run uses (a service or link runs a preset that isn't selected).
         let pipeline = presetName.map { pipeline.named($0) } ?? pipeline
         guard !isRunning, !batch.isEmpty else { return .busy }
-        guard await AccessStore.shared.ensureAccess(sources: batch.map(\.source), mode: mode, toasts: toasts,
+        guard await AccessStore.shared.ensureAccess(sources: batch.map(\.source), mode: mode,
+                                                    extraOutputs: pipeline.extraOutputs, toasts: toasts,
                                                     quiet: quietAccess) else {
             return .noAccess
         }

@@ -21,6 +21,8 @@ final class OutputPanelState {
             }
         }
     }
+    /// The extra output panels that are open (a new one opens; not persisted).
+    var expandedVariants: Set<UUID> = []
     @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults) {
@@ -51,19 +53,28 @@ struct CollapsibleOutputPanel: View {
     /// True while a drag gesture is live; SwiftUI resets it when the gesture ends or is cancelled.
     @GestureState private var dragging = false
 
+    /// The open panel's natural height, capped to a share of the screen (several output panels scroll instead of
+    /// growing the window past it).
+    private var reachableHeight: CGFloat {
+        let screen = NSApp.keyWindow?.screen ?? NSScreen.main
+        return OutputPanelSizing.reachable(
+            full: fullHeight, cap: OutputPanelSizing.maxOpenHeight(screenHeight: screen?.visibleFrame.height ?? 0))
+    }
+
     private var state: OutputPanelSizing.State {
         OutputPanelSizing.State(collapsed: model.outputPanel.collapsed, height: model.outputPanel.height)
     }
 
     /// The fixed height of the open panel (dragging, or a chosen height), or nil for its natural height.
     private var openHeight: CGFloat? {
-        dragHeight ?? OutputPanelSizing.shownHeight(state, collapsed: collapsedHeight, full: fullHeight)
+        dragHeight ?? OutputPanelSizing.shownHeight(state, collapsed: collapsedHeight, full: reachableHeight)
+            ?? (reachableHeight < fullHeight ? reachableHeight : nil)
     }
 
     /// The panel's height on screen now, where a drag or a key press starts from.
     private var currentHeight: CGFloat {
         if model.outputPanel.collapsed, dragHeight == nil { return collapsedHeight }
-        return openHeight ?? fullHeight
+        return openHeight ?? reachableHeight
     }
 
     var body: some View {
@@ -126,7 +137,7 @@ struct CollapsibleOutputPanel: View {
     /// "Collapsed", or "180 points of 320" (the panel's height and its full content).
     private var accessibilityValue: String {
         if model.outputPanel.collapsed, dragHeight == nil { return "Collapsed" }
-        return "\(Int(currentHeight.rounded())) points of \(Int(max(fullHeight, currentHeight).rounded()))"
+        return "\(Int(currentHeight.rounded())) points of \(Int(max(reachableHeight, currentHeight).rounded()))"
     }
 
     /// Ends a drag that didn't finish normally: the panel keeps its saved state and the window pin is let go.
@@ -153,11 +164,11 @@ struct CollapsibleOutputPanel: View {
                 }
                 dragHeight = OutputPanelSizing.dragged(from: dragStart ?? currentHeight,
                                                        translation: value.translation.height,
-                                                       collapsed: collapsedHeight, full: fullHeight)
+                                                       collapsed: collapsedHeight, full: reachableHeight)
             }
             .onEnded { _ in
                 let settled = OutputPanelSizing.settled(dragHeight ?? currentHeight, collapsed: collapsedHeight,
-                                                        full: fullHeight)
+                                                        full: reachableHeight)
                 SidebarMotion.perform { apply(settled) }
                 dragStart = nil
                 dragHeight = nil
@@ -168,7 +179,7 @@ struct CollapsibleOutputPanel: View {
 
     private func step(_ direction: Int) -> KeyPress.Result {
         let next = OutputPanelSizing.stepped(from: currentHeight, by: direction, collapsed: collapsedHeight,
-                                             full: fullHeight)
+                                             full: reachableHeight)
         guard next != state else { return .handled }
         // Like a drag: the window keeps its height until the new layout is measured.
         model.windowSizer.pinHeight()
@@ -186,13 +197,22 @@ struct CollapsibleOutputPanel: View {
     // MARK: Panel
 
     private var openPanel: some View {
-        ScrollView {
-            OutputPanel(model: model, settings: settings)
-                .fixedSize(horizontal: false, vertical: true)
-                .background(GeometryReader { proxy in
-                    Color.clear.onAppear { fullHeight = proxy.size.height }
-                        .onChange(of: proxy.size.height) { _, height in fullHeight = height }
-                })
+        ScrollViewReader { reader in
+            ScrollView {
+                OutputPanel(model: model, settings: settings)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .background(GeometryReader { proxy in
+                        Color.clear.onAppear { fullHeight = proxy.size.height }
+                            .onChange(of: proxy.size.height) { _, height in fullHeight = height }
+                    })
+            }
+            // A new output panel is scrolled into view when the panel is shorter than its content.
+            .onChange(of: model.pipeline.extraOutputs.map(\.id)) { old, new in
+                guard new.count > old.count, let added = new.last(where: { !old.contains($0) }) else { return }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation { reader.scrollTo(added, anchor: .top) }
+                }
+            }
         }
         .scrollDisabled(openHeight == nil)
         .scrollIndicators(openHeight == nil ? .never : .automatic)

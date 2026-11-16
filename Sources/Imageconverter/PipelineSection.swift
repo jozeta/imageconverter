@@ -292,66 +292,33 @@ struct PipelineHeader: View {
     }
 }
 
-/// The fixed Output panel under the steps: format and compression, the size estimate and where to save.
+/// The fixed Output panel under the steps: format and compression (the ⓘ right of the format shows every output's
+/// size estimate), where to save, every extra output as a panel of its own, and When finished (for the whole run).
+/// The "+" at the top right adds an output.
 struct OutputPanel: View {
     @Bindable var model: AppModel
     var settings: AppSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            Text("Output").font(LadaGlass.Typography.subtitle)
-                .stepHelp(.output)
-            OutputFormatControls(output: $model.pipeline.output)
-                .disabled(model.isRunning)
-            OutputVariantsSection(model: model)
-            estimateLine
+            HStack(spacing: LadaGlass.Spacing.s) {
+                Text("Output").font(LadaGlass.Typography.subtitle)
+                    .stepHelp(.output)
+                Spacer(minLength: 0)
+                AddOutputButton(model: model)
+            }
+            OutputFormatControls(output: $model.pipeline.output) {
+                EstimateInfoButton(model: model)
+            }
+            .disabled(model.isRunning)
             saveToControls
+            OutputVariantsSection(model: model)
             afterRunControls
         }
         .padding(.horizontal, LadaGlass.Spacing.m)
         .padding(.vertical, LadaGlass.Spacing.s)
         .frame(maxWidth: .infinity, alignment: .leading)
         // The surface is drawn by `CollapsibleOutputPanel`, around its scroll view, so a shorter panel keeps its edge.
-    }
-
-    // MARK: Size estimate
-
-    private var estimateLine: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(estimateText)
-                .font(LadaGlass.Typography.label)
-                .foregroundStyle(LadaGlass.Colors.muted)
-                .accessibilityLabel(estimateText)
-            if let variants = variantEstimateText {
-                Text(variants)
-                    .font(LadaGlass.Typography.label)
-                    .foregroundStyle(LadaGlass.Colors.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(variants)
-            }
-        }
-    }
-
-    /// "Primary 1.1 MB · Thumbnail 48 KB" under the estimate, once it is in.
-    private var variantEstimateText: String? {
-        guard !model.isEstimating, let estimate = model.sizeEstimate, let output = estimate.output else { return nil }
-        return SizeEstimator.variantLine(primary: output, variants: estimate.variants)
-    }
-
-    private var estimateText: String {
-        if model.items.isEmpty { return "Add images to see the file size" }
-        if let reason = model.estimateFailure { return reason }
-        if model.estimateFailed { return "—" }
-        guard !model.isEstimating, let estimate = model.sizeEstimate, let output = estimate.output else { return "Estimating…" }
-        let original = estimate.original.map(Self.bytes) ?? "—"
-        let change = estimate.original.flatMap { SizeFormat.percentChange(from: $0, to: output) }.map { " (\($0))" } ?? ""
-        let quality = qualitySuffix(estimate.quality, mode: model.pipeline.output.compression)
-        let note = estimate.note.map { ". \($0)" } ?? ""
-        return "Original \(original) → about \(Self.bytes(output))\(quality)\(change)\(note)"
-    }
-
-    private static func bytes(_ count: Int) -> String {
-        ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
     }
 
     // MARK: Save to

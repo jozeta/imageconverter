@@ -91,9 +91,16 @@ swiftlint           # if installed (brew install swiftlint)
     `updateCheckOnLaunch` answer, launch check once from the main window's onAppear, Check Now, install, Later);
     `UpdateViews.swift` (About section, offer sheet with plain-text notes, first-launch question, `updateSheets` held
     back while the interrupted-batch sheet shows). `GeometryEditors.swift` (Rotate/flip, Perspective, Trim editors; Crop and Canvas are in `StepEditors.swift`), `FocusPicker.swift` (Focus: Position/Subject/Faces, used by Crop and Resize fill),
-    `OutputRow.swift` (format, quality and compression controls of the Output row), `OutputVariantsSection.swift`
-    (extra outputs under the Output format controls: collapsible rows, + Add output, inline suffix errors) and
-    `AppModel+Variants.swift` (add/remove, `variantProblems`; Run is disabled while there are any).
+    `OutputRow.swift` (`OutputFormatControls`: format, quality and compression controls, an `accessory` right of the
+    format picker), `OutputVariantsSection.swift` (round 3: every extra output is a full output panel under the main
+    one's Save to: collapsible `VariantPanel` with name, format controls, size, suffix and `VariantSaveToControl`
+    (beside main / same folder / subfolder next to original / new folder, never overwrite; a chosen folder is
+    `AccessStore.remember`ed); `AddOutputButton`, the "+" at the top right of the Output panel; open panels in
+    `model.outputPanel.expandedVariants`), `EstimateInfoButton.swift` (the ⓘ right of the main format picker: hover
+    popover, click/Space pins it, every output's size via `SizeEstimator.lines`; DEBUG `-debugShowEstimateInfo`) and
+    `AppModel+Variants.swift` (add (`OutputVariant.added`)/remove, `variantProblems`; Run is disabled while there are any).
+    The open Output panel's natural height is capped at `OutputPanelSizing.maxOpenHeight` (60 % of the screen); taller
+    content scrolls.
     `previewCollapsed` and `pipelineCollapsed` are persisted in UserDefaults
   - Jobs: `JobsController.swift` (+ `JobsController+Runs.swift`: watchers, schedules, the per-job run queue,
     background runs at half the cores, history/error log, bookmarks via `JobFolders`), `JobsView.swift` (Jobs
@@ -120,7 +127,9 @@ swiftlint           # if installed (brew install swiftlint)
     `PrivacyScanner` (header/metadata-only privacy findings with severities and suggested `MetadataOptions`), `BatchRunner` (parallel run, progress, cancel), `BatchRunner+Schedule` (the scheduler: adaptive limits, pause, priorities, end-of-batch retry, events, journal), `BatchControl` (pause/resume/prioritize/low-memory, `ItemEvent`, memory pressure, `BatchLimits`), `RunJournal` (interrupted-run journal with a `.done` completion log appended per finished item and, in overwrite mode, per-source fingerprints so a resume skips replaced originals; bookmarks of source folders, loose source files (≤ 2 000) and the output folder, made and resolved in `RunJournal+Access`; stale temp folders), `ActiveSources` (in-process registry of files runs are working on; a held file is skipped as "Busy in another run"), `Pipeline+DecodeHint` (when the batch may decode downsampled), `SharedCIContext` (the one Metal-backed `CIContext`),
     `Pipeline` (steps, options, `apply`), `FileSteps` (`MetadataOptions`, `RenameOptions`), `MetadataOps` (metadata stripping/setting, DPI; `+XMP` builds the XMP written via `CGImageDestinationAddImageAndMetadata`, `+Keep` the remove-all keep lists; `Pipeline.outputProperties` in `Pipeline+Resize` applies both; it also has `outputDPI` and the Lanczos memory count for `peakPixels`), `MetadataEdits` (location, date, keyword and keep choices), `MetadataFields` (allowlisted custom EXIF/IPTC/XMP fields), `MetadataDates` (date set/shift), `MetadataFloor` (the Metadata step's removals as a floor for condition overrides; copies that must lose metadata are converted), `LosslessMetadata` (metadata-only edits: JPEG/HEIC image data copied untouched with `CGImageDestinationCopyImageSource`, a JPEG copy rebuilt by `JPEGSegments` (segment allowlist, JFIF thumbnail dropped, APP13 reduced to the re-encode's IPTC, EXIF thumbnail cut off), a HEIC copy refused with a thumbnail, extra images or auxiliary data, then checked against a tiny re-encode of the same metadata (XMP by value), falling back to the re-encode with a note; used by `BatchRunner.encodeItem`, so the estimate matches),
     `RenameTemplate` (tokens, sanitising; `+Values`: each token's value, `{random}`/`{uuid}` derived from the source path;
-    `RenameTokens`: the grouped Insert menu, every known token in it), `OutputPanelSizing` (+ `OutputSummary`,
+    `RenameTokens`: the grouped Insert menu, every known token in it), `OutputDestination` (extra outputs' Save to: `.folder(VariantFolder)` path + bookmark, `.sameFolder`,
+    `.subfolder(template)`; `OutputVariant.baseFolder`, `OutputVariant.added`, `VariantFolderAccess`: chosen folders
+    resolved and opened once per run, held by `RunPlan`), `OutputPanelSizing` (+ `OutputSummary`,
     `ViewDefaults`: Split is the default compare mode), `Pipeline+PresetName` (`presetName` for `{preset}`, never saved
     or compared), `StepSummary` (one-line step descriptions), `Geometry` (size maths; `focusedOrigin` centres a crop on a focus),
     `CropFocus` (Crop/Resize fill focus: anchor, subject, faces; `FocusResolution`: fallbacks faces → subject → centre with report notes, union, pure), `VisionDetector` (protocol: normalised top-left face/subject/text rects; `SystemVisionDetector` on a ≤ 1024 px `VisionInput` copy; shared seam for later Vision features), `FocusDetector` (`FocusContext` passed to `Pipeline.apply`, `FocusCache` for the preview, estimate and ladder keyed by file version + step input; a failed detection isn't cached), `Pipeline+Focus` (a Crop or Resize fill step's detected focus at its position), `EnlargeCache` (ML enlarge results for the preview, estimate and ladder, one enlarge at a time app-wide, ≤ 2 results / 200 MP; `PreviewCaches` bundles it with `FocusCache` and `RedactCache`, `PreviewRenderer.caches` passed to `SizeEstimator`/`QualityLadder`),

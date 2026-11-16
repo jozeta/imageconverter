@@ -1,40 +1,33 @@
+import AppKit
 import SwiftUI
 import ImageconverterCore
 
-/// The Output panel's extra outputs: one collapsible row per output and "+ Add output".
+/// The Output panel's extra outputs (Johan, round 3): each one is a full output panel of its own (format,
+/// compression, size, name suffix and its own Save to), collapsible like a step, with a remove button. The "+" that
+/// adds one sits at the top right of the Output panel (`AddOutputButton`).
 struct OutputVariantsSection: View {
     @Bindable var model: AppModel
-    @State private var expanded: Set<UUID> = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
+        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
             ForEach(model.pipeline.extraOutputs) { variant in
-                VariantRow(variant: binding(variant), isExpanded: expandedBinding(variant.id),
-                           problem: model.variantProblems[variant.id],
-                           remove: {
-                               SidebarMotion.perform {
-                                   expanded.remove(variant.id)
-                                   model.removeVariant(variant.id)
-                               }
-                           })
+                VariantPanel(variant: binding(variant), isExpanded: expandedBinding(variant.id),
+                             problem: model.variantProblems[variant.id],
+                             remove: {
+                                 SidebarMotion.perform {
+                                     model.outputPanel.expandedVariants.remove(variant.id)
+                                     model.removeVariant(variant.id)
+                                 }
+                             })
+                    .id(variant.id)
             }
-            Button("+ Add output") {
-                SidebarMotion.perform {
-                    if let added = model.addVariant() { expanded.insert(added.id) }
-                }
-            }
-            .buttonStyle(.lg(.ghost))
-            .disabled(!model.canAddVariant)
-            .help(model.canAddVariant ? "Write another file for every image (e.g. a thumbnail)"
-                  : OutputVariant.tooManyProblem)
-            .accessibilityLabel("Add an extra output")
         }
         .disabled(model.isRunning)
         #if DEBUG
         // Screenshot aid: `-debugExpandSteps` opens every extra output's editor too.
         .onAppear {
             if CommandLine.arguments.contains("-debugExpandSteps") {
-                expanded = Set(model.pipeline.extraOutputs.map(\.id))
+                model.outputPanel.expandedVariants = Set(model.pipeline.extraOutputs.map(\.id))
             }
         }
         #endif
@@ -53,13 +46,43 @@ struct OutputVariantsSection: View {
     }
 
     private func expandedBinding(_ id: UUID) -> Binding<Bool> {
-        Binding(get: { expanded.contains(id) },
-                set: { if $0 { expanded.insert(id) } else { expanded.remove(id) } })
+        Binding(get: { model.outputPanel.expandedVariants.contains(id) },
+                set: { if $0 { model.outputPanel.expandedVariants.insert(id) } else { model.outputPanel.expandedVariants.remove(id) } })
     }
 }
 
-/// One extra output: name, format and compression, size, suffix and subfolder.
-private struct VariantRow: View {
+/// The "+" at the top right of the Output panel: adds an output panel (a copy of the main output's settings).
+struct AddOutputButton: View {
+    var model: AppModel
+    @State private var hovered = false
+
+    var body: some View {
+        Button {
+            SidebarMotion.perform {
+                if let added = model.addVariant() { model.outputPanel.expandedVariants.insert(added.id) }
+            }
+        } label: {
+            Image(systemName: "plus")
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: 24, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(hovered ? LadaGlass.Colors.text : LadaGlass.Colors.muted)
+        .onHover { hovered = $0 }
+        .disabled(!model.canAddVariant || model.isRunning)
+        .help(model.canAddVariant
+              ? "Add output: another file for every image, with its own format, settings and Save to"
+              : OutputVariant.tooManyProblem)
+        .accessibilityLabel("Add output")
+        .accessibilityHint(model.canAddVariant ? "Adds an output panel with its own format and Save to"
+                           : OutputVariant.tooManyProblem)
+    }
+}
+
+/// One extra output as a panel: its name, the same format and compression controls as the main output, its size,
+/// name suffix and Save to.
+private struct VariantPanel: View {
     @Binding var variant: OutputVariant
     @Binding var isExpanded: Bool
     let problem: String?
@@ -74,6 +97,7 @@ private struct VariantRow: View {
         }
         parts.append(variant.resize?.summary ?? "same size")
         parts.append("name\(variant.cleanSuffix)")
+        parts.append(variant.destination?.summary ?? "beside the main output")
         return parts.joined(separator: " · ")
     }
 
@@ -81,32 +105,28 @@ private struct VariantRow: View {
         AccordionCard(isExpanded: $isExpanded, canExpand: true, title: title) {
             HStack(spacing: LadaGlass.Spacing.s) {
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(title).font(LadaGlass.Typography.body)
+                    Text(title).font(LadaGlass.Typography.subtitle)
                     Text(problem ?? summary)
                         .font(LadaGlass.Typography.label)
                         .foregroundStyle(problem == nil ? LadaGlass.Colors.muted : LadaGlass.Colors.badText)
                         .lineLimit(1)
+                        .truncationMode(.middle)
                 }
                 Spacer(minLength: 0)
-                RemoveStepButton(label: "extra output \(title)", action: remove)
+                RemoveStepButton(label: "output \(title)", action: remove)
             }
             .contentShape(Rectangle())
         } content: {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
                 labelled("Name") {
-                    TextField("Thumbnail", text: $variant.name)
+                    TextField("Output 2", text: $variant.name)
                         .textFieldStyle(.roundedBorder)
-                        .accessibilityLabel("Extra output name")
+                        .accessibilityLabel("Output name")
                 }
                 OutputFormatControls(output: $variant.settings)
                 VariantSizeControls(resize: $variant.resize)
                 suffixField
-                labelled("Subfolder") {
-                    TextField("none", text: subfolderBinding)
-                        .textFieldStyle(.roundedBorder)
-                        .help("Folder under the main output's folder; rename tokens allowed, e.g. thumbs/{date:yyyy}")
-                        .accessibilityLabel("Extra output subfolder")
-                }
+                VariantSaveToControl(destination: $variant.destination, subfolder: $variant.subfolder)
             }
         }
     }
@@ -114,9 +134,9 @@ private struct VariantRow: View {
     private var suffixField: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
             labelled("Suffix") {
-                TextField("_thumb", text: $variant.nameSuffix)
+                TextField("_out2", text: $variant.nameSuffix)
                     .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel("Extra output name suffix")
+                    .accessibilityLabel("Output name suffix")
             }
             if let problem {
                 Text(problem)
@@ -125,9 +145,11 @@ private struct VariantRow: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityLabel("Problem: \(problem)")
             } else {
-                Text("Saved as name\(variant.cleanSuffix).\(variant.settings.format.fileExtensions[0])")
+                Text("Saved as name\(variant.cleanSuffix).\(variant.settings.format.fileExtensions[0]); "
+                     + "every output needs its own suffix, also in another folder")
                     .font(LadaGlass.Typography.label)
                     .foregroundStyle(LadaGlass.Colors.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -139,10 +161,124 @@ private struct VariantRow: View {
             field()
         }
     }
+}
 
-    private var subfolderBinding: Binding<String> {
-        Binding(get: { variant.subfolder ?? "" },
-                set: { variant.subfolder = $0.isEmpty ? nil : String($0.prefix(RenameTemplate.maxLength)) })
+/// An extra output's Save to: beside the main output (the default), the original's folder, a subfolder next to the
+/// original, or a folder of its own. Never "overwrite": an extra output is always a new file.
+private struct VariantSaveToControl: View {
+    @Binding var destination: OutputDestination?
+    /// The output's subfolder template under the main output's folder or the chosen folder.
+    @Binding var subfolder: String?
+    /// The last folder and subfolder name, so switching away and back keeps them.
+    @State private var lastFolder = VariantFolder()
+    @State private var lastName = "thumbs"
+
+    enum Choice: String, CaseIterable {
+        case besideMain = "Beside the main output"
+        case sameFolder = "Same folder as original"
+        case subfolder = "Subfolder next to original"
+        case newFolder = "New folder"
+    }
+
+    private var choice: Choice {
+        switch destination {
+        case nil: return .besideMain
+        case .sameFolder?: return .sameFolder
+        case .subfolder?: return .subfolder
+        case .folder?: return .newFolder
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
+            Picker("Save to", selection: choiceBinding.sidebarAnimated) {
+                ForEach(Choice.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .accessibilityLabel("Output save to")
+            switch destination {
+            case nil:
+                note("Into the main output's folder (next to the originals when they are overwritten)")
+                subfolderField
+            case .sameFolder?:
+                note("Next to each original, as a new file; the original is never replaced")
+            case .subfolder(let name)?:
+                TextField("thumbs", text: Binding(
+                    get: { name },
+                    set: { destination = .subfolder(String($0.prefix(RenameTemplate.maxLength))) }))
+                    .textFieldStyle(.roundedBorder)
+                    .help("A folder inside each original's folder; rename tokens allowed, e.g. thumbs/{date:yyyy}")
+                    .accessibilityLabel("Subfolder name")
+            case .folder(let folder)?:
+                HStack {
+                    Text(folder.isChosen ? folder.path : "No folder chosen")
+                        .font(LadaGlass.Typography.mono)
+                        .foregroundStyle(LadaGlass.Colors.muted)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 0)
+                    Button("Choose folder…", action: chooseFolder)
+                        .buttonStyle(.lg(.secondary))
+                        .accessibilityLabel("Choose this output's folder")
+                }
+                subfolderField
+            }
+        }
+    }
+
+    private var subfolderField: some View {
+        HStack(spacing: LadaGlass.Spacing.xs) {
+            Text("Subfolder").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                .frame(width: 64, alignment: .leading)
+            TextField("none", text: Binding(
+                get: { subfolder ?? "" },
+                set: { subfolder = $0.isEmpty ? nil : String($0.prefix(RenameTemplate.maxLength)) }))
+                .textFieldStyle(.roundedBorder)
+                .help("Folder under that folder; rename tokens allowed, e.g. thumbs/{date:yyyy}")
+                .accessibilityLabel("Output subfolder")
+        }
+    }
+
+    private func note(_ text: String) -> some View {
+        Text(text).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var choiceBinding: Binding<Choice> {
+        Binding(get: { choice }, set: { set($0) })
+    }
+
+    private func set(_ new: Choice) {
+        guard new != choice else { return }
+        if case .folder(let folder)? = destination { lastFolder = folder }
+        if case .subfolder(let name)? = destination, !SubfolderTemplate.isBlank(name) { lastName = name }
+        switch new {
+        case .besideMain: destination = nil
+        case .sameFolder:
+            destination = .sameFolder
+            subfolder = nil
+        case .subfolder:
+            // A subfolder template already set becomes the subfolder's name.
+            destination = .subfolder(subfolder ?? lastName)
+            subfolder = nil
+        case .newFolder:
+            destination = .folder(lastFolder)
+            if !lastFolder.isChosen { DispatchQueue.main.async(execute: chooseFolder) }
+        }
+    }
+
+    /// The folder is remembered as a folder grant too, so a sandboxed run doesn't ask for it again.
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.message = "Choose the folder for this output"
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        AccessStore.shared.remember(url)
+        let folder = VariantFolder.chosen(url)
+        lastFolder = folder
+        SidebarMotion.perform { destination = .folder(folder) }
     }
 }
 

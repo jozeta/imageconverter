@@ -43,9 +43,10 @@ public enum VariantResize: Codable, Equatable, Sendable {
     }
 }
 
-/// One more file written for every image, next to the primary output: the same processed image (pipeline and
-/// metadata applied once), optionally resized, then encoded with its own settings, named `<name><suffix>.<ext>`.
-/// An extra output is always a new file: it never replaces or trashes anything, in any output mode.
+/// One more file written for every image, next to the primary output or in its own place (`destination`): the
+/// same processed image (pipeline and metadata applied once), optionally resized, then encoded with its own
+/// settings, named `<name><suffix>.<ext>`. An extra output is always a new file: it never replaces or trashes
+/// anything, in any output mode and any destination.
 public struct OutputVariant: Codable, Equatable, Sendable, Identifiable {
     public var id: UUID
     /// The label shown in the app and the report ("Thumbnail").
@@ -55,8 +56,11 @@ public struct OutputVariant: Codable, Equatable, Sendable, Identifiable {
     public var resize: VariantResize?
     /// Added to the base name; required and distinct per output (see `problems(in:)`).
     public var nameSuffix: String
-    /// A folder template (rename tokens, `/` between folders) under the primary output's folder; nil for none.
+    /// A folder template (rename tokens, `/` between folders) under the output's folder (the primary output's, or
+    /// the chosen folder); nil for none.
     public var subfolder: String?
+    /// Where it goes; nil: beside the primary output (older files have none).
+    public var destination: OutputDestination?
 
     /// At most this many extra outputs per pipeline.
     public static let maxCount = 8
@@ -66,17 +70,18 @@ public struct OutputVariant: Codable, Equatable, Sendable, Identifiable {
 
     public init(id: UUID = UUID(), name: String = "Thumbnail", settings: OutputSettings = OutputSettings(quality: 0.7),
                 resize: VariantResize? = .longestEdge(400), nameSuffix: String = OutputVariant.defaultSuffix,
-                subfolder: String? = nil) {
+                subfolder: String? = nil, destination: OutputDestination? = nil) {
         self.id = id
         self.name = name
         self.settings = settings
         self.resize = resize
         self.nameSuffix = nameSuffix
         self.subfolder = subfolder
+        self.destination = destination
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, settings, resize, nameSuffix, subfolder
+        case id, name, settings, resize, nameSuffix, subfolder, destination
     }
 
     /// Lenient: missing fields take their defaults, an invalid resize or subfolder is dropped.
@@ -93,6 +98,9 @@ public struct OutputVariant: Codable, Equatable, Sendable, Identifiable {
         nameSuffix = (try? container.decodeIfPresent(String.self, forKey: .nameSuffix)) ?? ""
         let folder = try? container.decodeIfPresent(String.self, forKey: .subfolder)
         subfolder = folder.flatMap { Self.isUsableSubfolder($0) ? $0 : nil }
+        // A destination that is there but can't be read fails the output (left out with a note), so it never
+        // quietly writes somewhere else.
+        destination = try container.decodeIfPresent(OutputDestination.self, forKey: .destination)
     }
 
     /// The suffix as it goes into file names: path separators become `-`, control, bidi and zero-width characters
@@ -130,7 +138,8 @@ public struct OutputVariant: Codable, Equatable, Sendable, Identifiable {
     public static let tooManyProblem = "At most \(maxCount) extra outputs"
 
     /// What is wrong with each output, by id (empty when all can run): an empty suffix, a suffix an earlier output
-    /// already uses (compared case-insensitively after sanitising), or more than `maxCount` outputs.
+    /// already uses (compared case-insensitively after sanitising; also between outputs in different folders, which
+    /// keeps it simple and safe), a destination without its folder, or more than `maxCount` outputs.
     public static func problems(in variants: [OutputVariant]) -> [UUID: String] {
         var problems: [UUID: String] = [:]
         var seen = Set<String>()
@@ -142,6 +151,8 @@ public struct OutputVariant: Codable, Equatable, Sendable, Identifiable {
                 problems[variant.id] = emptySuffixProblem
             } else if !seen.insert(suffix.lowercased()).inserted {
                 problems[variant.id] = duplicateSuffixProblem
+            } else if let problem = variant.destination?.problem {
+                problems[variant.id] = problem
             }
         }
         return problems

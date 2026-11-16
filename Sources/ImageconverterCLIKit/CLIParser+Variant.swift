@@ -7,7 +7,9 @@ extension CLIParser {
 
     /// One `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"`: comma-separated `key=value`
     /// pairs. The format defaults to JPEG and the suffix to `_<name>`; at most one of long, width, height and
-    /// percent (none keeps the pipeline's size). `position` numbers the variant, so its id is stable.
+    /// percent (none keeps the pipeline's size). `folder=` with an absolute path (or `~/…`) is the output's own
+    /// folder; a relative one is a subfolder (template) under the main output's folder, as before. `position`
+    /// numbers the variant, so its id is stable.
     static func variant(_ text: String, position: Int) throws -> OutputVariant {
         let fields = try variantFields(text)
         let (settings, resize) = try variantOutput(fields)
@@ -15,9 +17,22 @@ extension CLIParser {
         guard let suffix = fields["suffix"] ?? (name.isEmpty ? nil : "_\(name)") else {
             throw CLIUsageError("--variant needs suffix=… (or a name=… to make one from).")
         }
-        let folder = fields["folder"].flatMap { SubfolderTemplate.isBlank($0) ? nil : $0 }
+        let (folder, destination) = try variantFolder(fields["folder"])
         return OutputVariant(id: stableID(position), name: String(name.prefix(OutputVariant.maxNameLength)),
-                             settings: settings, resize: resize, nameSuffix: suffix, subfolder: folder)
+                             settings: settings, resize: resize, nameSuffix: suffix, subfolder: folder,
+                             destination: destination)
+    }
+
+    /// `folder=`: an absolute path (or `~/…`) is a destination folder, anything else a subfolder template.
+    private static func variantFolder(_ value: String?) throws -> (subfolder: String?, destination: OutputDestination?) {
+        guard let value, !SubfolderTemplate.isBlank(value) else { return (nil, nil) }
+        let trimmed = value.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("/") || trimmed.hasPrefix("~") else { return (value, nil) }
+        let path = URL(fileURLWithPath: (trimmed as NSString).expandingTildeInPath).standardizedFileURL.path
+        guard VariantFolder.isUsablePath(path), path.hasPrefix("/") else {
+            throw CLIUsageError("--variant: folder must be a folder path.")
+        }
+        return (nil, .folder(VariantFolder(path: path)))
     }
 
     /// The `key=value` pairs, keys lower-cased; each key at most once.
