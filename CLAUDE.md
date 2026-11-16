@@ -216,7 +216,9 @@ free space, SIGKILL fallback; `unpackedTreeProblem`: the unpacked tree must matc
   (`Imageconverter.SwiftFileList` + `*.swiftconstvalues`, which the universal, Xcode-build-system `swift build`
   emits) and copies `Metadata.appintents` into `Contents/Resources/`; it checks every intent in its `intents=(…)`
   list is there with `openAppWhenRun` false, the action count equals the list and there is one App Shortcut each
-  (add a new intent to that list). Needs Xcode. Chosen (Task 8, round 3) over `xcodebuild` on the package scheme
+  (add a new intent to that list). Needs Xcode (checked before building). `SKIP_APPINTENTS=1` skips the step and
+  prints "App Intents metadata skipped (SKIP_APPINTENTS=1)"; CI sets it (its Xcode 16 differs from the processor
+  arguments and build layout); refused with a real identity or `--notarize`. Chosen (Task 8, round 3) over `xcodebuild` on the package scheme
   (runs the metadata step only for library targets, not the executable) and a hand-written .xcodeproj. linkd
   indexes an app's actions only after it was launched from its location (never from /tmp). `BUNDLE_ID` there must equal
   `CLIDataDirectory.bundleIdentifier` (the script checks). `scripts/install-cli.sh` links the CLI into `~/.local/bin`.

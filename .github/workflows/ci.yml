@@ -26,6 +26,12 @@ jobs:
           if command -v shellcheck >/dev/null; then shellcheck scripts/*.sh
           else for f in scripts/*.sh; do bash -n "$f"; done; fi
       - name: Build the app bundle (ad hoc signed) and verify it
+        # SKIP_APPINTENTS=1: the Shortcuts metadata step (Metadata.appintents) runs Xcode's appintentsmetadataprocessor
+        # with the arguments and build layout of the Xcode used for releases; the runner's older Xcode differs. Real
+        # releases are built locally with the current Xcode; release.sh refuses the skip with a real identity or
+        # --notarize.
+        env:
+          SKIP_APPINTENTS: "1"
         run: |
           scripts/release.sh
           codesign --verify --strict --deep --verbose=2 dist/imageconverter.app

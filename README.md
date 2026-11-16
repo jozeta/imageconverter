@@ -246,7 +246,8 @@ Requires macOS 14 (Sonoma) or later, on Apple silicon or Intel.
    `xattr -dr com.apple.quarantine /Applications/imageconverter.app`. A build you made on this Mac needs neither.
 4. Check the download against the `.sha256` file next to the zip: `shasum -a 256 -c imageconverter-<version>.zip.sha256`.
 
-**Build the app from source** (needs Xcode or the Command Line Tools):
+**Build the app from source** (needs Xcode: a release with the Shortcuts actions can't be built with only the
+Command Line Tools):
 
 ```sh
 git clone <this repository> && cd imageconverter
@@ -269,10 +270,11 @@ scripts/release.sh                 # ad hoc signed: dist/imageconverter.app + di
 SIGN_IDENTITY="Developer ID Application: …" NOTARY_PROFILE=<profile> scripts/release.sh --notarize
 ```
 
-The script reads the version from `VERSION` (must be `x.y.z`, three numbers without a suffix), builds a
+The script reads the version from `VERSION` (must be `x.y.z`, three numbers without a suffix), checks that
+Xcode's App Intents tool is there (it stops before building when it isn't, unless `SKIP_APPINTENTS=1`), builds a
 universal (arm64 + x86_64) release (falling back to this Mac's architecture, with a warning, only when the
-toolchain can't build a second architecture, i.e. Command Line Tools without Xcode; any other build error
-stops the script), and assembles the bundle in a temporary folder:
+toolchain can't build a second architecture, i.e. Command Line Tools without Xcode, which is only possible with
+`SKIP_APPINTENTS=1`; any other build error stops the script), and assembles the bundle in a temporary folder:
 the app, `AppIcon.icns` (from `Resources/AppIcon.png`), the AppleScript dictionary, the Shortcuts actions'
 metadata (`Contents/Resources/Metadata.appintents`, see below), and an `Info.plist` made
 from `scripts/Info.plist.template` plus `Resources/Info-fragments.plist` (Services, AppleScript, `imageconverter://`
@@ -284,6 +286,7 @@ copyright year from the last commit (holder from `LICENSE`). Only a signed and v
 | --- | --- | --- |
 | `SIGN_IDENTITY` | `-` (ad hoc) | The codesign identity. Ad hoc builds run only on this Mac without a Gatekeeper warning. |
 | `NOTARY_PROFILE` | none | A `notarytool` keychain profile (`xcrun notarytool store-credentials`); required by `--notarize`. |
+| `SKIP_APPINTENTS` | unset | `1` builds the app without `Metadata.appintents`, so Shortcuts lists no actions; the script prints "App Intents metadata skipped (SKIP_APPINTENTS=1)". Only for CI, whose older Xcode can't run the metadata step. Refused with a real `SIGN_IDENTITY` or `--notarize`, before anything is built. |
 | `--notarize` | off | Submit to Apple's notary service, wait, staple, and write `dist/imageconverter-<version>.zip`. Refused with an ad hoc identity or without `NOTARY_PROFILE`. When the submission isn't `Accepted`, prints the notary log and fails. |
 
 Both executables get the hardened runtime. The app is signed with `Resources/imageconverter.entitlements`:
@@ -298,7 +301,9 @@ own permissions on whatever paths you name. A real identity without `--notarize`
 the release script runs Xcode's own `appintentsmetadataprocessor` on what the universal `swift build` leaves behind
 (the app module's source list and the compiler's `.swiftconstvalues` for arm64 and x86_64), copies the result into
 the bundle and checks that it lists all seven actions, that none opens the app, and that each has its App Shortcut.
-This needs Xcode (not only the Command Line Tools). `swift build`, `swift run` and `swift test` are unchanged.
+This needs Xcode (not only the Command Line Tools): a release with Shortcuts actions is always built with Xcode
+selected (`xcode-select -s /Applications/Xcode.app`). CI sets `SKIP_APPINTENTS=1` for its bundle check, so its
+build has no Shortcuts actions. `swift build`, `swift run` and `swift test` are unchanged.
 
 ## Configuration
 
