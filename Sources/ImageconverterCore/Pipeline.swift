@@ -298,7 +298,7 @@ extension Pipeline {
         var peak = 0
         walk(sourceWidth: sourceWidth, sourceHeight: sourceHeight) { size, operation in
             let pixels = Self.pixels(size)
-            // Core Image keeps intermediates: count its steps as 3 working copies of the input.
+            // Core Image keeps intermediates: count its steps as several working copies of the input.
             let copies = operation.map { Self.workingCopies($0) } ?? 1
             if copies > 1 {
                 let (product, overflow) = pixels.multipliedReportingOverflow(by: copies)
@@ -367,7 +367,15 @@ extension Pipeline {
     static func workingCopies(_ operation: ImageOperation) -> Int {
         switch operation {
         case .adjust(let options): return options.isNeutral ? 1 : 3
-        case .perspective(let options): return Perspective.isNoOp(options) ? 1 : 3
+        case .perspective(let options):
+            // From the measured peak at 100 MP (round 3): crop 2.0 GB, colour/transparent 2.5 GB, extend edges
+            // (with its fallback) 3.6 GB, so a big image runs alone instead of beside others.
+            guard !Perspective.isNoOp(options) else { return 1 }
+            switch options.emptyAreas {
+            case .crop: return 4
+            case .color, .transparent: return 5
+            case .extend: return 6
+            }
         case .colorProfile(let options): return options.workingCopies
         default: return 1
         }

@@ -966,8 +966,25 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
    most 256 colours, is sRGB and has only fully opaque or fully transparent pixels (transparency is kept). Otherwise
    it's written as a normal PNG and the report says why ("Not written as an indexed PNG: it has semi-transparent
    pixels"). Only the Color step's own result is written with a palette: a later step that changes the pixels
-   (Adjust, Watermark, Rotate, an extra output's resize) gives "a step after Reduce colours changed the pixels", so
-   put the Color step last for a palette file. GIF is always written with a palette by ImageIO.
+   (Adjust, Watermark, Rotate) gives "a step after Reduce colours changed the pixels", so put the Color step last
+   for a palette file; an extra output with its own size gives "this output's size change added colours". GIF is
+   always written with a palette by ImageIO.
+
+### Straighten a document and keep its size
+
+1. Add a **Perspective** step and open it. Switch on **Auto** to square up a photographed document, whiteboard or
+   screen, or drag **Vertical** / **Horizontal** to correct converging lines by hand (the preview follows).
+2. **Output size**: **Keep original size** writes exactly the source's width and height (handy when every page of
+   a scan must stay the same size); **Fit the corrected image** (default) lets the size follow the correction.
+3. **Empty areas** decides what fills the corners the correction leaves empty: **Crop to the image** (default; no
+   empty corners, the image is cut a little), **Fill with colour** (pick the colour; white suits paper),
+   **Transparent** or **Extend edges** (the edge pixels repeated outwards, good for photos with plain borders).
+4. With **Transparent**, PNG (and HEIC/TIFF) outputs keep the empty corners see-through; a JPEG or BMP output,
+   main or extra, gets the fill colour instead and its report row says "No transparency in JPEG; filled with
+   #FFFFFF". For a JPEG, choose **Fill with colour** to pick that colour yourself.
+
+Large images: Perspective needs several working copies of the image (about 4–6 times its decoded size), so a batch
+of 100 MP scans is converted one image at a time.
 
 ### Crop around the subject or faces
 
