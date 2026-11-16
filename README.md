@@ -69,7 +69,7 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
 - **Jobs** (Window ▸ Jobs, ⌘J): watch folders or run on a schedule with a saved pipeline or a linked preset, while the app is open; one run at a time per job, a catch-up run when watching starts, a report file per run, notifications, and an optional menu bar mode. See [Process a folder automatically](#process-a-folder-automatically).
 - **Reports and history**: after a run the Report section shows summary cards with Export (CSV, JSON, HTML, text) and the error log, and Window ▸ History (⌥⌘H) keeps the last 100 runs, manual and jobs. See [Reports and history](#reports-and-history).
 - **Performance**: Pause/Resume (⌥⌘.), "12 / 124 · 3.4 img/s · about 2 min left", each image's stage in the list and as a ring on the thumbnails, a Performance panel (CPU, memory, workers, img/s, MP/s, elapsed), Low-memory mode, Process Next, a preview that keeps working during a run, and an offer to resume a batch that was interrupted. See [Performance](#performance).
-- Finder Quick Actions ("Convert with imageconverter" and up to 5 pinned presets), AppleScript commands (`convert`, `add files`, `run batch`, `presets`) and `imageconverter://` links, active once the app is packaged (milestone 6). See [Finder, AppleScript and links](#finder-applescript-and-links).
+- Finder Quick Actions ("Convert with imageconverter" and up to 5 pinned presets), AppleScript commands (`convert`, `add files`, `run batch`, `presets`) and `imageconverter://` links, active once the app is packaged (milestone 6). See [Finder Quick Actions, AppleScript and links](#finder-quick-actions-applescript-and-links).
 - Watermark editor: rotation (with 0°/−45°/45°/90° buttons), a Tiled layout (spacing, staggered rows), shadow and outline for text, an **Insert** menu for tokens such as `{filename}` and `{year}` with the text shown for the selected image, SVG logos (including Illustrator exports), and a **Templates** menu (Apply, Save as template…, Delete).
 - If / then / else steps: test each image's size, file size, format, transparency, orientation, GPS or camera, and give it its own steps, output, metadata or rename, copy it unchanged or skip it; the preview shows which branch an image takes, and skipped files are counted apart from failures.
 - Geometry editors: free angle and straighten, Perspective (Auto and keystone), Trim and the canvas Ratio mode.
@@ -261,7 +261,7 @@ compiles it (see CLAUDE.md for tests and lint).
 
 **Command-line tool:** the app carries it at `imageconverter.app/Contents/Helpers/imageconverter`. Run
 `scripts/install-cli.sh` to link it as `~/.local/bin/imageconverter` (no sudo; pass the app's path if it isn't in
-`/Applications`; the script tells you if that folder isn't on your PATH). See [Command line and Shortcuts](#command-line-and-shortcuts).
+`/Applications`; the script tells you if that folder isn't on your PATH). See [Command line](#command-line).
 
 ### Build the app bundle
 
@@ -1444,7 +1444,7 @@ Example: a Quick Action that makes web copies of the images selected in Finder. 
 **Use as Quick Action**, Receive **Images** from **Quick Actions** ▸ add **Convert Images** (Images: *Shortcut
 Input*, Preset: *Web export*) ▸ **Save File** (Ask Where to Save: off, a folder of your choice).
 
-### AppleScript and the command line
+### Quick examples
 
 ```applescript
 tell application "imageconverter"
@@ -1460,10 +1460,10 @@ imageconverter convert ~/Pictures/Trip --preset "Web export" --variant "name=thu
 imageconverter jobs run "Web export"
 ```
 
-The full AppleScript dictionary is under [Finder, AppleScript and links](#finder-applescript-and-links), every
-command-line option under [Command line and Shortcuts](#command-line-and-shortcuts).
+The full AppleScript dictionary is in [Finder Quick Actions, AppleScript and links](#finder-quick-actions-applescript-and-links)
+below, every command-line option in [Command line](#command-line).
 
-## Finder, AppleScript and links
+### Finder Quick Actions, AppleScript and links
 
 These three entry points are built into the app but **become active only in the packaged app** (milestone 6):
 macOS learns about services, the AppleScript dictionary and the `imageconverter://` scheme from the app
@@ -1525,38 +1525,7 @@ time: links that arrive meanwhile are ignored and counted in one message. Escape
 | `imageconverter://add?path=/Users/me/a.jpg&path=/Users/me/Trip` | Adds the files and folders (absolute paths). |
 | `imageconverter://jobs/run?name=Nightly` | Runs the saved job once (or once more after the run in progress). |
 
-## Folder access
-
-The packaged app runs in the App Sandbox: it can only open and write files and folders you gave it. Images you drop, add, open with the app (Dock icon, Open With, `open -a`) or send with a Finder Quick Action can always be read, and a dropped or opened folder can be written into for the rest of the session. Anything else is asked for once, when it is needed:
-
-- **Same folder as original** and **Overwrite original files** write into the folder each image is in. When the app doesn't have that folder yet, Run (and Finder Quick Actions, AppleScript, links and Resume) first shows an open panel already showing the folder, with the message *"imageconverter needs access to “Photos” to save next to the originals. Choose this folder (or one that contains it) to allow it."* Click **Allow**. Choosing a folder that contains several of the needed folders (your Pictures folder, say) answers all of them at once; choosing an unrelated folder asks again. **Cancel** stops the run before anything is written ("Not run: no access to …").
-- **New folder** needs only the output folder (chosen in the Output row; also asked for after a relaunch if its bookmark no longer opens it), plus the images' own folders when an image can't be read.
-- **Extra outputs with their own Save to** need their folders too: a chosen folder (allowed when you choose it, kept with a bookmark in the pipeline, preset or job), or the images' folders for *Same folder as original* and *Subfolder next to original*. A chosen folder that moved is followed. A folder imageconverter can't confirm as one you chose in it on this Mac (a preset from someone else, a folder that is gone) shows **Choose the folder again** on its panel, and Run asks for it before anything is written there. Jobs run in the background and can't ask: such an output isn't written (a note says so) and the image itself still is.
-- Shared presets carry the full path (and a bookmark) of an extra output's chosen folder; remove or change that output before sharing a preset if the path is private.
-- Allowed folders are remembered (up to 200, least recently used dropped first) and opened again at every launch. **Help ▸ Folder Access…** lists them, marks the ones that can't be found ("Not found") or that no longer open and must be allowed again ("Allow again"), and has **Add Folder…** (allow a folder ahead of time, for example the folders your scripts, links or jobs use), **Remove** and **Remove All**; a removed folder is asked for again next time. Remove and Remove All are unavailable while a batch or a job runs (it would lose access to the folders it is writing into). A folder you choose that doesn't contain the one asked for isn't remembered; the question comes back saying so.
-- The output folder and watermark images are stored with a bookmark next to the path, so presets, watermark templates and the saved pipeline keep working after a relaunch and follow a file or folder that was moved. When a watermark image can't be opened any more, the editor and the report say *"Couldn't open the watermark image — choose it again"*.
-- An interrupted batch's journal keeps bookmarks of the images' folders, of images added on their own (up to 2 000, when their folder couldn't be bookmarked) and of the output folder, so **Resume** opens them again. Before the resumed run is planned, the folder of every image that still can't be read is asked for (*"… to read the images"*). Images in a folder you don't allow (**Cancel**) are listed as *"N files of the interrupted batch couldn't be opened"*; add them again to convert them. Images whose folder the app can read but which are gone are listed as missing.
-- Jobs keep their own folder bookmarks (see [Process a folder automatically](#process-a-folder-automatically)).
-
-Outside the sandbox (`swift run`) nothing is asked; bookmarks are still made, so the same settings work in the packaged app. For screenshots, DEBUG builds accept `-debugSimulateSandbox` (ask as if sandboxed) and `-debugShowFolderAccess` (open the Folder Access window).
-
-## Updates
-
-imageconverter can update itself from its GitHub releases. Nothing goes online until you allow it.
-
-- **First launch:** a sheet asks *"Check for updates automatically?"* **Yes** checks now and at every launch; **No** never checks on its own. You are asked once; the answer is the checkbox below.
-- **App menu ▸ About imageconverter** has **Check Now**, the checkbox **Check for updates when the app starts** and a status line: *Checking…*, *You're up to date (1.1.0)*, *Version 1.2.0 is available* or what went wrong. Check Now always works. A check at launch stays silent when you're up to date or the check fails.
-- **When a newer version is found**, a sheet shows its release notes (as plain text) with **Install and Relaunch** and **Later**. Install first makes sure it can replace the app (see below), then downloads the release's zip and checksum and checks the checksum. A small installer service inside the app (`Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc`, not sandboxed, so the new app isn't marked as "created by a sandboxed app" and blocked) checks everything again, puts the new app in place of the old one (the old one goes to the Trash), and the app reopens itself.
-
-What is accepted, and when installing is refused:
-
-- Only GitHub's latest release of `jozeta/imageconverter`, tagged `v` + `x.y.z`, newer than the running version (never a downgrade or reinstall), not a draft or prerelease, with the assets `imageconverter-<x.y.z>.zip` and `imageconverter-<x.y.z>.zip.sha256`. The API answer may be at most 1 MB.
-- Downloads only over HTTPS from `github.com`, `objects.githubusercontent.com` or `release-assets.githubusercontent.com`, also after redirects; the zip at most 200 MB, the checksum file at most 1 KB. No cookies, cache or stored credentials are used.
-- The zip must match its SHA-256, list at most 20,000 entries and 1 GB unpacked (checked before unpacking, and watched while it unpacks: the installer stops once more than that space is actually used or less than 2 GB of disk stays free; what is unpacked must be what the zip lists), and hold exactly one `imageconverter.app` with no link pointing outside it. The app must be signed with the developer's Developer ID (team `6W6TD6P8G3`, identifier `io.github.jozeta.imageconverter`), notarized, not revoked, and have the release's version. Anything else is refused, the download deleted, and the installed app left alone. If Apple's revocation check can't be reached, it says *"Couldn't confirm the update's signature right now. Try again when you're online."*
-- Before anything is downloaded: installing is refused while a batch or a job runs (*"Finish the running batch or job first."*, checked again right before the swap), in a build that isn't the packaged app (`swift run`: *"Updates install only in the released app."*; Check Now still works there), and when the app runs from a read-only place (a disk image, or macOS's translocated copy of an app opened where it was downloaded): move it to Applications first. No folder access is asked for: the installer service writes the app's folder (usually Applications) with your own permissions. If you can't write to that folder, the installer says so and you can get the update from the release page instead.
-- The installer service accepts requests only from imageconverter itself (signed with the same Developer ID), replaces only the app it is inside, never with an older or the same version, and takes the download only from the app's own temporary folder. The swap never leaves the app's folder: the new app is copied next to the old one under a hidden name and checked again there, the old one is renamed aside, the new one renamed into place, and only then is the old one moved to the Trash. If the new one can't be put in place, the old one is renamed back. Leftovers of an interrupted update are removed the next time.
-
-## Command line and Shortcuts
+### Command line
 
 The package also builds a command-line tool, so batches can run from Terminal, scripts, cron or a Shortcuts "Run Shell Script" action. It uses the same engine as the app. The metadata panel's per-image changes are app-only (session-only): the command line and jobs use the Metadata step's settings.
 
@@ -1607,6 +1576,37 @@ useful for options they don't have. Example: add **Run Shell Script** (Shell: zs
 ```
 
 and pass the files from a Finder action; a following **Get Dictionary from Input** reads the JSON (`summary.succeeded`, `summary.failed`, `entries`).
+
+## Folder access
+
+The packaged app runs in the App Sandbox: it can only open and write files and folders you gave it. Images you drop, add, open with the app (Dock icon, Open With, `open -a`) or send with a Finder Quick Action can always be read, and a dropped or opened folder can be written into for the rest of the session. Anything else is asked for once, when it is needed:
+
+- **Same folder as original** and **Overwrite original files** write into the folder each image is in. When the app doesn't have that folder yet, Run (and Finder Quick Actions, AppleScript, links and Resume) first shows an open panel already showing the folder, with the message *"imageconverter needs access to “Photos” to save next to the originals. Choose this folder (or one that contains it) to allow it."* Click **Allow**. Choosing a folder that contains several of the needed folders (your Pictures folder, say) answers all of them at once; choosing an unrelated folder asks again. **Cancel** stops the run before anything is written ("Not run: no access to …").
+- **New folder** needs only the output folder (chosen in the Output row; also asked for after a relaunch if its bookmark no longer opens it), plus the images' own folders when an image can't be read.
+- **Extra outputs with their own Save to** need their folders too: a chosen folder (allowed when you choose it, kept with a bookmark in the pipeline, preset or job), or the images' folders for *Same folder as original* and *Subfolder next to original*. A chosen folder that moved is followed. A folder imageconverter can't confirm as one you chose in it on this Mac (a preset from someone else, a folder that is gone) shows **Choose the folder again** on its panel, and Run asks for it before anything is written there. Jobs run in the background and can't ask: such an output isn't written (a note says so) and the image itself still is.
+- Shared presets carry the full path (and a bookmark) of an extra output's chosen folder; remove or change that output before sharing a preset if the path is private.
+- Allowed folders are remembered (up to 200, least recently used dropped first) and opened again at every launch. **Help ▸ Folder Access…** lists them, marks the ones that can't be found ("Not found") or that no longer open and must be allowed again ("Allow again"), and has **Add Folder…** (allow a folder ahead of time, for example the folders your scripts, links or jobs use), **Remove** and **Remove All**; a removed folder is asked for again next time. Remove and Remove All are unavailable while a batch or a job runs (it would lose access to the folders it is writing into). A folder you choose that doesn't contain the one asked for isn't remembered; the question comes back saying so.
+- The output folder and watermark images are stored with a bookmark next to the path, so presets, watermark templates and the saved pipeline keep working after a relaunch and follow a file or folder that was moved. When a watermark image can't be opened any more, the editor and the report say *"Couldn't open the watermark image — choose it again"*.
+- An interrupted batch's journal keeps bookmarks of the images' folders, of images added on their own (up to 2 000, when their folder couldn't be bookmarked) and of the output folder, so **Resume** opens them again. Before the resumed run is planned, the folder of every image that still can't be read is asked for (*"… to read the images"*). Images in a folder you don't allow (**Cancel**) are listed as *"N files of the interrupted batch couldn't be opened"*; add them again to convert them. Images whose folder the app can read but which are gone are listed as missing.
+- Jobs keep their own folder bookmarks (see [Process a folder automatically](#process-a-folder-automatically)).
+
+Outside the sandbox (`swift run`) nothing is asked; bookmarks are still made, so the same settings work in the packaged app. For screenshots, DEBUG builds accept `-debugSimulateSandbox` (ask as if sandboxed) and `-debugShowFolderAccess` (open the Folder Access window).
+
+## Updates
+
+imageconverter can update itself from its GitHub releases. Nothing goes online until you allow it.
+
+- **First launch:** a sheet asks *"Check for updates automatically?"* **Yes** checks now and at every launch; **No** never checks on its own. You are asked once; the answer is the checkbox below.
+- **App menu ▸ About imageconverter** has **Check Now**, the checkbox **Check for updates when the app starts** and a status line: *Checking…*, *You're up to date (1.1.0)*, *Version 1.2.0 is available* or what went wrong. Check Now always works. A check at launch stays silent when you're up to date or the check fails.
+- **When a newer version is found**, a sheet shows its release notes (as plain text) with **Install and Relaunch** and **Later**. Install first makes sure it can replace the app (see below), then downloads the release's zip and checksum and checks the checksum. A small installer service inside the app (`Contents/XPCServices/io.github.jozeta.imageconverter.installer.xpc`, not sandboxed, so the new app isn't marked as "created by a sandboxed app" and blocked) checks everything again, puts the new app in place of the old one (the old one goes to the Trash), and the app reopens itself.
+
+What is accepted, and when installing is refused:
+
+- Only GitHub's latest release of `jozeta/imageconverter`, tagged `v` + `x.y.z`, newer than the running version (never a downgrade or reinstall), not a draft or prerelease, with the assets `imageconverter-<x.y.z>.zip` and `imageconverter-<x.y.z>.zip.sha256`. The API answer may be at most 1 MB.
+- Downloads only over HTTPS from `github.com`, `objects.githubusercontent.com` or `release-assets.githubusercontent.com`, also after redirects; the zip at most 200 MB, the checksum file at most 1 KB. No cookies, cache or stored credentials are used.
+- The zip must match its SHA-256, list at most 20,000 entries and 1 GB unpacked (checked before unpacking, and watched while it unpacks: the installer stops once more than that space is actually used or less than 2 GB of disk stays free; what is unpacked must be what the zip lists), and hold exactly one `imageconverter.app` with no link pointing outside it. The app must be signed with the developer's Developer ID (team `6W6TD6P8G3`, identifier `io.github.jozeta.imageconverter`), notarized, not revoked, and have the release's version. Anything else is refused, the download deleted, and the installed app left alone. If Apple's revocation check can't be reached, it says *"Couldn't confirm the update's signature right now. Try again when you're online."*
+- Before anything is downloaded: installing is refused while a batch or a job runs (*"Finish the running batch or job first."*, checked again right before the swap), in a build that isn't the packaged app (`swift run`: *"Updates install only in the released app."*; Check Now still works there), and when the app runs from a read-only place (a disk image, or macOS's translocated copy of an app opened where it was downloaded): move it to Applications first. No folder access is asked for: the installer service writes the app's folder (usually Applications) with your own permissions. If you can't write to that folder, the installer says so and you can get the update from the release page instead.
+- The installer service accepts requests only from imageconverter itself (signed with the same Developer ID), replaces only the app it is inside, never with an older or the same version, and takes the download only from the app's own temporary folder. The swap never leaves the app's folder: the new app is copied next to the old one under a hidden name and checked again there, the old one is renamed aside, the new one renamed into place, and only then is the old one moved to the Trash. If the new one can't be put in place, the old one is renamed back. Leftovers of an interrupted update are removed the next time.
 
 ## Tests
 
