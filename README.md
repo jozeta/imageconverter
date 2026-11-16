@@ -378,7 +378,8 @@ Color (pipeline step, saved with the pipeline; runs Profile, then Re-color, then
 | Shadows / Highlights | Duotone's colours for the darkest and lightest tones | #1F1A4F / #F2C16B |
 | Strength | Tint, Duotone and Sepia: how much of the result is mixed in | 100 % |
 | Replace / With | Replace colour: the colour to replace and its new colour | #1E5AC8 / #C81E2D |
-| Tolerance | Replace colour: how far a hue may differ and still change (100 % = every hue) | 25 % |
+| Shading | Replace colour: **Keep** (lightness and saturation stay relative to the picked colour) or **Exact colour** | Keep |
+| Tolerance | Replace colour: how far a hue may differ and still change (100 % = every hue; hue only) | 25 % |
 | Softness | Replace colour: how much of the tolerance fades out instead of a hard edge | 50 % |
 | Hue | Hue shift: degrees around the colour wheel | 0° (−180° to 180°) |
 | Reduce to a palette | Reduces the image to a palette of a few colours | off |
@@ -868,23 +869,29 @@ and 240 bytes; and an empty result falls back to the original name (or `image`).
    - **Sepia** is a tint in a warm brown.
    - **Replace colour**: pick the colour to replace with the first colour well and the new colour with **With**.
      **Tolerance** (0–100 %, default 25 %) is how far a hue may be from it and still change (100 % is the whole
-     colour wheel); **Softness** (default 50 %) is how much of that range fades out instead of ending sharply. Each
-     pixel keeps its lightness and saturation relative to the picked colour, so the shading on a blue product stays
-     when it turns red. Greys and near-greys are never changed unless the picked colour is itself grey (then only
-     greys of a similar lightness change).
+     colour wheel); matching is by hue only. **Softness** (default 50 %) is how much of that range fades out instead
+     of ending sharply. **Shading**: **Keep** (default) keeps each pixel's lightness and saturation relative to the
+     picked colour, so the shading on a blue product stays when it turns red (a lighter blue becomes a lighter red);
+     **Exact colour** makes matched areas exactly the new colour. Results are kept inside the sRGB gamut by lowering
+     saturation, so the hue stays right. Greys and near-greys are never changed unless the picked colour is itself
+     grey (then only greys of a similar lightness change).
    - **Hue shift** turns every colour around the colour wheel by −180° to 180°.
    The colours are worked out in OKLab, a perceptual colour space, on a floating-point copy; the result keeps the
    image's colour space, bit depth and transparency. Colours are saved as sRGB hex (`"#1E5AC8"`).
 3. **Reduce colours**: switch on **Reduce to a palette** and set **Colours** (2–256, default 16) and **Dithering**
    (on by default; Floyd–Steinberg, alternating direction per row). The palette is found on a copy at most 512 px
    long (median cut, refined by k-means) and mapped onto the full image; the same image and settings always give
-   the same result. An image that already has that few colours is left as it is. Fully transparent pixels stay
-   transparent and don't count toward the palette; partly transparent pixels keep their alpha. The result is 8-bit.
+   the same result (a sparse image, such as a few dots on a wide transparent canvas, learns its palette from the
+   full image). An image that already has that few colours is left as it is. Fully transparent pixels stay
+   transparent and don't count toward the palette (with transparency, 256 becomes 255 so the palette PNG has room
+   for its transparent entry); partly transparent pixels keep their alpha. The result is 8-bit; a gray image stays
+   gray (and is written as a normal gray PNG, already one byte per pixel).
 4. **Palette files**: with PNG output the file is written as a palette (indexed) PNG when the image ends up with at
    most 256 colours, is sRGB and has only fully opaque or fully transparent pixels (transparency is kept). Otherwise
    it's written as a normal PNG and the report says why ("Not written as an indexed PNG: it has semi-transparent
-   pixels"). Steps after the Color step (Adjust, Watermark, a resize) can add colours; put Reduce last for a palette
-   file. GIF is always written with a palette by ImageIO.
+   pixels"). Only the Color step's own result is written with a palette: a later step that changes the pixels
+   (Adjust, Watermark, Rotate, an extra output's resize) gives "a step after Reduce colours changed the pixels", so
+   put the Color step last for a palette file. GIF is always written with a palette by ImageIO.
 
 ### Crop around the subject or faces
 

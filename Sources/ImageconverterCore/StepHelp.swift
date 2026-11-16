@@ -144,7 +144,8 @@ public enum StepHelp {
                     "Reduce colours: 2 to 256 colours, with or without dithering. PNG output is then written with a "
                         + "palette (smaller files) when the image allows it."
                 ],
-                tips: ["Replace colour keeps the shading and leaves greys alone.",
+                tips: ["Replace colour leaves greys alone; Shading Keep keeps light and dark areas, Exact colour "
+                        + "uses the new colour as it is.",
                        "The Metadata step never removes the colour profile, so the result stays correct.",
                        "A palette PNG needs sRGB and no semi-transparent pixels; otherwise the report says why it "
                         + "was written normally."])

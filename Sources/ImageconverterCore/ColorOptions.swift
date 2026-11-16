@@ -76,10 +76,14 @@ public struct RecolorOptions: Codable, Equatable, Sendable {
     /// Duotone: the darkest tones become `shadows`, the lightest `highlights`.
     public var shadows: HexColor
     public var highlights: HexColor
-    /// Replace color: pixels near `source` (by hue and chroma) become `target`, keeping their shading.
+    /// Replace colour: pixels whose hue is near `source`'s become `target` (greys are never matched unless
+    /// `source` is grey).
     public var source: HexColor
     public var target: HexColor
-    /// Replace color: 0...100 % of the hue circle (and chroma range) that still matches.
+    /// Replace colour: false (Shading: Keep) keeps each pixel's lightness, chroma and hue relative to `source`;
+    /// true (Exact colour) gives matched pixels exactly `target`, blended by the same tolerance and softness.
+    public var exact: Bool
+    /// Replace colour: 0...100 % of the hue circle (±180°) that still matches; hue only, chroma doesn't narrow it.
     public var tolerance: Double
     /// Replace color: 0...100 % of the tolerance that fades out instead of a hard edge.
     public var softness: Double
@@ -91,8 +95,9 @@ public struct RecolorOptions: Codable, Equatable, Sendable {
                 highlights: HexColor = HexColor(red: 0xF2, green: 0xC1, blue: 0x6B),
                 source: HexColor = HexColor(red: 0x1E, green: 0x5A, blue: 0xC8),
                 target: HexColor = HexColor(red: 0xC8, green: 0x1E, blue: 0x2D),
-                tolerance: Double = 25, softness: Double = 50, hueShift: Double = 0) {
+                exact: Bool = false, tolerance: Double = 25, softness: Double = 50, hueShift: Double = 0) {
         self.kind = kind
+        self.exact = exact
         self.tint = tint
         self.strength = strength
         self.shadows = shadows
@@ -123,7 +128,7 @@ public struct RecolorOptions: Codable, Equatable, Sendable {
         switch options.kind {
         case .none: return true
         case .tint, .duotone, .sepia: return options.strength == 0
-        case .replace: return options.tolerance == 0 || options.source == options.target
+        case .replace: return options.tolerance == 0 || (!options.exact && options.source == options.target)
         case .hueShift: return options.hueShift == 0
         }
     }
@@ -133,7 +138,7 @@ public struct RecolorOptions: Codable, Equatable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case kind, tint, strength, shadows, highlights, source, target, tolerance, softness, hueShift
+        case kind, tint, strength, shadows, highlights, source, target, exact, tolerance, softness, hueShift
     }
 
     /// Lenient: missing or unreadable fields take their defaults; numbers are clamped.
@@ -150,6 +155,7 @@ public struct RecolorOptions: Codable, Equatable, Sendable {
                   tint: color(.tint, base.tint), strength: number(.strength, base.strength),
                   shadows: color(.shadows, base.shadows), highlights: color(.highlights, base.highlights),
                   source: color(.source, base.source), target: color(.target, base.target),
+                  exact: ((try? container.decodeIfPresent(Bool.self, forKey: .exact)) ?? nil) ?? false,
                   tolerance: number(.tolerance, base.tolerance), softness: number(.softness, base.softness),
                   hueShift: number(.hueShift, base.hueShift))
         self = clamped
@@ -267,9 +273,11 @@ extension ColorOptions {
 }
 
 extension ColorOptions {
-    /// Input-sized copies held at once (`Pipeline.peakPixels`): re-color keeps a 16-byte float copy (about 4 RGBA
-    /// copies) beside its result; reduce an 8-bit copy and its result.
-    var workingCopies: Int { (recolor.isNeutral ? 1 : 5) + (reduce.isEnabled ? 2 : 0) }
+    /// Input-sized copies held at once (`Pipeline.peakPixels`). The parts run one after another and free their
+    /// buffers: re-color holds a 16-byte float copy (4 RGBA copies) and its result; reduce holds its input and one
+    /// 8-bit buffer that becomes the result (no further copy), plus a quarter-size gray result or, at encode time,
+    /// the palette indices.
+    var workingCopies: Int { max(recolor.isNeutral ? 1 : 5, reduce.isEnabled ? 2 : 1) }
 }
 
 extension Pipeline {

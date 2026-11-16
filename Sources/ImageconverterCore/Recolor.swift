@@ -46,6 +46,24 @@ struct OKLab: Equatable {
                 -0.0041960863 * cubeL - 0.7034186147 * cubeM + 1.7076147010 * cubeS)
     }
 
+    /// The same lightness and hue with the chroma lowered (bisection) until it fits linear sRGB 0...1.
+    var inSRGBGamut: OKLab {
+        func fits(_ lab: OKLab) -> Bool {
+            let rgb = lab.linearRGB
+            let limit: ClosedRange<Float> = -0.0005...1.0005
+            return limit.contains(rgb.red) && limit.contains(rgb.green) && limit.contains(rgb.blue)
+        }
+        let clampedL = OKLab(lightness: min(max(lightness, 0), 1), greenRed: greenRed, blueYellow: blueYellow)
+        if fits(clampedL) { return clampedL }
+        var (low, high): (Float, Float) = (0, 1)
+        for _ in 0..<16 {
+            let middle = (low + high) / 2
+            let candidate = OKLab(lightness: clampedL.lightness, greenRed: greenRed * middle, blueYellow: blueYellow * middle)
+            if fits(candidate) { low = middle } else { high = middle }
+        }
+        return OKLab(lightness: clampedL.lightness, greenRed: greenRed * low, blueYellow: blueYellow * low)
+    }
+
     func mixed(with other: OKLab, _ amount: Float) -> OKLab {
         OKLab(lightness: lightness + (other.lightness - lightness) * amount,
               greenRed: greenRed + (other.greenRed - greenRed) * amount,
@@ -131,27 +149,31 @@ public enum Recolor {
                 let distance = (pow(lab.lightness - source.lightness, 2) + pow(lab.chroma * 4, 2)).squareRoot()
                 return 1 - smoothstep(inner * 0.5, outer * 0.5, distance)
             }
-            // A colour: match by hue; greys and near-greys are never matched.
+            // A colour: match by hue only (chroma doesn't narrow it); greys and near-greys are never matched.
             var difference = abs(lab.hue - source.hue)
             if difference > .pi { difference = 2 * .pi - difference }
             let gate = smoothstep(Recolor.neutralChroma * 0.5, Recolor.neutralChroma * 1.5, lab.chroma)
             return (1 - smoothstep(inner, outer, difference / .pi)) * gate
         }
 
-        /// Moves the pixel from the source colour to the target, keeping its lightness, chroma and hue relative
-        /// to the source (so shading survives).
+        /// Moves the pixel from the source colour to the target. Shading: Keep moves its lightness, chroma and hue
+        /// relative to the source (so shading survives); Exact colour makes it the target itself. Either way the
+        /// result is brought into the sRGB gamut by lowering its chroma.
         private func replaced(_ lab: OKLab) -> OKLab? {
             let amount = weight(lab)
             guard amount > 0 else { return nil }
-            let lightness = min(max(lab.lightness + target.lightness - source.lightness, 0), 1)
             let moved: OKLab
-            if source.chroma < Recolor.neutralChroma {
+            if options.exact {
+                moved = target
+            } else if source.chroma < Recolor.neutralChroma {
+                let lightness = min(max(lab.lightness + target.lightness - source.lightness, 0), 1)
                 moved = OKLab(lightness: lightness, greenRed: target.greenRed, blueYellow: target.blueYellow)
             } else {
+                let lightness = min(max(lab.lightness + target.lightness - source.lightness, 0), 1)
                 let chroma = min(lab.chroma * target.chroma / source.chroma, 0.4)
                 moved = OKLab(lightness: lightness, chroma: chroma, hue: target.hue + (lab.hue - source.hue))
             }
-            return lab.mixed(with: moved, amount)
+            return lab.mixed(with: moved.inSRGBGamut, amount)
         }
 
         private func smoothstep(_ low: Float, _ high: Float, _ value: Float) -> Float {

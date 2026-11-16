@@ -11,16 +11,23 @@ public enum ColorReduce {
     static let sampleSide = 512
     static let kMeansRounds = 8
 
+    /// The largest pixel count a palette is learnt from when the sample was too sparse (see `palette`).
+    static let fullScanLimit = 16_000_000
+
     public static func apply(_ reduction: ColorReduction, to image: CGImage) throws -> CGImage {
         guard reduction.isEnabled else { return image }
         let step = StepKind.colorProfile.displayName
-        let count = reduction.clampedCount
-        var buffer = try PixelBuffer(image, step: step)
+        let buffer = try PixelBuffer(image, step: step)
+        // Transparent pixels need a palette entry of their own in a palette PNG: leave room for it.
+        let count = buffer.hasTransparent ? min(reduction.clampedCount, IndexedPNG.maxColors - 1)
+                                          : reduction.clampedCount
         if buffer.distinctColors(limit: count) != nil {
-            // Already within the limit: the colours stay exactly as they are.
+            // Already within the limit (or nothing visible): the colours stay exactly as they are.
             return try buffer.makeImage(like: image, step: step)
         }
-        let palette = try Self.palette(for: image, count: count, step: step)
+        let palette = try Self.palette(for: image, buffer: buffer, count: count, step: step)
+        // Never index an empty palette; nothing visible to reduce.
+        guard !palette.isEmpty else { return try buffer.makeImage(like: image, step: step) }
         let table = NearestTable(palette: palette)
         if reduction.dither {
             buffer.ditherMap(table)
@@ -30,10 +37,17 @@ public enum ColorReduce {
         return try buffer.makeImage(like: image, step: step)
     }
 
-    /// The palette for `image`: at most `count` colours (fewer when the sample has fewer).
-    static func palette(for image: CGImage, count: Int, step: String) throws -> [RGB] {
-        let sample = try PixelBuffer(image, step: step, longSide: sampleSide)
-        let entries = sample.histogram()
+    /// The palette: at most `count` colours (fewer when the image has fewer). Learnt from a ≤ 512 px sample; when
+    /// that has fewer colour cells than `count` (a sparse image: a few dots on a wide transparent canvas shrink
+    /// away), from the full image instead, every n-th pixel for at most `fullScanLimit` pixels, then every pixel.
+    static func palette(for image: CGImage, buffer: PixelBuffer, count: Int, step: String) throws -> [RGB] {
+        var entries = try PixelBuffer(image, step: step, longSide: sampleSide).histogram()
+        if entries.count < count {
+            let pixels = buffer.width * buffer.height
+            let every = max(1, (pixels + fullScanLimit - 1) / fullScanLimit)
+            entries = buffer.histogram(every: every)
+            if entries.count < count, every > 1 { entries = buffer.histogram() }
+        }
         guard entries.count > count else { return entries.map(\.color) }
         var palette = MedianCut.boxes(entries, count: count).map { MedianCut.mean(of: $0) }
         for _ in 0..<kMeansRounds {
@@ -176,38 +190,78 @@ enum KMeans {
     }
 }
 
-/// The nearest palette entry for every colour, at 6 bits per channel (cell centres), built in parallel.
+/// The nearest palette entry for every colour, at 6 bits per channel (the cell centre), built in parallel. A cell
+/// that holds a palette colour is searched exactly instead (among the entries that can be nearest anywhere in it),
+/// so close palette colours never collapse into one and every palette colour maps to itself.
 struct NearestTable {
     let palette: [RGB]
-    let cells: [UInt8]
+    /// The entry index, or `exactFlag | n`: search `candidates[ranges[n]]`.
+    let cells: [UInt16]
+    private let candidates: [UInt8]
+    private let ranges: [Range<Int>]
+    private static let exactFlag: UInt16 = 0x8000
+    /// The largest weighted distance from a cell's centre to a colour in it: sqrt((2 + 4 + 3) × 2²).
+    private static let cellRadius = 6.0
 
     init(palette: [RGB]) {
         self.palette = palette
-        var cells = [UInt8](repeating: 0, count: 1 << 18)
+        var cells = [UInt16](repeating: 0, count: 1 << 18)
         cells.withUnsafeMutableBufferPointer { buffer in
             let base = buffer.baseAddress!
             DispatchQueue.concurrentPerform(iterations: 64) { redCell in
-                let red = redCell << 2 | 2
                 for greenCell in 0..<64 {
-                    let green = greenCell << 2 | 2
                     for blueCell in 0..<64 {
-                        let blue = blueCell << 2 | 2
-                        var nearest = 0
-                        var best = Int.max
-                        for (index, color) in palette.enumerated() {
-                            let distance = ColorReduce.distance(red, green, blue, color)
-                            if distance < best { best = distance; nearest = index }
-                        }
-                        base[redCell << 12 | greenCell << 6 | blueCell] = UInt8(nearest)
+                        let nearest = Self.nearest(redCell << 2 | 2, greenCell << 2 | 2, blueCell << 2 | 2, in: palette)
+                        base[redCell << 12 | greenCell << 6 | blueCell] = UInt16(nearest.index)
                     }
                 }
             }
         }
+        var candidates: [UInt8] = []
+        var ranges: [Range<Int>] = []
+        var marked = Set<Int>()
+        for color in palette {
+            let cell = Self.cell(Int(color.red), Int(color.green), Int(color.blue))
+            guard marked.insert(cell).inserted else { continue }
+            let (red, green, blue) = ((cell >> 12) << 2 | 2, (cell >> 6 & 63) << 2 | 2, (cell & 63) << 2 | 2)
+            let reach = (Double(Self.nearest(red, green, blue, in: palette).distance).squareRoot() + 2 * Self.cellRadius)
+            let start = candidates.count
+            for (index, entry) in palette.enumerated()
+            where Double(ColorReduce.distance(red, green, blue, entry)).squareRoot() <= reach {
+                candidates.append(UInt8(index))
+            }
+            cells[cell] = Self.exactFlag | UInt16(ranges.count)
+            ranges.append(start..<candidates.count)
+        }
         self.cells = cells
+        self.candidates = candidates
+        self.ranges = ranges
+    }
+
+    private static func nearest(_ red: Int, _ green: Int, _ blue: Int, in palette: [RGB]) -> (index: Int, distance: Int) {
+        var nearest = 0
+        var best = Int.max
+        for (index, color) in palette.enumerated() {
+            let distance = ColorReduce.distance(red, green, blue, color)
+            if distance < best { best = distance; nearest = index }
+        }
+        return (nearest, best)
     }
 
     @inline(__always)
+    private static func cell(_ red: Int, _ green: Int, _ blue: Int) -> Int { (red >> 2) << 12 | (green >> 2) << 6 | blue >> 2 }
+
+    @inline(__always)
     func index(_ red: Int, _ green: Int, _ blue: Int) -> Int {
-        Int(cells[(red >> 2) << 12 | (green >> 2) << 6 | blue >> 2])
+        let value = cells[Self.cell(red, green, blue)]
+        guard value & Self.exactFlag != 0 else { return Int(value) }
+        var nearest = 0
+        var best = Int.max
+        for position in ranges[Int(value & ~Self.exactFlag)] {
+            let index = Int(candidates[position])
+            let distance = ColorReduce.distance(red, green, blue, palette[index])
+            if distance < best { best = distance; nearest = index }
+        }
+        return nearest
     }
 }

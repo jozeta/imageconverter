@@ -63,19 +63,31 @@ private struct RecolorControls: View {
                     Image(systemName: "arrow.right").foregroundStyle(LadaGlass.Colors.muted).accessibilityHidden(true)
                     HexColorWell(title: "With", color: $options.target)
                 }
-                PercentSlider(title: "Tolerance", value: $options.tolerance, range: RecolorOptions.percentRange)
-                PercentSlider(title: "Softness", value: $options.softness, range: RecolorOptions.percentRange)
-                Text("Matches by hue; greys are left alone. Shading is kept.")
+                Picker("Shading", selection: $options.exact) {
+                    Text("Keep").tag(false)
+                    Text("Exact colour").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .font(LadaGlass.Typography.label)
+                .accessibilityLabel("Shading")
+                .help("Keep: lighter and darker areas stay lighter and darker. Exact colour: matched areas become "
+                      + "exactly the new colour.")
+                ColorStepSlider(title: "Tolerance", value: $options.tolerance, range: RecolorOptions.percentRange,
+                                resetValue: 25)
+                ColorStepSlider(title: "Softness", value: $options.softness, range: RecolorOptions.percentRange,
+                                resetValue: 50)
+                Text("Matches by hue; greys are left alone.")
                     .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
             case .hueShift:
-                PercentSlider(title: "Hue", value: $options.hueShift, range: RecolorOptions.hueRange, unit: "°",
-                              spokenUnit: "degrees")
+                ColorStepSlider(title: "Hue", value: $options.hueShift, range: RecolorOptions.hueRange,
+                                resetValue: 0, fillOrigin: 0, unit: "°", spokenUnit: "degrees")
             }
         }
     }
 
     private var strength: some View {
-        PercentSlider(title: "Strength", value: $options.strength, range: RecolorOptions.percentRange)
+        ColorStepSlider(title: "Strength", value: $options.strength, range: RecolorOptions.percentRange,
+                        resetValue: 100)
     }
 }
 
@@ -129,11 +141,13 @@ private struct HexColorWell: View {
     }
 }
 
-/// A labelled slider with its value; whole numbers.
-private struct PercentSlider: View {
+/// A labelled slider with its value, using the Adjust step's slider (whole numbers, double-click resets).
+private struct ColorStepSlider: View {
     let title: String
     @Binding var value: Double
     let range: ClosedRange<Double>
+    let resetValue: Double
+    var fillOrigin: Double?
     var unit = "%"
     var spokenUnit = "percent"
 
@@ -141,10 +155,15 @@ private struct PercentSlider: View {
         HStack(spacing: LadaGlass.Spacing.s) {
             Text(title).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                 .frame(width: 72, alignment: .leading)
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { value = resetValue }
+                .help("Double-click to reset")
                 .accessibilityHidden(true)
-            Slider(value: Binding(get: { value }, set: { value = $0.rounded() }), in: range)
+            AdjustSliderControl(value: $value, range: range, resetValue: resetValue, fillOrigin: fillOrigin)
+                .help("Double-click to reset")
                 .accessibilityLabel(title)
                 .accessibilityValue("\(Int(value)) \(spokenUnit)")
+                .accessibilityAction(named: "Reset") { value = resetValue }
             Text("\(Int(value))\(unit)").font(LadaGlass.Typography.mono)
                 .foregroundStyle(LadaGlass.Colors.text)
                 .frame(width: 44, alignment: .trailing)

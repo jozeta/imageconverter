@@ -216,3 +216,50 @@ final class RecolorTests: XCTestCase {
         XCTAssertGreaterThan(pixel.red, pixel.blue + 20, "\(pixel)")
     }
 }
+
+/// Replace colour's Shading: Exact colour, the gamut and the saved field.
+final class ReplaceExactTests: XCTestCase {
+    private func replace(_ image: CGImage, _ options: RecolorOptions) throws -> CGImage {
+        try ImageOps.color(image, ColorOptions(profile: .keep, recolor: options))
+    }
+
+    func testExactColourMakesFlatAreasTheTarget() throws {
+        // A light blue that isn't the picked source colour.
+        let light = TestImages.make(width: 4, height: 4, color: CGColor(srgbRed: 0.45, green: 0.62, blue: 0.9, alpha: 1))
+        let options = RecolorOptions(kind: .replace, source: HexColor(hex: "#1E5AC8")!,
+                                     target: HexColor(hex: "#C81E2D")!, exact: true, tolerance: 30, softness: 0)
+        let pixel = TestImages.pixel(of: try replace(light, options), x: 1, y: 1)
+        XCTAssertEqual(pixel.red, 200, accuracy: 2)
+        XCTAssertEqual(pixel.green, 30, accuracy: 2)
+        XCTAssertEqual(pixel.blue, 45, accuracy: 2)
+        // Keep (the default) gives a lighter red instead.
+        var keep = options
+        keep.exact = false
+        XCTAssertGreaterThan(TestImages.pixel(of: try replace(light, keep), x: 1, y: 1).green, 60)
+    }
+
+    func testResultsStayInGamutWithTheTargetHue() throws {
+        // A low-chroma source scales a saturated pixel's chroma far out of gamut; the hue must still be the target's.
+        let saturated = TestImages.make(width: 2, height: 2, color: CGColor(srgbRed: 0, green: 0.19, blue: 1, alpha: 1))
+        let options = RecolorOptions(kind: .replace, source: HexColor(hex: "#6878A0")!,
+                                     target: HexColor(hex: "#FF0000")!, tolerance: 30, softness: 0)
+        let pixel = TestImages.pixel(of: try replace(saturated, options), x: 0, y: 0)
+        let result = OKLab(HexColor(unitRed: pixel.red / 255, green: pixel.green / 255, blue: pixel.blue / 255))
+        let wanted = OKLab(HexColor(hex: "#FF0000")!)
+        // The source and pixel hues differ a little, which carries over; clipping per channel would shift far more.
+        var difference = abs(result.hue - (wanted.hue + OKLab(HexColor(hex: "#0030FF")!).hue
+                                           - OKLab(HexColor(hex: "#6878A0")!).hue))
+        if difference > .pi { difference = 2 * .pi - difference }
+        XCTAssertLessThan(difference, 0.12, "\(pixel)")
+    }
+
+    func testExactIsSavedLeniently() throws {
+        var options = ColorOptions.sRGB
+        options.recolor = RecolorOptions(kind: .replace, exact: true)
+        let data = try JSONEncoder().encode(ImageOperation.colorProfile(options))
+        XCTAssertEqual(try JSONDecoder().decode(ImageOperation.self, from: data), .colorProfile(options))
+        let old = Data(#"{"kind":"replace","tolerance":40}"#.utf8)
+        XCTAssertFalse(try JSONDecoder().decode(RecolorOptions.self, from: old).exact)
+        XCTAssertFalse(RecolorOptions(kind: .replace, source: .white, target: .white, exact: true).isNeutral)
+    }
+}

@@ -36,6 +36,8 @@ public enum CompressionSearch {
                 indexNote = IndexedPNG.note("the palette file couldn't be written")
             case .notIndexed(let reason):
                 indexNote = IndexedPNG.note(reason)
+            case .plain:
+                break
             }
         }
         let result = try encode(image, settings: settings) { quality in

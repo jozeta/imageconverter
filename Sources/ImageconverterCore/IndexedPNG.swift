@@ -1,6 +1,30 @@
 import CoreGraphics
 import Foundation
 
+/// A small open-addressing map from a colour key to its palette index (at most 256 keys).
+struct PaletteLookup {
+    private var keys = [UInt32](repeating: .max, count: 1024)
+    private var values = [UInt16](repeating: 0, count: 1024)
+
+    private func slot(_ key: UInt32) -> Int { Int((key &* 2_654_435_761) >> 22) }
+
+    func index(of key: UInt32) -> Int? {
+        var slot = slot(key)
+        while keys[slot] != .max {
+            if keys[slot] == key { return Int(values[slot]) }
+            slot = (slot + 1) & 1023
+        }
+        return nil
+    }
+
+    mutating func insert(_ key: UInt32, index: Int) {
+        var slot = slot(key)
+        while keys[slot] != .max { slot = (slot + 1) & 1023 }
+        keys[slot] = key
+        values[slot] = UInt16(index)
+    }
+}
+
 /// Writes a palette (indexed) PNG when an image has at most 256 colours and only fully opaque or fully
 /// transparent pixels. ImageIO writes an indexed PNG for an image in an indexed colour space, but can't carry
 /// alpha in one, so transparency is added afterwards as a `tRNS` chunk for the one transparent palette entry.
@@ -17,35 +41,40 @@ enum IndexedPNG {
         case indexed(Indexed)
         /// Written as a normal PNG; the reason is said in the report.
         case notIndexed(reason: String)
+        /// Written as a normal PNG without a note (a gray image: already one byte per pixel).
+        case plain
     }
 
     static let maxColors = 256
+    static let changedAfterReduce = "a step after Reduce colours changed the pixels"
 
     static func note(_ reason: String) -> String { "Not written as an indexed PNG: \(reason)" }
 
-    /// The indexed version of `image`, or why it can't be one.
+    /// The indexed version of `image`, or why it can't be one. Only the Color step's own result is indexed
+    /// (`ReducedImages`), from the memory it already holds: the image is never decoded again.
     static func plan(_ image: CGImage) -> Plan {
-        guard image.bitsPerComponent == 8, let space = image.colorSpace, space.model == .rgb,
-              !CGColorSpaceUsesExtendedRange(space) else {
-            return .notIndexed(reason: "the image isn't 8-bit RGB")
+        if image.colorSpace?.model == .monochrome { return .plain }
+        guard let entry = ReducedImages.entry(for: image) else { return .notIndexed(reason: changedAfterReduce) }
+        if entry.hasPartial { return .notIndexed(reason: "it has semi-transparent pixels") }
+        guard let space = image.colorSpace, isSRGB(space) else {
+            return .notIndexed(reason: "its colour profile can't be kept in a palette PNG (only sRGB can)")
         }
-        guard isSRGB(space) else {
-            return .notIndexed(reason: "its color profile can't be kept in a palette PNG (only sRGB can)")
+        let pixelCount = image.width * image.height
+        let indices = UnsafeMutablePointer<UInt8>.allocate(capacity: pixelCount)
+        guard let (table, transparentIndex) = palette(of: entry.pixels, count: pixelCount, into: indices) else {
+            indices.deallocate()
+            return .notIndexed(reason: "it has more than \(maxColors) colours")
         }
-        guard let pixels = try? PixelBuffer(image, step: StepKind.colorProfile.displayName) else {
-            return .notIndexed(reason: "its pixels couldn't be read")
-        }
-        var indices = [UInt8](repeating: 0, count: pixels.width * pixels.height)
-        let found = palette(of: pixels, into: &indices)
-        guard case .success(let (table, transparentIndex)) = found else {
-            if case .failure(let failure) = found { return .notIndexed(reason: failure.reason) }
+        guard let provider = CGDataProvider(dataInfo: nil, data: indices, size: pixelCount, releaseData: { _, data, _ in
+            data.deallocate()
+        }) else {
+            indices.deallocate()
             return .notIndexed(reason: "no palette image could be made")
         }
-        guard let indexedSpace = CGColorSpace(indexedBaseSpace: pixels.space, last: max(0, table.count / 3 - 1),
+        guard let indexedSpace = CGColorSpace(indexedBaseSpace: space, last: max(0, table.count / 3 - 1),
                                               colorTable: table),
-              let provider = CGDataProvider(data: Data(indices) as CFData),
-              let indexed = CGImage(width: pixels.width, height: pixels.height, bitsPerComponent: 8, bitsPerPixel: 8,
-                                    bytesPerRow: pixels.width, space: indexedSpace,
+              let indexed = CGImage(width: image.width, height: image.height, bitsPerComponent: 8, bitsPerPixel: 8,
+                                    bytesPerRow: image.width, space: indexedSpace,
                                     bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
                                     provider: provider, decode: nil, shouldInterpolate: false,
                                     intent: .defaultIntent) else {
@@ -54,47 +83,40 @@ enum IndexedPNG {
         return .indexed(Indexed(image: indexed, table: table, transparentIndex: transparentIndex))
     }
 
-    private struct Failure: Error { let reason: String }
-
-    /// The colour table (RGB triples, in first-seen order) and the transparent entry's index; `indices` gets
-    /// each pixel's palette index.
-    private static func palette(of pixels: PixelBuffer, into indices: inout [UInt8])
-        -> Result<([UInt8], Int?), Failure> {
-        var palette: [UInt32: UInt8] = [:]
+    /// The colour table (RGB triples, in first-seen order) and the transparent entry's index, filling each pixel's
+    /// palette index into `indices`; nil when there are more than `maxColors` entries. `pixels` is 8-bit RGBA with
+    /// alpha 0 or 255.
+    private static func palette(of pixels: UnsafePointer<UInt8>, count: Int,
+                                into indices: UnsafeMutablePointer<UInt8>) -> ([UInt8], Int?)? {
+        var lookup = PaletteLookup()
         var table: [UInt8] = []
         var transparentIndex: Int?
-        let transparentKey = UInt32.max
-        return pixels.bytes.withUnsafeBufferPointer { bytes in
-            var lastKey = UInt32.max - 1
-            var lastIndex: UInt8 = 0
-            for pixel in 0..<indices.count {
-                let start = pixel * 4
-                let alpha = bytes[start + 3]
-                if alpha != 0, alpha != 255 { return .failure(Failure(reason: "it has semi-transparent pixels")) }
-                let key = alpha == 0 ? transparentKey
-                    : UInt32(bytes[start]) << 16 | UInt32(bytes[start + 1]) << 8 | UInt32(bytes[start + 2])
-                if key == lastKey { indices[pixel] = lastIndex; continue }
-                let index: UInt8
-                if let known = palette[key] {
-                    index = known
+        var lastKey = UInt32.max
+        var lastIndex: UInt8 = 0
+        for pixel in 0..<count {
+            let start = pixel * 4
+            // Transparent pixels share one key outside the 24-bit colours.
+            let key = pixels[start + 3] == 0 ? 1 << 24
+                : UInt32(pixels[start]) << 16 | UInt32(pixels[start + 1]) << 8 | UInt32(pixels[start + 2])
+            if key == lastKey { indices[pixel] = lastIndex; continue }
+            let index: Int
+            if let known = lookup.index(of: key) {
+                index = known
+            } else {
+                guard table.count / 3 < maxColors else { return nil }
+                index = table.count / 3
+                lookup.insert(key, index: index)
+                if key == 1 << 24 {
+                    transparentIndex = index
+                    table += [0, 0, 0]
                 } else {
-                    guard palette.count < maxColors else {
-                        return .failure(Failure(reason: "it has more than \(maxColors) colors (a later step added some)"))
-                    }
-                    index = UInt8(palette.count)
-                    palette[key] = index
-                    if alpha == 0 {
-                        transparentIndex = Int(index)
-                        table += [0, 0, 0]
-                    } else {
-                        table += [bytes[start], bytes[start + 1], bytes[start + 2]]
-                    }
+                    table += [pixels[start], pixels[start + 1], pixels[start + 2]]
                 }
-                (lastKey, lastIndex) = (key, index)
-                indices[pixel] = index
             }
-            return .success((table, transparentIndex))
+            (lastKey, lastIndex) = (key, UInt8(index))
+            indices[pixel] = UInt8(index)
         }
+        return (table, transparentIndex)
     }
 
     static func isSRGB(_ space: CGColorSpace) -> Bool {
