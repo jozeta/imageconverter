@@ -114,4 +114,26 @@ public enum ViewDefaults {
         -> Mode? where Mode.RawValue == String {
         defaults.string(forKey: compareModeKey).flatMap(Mode.init(rawValue:)) ?? Mode(rawValue: compareMode)
     }
+
+    /// Set once the one-time switch to Split has run.
+    public static let splitDefaultAppliedKey = "compareModeDefaultSplitApplied"
+
+    /// Round 3 (Johan): the first launch of this version switches the compare mode to Split once, also for
+    /// users who chose another mode before; a mode chosen after that is kept. Returns whether it switched.
+    /// The app calls it before `startingCompareMode`.
+    @discardableResult
+    public static func applySplitDefaultOnce(in store: some ViewDefaultsStore) -> Bool {
+        guard !store.bool(forKey: splitDefaultAppliedKey) else { return false }
+        store.set(compareMode, forKey: compareModeKey)
+        store.set(true, forKey: splitDefaultAppliedKey)
+        return true
+    }
 }
+
+/// The part of `UserDefaults` the view defaults use (a dictionary in tests).
+public protocol ViewDefaultsStore {
+    func bool(forKey key: String) -> Bool
+    func set(_ value: Any?, forKey key: String)
+}
+
+extension UserDefaults: ViewDefaultsStore {}

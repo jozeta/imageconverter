@@ -499,7 +499,7 @@ Presets and preview:
 | Pipeline collapsed | The handle on the pipeline's edge or View → Collapse Pipeline (⌥⌘L); key `pipelineCollapsed` | expanded |
 | Output collapsed | Click the handle above the Output panel or View → Collapse Output (⌥⌘U); collapsed it shows one line (format · quality · where files go); key `outputCollapsed` | expanded |
 | Output height | Drag the handle above the Output panel (or focus it and press ↑ / ↓) between its one-line height and its full content; a shorter panel scrolls, and the steps above give way; key `outputHeight` | full content |
-| Compare mode | The Compare control in the preview header or View → Side by side / Split / Difference / Single (⌘1…⌘4); key `compareMode` (a choice you made earlier is kept) | Split |
+| Compare mode | The Compare control in the preview header or View → Side by side / Split / Difference / Single (⌘1…⌘4); key `compareMode`. The first launch of version 1.4 switches it to Split once (also when you chose another mode before; key `compareModeDefaultSplitApplied`); a mode you choose after that is kept | Split |
 | Split position | Where the split divider sits (2…98 % of the width); key `compareSplitPosition` | 50 % |
 | Batch view | Filmstrip, Grid or List under the preview; key `batchBrowserMode` | Filmstrip |
 | Metadata panel | The panel right of the preview: the sidebar button in the preview header, View → Show Metadata / Hide Metadata (⌥⌘I) or a privacy link; it shows with the preview (opening it opens a hidden preview); key `inspectorOpen` | closed |

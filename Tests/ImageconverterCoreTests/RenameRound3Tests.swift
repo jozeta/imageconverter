@@ -250,4 +250,23 @@ final class RenameRound3Tests: XCTestCase {
         defaults.register(defaults: [key: "bogus"])
         XCTAssertEqual(ViewDefaults.startingCompareMode(in: defaults, as: Mode.self), .split, "unknown: the default")
     }
+
+    func testSplitIsAppliedOnceThenTheUsersChoiceIsKept() {
+        final class Store: ViewDefaultsStore {
+            var values: [String: Any] = [:]
+            func bool(forKey key: String) -> Bool { values[key] as? Bool ?? false }
+            func set(_ value: Any?, forKey key: String) { values[key] = value }
+        }
+        let store = Store()
+        store.set("sideBySide", forKey: ViewDefaults.compareModeKey)   // chosen before this version
+        XCTAssertTrue(ViewDefaults.applySplitDefaultOnce(in: store))
+        XCTAssertEqual(store.values[ViewDefaults.compareModeKey] as? String, "split")
+        XCTAssertEqual(store.values[ViewDefaults.splitDefaultAppliedKey] as? Bool, true)
+        store.set("difference", forKey: ViewDefaults.compareModeKey)   // chosen afterwards
+        XCTAssertFalse(ViewDefaults.applySplitDefaultOnce(in: store), "only once")
+        XCTAssertEqual(store.values[ViewDefaults.compareModeKey] as? String, "difference")
+        let fresh = Store()
+        XCTAssertTrue(ViewDefaults.applySplitDefaultOnce(in: fresh), "a new install gets Split too")
+        XCTAssertEqual(fresh.values[ViewDefaults.compareModeKey] as? String, "split")
+    }
 }

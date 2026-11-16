@@ -138,7 +138,9 @@ final class CompareController {
 
     init(defaults: UserDefaults) {
         self.defaults = defaults
-        // No saved choice (a new install, or the setting removed): Split (Johan, round 3).
+        // Split once for everyone on the first launch of round 3's version (Johan), then the user's choice; no saved
+        // choice (the setting removed): Split too.
+        ViewDefaults.applySplitDefaultOnce(in: defaults)
         mode = ViewDefaults.startingCompareMode(in: defaults, as: CompareMode.self) ?? .split
         let split = defaults.object(forKey: Self.splitKey) as? Double ?? 0.5
         splitPosition = min(max(CGFloat(split), Self.splitRange.lowerBound), Self.splitRange.upperBound)
