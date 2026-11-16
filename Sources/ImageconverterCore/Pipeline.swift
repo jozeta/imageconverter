@@ -367,15 +367,7 @@ extension Pipeline {
     static func workingCopies(_ operation: ImageOperation) -> Int {
         switch operation {
         case .adjust(let options): return options.isNeutral ? 1 : 3
-        case .perspective(let options):
-            // From the measured peak at 100 MP (round 3): crop 2.0 GB, colour/transparent 2.5 GB, extend edges
-            // (with its fallback) 3.6 GB, so a big image runs alone instead of beside others.
-            guard !Perspective.isNoOp(options) else { return 1 }
-            switch options.emptyAreas {
-            case .crop: return 4
-            case .color, .transparent: return 5
-            case .extend: return 6
-            }
+        case .perspective(let options): return options.workingCopies
         case .colorProfile(let options): return options.workingCopies
         default: return 1
         }

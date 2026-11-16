@@ -205,7 +205,8 @@ private struct AddFieldSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.m) {
             Text("Add \(field.label)").font(LadaGlass.Typography.subtitle)
-            Text(MetadataInspector.headerNote(overwrites: overwritesOriginals)).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+            Text(MetadataInspector.headerNote(overwrites: overwritesOriginals))
+                .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
             if overwritesOriginals {
                 Text(MetadataInspector.overwriteNote).font(LadaGlass.Typography.label)
                     .foregroundStyle(LadaGlass.Colors.warnText)

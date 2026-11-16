@@ -7,8 +7,12 @@ final class AdjustWarmLooksTests: XCTestCase {
     private static let samples = URL(fileURLWithPath: #filePath)
         .appendingPathComponent("../../../docs/screenshots/samples").standardizedFileURL
 
+    private struct Means {
+        let red: Double, green: Double, blue: Double
+    }
+
     /// Mean R, G and B (0…255) of `image` drawn into an 8-bit sRGB buffer.
-    private func means(_ image: CGImage) throws -> (r: Double, g: Double, b: Double) {
+    private func means(_ image: CGImage) throws -> Means {
         let width = min(image.width, 400)
         let height = max(1, image.height * width / image.width)
         var pixels = [UInt8](repeating: 0, count: width * height * 4)
@@ -19,12 +23,12 @@ final class AdjustWarmLooksTests: XCTestCase {
                                                   bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         }
-        var sums = (0.0, 0.0, 0.0)
+        var red = 0.0, green = 0.0, blue = 0.0
         for index in stride(from: 0, to: pixels.count, by: 4) {
-            sums.0 += Double(pixels[index]); sums.1 += Double(pixels[index + 1]); sums.2 += Double(pixels[index + 2])
+            red += Double(pixels[index]); green += Double(pixels[index + 1]); blue += Double(pixels[index + 2])
         }
         let count = Double(width * height)
-        return (sums.0 / count, sums.1 / count, sums.2 / count)
+        return Means(red: red / count, green: green / count, blue: blue / count)
     }
 
     func testWarmLooksAreGoldenOnTheSamplePhotos() throws {
@@ -35,8 +39,8 @@ final class AdjustWarmLooksTests: XCTestCase {
             for look in warm {
                 let preset = try XCTUnwrap(AdjustPresets.builtIns.first { $0.name == look })
                 let after = try means(try Adjustments.apply(preset.options, to: source))
-                let warmer = (after.r - after.b) - (before.r - before.b)
-                let greener = (after.g - after.r) - (before.g - before.r)
+                let warmer = (after.red - after.blue) - (before.red - before.blue)
+                let greener = (after.green - after.red) - (before.green - before.red)
                 XCTAssertGreaterThan(warmer, 15, "\(look) on \(name) is not visibly warmer")
                 XCTAssertLessThanOrEqual(greener, 0, "\(look) on \(name) turns greener")
             }

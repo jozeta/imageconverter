@@ -145,11 +145,9 @@ final class CLIRunnerTests: XCTestCase {
         try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -60)],
                                               ofItemAtPath: inputs.appendingPathComponent("a.png").path)
         let store = JobStore(directory: root.appendingPathComponent("jobs"))
-        let jobOut = root.appendingPathComponent("jobout")
-        try store.save(Job(name: "Nightly", pipeline: Pipeline(output: OutputSettings(format: .png), extraOutputs: [
-            OutputVariant(name: "thumb", settings: OutputSettings(format: .png), resize: .longestEdge(8),
-                          nameSuffix: "_thumb"),
-        ]), inputs: [inputs], output: .newFolder(jobOut)))
+        let jobOut = root.appendingPathComponent("jobout"), png = OutputSettings(format: .png)
+        let pipeline = Pipeline(output: png, extraOutputs: [OutputVariant(name: "thumb", settings: png, nameSuffix: "_t")])
+        try store.save(Job(name: "Nightly", pipeline: pipeline, inputs: [inputs], output: .newFolder(jobOut)))
         let list = await run(["jobs", "list"])
         XCTAssertEqual(list.out, "Nightly")
         let ran = await run(["jobs", "run", "nightly", "--quiet"])
