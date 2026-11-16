@@ -60,7 +60,8 @@ final class RotateAngleTests: XCTestCase {
 
     func testPeakCountsPerspectiveAndTrimCopies() {
         let pipeline = Pipeline(steps: [PipelineStep(operation: .perspective(PerspectiveOptions(vertical: 10)))])
-        XCTAssertEqual(pipeline.peakPixels(sourceWidth: 100, sourceHeight: 100), 30_000)
+        // Crop to the image: 4 working copies (measured, round 3).
+        XCTAssertEqual(pipeline.peakPixels(sourceWidth: 100, sourceHeight: 100), 40_000)
         let trim = Pipeline(steps: [PipelineStep(operation: .trim(TrimOptions()))])
         // Trim scans in small strips: no input-sized copy.
         XCTAssertEqual(trim.peakPixels(sourceWidth: 100, sourceHeight: 100), 10_000)
