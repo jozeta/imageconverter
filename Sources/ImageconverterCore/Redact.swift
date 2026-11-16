@@ -45,9 +45,20 @@ public struct RedactOptions: Codable, Equatable, Sendable {
     /// How far each box grows on every side, as a percentage of its own width (left, right) and height (top,
     /// bottom), 0...100.
     public var padding: Double
+    /// Pixelate's block size in pixels of the image as it arrives at the step; nil: Auto (a third of each box's
+    /// shorter side, `Redaction.blockSize(for:)`). Saved as `blockSize` only when fixed.
+    public var fixedBlockSize: Double?
+    /// Blur's Gaussian radius in pixels of the image as it arrives at the step; nil: Auto
+    /// (`Redaction.blurRadius(for:)`). Saved as `blurRadius` only when fixed.
+    public var fixedBlurRadius: Double?
 
     public static let defaultPadding = 15.0
     public static let paddingRange: ClosedRange<Double> = 0...100
+    public static let blockSizeRange: ClosedRange<Double> = 4...256
+    public static let blurRadiusRange: ClosedRange<Double> = 2...200
+    /// What a Fixed choice starts at in the editor.
+    public static let defaultFixedBlockSize = 16.0
+    public static let defaultFixedBlurRadius = 20.0
 
     /// `style` nil: the default for `target` (`defaultStyle(for:)`).
     public init(target: RedactTarget = .faces, style: RedactStyle? = nil, fillColor: RGBAColor = .black,
@@ -78,8 +89,24 @@ public struct RedactOptions: Codable, Equatable, Sendable {
             : Self.defaultPadding
     }
 
+    /// The fixed block size within `blockSizeRange`; nil for Auto (also when it isn't a finite number).
+    public var clampedBlockSize: Double? { Self.clamped(fixedBlockSize, to: Self.blockSizeRange) }
+    /// The fixed blur radius within `blurRadiusRange`; nil for Auto.
+    public var clampedBlurRadius: Double? { Self.clamped(fixedBlurRadius, to: Self.blurRadiusRange) }
+
+    /// Pixelate's block size for `rect` (whole pixels of the step's input).
+    public func blockSize(for rect: CGRect) -> Double { clampedBlockSize ?? Redaction.blockSize(for: rect) }
+    /// Blur's radius for `rect`.
+    public func blurRadius(for rect: CGRect) -> Double { clampedBlurRadius ?? Redaction.blurRadius(for: rect) }
+
+    private static func clamped(_ value: Double?, to range: ClosedRange<Double>) -> Double? {
+        guard let value, value.isFinite else { return nil }
+        return min(max(value, range.lowerBound), range.upperBound)
+    }
+
     private enum CodingKeys: String, CodingKey {
         case target, style, fillColor, padding
+        case fixedBlockSize = "blockSize", fixedBlurRadius = "blurRadius"
     }
 
     /// Lenient: a missing or unknown value takes its default (a style saved before text defaulted to a fill: blur).
@@ -89,11 +116,15 @@ public struct RedactOptions: Codable, Equatable, Sendable {
         style = (try? container.decodeIfPresent(RedactStyle.self, forKey: .style)) ?? .blur
         fillColor = (try? container.decodeIfPresent(RGBAColor.self, forKey: .fillColor)) ?? .black
         padding = (try? container.decodeIfPresent(Double.self, forKey: .padding)) ?? Self.defaultPadding
+        fixedBlockSize = (try? container.decodeIfPresent(Double.self, forKey: .fixedBlockSize)) ?? nil
+        fixedBlurRadius = (try? container.decodeIfPresent(Double.self, forKey: .fixedBlurRadius)) ?? nil
     }
 
-    /// "faces · blur", "text · solid colour · padding 0 %".
+    /// "faces · blur", "faces · pixelate · blocks 16 px", "text · solid colour · padding 0 %".
     public var summary: String {
         var parts = [target.displayName.lowercased(), style.displayName.lowercased()]
+        if style == .pixelate, let size = clampedBlockSize { parts.append("blocks \(Self.number(size)) px") }
+        if style == .blur, let radius = clampedBlurRadius { parts.append("radius \(Self.number(radius)) px") }
         if clampedPadding != Self.defaultPadding { parts.append("padding \(Self.number(clampedPadding)) %") }
         return parts.joined(separator: " · ")
     }
@@ -185,8 +216,9 @@ public enum Redaction {
         return found.isEmpty ? nothingFoundNote : "Redacted " + found.joined(separator: ", ")
     }
 
-    /// Runs the step's detections on `image` (the image as it arrives at the step) on one copy of at most
-    /// `textMaxLongSide` pixels, for faces and text alike (small faces in big group photos need it too). A throwing
+    /// Runs the step's detections on `image` (the image as it arrives at the step): faces on one copy of at most
+    /// `textMaxLongSide` pixels (small faces in big group photos need it), text on the image itself (the detector
+    /// shrinks it and also reads it in full-resolution tiles, `TextTiles`). A throwing
     /// detection records the reason; the step then fails the image rather than write it unchecked.
     public static func detect(_ target: RedactTarget, in image: CGImage, detector: any VisionDetector)
         -> RedactDetections {
@@ -203,7 +235,7 @@ public enum Redaction {
             }
         }
         if target.includesText {
-            do { result.text = try detector.textRects(in: input).compactMap(sanitized) } catch {
+            do { result.text = try detector.textRects(in: image).compactMap(sanitized) } catch {
                 failures.append(ImageAnalysis.reason(error))
             }
         }

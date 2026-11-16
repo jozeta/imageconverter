@@ -81,7 +81,8 @@ public enum StepHelp {
                     + "or covers them with a solid colour.",
                 howTo: [
                     "Choose what to hide: Faces, Text, or Faces and text.",
-                    "Style: Blur (the default for faces), Pixelate, or Solid colour (the default for text).",
+                    "Style: Blur (default for faces), Pixelate or Solid colour (default for text). "
+                        + "Pixelate's Block size and Blur's Strength: Auto, or a fixed size in pixels.",
                     Redaction.textAdvice,
                     "Padding (default 15 %) grows each box on every side by that share of its size, so hair, "
                         + "chins and letter edges are covered too.",

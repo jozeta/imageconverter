@@ -929,14 +929,22 @@ versions read a Subject or Faces crop as a centred one.
    **Fill colour** (always fully opaque). A new step blurs faces; as soon as **Hide** includes text it switches to
    Solid colour (unless you chose another style). For text, use Solid colour: blur and pixelation can sometimes be
    reversed (by rendering guesses in the same font and comparing), especially for short text such as number plates.
+   With Pixelate, **Block size** is **Auto** (the default: a third of each box's shorter side, so every box gets
+   about three blocks) or **Fixed** 4–256 px; with Blur, **Strength** is **Auto** (a radius of a third of the box's
+   shorter side) or **Fixed** radius 2–200 px. Fixed sizes are pixels of the image as it reaches the step (after any
+   Resize before it), the same for every box; a Fixed choice starts at 16 px blocks or a 20 px radius. Steps saved
+   before this version stay Auto.
 4. **Padding** grows each box on every side by that percentage of its own width and height, so hair, chins and the
    edges of letters are covered too.
 5. The preview shows the result for the selected image. After the run, each file's report row says what was
    hidden ("Redacted 2 faces, 1 text area") or "Redact: nothing found".
 
 The step looks at the image as it arrives at the step, so boxes land on the right pixels after any Crop, Rotate or
-Resize before it. Faces and text are found on a copy at most 2048 px on the long side (text as recognised lines plus
-Vision's text rectangles, which also catch stylised or handwritten text); the boxes are then mapped back to the
+Resize before it. Faces are found on a copy at most 2048 px on the long side. Text is read with Vision's accurate
+recognition on that copy (recognised lines plus Vision's text rectangles, which also catch stylised or handwritten
+text) and, for images larger than 2048 px, also in full-resolution tiles of 2048 px that overlap by 256 px, so small
+text in a large photo isn't lost when the image is shrunk (a 24 MP image takes about half a second on an Apple
+silicon Mac). Each box covers the whole of a line, also when it is turned; the boxes are then mapped back to the
 image, padded and clamped. Pixels outside the boxes are copied unchanged. **If Vision can't run for an image, that
 image isn't written**: it fails with "Not written: couldn't check for faces (…)" and the rest of the run goes on
 (jobs try it again later, like any failure). An **If … then … else** that would **copy the original unchanged**
@@ -946,13 +954,17 @@ converted copy: the preset's Resize, Watermark steps"). With a Redact
 step that hides faces, face and person regions are left out of the output's metadata (MWG and Microsoft regions,
 Apple face info, IPTC *Person in image* and image regions, found by their namespace and name whatever prefix the
 file uses; "Removed face regions from metadata"). **Best effort:**
-Vision can miss a face (turned away, small, covered) or some text (stylised, tiny, at an angle), so check the
-results before you share them. Nothing is sent anywhere.
+Vision can miss a face (turned away, small, covered) or some text (heavily stylised, very small, curved), so check
+the results before you share them. The tests check a set of generated images (small and huge text, light on dark,
+low contrast, turned 10° to 180°, italic, condensed and decorative fonts, a single digit, a number plate, a
+paragraph, text on gradients and busy backgrounds, at the edges, and small text in 6000 and 8000 px images). Nothing is sent anywhere.
 
 | Option | Choices | Default |
 |--------|---------|---------|
 | Hide | Faces · Text · Faces and text | Faces |
 | Style | Blur · Pixelate · Solid colour | Blur for faces; Solid colour when text is included |
+| Block size | Auto · Fixed 4…256 px, with Pixelate | Auto (a third of each box's shorter side) |
+| Strength | Auto · Fixed radius 2…200 px, with Blur | Auto (a third of each box's shorter side) |
 | Fill colour | any colour (opaque), with Solid colour | black |
 | Padding | 0…100 % of each box's size, per side | 15 % |
 

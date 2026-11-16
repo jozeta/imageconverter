@@ -26,7 +26,7 @@ extension ImageOps {
                 ctx.fill(flipped)
             case .blur, .pixelate:
                 guard let patch = image.cropping(to: region),
-                      let processed = try? filtered(patch, style: options.style, region: region, like: ctx) else {
+                      let processed = try? filtered(patch, options, region: region, like: ctx) else {
                     throw ConversionError.processingFailed(step)
                 }
                 ctx.draw(processed, in: flipped)
@@ -36,8 +36,9 @@ extension ImageOps {
     }
 
     /// The blurred or pixelated patch, rendered in the output's colour space and depth.
-    private static func filtered(_ patch: CGImage, style: RedactStyle, region: CGRect,
+    private static func filtered(_ patch: CGImage, _ options: RedactOptions, region: CGRect,
                                  like ctx: CGContext) throws -> CGImage {
+        let style = options.style
         let extent = CGRect(x: 0, y: 0, width: patch.width, height: patch.height)
         // Clamped so the blur and the edge blocks only see the patch's own pixels, never transparent black.
         let input = CIImage(cgImage: patch).clampedToExtent()
@@ -46,12 +47,12 @@ extension ImageOps {
         case .blur:
             let filter = CIFilter(name: "CIGaussianBlur")
             filter?.setValue(input, forKey: kCIInputImageKey)
-            filter?.setValue(Redaction.blurRadius(for: region), forKey: kCIInputRadiusKey)
+            filter?.setValue(options.blurRadius(for: region), forKey: kCIInputRadiusKey)
             output = filter?.outputImage
         case .pixelate:
             let filter = CIFilter(name: "CIPixellate")
             filter?.setValue(input, forKey: kCIInputImageKey)
-            filter?.setValue(Redaction.blockSize(for: region), forKey: kCIInputScaleKey)
+            filter?.setValue(options.blockSize(for: region), forKey: kCIInputScaleKey)
             filter?.setValue(CIVector(x: 0, y: 0), forKey: kCIInputCenterKey)
             output = filter?.outputImage
         case .fill:
@@ -61,16 +62,17 @@ extension ImageOps {
         guard let output, let space = ctx.colorSpace, space.model == .rgb,
               let rendered = SharedCIContext.context.createCGImage(output.cropped(to: extent), from: extent,
                                                                    format: format, colorSpace: space) else {
-            return try fallbackFiltered(patch, style: style, region: region)
+            return try fallbackFiltered(patch, options, region: region)
         }
         return rendered
     }
 
     /// Without Core Image's RGB output (a gray image): pixelate or blur by scaling the patch down and back up
     /// with Core Graphics.
-    private static func fallbackFiltered(_ patch: CGImage, style: RedactStyle, region: CGRect) throws -> CGImage {
+    private static func fallbackFiltered(_ patch: CGImage, _ options: RedactOptions, region: CGRect) throws -> CGImage {
         let step = StepKind.redact.displayName
-        let factor = style == .pixelate ? Redaction.blockSize(for: region) : Redaction.blurRadius(for: region)
+        let style = options.style
+        let factor = style == .pixelate ? options.blockSize(for: region) : options.blurRadius(for: region)
         let small = CGSize(width: max(1, (Double(patch.width) / factor).rounded()),
                            height: max(1, (Double(patch.height) / factor).rounded()))
         let shrink = try context(small, like: patch, step: step, alpha: hasAlpha(patch))

@@ -50,6 +50,55 @@ public struct VisionInputError: LocalizedError {
     public var errorDescription: String? { "the image couldn't be prepared for Vision" }
 }
 
+/// The full-resolution tiles text detection reads in a large image: `side` pixels square (smaller images: none),
+/// overlapping by `overlap` so a glyph cut by one tile's edge is whole in its neighbour; the last tile on each
+/// side ends at the image's edge, so every tile is full size.
+public enum TextTiles {
+    public static let side = 2048
+    public static let overlap = 256
+
+    /// Top-left-origin pixel rects; empty when the image fits one Vision copy (`Redaction.textMaxLongSide`).
+    public static func tiles(width: Int, height: Int, side: Int = side, overlap: Int = overlap) -> [CGRect] {
+        guard max(width, height) > Redaction.textMaxLongSide, side > overlap, overlap >= 0 else { return [] }
+        let columns = origins(length: width, side: side, overlap: overlap)
+        let rows = origins(length: height, side: side, overlap: overlap)
+        return rows.flatMap { top in
+            columns.map { left in
+                CGRect(x: left, y: top, width: min(side, width - left), height: min(side, height - top))
+            }
+        }
+    }
+
+    /// 0, side − overlap, …, and `length − side` last (one tile from 0 when `length` fits).
+    static func origins(length: Int, side: Int, overlap: Int) -> [Int] {
+        guard length > side else { return [0] }
+        let stride = side - overlap
+        var result = Array(Swift.stride(from: 0, to: length - side, by: stride))
+        result.append(length - side)
+        return result
+    }
+
+    /// A box normalised to `tile` (top-left origin) as a box normalised to the whole image.
+    static func imageBox(_ box: CGRect, tile: CGRect, width: Int, height: Int) -> CGRect {
+        let imageWidth = Double(width)
+        let imageHeight = Double(height)
+        return CGRect(x: (Double(tile.minX) + Double(box.minX) * Double(tile.width)) / imageWidth,
+                      y: (Double(tile.minY) + Double(box.minY) * Double(tile.height)) / imageHeight,
+                      width: Double(box.width) * Double(tile.width) / imageWidth,
+                      height: Double(box.height) * Double(tile.height) / imageHeight)
+    }
+
+    /// The smallest rect holding `points`; nil when there are none or one isn't finite.
+    static func bounds(of points: [CGPoint]) -> CGRect? {
+        guard !points.isEmpty, points.allSatisfy({ $0.x.isFinite && $0.y.isFinite }) else { return nil }
+        let horizontal = points.map(\.x)
+        let vertical = points.map(\.y)
+        guard let minX = horizontal.min(), let maxX = horizontal.max(), let minY = vertical.min(),
+              let maxY = vertical.max() else { return nil }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+}
+
 /// Vision on this Mac (APIs available since macOS 10.15, so nothing here needs a newer SDK).
 public struct SystemVisionDetector: VisionDetector {
     /// How many salient regions make up the subject.
@@ -81,16 +130,52 @@ public struct SystemVisionDetector: VisionDetector {
             .map { Self.topLeft($0.boundingBox) }
     }
 
-    /// Read from a copy of up to `Redaction.textMaxLongSide` pixels: small text needs more than faces do.
+    /// Text for Redact: the whole image on a copy of up to `Redaction.textMaxLongSide` pixels (recognised lines and
+    /// text rectangles), and, when the image is larger, recognised lines in full-resolution tiles
+    /// (`TextTiles`): Vision reads at about 2 000 pixels whatever it is given, so small text in a large image would
+    /// vanish. Accurate recognition: fast recognition misses single digits, text turned 30° or more and text cut
+    /// by an edge. Throws when the image or a tile can't be prepared, so the step fails closed.
     public func textRects(in image: CGImage) throws -> [CGRect] {
         guard let input = VisionInput.prepared(image, maxSide: Redaction.textMaxLongSide) else {
             throw VisionInputError()
         }
-        let request = SystemImageAnalyzer.textRequest()
+        let request = Self.redactTextRequest()
         let rectangles = VNDetectTextRectanglesRequest()
         try VNImageRequestHandler(cgImage: input, options: [:]).perform([request, rectangles])
-        return TextBoxes.combined(recognized: SystemImageAnalyzer.textBoxes(request.results ?? []).map(Self.topLeft),
-                                rectangles: (rectangles.results ?? []).map { Self.topLeft($0.boundingBox) })
+        var recognized = Self.textBoxes(request.results ?? [])
+        for tile in TextTiles.tiles(width: image.width, height: image.height) {
+            try autoreleasepool {
+                guard let crop = image.cropping(to: tile) else { throw VisionInputError() }
+                let tileRequest = Self.redactTextRequest()
+                try VNImageRequestHandler(cgImage: crop, options: [:]).perform([tileRequest])
+                recognized += Self.textBoxes(tileRequest.results ?? []).map {
+                    TextTiles.imageBox($0, tile: tile, width: image.width, height: image.height)
+                }
+            }
+        }
+        return TextBoxes.combined(recognized: recognized,
+                                  rectangles: (rectangles.results ?? []).map { Self.topLeft($0.boundingBox) })
+    }
+
+    /// Accurate recognition without language correction (which only changes the words read, never where).
+    static func redactTextRequest() -> VNRecognizeTextRequest {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        return request
+    }
+
+    /// Lines whose best reading has a letter or digit, top-left origin: each the box around both the bounding box
+    /// and the four corners of its quad, so turned text is covered whole.
+    static func textBoxes(_ observations: [VNRecognizedTextObservation]) -> [CGRect] {
+        observations.filter { observation in
+            guard let best = observation.topCandidates(1).first else { return false }
+            return best.string.unicodeScalars.contains { CharacterSet.alphanumerics.contains($0) }
+        }.map { observation in
+            let corners = [observation.topLeft, observation.topRight, observation.bottomLeft, observation.bottomRight]
+            let quad = TextTiles.bounds(of: corners)
+            return topLeft(quad.map { observation.boundingBox.union($0) } ?? observation.boundingBox)
+        }
     }
 
     /// Vision's normalised boxes have a bottom-left origin.
