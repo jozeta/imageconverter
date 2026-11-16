@@ -115,8 +115,8 @@ final class LosslessMetadataLeakTests: XCTestCase {
     /// An IPTC block without a digest or dates (as other tools write it) next to an EXIF date: the copy gets the
     /// re-encode's IPTC (removals applied, dates derived from EXIF) instead of falling back.
     func testHandMadeIPTCIsReplacedByTheReencodesBlock() async throws {
-        let iptc: [UInt8] = [0x1C, 2, 80] + Bytes.be16(8) + Array("BYLINEMK".utf8)
-            + [0x1C, 2, 90] + Bytes.be16(8) + Array("CITYMARK".utf8)
+        let iptc = concat([0x1C, 2, 80], Bytes.be16(8), Array("BYLINEMK".utf8),
+                         [0x1C, 2, 90], Bytes.be16(8), Array("CITYMARK".utf8))
         var props = gpsProps
         props[kCGImagePropertyExifDictionary as String] = [
             kCGImagePropertyExifDateTimeOriginal as String: "2020:01:02 03:04:05"]
@@ -149,8 +149,8 @@ final class LosslessMetadataLeakTests: XCTestCase {
         var bytes = [UInt8](try HeaderFixtures.jpeg(TestImages.noise(width: 160, height: 120), properties: gpsProps,
                                                      xmp: nil))
         if bytes[3] == 0xE0 { bytes.removeSubrange(2..<(4 + (Int(bytes[4]) << 8 | Int(bytes[5])))) }
-        let rgb = Array("JFIFTHUMBSECRET!".utf8) + [UInt8](repeating: 0x80, count: 4 * 4 * 3 - 16)
-        let app0 = Array("JFIF".utf8) + [0, 1, 2, 0] + Bytes.be16(72) + Bytes.be16(72) + [4, 4] + rgb
+        let rgb = concat(Array("JFIFTHUMBSECRET!".utf8), [UInt8](repeating: 0x80, count: 4 * 4 * 3 - 16))
+        let app0 = concat(Array("JFIF".utf8), [0, 1, 2, 0], Bytes.be16(72), Bytes.be16(72), [4, 4], rgb)
         bytes.insert(contentsOf: Bytes.segment(0xE0, app0), at: 2)
         let url = root.appendingPathComponent("jfif.jpg")
         try Data(bytes).write(to: url)
@@ -278,10 +278,10 @@ final class LosslessMetadataLeakTests: XCTestCase {
     /// A 4 x 4 RGB Photoshop file, raw image data. ImageIO reads PSD but doesn't write it, so it can only be
     /// converted: no lossless copy and no note.
     func testPSDIsConvertedNotCopied() async throws {
-        let header = Array("8BPS".utf8) + Bytes.be16(1) + [UInt8](repeating: 0, count: 6) + Bytes.be16(3)
-            + Bytes.be32(4) + Bytes.be32(4) + Bytes.be16(8) + Bytes.be16(3)
-        let sections = Bytes.be32(0) + Bytes.be32(0) + Bytes.be32(0)
-        let pixels = Bytes.be16(0) + [UInt8](repeating: 0x80, count: 3 * 16)
+        let header = concat(Array("8BPS".utf8), Bytes.be16(1), [UInt8](repeating: 0, count: 6), Bytes.be16(3),
+                            Bytes.be32(4), Bytes.be32(4), Bytes.be16(8), Bytes.be16(3))
+        let sections = concat(Bytes.be32(0), Bytes.be32(0), Bytes.be32(0))
+        let pixels = concat(Bytes.be16(0), [UInt8](repeating: 0x80, count: 3 * 16))
         let url = root.appendingPathComponent("layers.psd")
         try Data(header + sections + pixels).write(to: url)
         let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))

@@ -35,7 +35,7 @@ final class JPEGSegmentsTests: XCTestCase {
     static let eoi: [UInt8] = [0xFF, 0xD9]
 
     static func jpeg(_ metadata: [UInt8], trailer: [UInt8] = []) -> Data {
-        Data([0xFF, 0xD8] + metadata + dqt + sof + dht + scan + eoi + trailer)
+        Data(concat([0xFF, 0xD8], metadata, dqt, sof, dht, scan, eoi, trailer))
     }
 
     private func contains(_ data: Data, _ text: String) -> Bool { data.range(of: Data(text.utf8)) != nil }
@@ -112,8 +112,8 @@ final class JPEGSegmentsTests: XCTestCase {
     }
 
     func testProgressiveScansAndTablesBetweenThemAreKept() throws {
-        let second = Self.dht + Self.scan
-        let source = Data([0xFF, 0xD8] + Self.jfif + Self.dqt + Self.sof + Self.dht + Self.scan + second + Self.eoi)
+        let second = concat(Self.dht, Self.scan)
+        let source = Data(concat([0xFF, 0xD8], Self.jfif, Self.dqt, Self.sof, Self.dht, Self.scan, second, Self.eoi))
         XCTAssertEqual(JPEGSegments.filtered(source), source)
     }
 
@@ -149,9 +149,9 @@ final class JPEGSegmentsTests: XCTestCase {
         guard let thumbnail else { return Array("Exif\0\0".utf8) + tiff + ifd0(next: 0) + make }
         let ifd1Size = 2 + 3 * 12 + 4
         let dataOffset = thumbnailFirst ? makeOffset : ifd1Offset + ifd1Size
-        let ifd1 = be16(3) + be16(0x0103) + be16(3) + be32(1) + be16(6) + [0, 0]
-            + be16(0x0201) + be16(4) + be32(1) + be32(dataOffset)
-            + be16(0x0202) + be16(4) + be32(1) + be32(thumbnail.count) + be32(0)
+        let ifd1 = concat(be16(3), be16(0x0103), be16(3), be32(1), be16(6), [0, 0],
+                          be16(0x0201), be16(4), be32(1), be32(dataOffset),
+                          be16(0x0202), be16(4), be32(1), be32(thumbnail.count), be32(0))
         if thumbnailFirst {
             // The thumbnail sits before IFD1, where the Make value would be: cutting IFD1 off can't remove it.
             tiff += ifd0(next: makeOffset + thumbnail.count) + thumbnail + ifd1
