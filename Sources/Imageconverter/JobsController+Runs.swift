@@ -4,8 +4,9 @@ import ImageconverterCore
 /// Watching, schedules and runs.
 extension JobsController {
     /// Job batches run one at a time with half the cores and half the memory budget, so a manual run keeps its share.
-    nonisolated static var jobConcurrency: Int { max(1, ProcessInfo.processInfo.activeProcessorCount / 2) }
-    nonisolated static var jobMemoryBudget: Int { max(1, BatchRunner.defaultMemoryBudgetPixels / 2) }
+    /// Shortcuts actions use the same limits (`Automation.limits`).
+    nonisolated static var jobConcurrency: Int { BatchResourceLimits.background.concurrency }
+    nonisolated static var jobMemoryBudget: Int { BatchResourceLimits.background.memoryBudgetPixels }
 
     func armAll() {
         for job in jobs { arm(job) }

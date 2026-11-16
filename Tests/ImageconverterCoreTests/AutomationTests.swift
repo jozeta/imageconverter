@@ -54,6 +54,20 @@ final class AutomationTests: XCTestCase {
         XCTAssertTrue(AutomationRequest.stripMetadata().pipeline(sourceFormat: .png).metadata.removeAll)
     }
 
+    func testActionsRunWithTheBackgroundLimitsLikeJobs() async throws {
+        let cores = ProcessInfo.processInfo.activeProcessorCount
+        XCTAssertEqual(Automation.limits, .background)
+        XCTAssertEqual(Automation.limits.concurrency, max(1, cores / 2))
+        XCTAssertEqual(Automation.limits.memoryBudgetPixels, max(1, BatchRunner.defaultMemoryBudgetPixels / 2))
+        XCTAssertEqual(BatchResourceLimits(concurrency: 0, memoryBudgetPixels: 0),
+                       BatchResourceLimits(concurrency: 1, memoryBudgetPixels: 1))
+        // The limits reach the batch: a budget smaller than one image still converts (one at a time).
+        let files = try (0..<3).map { try image("tight\($0).jpg") }
+        let result = try await Automation.run(files, request: try .resize(longEdge: 50), output: try outputFolder(),
+                                              limits: BatchResourceLimits(concurrency: 1, memoryBudgetPixels: 1))
+        XCTAssertEqual(result.written.count, 3)
+    }
+
     func testInvalidValuesAreRefused() {
         XCTAssertThrowsError(try AutomationRequest.resize(longEdge: 0)) {
             XCTAssertEqual($0 as? AutomationError, .invalidLongEdge(0))

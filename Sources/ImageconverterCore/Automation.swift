@@ -102,6 +102,9 @@ public enum Automation {
     public static let maxLongEdge = 100_000
     /// Scratch folders (the files an action returns when no output folder was given) older than this are removed.
     public static let scratchLifetime: TimeInterval = 86_400
+    /// Actions are background work like jobs: half the cores and half the memory budget, so a Shortcut started
+    /// during a manual batch (or several started by a folder automation) doesn't double the load.
+    public static var limits: BatchResourceLimits { .background }
 
     /// Converts `files` (images or folders of images) into `output`. Throws when there is nothing to convert,
     /// the format can't be written, or every image failed (with the first reasons); a run where some images
@@ -109,7 +112,8 @@ public enum Automation {
     public static func run(_ files: [URL], request: AutomationRequest, output: URL,
                            presets: PresetLibrary = .standard,
                            writable: [OutputFormat] = OutputFormat.available(),
-                           variantFolders: VariantFolderPolicy = .confirmedOnly) async throws -> AutomationResult {
+                           variantFolders: VariantFolderPolicy = .confirmedOnly,
+                           limits: BatchResourceLimits = Automation.limits) async throws -> AutomationResult {
         guard !files.isEmpty else { throw AutomationError.noFiles }
         let items = InputCollector.collect(files)
         guard !items.isEmpty else { throw AutomationError.noImages }
@@ -119,7 +123,9 @@ public enum Automation {
             if let missing = formats.first(where: { !writable.contains($0) }) {
                 throw AutomationError.formatNotWritable(missing.displayName)
             }
-            let report = await BatchRunner.run(group, pipeline: pipeline, mode: .newFolder(output), presets: presets,
+            let report = await BatchRunner.run(group, pipeline: pipeline, mode: .newFolder(output),
+                                               concurrency: limits.concurrency,
+                                               memoryBudgetPixels: limits.memoryBudgetPixels, presets: presets,
                                                variantFolders: variantFolders)
             result.written += report.written
             result.failures += report.failures
