@@ -812,9 +812,12 @@ Vision's text rectangles, which also catch stylised or handwritten text); the bo
 image, padded and clamped. Pixels outside the boxes are copied unchanged. **If Vision can't run for an image, that
 image isn't written**: it fails with "Not written: couldn't check for faces (…)" and the rest of the run goes on
 (jobs try it again later, like any failure). An **If … then … else** that would **copy the original unchanged**
-converts the image with the Redact step instead ("Converted to redact: …"), so a copy never skips it. With a Redact
+converts the image with the Redact step instead ("Converted to redact: …"), so a copy never skips it; only the Redact
+steps run on it, and image steps a branch's preset would have added are named in the report ("Not applied to the
+converted copy: the preset's Resize, Watermark steps"). With a Redact
 step that hides faces, face and person regions are left out of the output's metadata (MWG and Microsoft regions,
-Apple face info, IPTC *Person in image* and image regions; "Removed face regions from metadata"). **Best effort:**
+Apple face info, IPTC *Person in image* and image regions, found by their namespace and name whatever prefix the
+file uses; "Removed face regions from metadata"). **Best effort:**
 Vision can miss a face (turned away, small, covered) or some text (stylised, tiny, at an angle), so check the
 results before you share them. Nothing is sent anywhere.
 

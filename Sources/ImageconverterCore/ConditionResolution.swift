@@ -118,7 +118,8 @@ extension Pipeline {
         // Extra outputs are made from the processed image: a copy (or a skip) has none, nor has an image whose
         // branch said so.
         if state.skipExtras || disposition != .process { result.extraOutputs = [] }
-        if disposition == .copyOriginal, Self.convertsCopy(&result, format: facts?.format, notes: &notes) {
+        if disposition == .copyOriginal,
+           Self.convertsCopy(&result, format: facts?.format, presetSteps: state.presetSteps, notes: &notes) {
             disposition = .process
         }
         if disposition == .copyOriginal {
@@ -138,10 +139,22 @@ extension Pipeline {
         return resolved
     }
 
+    /// Only the Redact steps run on a converted copy: the note naming a preset's other steps, or nil.
+    private static func notAppliedNote(_ presetSteps: [PipelineStep]) -> String? {
+        var seen = Set<String>()
+        let names = presetSteps.filter { $0.operation.kind != .redact }.map(\.operation.kind.displayName)
+            .filter { seen.insert($0).inserted }
+        guard !names.isEmpty else { return nil }
+        return ConditionalStep.notAppliedToConversionPrefix + "the preset's " + names.joined(separator: ", ")
+            + (names.count == 1 ? " step" : " steps")
+    }
+
     /// Whether a copied original must be converted instead, set up for that: a byte copy would show what an enabled
     /// Redact step hides (Redact is a floor like the Metadata step: only the Redact steps run) or keep what the
     /// Metadata step removes (nothing else runs). In the source's own format, with a note. False: copy it.
-    private static func convertsCopy(_ result: inout Pipeline, format: OutputFormat?, notes: inout [String]) -> Bool {
+    /// Image steps a branch's preset added that don't run then are named in a note.
+    private static func convertsCopy(_ result: inout Pipeline, format: OutputFormat?, presetSteps: [PipelineStep],
+                                     notes: inout [String]) -> Bool {
         let redactions = result.steps.filter { $0.isEnabled && $0.operation.kind == .redact }
         let hidesMetadata = result.metadata.hidesSourceData
         guard !redactions.isEmpty || hidesMetadata else { return false }
@@ -149,6 +162,7 @@ extension Pipeline {
         result.output = .faithful(format ?? result.output.format)
         if !redactions.isEmpty { notes.append(Redaction.convertedToRedactNote) }
         if hidesMetadata { notes.append(ConditionalStep.convertedForPrivacyNote) }
+        if let note = notAppliedNote(presetSteps) { notes.append(note) }
         return true
     }
 
@@ -204,7 +218,9 @@ private struct Resolution {
     var skipExtras = false
     /// What a copied original ignores (for its note).
     var addedKeywords = false
-    var addedPresetSteps = false
+    /// The image steps "Apply preset" added, in order.
+    var presetSteps: [PipelineStep] = []
+    var addedPresetSteps: Bool { !presetSteps.isEmpty }
 
     init(pipeline: Pipeline, floor: MetadataOptions, presets: PresetLibrary, labels: [String]) {
         self.pipeline = pipeline
@@ -263,7 +279,7 @@ private struct Resolution {
             return step.isEnabled
         }
         pipeline.steps += steps
-        if !steps.isEmpty { addedPresetSteps = true }
+        presetSteps += steps
         pipeline.output = applied.output
         if applied.metadata.isActive { setMetadata(applied.metadata) }
         if applied.rename.isActive { setRename(applied.rename) }

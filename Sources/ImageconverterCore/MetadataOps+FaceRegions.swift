@@ -10,9 +10,11 @@ extension MetadataOps {
         "http://ns.microsoft.com/photo/1.2/t/Region#",
         "http://ns.apple.com/faceinfo/1.0/",
     ]
-    /// Region and person tags inside broader namespaces.
-    static let faceRegionPaths: Set<String> = [
-        "MP:RegionInfo", "Iptc4xmpExt:PersonInImage", "Iptc4xmpExt:PersonInImageWDetails", "Iptc4xmpExt:ImageRegion",
+    /// Region and person tags inside broader namespaces, by namespace URI and property name: a file may give a
+    /// namespace any prefix, so the prefix is never compared.
+    static let faceRegionProperties: [String: Set<String>] = [
+        "http://ns.microsoft.com/photo/1.2/": ["RegionInfo"],
+        "http://iptc.org/std/Iptc4xmpExt/2008-02-29/": ["PersonInImage", "PersonInImageWDetails", "ImageRegion"],
     ]
 
     /// `properties` with every face or person region removed from the XMP they carry (`xmpPropertyKey`), and whether
@@ -25,8 +27,9 @@ extension MetadataOps {
             guard let prefix = CGImageMetadataTagCopyPrefix(tag) as String?,
                   let name = CGImageMetadataTagCopyName(tag) as String? else { return nil }
             let namespace = CGImageMetadataTagCopyNamespace(tag) as String? ?? ""
-            let path = "\(prefix):\(name)"
-            return faceRegionNamespaces.contains(namespace) || faceRegionPaths.contains(path) ? path : nil
+            let isRegion = faceRegionNamespaces.contains(namespace) || faceRegionProperties[namespace]?.contains(name) == true
+            // Removed by the path in this metadata's own prefix.
+            return isRegion ? "\(prefix):\(name)" : nil
         }
         guard !paths.isEmpty else { return (properties, false) }
         for path in paths { CGImageMetadataRemoveTagWithPath(meta, nil, path as CFString) }
