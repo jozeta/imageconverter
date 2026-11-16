@@ -361,7 +361,7 @@ imageconverter). Agents can't import or run a shortcut without clicking, so thes
 - [ ] **Get Image Metadata.** Expected: text starting with the file name, then groups ("File", "Camera (EXIF)",
   …) with "  Label: value" lines.
 - [ ] **Run Job.** *Run Job* (Job: pick from the suggestions) → *Show Result*. Expected: waits for the run and
-  returns "Job Name: n converted…"; the job's history entry appears. A job whose folder is gone: "The job … didn't
+  returns "Job Name: Converted n images" (or "Converted n · 1 skipped by a condition", ", 2 unchanged"); the job's history entry appears. A job whose folder is gone: "The job … didn't
   run." with the reason. While the job is already running, the action waits for the follow-up run.
 - [ ] **App not running.** Quit the app, run a shortcut with Convert Images. Expected: the app launches (its window
   may appear: macOS starts the app to run the action) and the shortcut gets the files.

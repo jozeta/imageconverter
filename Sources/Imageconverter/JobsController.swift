@@ -97,6 +97,7 @@ final class JobsController {
         guard !started else { return }
         started = true
         reload()
+        ImageconverterShortcuts.parametersChanged()
         let summaries = history.summaries()
         let reports = defaults.dictionary(forKey: Self.reportsKey) as? [String: String] ?? [:]
         for job in jobs {
@@ -158,6 +159,7 @@ final class JobsController {
         arm(job)
         coordinator.prune(allowed: mayRun)
         syncRunState()
+        ImageconverterShortcuts.parametersChanged()
     }
 
     /// Bookmarks aligned with `inputs`: kept for folders that didn't change, made for new ones.
@@ -179,6 +181,7 @@ final class JobsController {
         jobs.removeAll { $0.id == id }
         status[id] = nil
         rememberReport(nil, for: id)
+        ImageconverterShortcuts.parametersChanged()
     }
 
     /// Forgets which files were processed, so the next run processes everything again.

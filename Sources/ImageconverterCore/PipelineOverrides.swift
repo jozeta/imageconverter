@@ -1,7 +1,7 @@
 import Foundation
 
 /// Settings that win over a preset's or pipeline file's own: the command line's `--format`, `--quality`,
-/// `--max-size`, `--resize`, `--variant`, `--strip-gps` and `--strip-all`, and the Shortcuts actions' options.
+/// `--max-size`, `--resize-long`, `--variant`, `--strip-gps` and `--strip-all`, and the Shortcuts actions' options.
 /// One place, so the command line and Shortcuts change a pipeline the same way.
 public struct PipelineOverrides: Equatable, Sendable {
     public var format: OutputFormat?

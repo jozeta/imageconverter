@@ -41,7 +41,8 @@ enum IntentContext {
             guard !files.isEmpty else { throw AutomationError.noFiles }
             let scratch = try Automation.newScratchFolder(in: Automation.scratchBase)
             let inputs = try IntentInputs(files, copiesIn: scratch.appendingPathComponent("in", isDirectory: true))
-            defer { inputs.release() }
+            // The copies of the user's images go when the action ends; the outputs stay for the day.
+            defer { inputs.release(); Automation.removeCopies(inputs.copies) }
             let output: URL
             var folderGrant: FolderAccess.Grant?
             if let outputFolder {
@@ -52,8 +53,16 @@ enum IntentContext {
             }
             defer { folderGrant?.release() }
             let directory = await MainActor.run { AppDefaults.presetsDirectory }
-            let result = try await Automation.run(inputs.urls, request: request, output: output,
-                                                  presets: PresetLibrary.folder(directory))
+            let urls = inputs.urls
+            let started = Date()
+            // Tracked so quitting waits for the action; every run that started is recorded in History.
+            let result = try await AutomationRuns.shared.run {
+                try await Automation.run(urls, request: request, output: output,
+                                         presets: PresetLibrary.folder(directory), finished: { result in
+                    let report = result.processingReport(request: request, startedAt: started)
+                    Task { @MainActor in AutomationRuns.shared.record(report) }
+                })
+            }
             return result.written.map(returnedFile)
         } catch let error as IntentFailure {
             throw error
@@ -84,10 +93,13 @@ enum IntentContext {
 /// for the length of the action), otherwise a copy of the data Shortcuts passed, in the action's scratch folder.
 final class IntentInputs {
     let urls: [URL]
+    /// The ones that are copies in the scratch folder (removed when the action ends).
+    let copies: [URL]
     private let grants: [FolderAccess.Grant]
 
     init(_ files: [IntentFile], copiesIn copies: URL) throws {
         var urls: [URL] = []
+        var copied: [URL] = []
         var grants: [FolderAccess.Grant] = []
         for file in files {
             if let url = file.fileURL {
@@ -99,9 +111,18 @@ final class IntentInputs {
                 }
                 grant.release()
             }
-            urls.append(try Self.copy(file, into: copies))
+            do {
+                let copy = try Self.copy(file, into: copies)
+                urls.append(copy)
+                copied.append(copy)
+            } catch {
+                grants.forEach { $0.release() }
+                Automation.removeCopies(copied)
+                throw error
+            }
         }
         self.urls = urls
+        self.copies = copied
         self.grants = grants
     }
 
@@ -115,6 +136,8 @@ final class IntentInputs {
         }
         let data = file.data
         guard !data.isEmpty else { throw AutomationError.unreadableFile(name: name) }
+        // Like any file the app reads: nothing over the decode limit's file size is written to disk.
+        try Automation.checkCopySize(data.count, name: name)
         let folder = copies.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent(name)

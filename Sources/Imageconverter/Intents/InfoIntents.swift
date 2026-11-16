@@ -25,7 +25,7 @@ struct RunJobIntent: AppIntent {
             let reason = await MainActor.run { JobsController.shared.job(id)?.disabledReason }
             throw IntentFailure("The job \(found.name) didn't run." + (reason.map { " \($0)" } ?? ""))
         }
-        return .result(value: IntentContext.summary(of: result, job: found.name))
+        return .result(value: Automation.jobSummary(of: result, job: found.name))
     }
 }
 
@@ -58,16 +58,6 @@ struct GetImageMetadataIntent: AppIntent {
 }
 
 extension IntentContext {
-    /// "Job Photos: 3 converted, 1 skipped, 0 failed" and the run's problem, if any.
-    static func summary(of result: JobRunResult, job: String) -> String {
-        let batch = result.batch
-        var text = "Job \(job): " + RunCountsText.make(written: batch.convertedCount, skipped: batch.skipped.count,
-                                                       failed: batch.failures.count)
-        if result.unchanged > 0 { text += ", \(result.unchanged) unchanged" }
-        if let problem = result.problem { text += ". \(problem)" }
-        return text
-    }
-
     /// The input folder of Apply Preset to Folder: it must be readable (allowed in Folder Access when sandboxed).
     static func checkedInputFolder(_ file: IntentFile) throws -> (URL, FolderAccess.Grant) {
         do {

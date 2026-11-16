@@ -68,6 +68,25 @@ final class AutomationTests: XCTestCase {
         XCTAssertEqual(result.written.count, 3)
     }
 
+    func testRunJobSummaryWording() {
+        func entry(_ name: String) -> BatchResultEntry {
+            BatchResultEntry(source: URL(fileURLWithPath: "/in/\(name)"),
+                             destination: URL(fileURLWithPath: "/out/\(name)"), inputBytes: 10, outputBytes: 5)
+        }
+        var batch = BatchReport(entries: (1...12).map { entry("\($0).jpg") })
+        batch.skipped = [BatchSkip(source: URL(fileURLWithPath: "/in/s.jpg"))]
+        let result = JobRunResult(batch: batch, report: ProcessingReport(batch: batch, total: 13, outputMode: "newFolder"),
+                                  unchanged: 0, waiting: 0, reportFile: nil, problem: nil)
+        XCTAssertEqual(Automation.jobSummary(of: result, job: "Web export"),
+                       "Job Web export: Converted 12 · 1 skipped by a condition")
+        let plain = BatchReport(entries: (1...3).map { entry("\($0).png") })
+        let again = JobRunResult(batch: plain, report: ProcessingReport(batch: plain, total: 3, outputMode: "newFolder"),
+                                 unchanged: 2, waiting: 0, reportFile: nil,
+                                 problem: "The report couldn't be written: full.")
+        XCTAssertEqual(Automation.jobSummary(of: again, job: "Photos"),
+                       "Job Photos: Converted 3 images, 2 unchanged. The report couldn't be written: full.")
+    }
+
     func testInvalidValuesAreRefused() {
         XCTAssertThrowsError(try AutomationRequest.resize(longEdge: 0)) {
             XCTAssertEqual($0 as? AutomationError, .invalidLongEdge(0))
@@ -88,7 +107,12 @@ final class AutomationTests: XCTestCase {
         XCTAssertEqual(Automation.sourceFormat(of: jpeg, writable: OutputFormat.allCases), .jpeg)
         // A format this Mac can't write: PNG for a format with transparency, JPEG otherwise.
         XCTAssertEqual(Automation.sourceFormat(of: png, writable: [.jpeg]), .jpeg)
-        XCTAssertEqual(Automation.sourceFormat(of: png, writable: [.jpeg, .png, .tiff].filter { $0 != .png }), .jpeg)
+        // Transparency: a TIFF with alpha on a Mac that can't write TIFF becomes a PNG; a file without alpha a JPEG.
+        let clear = dir.appendingPathComponent("clear.tiff")
+        try TestImages.write(TestImages.make(width: 20, height: 10, alpha: 0.5), to: clear, type: .tiff)
+        XCTAssertEqual(Automation.sourceFormat(of: clear, writable: [.jpeg, .png]), .png)
+        XCTAssertEqual(Automation.sourceFormat(of: clear, writable: [.jpeg]), .jpeg, "PNG can't be written either")
+        XCTAssertEqual(Automation.sourceFormat(of: jpeg, writable: [.png, .heic]), .jpeg, "no alpha: JPEG")
         XCTAssertEqual(Automation.sourceFormat(of: dir.appendingPathComponent("missing.jpg"),
                                                writable: OutputFormat.allCases), .jpeg)
     }
@@ -107,6 +131,43 @@ final class AutomationTests: XCTestCase {
         XCTAssertEqual(sizes.map(\.1), [20, 40])
         XCTAssertEqual(try Data(contentsOf: jpeg), before, "the original is never changed")
         XCTAssertTrue(result.written.allSatisfy { $0.deletingLastPathComponent().standardizedFileURL == out.standardizedFileURL })
+    }
+
+    func testEveryRunIsReportedForHistory() async throws {
+        let files = [try image("a.jpg"), try image("b.png", type: .png)]
+        var seen: [AutomationResult] = []
+        let started = Date()
+        let result = try await Automation.run(files, request: try .resize(longEdge: 50), output: try outputFolder(),
+                                              finished: { seen.append($0) })
+        XCTAssertEqual(seen, [result])
+        XCTAssertEqual(result.total, 2)
+        XCTAssertEqual(result.batch.convertedCount, 2, "both format groups in one report")
+        let report = result.processingReport(request: try .resize(longEdge: 50), startedAt: started)
+        XCTAssertEqual(report.summary.presetName, "Shortcuts")
+        XCTAssertEqual(report.summary.succeeded, 2)
+        let preset = try ExternalRequests.preset(named: "web export", in: PresetStore.builtIns)
+        XCTAssertEqual(result.processingReport(request: .convert(preset: preset, format: nil), startedAt: started)
+            .summary.presetName, "Shortcuts: \(preset.name)")
+        // A run where every image failed is reported too; a request refused before running isn't.
+        let broken = dir.appendingPathComponent("broken.jpg")
+        try Data("not an image".utf8).write(to: broken)
+        seen = []
+        _ = try? await Automation.run([broken], request: try .resize(longEdge: 50), output: try outputFolder(),
+                                      finished: { seen.append($0) })
+        XCTAssertEqual(seen.first?.batch.failures.count, 1)
+        seen = []
+        _ = try? await Automation.run([files[0]], request: try .convertFormat(.png, qualityPercent: nil),
+                                      output: try outputFolder(), writable: [.jpeg], finished: { seen.append($0) })
+        XCTAssertTrue(seen.isEmpty)
+    }
+
+    func testResizeNeverEnlarges() async throws {
+        let small = try image("small.jpg", width: 200, height: 100)
+        let result = try await Automation.run([small], request: try .resize(longEdge: 4000), output: try outputFolder())
+        let written = try XCTUnwrap(result.written.first)
+        let (width, height) = try pixelSize(written)
+        XCTAssertEqual(width, 200)
+        XCTAssertEqual(height, 100)
     }
 
     func testStripMetadataRemovesGPS() async throws {
@@ -179,6 +240,48 @@ final class AutomationTests: XCTestCase {
 
     // MARK: Folders and scratch space
 
+    func testAnExtraOutputBesideTheOriginalsNeedsTheirFolderAllowed() async throws {
+        let photo = try image("p.jpg")
+        let beside = OutputVariant(name: "Small", resize: .longestEdge(20), destination: .sameFolder)
+        let preset = Preset(name: "Beside", pipeline: Pipeline(extraOutputs: [beside]))
+        let request = AutomationRequest(preset: preset)
+        do {
+            _ = try await Automation.run([photo], request: request, output: try outputFolder(),
+                                         isWritableFolder: { _ in false })
+            XCTFail("ran without access to the original's folder")
+        } catch {
+            XCTAssertEqual(error as? AutomationError, .folderNotAllowed(path: dir.standardizedFileURL.path))
+        }
+        XCTAssertEqual(try FileManager.default.contentsOfDirectory(atPath: dir.path).sorted(), ["out", "p.jpg"],
+                       "nothing written")
+        // Allowed: the extra output lands beside the original.
+        let result = try await Automation.run([photo], request: request, output: try outputFolder(),
+                                              isWritableFolder: { _ in true })
+        XCTAssertEqual(result.written.map { $0.deletingLastPathComponent().standardizedFileURL },
+                       [dir.appendingPathComponent("out").standardizedFileURL, dir.standardizedFileURL])
+        // Outputs into a chosen folder or beside the main output need no such check.
+        let plain = Pipeline(extraOutputs: [OutputVariant(name: "Small", resize: .longestEdge(20))])
+        XCTAssertEqual(Automation.foldersBesideOriginals(plain, [InputItem(source: photo, relativeDirectory: "")]), [])
+    }
+
+    func testCopiesAreCappedAndRemovedAfterTheAction() throws {
+        XCTAssertNoThrow(try Automation.checkCopySize(10, name: "a.jpg", limit: 10))
+        XCTAssertThrowsError(try Automation.checkCopySize(11, name: "a.jpg", limit: 10)) {
+            XCTAssertEqual($0 as? AutomationError, .fileTooLarge(name: "a.jpg", limit: 10))
+        }
+        XCTAssertEqual(Automation.maxCopiedBytes, DecodeLimits.standard.maxFileBytes)
+        let alone = dir.appendingPathComponent("in/A", isDirectory: true)
+        let shared = dir.appendingPathComponent("in/B", isDirectory: true)
+        for folder in [alone, shared] { try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true) }
+        let copyA = alone.appendingPathComponent("a.jpg"), copyB = shared.appendingPathComponent("b.jpg")
+        let output = shared.appendingPathComponent("b_small.jpg")
+        for file in [copyA, copyB, output] { try Data([1]).write(to: file) }
+        Automation.removeCopies([copyA, copyB])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: alone.path), "an emptied folder goes too")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: copyB.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: output.path), "an output beside a copy stays")
+    }
+
     func testFolderChecksPointToFolderAccess() throws {
         let out = try outputFolder()
         XCTAssertEqual(try Automation.checkedFolder(out, isUsable: { _ in true }), out.standardizedFileURL)
@@ -208,7 +311,17 @@ final class AutomationTests: XCTestCase {
         XCTAssertTrue(text.hasPrefix("gps.jpg\n"), text)
         XCTAssertTrue(text.contains("\nFile\n"), text)
         XCTAssertTrue(text.contains("\nLocation (GPS)\n"), text)
-        XCTAssertTrue(text.contains("  "), text)
+        let lines = text.components(separatedBy: "\n")
+        // Group titles flush left, each field an indented "Label: value" line under its group.
+        XCTAssertEqual(lines.first, "gps.jpg")
+        let file = try XCTUnwrap(lines.firstIndex(of: "File"))
+        XCTAssertEqual(lines[file + 1], "  Name: gps.jpg")
+        XCTAssertTrue(lines.contains("  Dimensions: 200 × 100 pixels"), text)
+        let location = try XCTUnwrap(lines.firstIndex(of: "Location (GPS)"))
+        XCTAssertEqual(lines[location + 1], "  GPS position: 59.3000° N, 18.0000° E")
+        for line in lines.dropFirst() where line.hasPrefix(" ") {
+            XCTAssertTrue(line.hasPrefix("  ") && line.contains(": "), "not a field line: \(line)")
+        }
         XCTAssertThrowsError(try Automation.metadataText(of: dir.appendingPathComponent("missing.jpg")))
     }
 

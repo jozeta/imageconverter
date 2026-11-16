@@ -26,3 +26,13 @@ struct ImageconverterShortcuts: AppShortcutsProvider {
                     shortTitle: "Get Image Metadata", systemImageName: "info.circle")
     }
 }
+
+extension ImageconverterShortcuts {
+    /// Tells Shortcuts, Siri and Spotlight that the presets or jobs changed, so phrases with a job ("Run Nightly in
+    /// imageconverter") know the current names. Called at launch and after a preset or job is saved, renamed or
+    /// deleted; only with an app bundle (a `swift run` build has no actions).
+    static func parametersChanged() {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        updateAppShortcutParameters()
+    }
+}

@@ -1390,12 +1390,20 @@ window opens as at any launch), and return the files they wrote, so the next act
 | --- | --- | --- |
 | **Convert Images** | Images; **Preset** (the built-in and your saved presets are suggested); Format (optional: overrides the preset's); Output Folder (optional) | The converted files |
 | **Apply Preset to Folder** | Folder (its images and subfolders); Preset; Output Folder (optional) | The converted files |
-| **Run Job** | **Job** (your saved jobs are suggested) | A summary, e.g. "Job Web export: 12 converted, 1 skipped" (waits until the run has finished) |
+| **Run Job** | **Job** (your saved jobs are suggested) | A summary, e.g. "Job Web export: Converted 12 · 1 skipped by a condition" or "Job Photos: Converted 3 images, 2 unchanged" (waits until the run has finished) |
 | **Strip Metadata** | Images; Output Folder (optional) | Copies without any metadata, each in its own format (JPEG and HEIC image data copied untouched) |
-| **Resize Images** | Images; Long Edge in pixels (default 2048, 1–100 000); Output Folder (optional) | Copies with that longest edge, each in its own format |
+| **Resize Images** | Images; Long Edge in pixels (default 2048, 1–100 000); Output Folder (optional) | Copies with that longest edge, each in its own format. Smaller images are never enlarged (they keep their size) |
 | **Convert Format** | Images; Format (default JPEG); Quality 1–100 (optional, default 82; for JPEG, HEIC, AVIF and JPEG 2000); Output Folder (optional) | Copies in the new format |
 | **Get Image Metadata** | Image | The metadata as text: the file name, then each group ("File", "Camera (EXIF)", "Location (GPS)", …) with `  Label: value` lines, read from the header only |
 
+- **Load and History.** Actions run like jobs, with half the processor cores and half the memory budget, so a
+  Shortcut started during a batch doesn't double the load. Each converting action is listed in **History** as
+  "Shortcuts" (or "Shortcuts: *preset*"). Quitting while an action converts asks first and waits for it like for a
+  batch. Copies of images Shortcuts hands over as data (not as files) are deleted when the action ends; files over
+  2 GB are refused. A preset whose extra output saves *Same folder as original* (or a subfolder there) needs that
+  folder allowed in Folder Access, like an Output Folder; otherwise the action stops with the Folder Access message.
+- **Animated and multi-page files.** Like the batch, every action writes the first frame (or page) of a GIF,
+  animated PNG, HEIC sequence or multi-page TIFF only.
 - **Where files go.** Without an Output Folder the files are written to a temporary folder inside the app's
   container and only returned: add **Save File** (or **Move File**) to put them somewhere; folders there older
   than a day are removed. With an Output Folder they are written there and returned too.

@@ -13,6 +13,8 @@ public enum AutomationError: Error, Equatable, Sendable {
     case folderNotAllowed(path: String)
     case notAFolder(path: String)
     case unreadableFile(name: String)
+    /// A file Shortcuts passed as data (not a location) is bigger than the decode limit.
+    case fileTooLarge(name: String, limit: Int)
     case nothingWritten(String)
     case cancelled
 
@@ -29,6 +31,8 @@ public enum AutomationError: Error, Equatable, Sendable {
                 + "Help \u{25B8} Folder Access\u{2026} \u{25B8} Add Folder\u{2026}, allow the folder, then run the shortcut again."
         case .notAFolder(let path): return "\(path) isn't a folder."
         case .unreadableFile(let name): return "imageconverter couldn't read the file \(name)."
+        case .fileTooLarge(let name, let limit):
+            return "The file \(name) is larger than \(SizeFormat.bytes(limit)), the most imageconverter reads."
         case .nothingWritten(let reason): return "No image was converted. \(reason)"
         case .cancelled: return "The action was cancelled."
         }
@@ -87,11 +91,38 @@ public struct AutomationResult: Equatable, Sendable {
     public var written: [URL]
     public var failures: [BatchFailure]
     public var skipped: Int
+    /// Every batch of the action as one report (one batch per output format when images keep their own), for
+    /// History.
+    public var batch = BatchReport()
+    /// The images the action was given (after expanding folders).
+    public var total = 0
 
     public init(written: [URL] = [], failures: [BatchFailure] = [], skipped: Int = 0) {
         self.written = written
         self.failures = failures
         self.skipped = skipped
+    }
+
+    /// The History entry: labelled "Shortcuts" (with the preset's name), in the output folder's mode.
+    public func processingReport(request: AutomationRequest, startedAt: Date, finishedAt: Date = Date())
+        -> ProcessingReport {
+        ProcessingReport(batch: batch, total: total, outputMode: OutputModeKind.newFolder.rawValue,
+                         presetName: request.preset.map { "Shortcuts: \($0.name)" } ?? "Shortcuts",
+                         startedAt: startedAt, finishedAt: finishedAt)
+    }
+}
+
+extension BatchReport {
+    /// `other`'s files after this report's (an action that ran several batches).
+    mutating func append(_ other: BatchReport) {
+        written += other.written
+        failures += other.failures
+        notes += other.notes
+        cancelled = cancelled || other.cancelled
+        entries += other.entries
+        order += other.order
+        skipped += other.skipped
+        extraFailures += other.extraFailures
     }
 }
 
@@ -107,22 +138,36 @@ public enum Automation {
     public static var limits: BatchResourceLimits { .background }
 
     /// Converts `files` (images or folders of images) into `output`. Throws when there is nothing to convert,
-    /// the format can't be written, or every image failed (with the first reasons); a run where some images
-    /// failed returns the ones that were written.
+    /// the format can't be written, a folder an extra output writes into beside the originals isn't writable
+    /// (`isWritableFolder`), or every image failed (with the first reasons); a run where some images failed returns
+    /// the ones that were written. `finished` gets the result of every run that started (for History).
     public static func run(_ files: [URL], request: AutomationRequest, output: URL,
                            presets: PresetLibrary = .standard,
                            writable: [OutputFormat] = OutputFormat.available(),
                            variantFolders: VariantFolderPolicy = .confirmedOnly,
-                           limits: BatchResourceLimits = Automation.limits) async throws -> AutomationResult {
+                           limits: BatchResourceLimits = Automation.limits,
+                           isWritableFolder: (URL) -> Bool = ExternalRequests.isWritableDirectory,
+                           finished: (AutomationResult) -> Void = { _ in })
+        async throws -> AutomationResult {
         guard !files.isEmpty else { throw AutomationError.noFiles }
         let items = InputCollector.collect(files)
         guard !items.isEmpty else { throw AutomationError.noImages }
-        var result = AutomationResult()
-        for (pipeline, group) in groups(items, request: request, writable: writable) {
+        let grouped = groups(items, request: request, writable: writable)
+        // Checked before anything runs: formats, and the originals' folders an extra output writes into.
+        for (pipeline, group) in grouped {
             let formats = [pipeline.output.format] + pipeline.extraOutputs.map(\.settings.format)
             if let missing = formats.first(where: { !writable.contains($0) }) {
                 throw AutomationError.formatNotWritable(missing.displayName)
             }
+            if let folder = foldersBesideOriginals(pipeline, group).first(where: { !isWritableFolder($0) }) {
+                throw AutomationError.folderNotAllowed(path: folder.path)
+            }
+        }
+        var result = AutomationResult()
+        result.total = items.count
+        // Once batches ran, `finished` gets what they did, also when the action then fails or is cancelled.
+        defer { finished(result) }
+        for (pipeline, group) in grouped {
             let report = await BatchRunner.run(group, pipeline: pipeline, mode: .newFolder(output),
                                                concurrency: limits.concurrency,
                                                memoryBudgetPixels: limits.memoryBudgetPixels, presets: presets,
@@ -130,7 +175,11 @@ public enum Automation {
             result.written += report.written
             result.failures += report.failures
             result.skipped += report.skipped.count
-            if report.cancelled || Task.isCancelled { throw AutomationError.cancelled }
+            result.batch.append(report)
+            if report.cancelled || Task.isCancelled {
+                result.batch.cancelled = true
+                throw AutomationError.cancelled
+            }
         }
         if result.written.isEmpty, !result.failures.isEmpty {
             let reasons = result.failures.prefix(3).map { "\($0.source.lastPathComponent): \($0.reason)" }
@@ -138,6 +187,43 @@ public enum Automation {
             throw AutomationError.nothingWritten(reasons.joined(separator: "; ") + more)
         }
         return result
+    }
+
+    /// The originals' folders that `pipeline`'s extra outputs write into (Same folder as original, a subfolder
+    /// there), once each. A file Shortcuts passed gives access to the file, not its folder: such a folder must be
+    /// allowed in Folder Access, like an output folder.
+    static func foldersBesideOriginals(_ pipeline: Pipeline, _ items: [InputItem]) -> [URL] {
+        let beside = pipeline.extraOutputs.contains { variant in
+            switch variant.destination {
+            case .sameFolder?, .subfolder?: return true
+            case .folder?, nil: return false
+            }
+        }
+        guard beside else { return [] }
+        var seen = Set<String>()
+        return items.map { $0.source.deletingLastPathComponent().standardizedFileURL }
+            .filter { seen.insert($0.path).inserted }
+    }
+
+    /// The largest file a Shortcuts action copies from data it was handed (the decode limit's file size).
+    public static var maxCopiedBytes: Int { DecodeLimits.standard.maxFileBytes }
+
+    /// Throws when data of `count` bytes for the file `name` is over `maxCopiedBytes`.
+    public static func checkCopySize(_ count: Int, name: String, limit: Int = maxCopiedBytes) throws {
+        if count > limit { throw AutomationError.fileTooLarge(name: name, limit: limit) }
+    }
+
+    /// After an action: removes the copies made of files Shortcuts passed as data (with their folders, when
+    /// nothing else is in them). The action's outputs stay for the day (`scratchLifetime`), for Shortcuts to read.
+    public static func removeCopies(_ copies: [URL]) {
+        let manager = FileManager.default
+        for copy in copies {
+            try? manager.removeItem(at: copy)
+            let folder = copy.deletingLastPathComponent()
+            if (try? manager.contentsOfDirectory(atPath: folder.path))?.isEmpty == true {
+                try? manager.removeItem(at: folder)
+            }
+        }
     }
 
     /// One pipeline per output format when each image keeps its own; otherwise one for all.
@@ -216,6 +302,17 @@ public enum Automation {
             lines += entries.map { "  \($0.label): \($0.value)" }
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Run Job's result: "Job Web export: Converted 12 · 1 skipped by a condition", "Job Photos: Converted 3
+    /// images, 2 unchanged" (files the job had already done), then the run's problem, if any.
+    public static func jobSummary(of result: JobRunResult, job: String) -> String {
+        let batch = result.batch
+        var text = "Job \(job): " + RunCountsText.make(written: batch.convertedCount, skipped: batch.skipped.count,
+                                                       failed: batch.failures.count)
+        if result.unchanged > 0 { text += ", \(result.unchanged) unchanged" }
+        if let problem = result.problem { text += ". \(problem)" }
+        return text
     }
 
     /// The words Shortcuts shows for an error.
