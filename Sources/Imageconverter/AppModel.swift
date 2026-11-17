@@ -89,6 +89,8 @@ final class AppModel {
     @ObservationIgnored var task: Task<Void, Never>?
     @ObservationIgnored var previewTask: Task<Void, Never>?
     @ObservationIgnored var previewGeneration = 0
+    /// The item the last preview was scheduled for: another one renders at once, an edit after `PreviewTiming.editDelay`.
+    @ObservationIgnored var previewScheduledSource: URL?
     @ObservationIgnored var estimateTask: Task<Void, Never>?
     @ObservationIgnored var estimateKey: EstimateKey?
     /// Sizes the main window to its panels and animates the preview and pipeline toggles.
@@ -307,8 +309,6 @@ final class AppModel {
         return .started
     }
 
-    func cancel() { task?.cancel() }
-
     private func finish(_ report: BatchReport, presetName: String?) {
         isRunning = false
         task = nil
@@ -339,6 +339,8 @@ enum AppRunStart: Equatable {
 }
 
 extension AppModel {
+    func cancel() { task?.cancel() }
+
     func removeStep(_ id: PipelineStep.ID) {
         pipeline.steps.removeAll { $0.id == id }
     }

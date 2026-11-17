@@ -85,12 +85,15 @@ public struct PreviewCaches: Sendable {
     public let focus: FocusCache
     public let redact: RedactCache
     public let enlarge: EnlargeCache
+    /// The last full-size decode, so the estimate and the ladder don't decode the preview's source again.
+    public let sources: SourceCache
 
     public init(focus: FocusCache = FocusCache(), redact: RedactCache = RedactCache(),
-                enlarge: EnlargeCache = EnlargeCache()) {
+                enlarge: EnlargeCache = EnlargeCache(), sources: SourceCache = SourceCache()) {
         self.focus = focus
         self.redact = redact
         self.enlarge = enlarge
+        self.sources = sources
     }
 
     /// The Vision and model context for rendering `source` with these caches.

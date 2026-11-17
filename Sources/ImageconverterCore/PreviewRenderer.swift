@@ -27,6 +27,9 @@ public struct PreviewResult: @unchecked Sendable {
     public var altTextRequest: AltTextRequest?
     /// "Block size raised to keep 1 area unreadable": a Redact step's old fixed pixel size was drawn larger.
     public var redactSizeNote: String?
+    /// True for a quick stand-in (`PreviewRenderer.renderProxy`) that the exact render replaces; the sizes and names
+    /// are the exact ones, only the images were made from a smaller decode.
+    public var isProxy = false
     /// The histograms of the shown `before`/`after` images; set by the app after each render (off the main actor).
     public var beforeHistogram: ImageHistogram?
     public var afterHistogram: ImageHistogram?
@@ -62,10 +65,12 @@ public enum PreviewOutcome: Sendable {
 /// It keeps the decoded source of the last item and the watermark images of the last pipeline.
 public actor PreviewRenderer {
     /// Sources above this many pixels are rendered without being cached.
-    static let maxCachedPixels = 50_000_000
+    static let maxCachedPixels = SourceCache.maxCachedPixels
+    /// A proxy is decoded with at least this long a side (or the display size, if larger).
+    public static let proxyMinimumLongSide = 1600
 
     /// Identifies a file's content cheaply: a rewritten file changes its date or size.
-    private struct FileKey: Equatable {
+    struct FileKey: Equatable {
         let url: URL
         let modified: Date?
         let size: Int?
@@ -86,13 +91,17 @@ public actor PreviewRenderer {
         let properties: [String: Any]
     }
 
-    private let maxPixels: Int
-    private let displayMax: Int
+    let maxPixels: Int
+    let displayMax: Int
+    let proxyMinimum: Int
+    /// The display copy of the shared full decode (`sources`).
     private var cachedSource: CachedSource?
+    /// The last proxy's source (`renderProxy`).
+    var proxySource: ProxySource?
     private var cachedAssets: WatermarkAssets?
     private var cachedAssetKeys: [FileKey]?
-    private let detector: any VisionDetector
-    private let enlarger: any SuperResolutionScaler
+    let detector: any VisionDetector
+    let enlarger: any SuperResolutionScaler
     private let altTextGenerator: any AltTextGenerator
     /// Generated alt text per file version and pixel steps (the model takes seconds; editing other settings
     /// mustn't ask again). Failures are kept too, except a timeout or cancel, which are asked again.
@@ -105,21 +114,25 @@ public actor PreviewRenderer {
     let redactCache = RedactCache()
     /// ML enlarge results per file version and step input (purged with the source).
     let enlargeCache = EnlargeCache()
+    /// The last full-size decode, shared with the size estimate and the quality ladder.
+    let sourceCache = SourceCache()
     /// These caches, for the size estimate and the quality ladder of the same items (`PreviewCaches`).
     public nonisolated var caches: PreviewCaches {
-        PreviewCaches(focus: focusCache, redact: redactCache, enlarge: enlargeCache)
+        PreviewCaches(focus: focusCache, redact: redactCache, enlarge: enlargeCache, sources: sourceCache)
     }
-    /// How many times a source was decoded (for tests).
-    private(set) var decodeCount = 0
+    /// How many times a source was decoded at full size, by the preview or the estimate (for tests).
+    var decodeCount: Int { sourceCache.decodeCount }
     /// How many times the watermark images were loaded (for tests).
     private(set) var assetLoadCount = 0
 
     public init(maxPixels: Int = ImageLoader.defaultMaxPixels, displayMax: Int = 1600,
+                proxyMinimum: Int = PreviewRenderer.proxyMinimumLongSide,
                 detector: any VisionDetector = SystemVisionDetector(),
                 enlarger: any SuperResolutionScaler = SystemSuperResolution.shared,
                 altText: any AltTextGenerator = AltText.standardGenerator) {
         self.maxPixels = maxPixels
         self.displayMax = max(1, displayMax)
+        self.proxyMinimum = max(1, proxyMinimum)
         self.detector = detector
         self.enlarger = enlarger
         self.altTextGenerator = altText
@@ -163,6 +176,8 @@ public actor PreviewRenderer {
         focusCache.cancelIdleDetections()
         redactCache.cancelIdleDetections()
         cachedSource = nil
+        proxySource = nil
+        sourceCache.removeAll()
         cachedAssets = nil
         cachedAssetKeys = nil
     }
@@ -213,17 +228,33 @@ public actor PreviewRenderer {
         guard let after = fit(pipeline.matted(result, for: pipeline.output.format).image) else {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
-        let (destination, outputName) = outputDestination(for: item, index: index, resolved: resolved, mode: mode)
-        let fileSize = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
-        var ready = PreviewResult(
-            before: before, after: after, source: item.source, sourceName: item.source.lastPathComponent,
-            outputName: outputName,
-            sourceSize: (source.width, source.height), outputSize: (result.width, result.height),
-            outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: resolved.statusNote)
-        ready.extraOutputNames = extraOutputNames(for: item, index: index, resolved: resolved, primary: destination)
+        var ready = processed(item: item, index: index, resolved: resolved, mode: mode,
+                              shown: Shown(before: before, after: after, sourceSize: (source.width, source.height),
+                                           outputSize: (result.width, result.height)))
         ready.altTextRequest = altTextRequest(for: item, pipeline: pipeline, result: result)
         ready.redactSizeNote = notes.first(where: RedactOptions.isRaisedNote)
         return .ready(ready)
+    }
+
+    /// The images and true sizes of a processed item's result.
+    struct Shown {
+        let before: CGImage
+        let after: CGImage
+        let sourceSize: (Int, Int)
+        let outputSize: (Int, Int)
+    }
+
+    /// A processed item's result with its names, sizes and extra outputs.
+    func processed(item: InputItem, index: Int, resolved: ResolvedPipeline, mode: OutputMode?,
+                   shown: Shown) -> PreviewResult {
+        let (destination, outputName) = outputDestination(for: item, index: index, resolved: resolved, mode: mode)
+        let fileSize = (try? item.source.resourceValues(forKeys: [.fileSizeKey]))?.fileSize
+        var ready = PreviewResult(
+            before: shown.before, after: shown.after, source: item.source, sourceName: item.source.lastPathComponent,
+            outputName: outputName, sourceSize: shown.sourceSize, outputSize: shown.outputSize,
+            outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: resolved.statusNote)
+        ready.extraOutputNames = extraOutputNames(for: item, index: index, resolved: resolved, primary: destination)
+        return ready
     }
 
     /// A copied or skipped item: the source on both sides, nothing applied.
@@ -296,12 +327,12 @@ public actor PreviewRenderer {
         }
     }
 
+    /// The full-size source (the shared decode) and its display copy.
     private func sourceImages(for url: URL) throws -> CachedSource {
         let key = FileKey(url)
-        if let cachedSource, cachedSource.key == key { return cachedSource }
+        let loaded = try sourceCache.load(url, maxPixels: maxPixels)
+        if let cachedSource, cachedSource.key == key, cachedSource.image === loaded.image { return cachedSource }
         cachedSource = nil
-        decodeCount += 1
-        let loaded = try ImageLoader.load(url, maxPixels: maxPixels)
         let image = loaded.image
         guard let display = fit(image) else { throw ConversionError.processingFailed("preview") }
         let decoded = CachedSource(key: key, image: image, display: display, properties: loaded.properties)
@@ -324,7 +355,10 @@ public actor PreviewRenderer {
     }
 
     /// `image` scaled down to fit `displayMax` on the long side (unchanged when it already fits).
-    private func fit(_ image: CGImage) -> CGImage? {
+    func fit(_ image: CGImage) -> CGImage? { Self.fit(image, displayMax: displayMax) }
+
+    /// `image` scaled down to fit `displayMax` on the long side (unchanged when it already fits).
+    static func fit(_ image: CGImage, displayMax: Int) -> CGImage? {
         let longSide = max(image.width, image.height)
         guard longSide > displayMax else { return image }
         let scale = Double(displayMax) / Double(longSide)

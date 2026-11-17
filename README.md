@@ -197,7 +197,7 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     with a live example
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version, and **More ▸ Clear All…** to empty the image list and start again from an empty pipeline), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
 - **Live preview** of the selected image before and after the pipeline, with its new name and
-  size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and the batch as a filmstrip, grid or list; pinch to zoom in sync in every comparison mode (side by side, split, difference, single), with a checkerboard behind transparent images and a quality ladder to choose the output quality. Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
+  size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and the batch as a filmstrip, grid or list; pinch to zoom in sync in every comparison mode (side by side, split, difference, single), with a checkerboard behind transparent images and a quality ladder to choose the output quality. A newly selected image renders at once; edits render in the background 300 ms after the last change (simple looks show a quick preview at once while you drag, marked "Refining…"). The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
 - **Histogram and clipping** (⌥⌘G, ⌥⌘J): RGB and luminance histogram of the original or the result, with the share of clipped highlights and shadows, and an overlay marking the clipped pixels. See [Preview before running](#preview-before-running).
 - **Metadata panel** (⌥⌘I): the selected image's metadata by group, searchable; edit, remove or add fields for that image's outputs only (the original is never changed). See [Change one image's metadata](#change-one-images-metadata).
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
@@ -560,12 +560,19 @@ unsandboxed.
 
 1. Add images; the preview pane on the right shows the first one before and after the pipeline,
    with an Original | Result table underneath (name, folder, `W × H`, file size; the result size is estimated and shows "Estimating…" while it is computed).
-2. Click a thumbnail in the filmstrip, or focus it and press ← / →, to look at another image. The
+2. Click a thumbnail in the filmstrip, or focus it and press ← / →, to look at another image (it
+   renders at once, with no wait). The
    picker above it switches to a **Grid** (← → ↑ ↓ move the selection; drag the bar on top, or focus it
    and press ↑ / ↓, to make the area taller or lower) or a **List** with each file's name, dimensions,
    file size, the estimated output size (for the selected image, once it is known) and, after a run,
    whether it was written, skipped or failed.
-3. Edit a step: the preview updates 300 ms later, and shows a spinner meanwhile. If an image can't
+3. Edit a step: the preview updates 300 ms after your last change, and shows a spinner meanwhile.
+   When every step looks the same on a smaller copy (Adjust without Sharpen or Noise reduction, Color
+   without Reduce colours, 90° turns and flips, Resize by percentage, edge or fit), a quick preview
+   made from a display-size copy shows at once, also while you drag a slider, with "Refining…" in the
+   header; the full-size result replaces it 300 ms after the last change and is exactly what the batch
+   writes. Crop, Canvas, Perspective, Trim, Watermark, Redact, conditions and exact-size resizes always
+   wait for the full-size result. If an image can't
    be rendered, the reason is shown instead of the "after" image. The preview shows the name for
    that image alone; numbers like `_2` that avoid clashes within a batch appear only when you run it.
 4. Hide the preview with the handle on its edge or ⌥⌘P (View menu); the window shrinks to the sidebar. While a batch runs, the progress bar and Cancel sit above the table.

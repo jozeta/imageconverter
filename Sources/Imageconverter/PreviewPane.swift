@@ -25,7 +25,8 @@ struct PreviewPane: View {
                 }
                 // Room for the image even while the progress area and a tall list share the pane.
                 .frame(minHeight: Self.stageMinHeight)
-                .overlay { if model.isRenderingPreview { spinner } }
+                // A shown proxy says "Refining…" in the header instead of covering the image.
+                .overlay { if model.isRenderingPreview, !model.showsPreviewProxy { spinner } }
                 .overlay { if !model.previewAllowed { pausedNote } }
                 .overlay(alignment: .bottomLeading) {
                     if model.histogram.showHistogram { HistogramPanel(model: model).padding(LadaGlass.Spacing.xs) }
@@ -111,7 +112,12 @@ struct PreviewPane: View {
     private var titleRow: some View {
         HStack(spacing: LadaGlass.Spacing.s) {
             Text("Preview").font(LadaGlass.Typography.subtitle)
-            if let target = model.previewDetecting { DetectionStatus(target: target) }
+            if let target = model.previewDetecting {
+                PreviewStatus(text: target.findingStatus)
+            } else if model.showsPreviewProxy {
+                PreviewStatus(text: "Refining…")
+                    .help("A quick preview from a smaller copy; the full-size result replaces it in a moment")
+            }
             conditionChips
             if model.previewFailure == nil, let note = model.previewResult?.redactSizeNote {
                 LGChip(note, status: .warn)
@@ -303,18 +309,19 @@ extension PreviewPane {
 
 /// The preview header's status while the preview waits for a Redact step's detection (seconds on a large image
 /// with text).
-private struct DetectionStatus: View {
-    let target: RedactTarget
+/// A quiet status in the preview header while it works: "Finding faces and text…", "Refining…".
+private struct PreviewStatus: View {
+    let text: String
 
     var body: some View {
         HStack(spacing: LadaGlass.Spacing.xs) {
             ProgressView().controlSize(.small).scaleEffect(0.8)
-            Text(target.findingStatus)
+            Text(text)
                 .font(LadaGlass.Typography.body)
                 .foregroundStyle(LadaGlass.Colors.muted)
                 .lineLimit(1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(target.findingStatus)
+        .accessibilityLabel(text)
     }
 }

@@ -55,7 +55,7 @@ public enum QualityLadder {
             let focus = caches?.context(for: item.source, detector: detector, enlarger: enlarger)
                 ?? FocusContext(detector: detector, enlarger: enlarger)
             let prepared = try BatchRunner.prepare(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
-                                                   options: ItemRunOptions(focus: focus))
+                                                   options: ItemRunOptions(focus: focus, sources: caches?.sources))
             return try qualities.map { quality in
                 try Task.checkCancellation()
                 return try autoreleasepool {

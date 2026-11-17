@@ -3,13 +3,16 @@ import CoreGraphics
 import ImageconverterCore
 
 extension AppModel {
-    /// Wait after the last change before a preview render starts.
-    static let previewDebounce = Duration.milliseconds(300)
     nonisolated static let thumbnailPixels = 64
 
     /// The selected image's index, kept inside `items` (nil when the batch is empty).
     var selectedItemIndex: Int? {
         items.isEmpty ? nil : min(max(selectedIndex, 0), items.count - 1)
+    }
+
+    /// A quick proxy is on screen and its exact render is on the way ("Refining…" in the preview header).
+    var showsPreviewProxy: Bool {
+        isRenderingPreview && previewFailure == nil && previewResult?.isProxy == true
     }
 
     /// Moves the selection by `offset`, stopping at both ends.
@@ -69,11 +72,14 @@ extension AppModel {
         previewFailureName = nil
         isRenderingPreview = false
         previewDetecting = nil
+        previewScheduledSource = nil
         Task { await previewRenderer.purge() }
     }
 
-    /// Cancels the running render and starts a new one after 300 ms. The previous result stays
-    /// visible until the new one arrives; a result is applied only if no newer request was made.
+    /// Cancels the running render and starts a new one: at once for a newly selected image, 300 ms after the last edit
+    /// otherwise (`PreviewTiming`). A scale-invariant pipeline first shows a quick proxy (marked "Refining…"), at once
+    /// even while a slider moves; the exact render replaces it. The previous result stays visible until the new one
+    /// arrives; a result is applied only if no newer request was made.
     func schedulePreview(mode: OutputMode?) {
         previewMode = mode
         previewTask?.cancel()
@@ -93,26 +99,39 @@ extension AppModel {
         let item = items[index]
         let batch = items
         let pipeline = self.pipeline
+        let delay = PreviewTiming.previewDelay(selectionChanged: previewScheduledSource != item.source)
+        previewScheduledSource = item.source
         isRenderingPreview = true
+        let renderer = previewRenderer
+        let presets = presetLibrary
+        let cache = factsCache
+        let activity = detectionActivity(generation: generation)
+        // Only a scale-invariant pipeline gets a proxy (it has no conditions, so the item's own index is its counter).
+        let proxy: (() async -> PreviewRendering?)? = pipeline.isScaleInvariant ? {
+            guard let result = await renderer.renderProxy(item: item, index: index, pipeline: pipeline, mode: mode,
+                                                          presets: presets), !Task.isCancelled else { return nil }
+            return PreviewRendering(outcome: .ready(await Self.measured(result)), conditions: nil)
+        } : nil
         previewTask = Task(priority: .userInitiated) { [weak self] in
-            do { try await Task.sleep(for: Self.previewDebounce) } catch { return }
-            guard let renderer = self?.previewRenderer, let cache = self?.factsCache,
-                  let presets = self?.presetLibrary else { return }
-            // The counter number the batch would give this item (skipped items before it take none), and the
-            // branch each condition takes. Only read from files when the pipeline has conditions.
-            let conditions = pipeline.hasConditions ? await cache.preview(of: index, in: batch, pipeline: pipeline, presets: presets)
-                : nil
-            guard !Task.isCancelled else { return }
-            let activity = self?.detectionActivity(generation: generation)
-            var outcome = await renderer.render(item: item, index: conditions?.counterIndex ?? index, pipeline: pipeline,
-                                                mode: mode, presets: presets, redactActivity: activity)
-            // The histograms of the images about to be shown, measured off the main actor.
-            if case .ready(let result) = outcome {
-                guard !Task.isCancelled else { return }
-                outcome = .ready(await Self.measured(result))
-            }
-            guard let self, generation == self.previewGeneration else { return }
-            apply(outcome, for: item, conditions: conditions)
+            await PreviewTiming.run(exactDelay: delay, proxy: proxy, exact: {
+                // The counter number the batch would give this item (skipped items before it take none), and the
+                // branch each condition takes. Only read from files when the pipeline has conditions.
+                let conditions = pipeline.hasConditions
+                    ? await cache.preview(of: index, in: batch, pipeline: pipeline, presets: presets) : nil
+                guard !Task.isCancelled else { return nil }
+                var outcome = await renderer.render(item: item, index: conditions?.counterIndex ?? index,
+                                                    pipeline: pipeline, mode: mode, presets: presets,
+                                                    redactActivity: activity)
+                // The histograms of the images about to be shown, measured off the main actor.
+                if case .ready(let result) = outcome {
+                    guard !Task.isCancelled else { return nil }
+                    outcome = .ready(await Self.measured(result))
+                }
+                return PreviewRendering(outcome: outcome, conditions: conditions)
+            }, deliver: { @MainActor rendering, final in
+                guard let self, generation == self.previewGeneration else { return }
+                self.apply(rendering.outcome, for: item, conditions: rendering.conditions, final: final)
+            })
         }
     }
 
@@ -128,12 +147,18 @@ extension AppModel {
         }
     }
 
-    /// Shows a finished render (only called for the newest request).
-    private func apply(_ outcome: PreviewOutcome, for item: InputItem, conditions: ConditionPreview?) {
-        isRenderingPreview = false
-        previewDetecting = nil
+    /// Shows a finished render (only called for the newest request). A proxy (`final` false) keeps the render
+    /// running state and the shown image's alt text question until the exact result replaces it.
+    private func apply(_ outcome: PreviewOutcome, for item: InputItem, conditions: ConditionPreview?, final: Bool) {
+        if final {
+            isRenderingPreview = false
+            previewDetecting = nil
+        }
         switch outcome {
-        case .ready(let result):
+        case .ready(var result):
+            if result.isProxy, let shown = previewResult, shown.source == result.source {
+                result.altTextRequest = shown.altTextRequest
+            }
             previewResult = result
             previewConditions = conditions
             previewFailure = nil
@@ -205,6 +230,12 @@ extension AppModel {
         // Core's decode limits decide first, like every other reader.
         ImageLoader.thumbnail(of: url, maxPixelSize: thumbnailPixels)
     }
+}
+
+/// One render handed from the preview task to the main actor: the outcome and the item's condition branches.
+struct PreviewRendering: @unchecked Sendable {
+    let outcome: PreviewOutcome
+    let conditions: ConditionPreview?
 }
 
 /// Reference wrapper so `NSCache` can hold a `CGImage`.

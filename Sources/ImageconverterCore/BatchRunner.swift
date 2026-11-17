@@ -263,9 +263,7 @@ public enum BatchRunner {
         options.stage(.decoding)
         let fullSize = ImageLoader.header(of: url)?.uprightSize
         let hint = fullSize.flatMap { pipeline.decodeHint(sourceWidth: $0.width, sourceHeight: $0.height) }
-        let loaded = try ImageLoader.load(url, maxPixels: maxPixels, maxLongSide: hint?.maxLongSide,
-                                          includeMetadata: pipeline.effectiveMetadata.isActive,
-                                          lowMemory: options.lowMemory)
+        let loaded = try load(url, pipeline: pipeline, hint: hint, maxPixels: maxPixels, options: options)
         options.stage(.processing)
         var stepNotes: [String] = []
         let textContext = pipeline.watermarkTextContext(source: url, properties: loaded.properties)
@@ -393,4 +391,6 @@ struct ItemRunOptions {
     /// estimate and the quality ladder leave it nil, since a sentence of XMP doesn't change the size meaningfully
     /// and the model takes seconds per image.
     var altText: (any AltTextGenerator)?
+    /// The preview's full-size decodes (the size estimate and the quality ladder); nil decodes on its own (the batch).
+    var sources: SourceCache?
 }

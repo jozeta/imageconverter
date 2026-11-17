@@ -74,13 +74,13 @@ public enum SizeEstimator {
             // No alt text generator: the estimate never asks the model (seconds per image), and one sentence of XMP
             // doesn't change the size meaningfully (`ItemRunOptions.altText`).
             let result = try BatchRunner.encodeItem(item.source, pipeline: pipeline, assets: assets, maxPixels: maxPixels,
-                                                    options: ItemRunOptions(focus: focus),
+                                                    options: ItemRunOptions(focus: focus, sources: caches?.sources),
                                                     variants: variants.map(\.variant))
             let estimates = zip(variants, result.variants).map { estimate($1, unoptimised: $0.unoptimised) }
             let data = result.data
             guard let decodedSource = result.source else {
                 // A lossless metadata-only copy: its pixels are the original's, so both views show the original.
-                let original = try ImageLoader.load(item.source, maxPixels: maxPixels).image
+                let original = try fullSource(item.source, maxPixels: maxPixels, caches: caches)
                 var preview = EncodedPreview(bytes: data.count, original: original, encoded: original, quality: nil,
                                              note: FocusResolution.withoutFocusNotes(result.note),
                                              privacy: PrivacyScanner.scan(data: data))
@@ -93,15 +93,21 @@ public enum SizeEstimator {
                   let encoded = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
                 throw ConversionError.encodeFailed
             }
-            // The comparison views want the full-size original; decode it only when the render didn't.
+            // The comparison views want the full-size original; decode it only when the render didn't (the preview's
+            // decode when there is one).
             let original = result.downsampled
-                ? try ImageLoader.load(item.source, maxPixels: maxPixels).image : decodedSource
+                ? try fullSource(item.source, maxPixels: maxPixels, caches: caches) : decodedSource
             var preview = EncodedPreview(bytes: data.count, original: original, encoded: encoded,
                                          quality: result.quality, note: FocusResolution.withoutFocusNotes(result.note) ?? note,
                                          privacy: PrivacyScanner.scan(data: data))
             preview.variants = estimates
             return preview
         }
+    }
+
+    /// The full-size upright source: the preview's shared decode with its caches, else decoded now.
+    private static func fullSource(_ url: URL, maxPixels: Int, caches: PreviewCaches?) throws -> CGImage {
+        try (caches?.sources.load(url, maxPixels: maxPixels) ?? ImageLoader.load(url, maxPixels: maxPixels)).image
     }
 
     /// A PNG output estimated without its seven-encode optimisation, like the primary.
