@@ -167,8 +167,10 @@ public actor PreviewRenderer {
     /// file for `mode` (nil: new-folder mode with no folder yet, named as if a folder existed). It
     /// plans the one item alone, so the batch's collision numbers (`_2`) are not shown.
     /// Conditions are resolved for this item first (from its header), so the preview shows its own branch.
+    /// `redactActivity` is told the target while the render waits for a Redact detection, and nil after it.
     public func render(item: InputItem, index: Int, pipeline unresolved: Pipeline, mode: OutputMode? = nil,
-                       presets: PresetLibrary = .standard) async -> PreviewOutcome {
+                       presets: PresetLibrary = .standard,
+                       redactActivity: (@Sendable (RedactTarget?) -> Void)? = nil) async -> PreviewOutcome {
         let cancelled = PreviewOutcome.failed(reason: "Cancelled")
         if Task.isCancelled { return cancelled }
         let resolved = unresolved.withMetadataOverrides(item.metadataOverrides)
@@ -192,9 +194,10 @@ public actor PreviewRenderer {
         let result: CGImage
         var notes: [String] = []
         do {
-            // Synchronous and not interruptible; cancellation is only seen before and after it.
+            // Synchronous; cancellation is seen between Vision's tiles and while waiting for a shared detection.
             let context = pipeline.watermarkTextContext(source: item.source, properties: properties)
-            let focus = caches.context(for: item.source, detector: detector, enlarger: enlarger)
+            var focus = caches.context(for: item.source, detector: detector, enlarger: enlarger)
+            focus.redactActivity = redactActivity
             result = try pipeline.apply(to: source, assets: assets, textContext: context, focus: focus, notes: &notes)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)

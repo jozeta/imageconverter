@@ -49,6 +49,8 @@ final class AppModel {
     /// The name of the item whose render failed, shown when there is no result for it.
     var previewFailureName: String?
     var isRenderingPreview = false
+    /// What the preview's render is waiting to find (a Redact step's detection), shown in the preview header.
+    var previewDetecting: RedactTarget?
     /// The shown preview's generated alt text, or that it is being generated (see `AppModel+AltText.swift`).
     var previewAltText: PreviewAltText?
     /// Original and estimated output size of the selected item (see `AppModel+Estimate.swift`).

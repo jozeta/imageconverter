@@ -68,6 +68,7 @@ extension AppModel {
         previewFailure = nil
         previewFailureName = nil
         isRenderingPreview = false
+        previewDetecting = nil
         Task { await previewRenderer.purge() }
     }
 
@@ -78,6 +79,7 @@ extension AppModel {
         previewTask?.cancel()
         previewGeneration += 1
         let generation = previewGeneration
+        previewDetecting = nil
         guard !previewCollapsed, previewAllowed, let index = selectedItemIndex else {
             isRenderingPreview = false
             if items.isEmpty {
@@ -101,8 +103,9 @@ extension AppModel {
             let conditions = pipeline.hasConditions ? await cache.preview(of: index, in: batch, pipeline: pipeline, presets: presets)
                 : nil
             guard !Task.isCancelled else { return }
+            let activity = self?.detectionActivity(generation: generation)
             var outcome = await renderer.render(item: item, index: conditions?.counterIndex ?? index, pipeline: pipeline,
-                                                mode: mode, presets: presets)
+                                                mode: mode, presets: presets, redactActivity: activity)
             // The histograms of the images about to be shown, measured off the main actor.
             if case .ready(let result) = outcome {
                 guard !Task.isCancelled else { return }
@@ -113,9 +116,22 @@ extension AppModel {
         }
     }
 
+    /// Sets `previewDetecting` from the render's thread, in order, while `generation` is the newest request.
+    private func detectionActivity(generation: Int) -> @Sendable (RedactTarget?) -> Void {
+        { [weak self] target in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, generation == self.previewGeneration else { return }
+                    self.previewDetecting = target
+                }
+            }
+        }
+    }
+
     /// Shows a finished render (only called for the newest request).
     private func apply(_ outcome: PreviewOutcome, for item: InputItem, conditions: ConditionPreview?) {
         isRenderingPreview = false
+        previewDetecting = nil
         switch outcome {
         case .ready(let result):
             previewResult = result

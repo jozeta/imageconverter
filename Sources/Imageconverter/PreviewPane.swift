@@ -111,6 +111,7 @@ struct PreviewPane: View {
     private var titleRow: some View {
         HStack(spacing: LadaGlass.Spacing.s) {
             Text("Preview").font(LadaGlass.Typography.subtitle)
+            if let target = model.previewDetecting { DetectionStatus(target: target) }
             conditionChips
             if model.previewFailure == nil, let note = model.previewResult?.redactSizeNote {
                 LGChip(note, status: .warn)
@@ -297,5 +298,23 @@ extension PreviewPane {
 
     fileprivate func label(_ text: String) -> some View {
         Text(text).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+    }
+}
+
+/// The preview header's status while the preview waits for a Redact step's detection (seconds on a large image
+/// with text).
+private struct DetectionStatus: View {
+    let target: RedactTarget
+
+    var body: some View {
+        HStack(spacing: LadaGlass.Spacing.xs) {
+            ProgressView().controlSize(.small).scaleEffect(0.8)
+            Text(target.findingStatus)
+                .font(LadaGlass.Typography.body)
+                .foregroundStyle(LadaGlass.Colors.muted)
+                .lineLimit(1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(target.findingStatus)
     }
 }

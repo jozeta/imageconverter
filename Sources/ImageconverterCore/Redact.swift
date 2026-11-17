@@ -13,6 +13,15 @@ public enum RedactTarget: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// The preview's status while it waits for this target's detection.
+    public var findingStatus: String {
+        switch self {
+        case .faces: return "Finding faces…"
+        case .text: return "Finding text…"
+        case .both: return "Finding faces and text…"
+        }
+    }
+
     public var includesFaces: Bool { self != .text }
     public var includesText: Bool { self != .faces }
 

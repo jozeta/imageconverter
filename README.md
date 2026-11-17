@@ -1064,7 +1064,10 @@ versions read a Subject or Faces crop as a centred one.
 4. **Padding** grows each box on every side by that percentage of its own width and height, so hair, chins and the
    edges of letters are covered too. Even at 0 % every box keeps a small safety margin (12 % of its shorter side, at
    least 2 px), because Vision's boxes can be tighter than the letters, especially on macOS 15.
-5. The preview shows the result for the selected image. After the run, each file's report row says what was
+5. The preview shows the result for the selected image. While it looks for faces or text the preview header says
+   "Finding faces and text…" ("Finding faces…" / "Finding text…" when only one is on); the preview, the size
+   estimate and the quality comparison share that one detection per image, and editing the style, size or padding
+   afterwards doesn't detect again. After the run, each file's report row says what was
    hidden ("Redacted 2 faces, 1 text area") or "Redact: nothing found".
 
 The step looks at the image as it arrives at the step, so boxes land on the right pixels after any Crop, Rotate or
