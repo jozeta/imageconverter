@@ -22,8 +22,8 @@ extension VisionDetector {
 
 /// The working copy Vision looks at: an image is shrunk to `maxLongSide` first, so a 100 MP photo costs about
 /// a megapixel to analyse. Vision reads transparent pixels as black, so dark text on a transparent background
-/// looked like black on black and was found nowhere: an image with alpha is read flattened onto a background
-/// (text on white and on black, faces on mid grey). An opaque image is read as it is, in one pass.
+/// looked like black on black and was found nowhere: an image with transparent pixels is read flattened onto a
+/// background (text on white and on black, faces on mid grey). An opaque image is read as it is, in one pass.
 public enum VisionInput {
     public static let maxLongSide = 1024
     /// The grey levels text is read on when the image has alpha: light for dark ink, dark for light ink.
@@ -31,9 +31,35 @@ public enum VisionInput {
     /// The grey level faces are read on when the image has alpha.
     public static let faceBackground: CGFloat = 0.5
 
-    /// The backgrounds to read text on: `[nil]` (the image as it is) when it is opaque, else `textBackgrounds`.
-    public static func backgrounds(forText image: CGImage) -> [CGFloat?] {
-        ImageOps.hasAlpha(image) ? textBackgrounds : [nil]
+    /// The backgrounds to read text on, decided on `copy` (the ≤ `Redaction.textMaxLongSide` working copy of the
+    /// step image): `[nil]` (read as it is, one pass) when it has no alpha channel or every pixel is opaque, else
+    /// `textBackgrounds`. The copy is downsampled with area averaging (`.medium`), so even one transparent pixel of
+    /// a 16 000 px image shows as alpha < 255 in it (measured: 251). A copy that can't be scanned counts as
+    /// transparent (two passes rather than one too few).
+    public static func textBackgrounds(forCopy copy: CGImage) -> [CGFloat?] {
+        guard ImageOps.hasAlpha(copy) else { return [nil] }
+        return hasTransparentPixel(copy) == false ? [nil] : textBackgrounds
+    }
+
+    /// Whether any pixel of `image` has alpha below 255, stopping at the first; nil when it can't be read.
+    static func hasTransparentPixel(_ image: CGImage) -> Bool? {
+        let width = image.width
+        let height = image.height
+        guard width > 0, height > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                  bytesPerRow: width * 4, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = ctx.data else { return nil }
+        ctx.setBlendMode(.copy)
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let bytes = UnsafeBufferPointer(start: data.bindMemory(to: UInt8.self, capacity: width * height * 4),
+                                        count: width * height * 4)
+        var index = 3
+        while index < bytes.count {
+            if bytes[index] < 255 { return true }
+            index += 4
+        }
+        return false
     }
 
     /// `image` itself when it already fits (and is opaque, or no `background` is given), else a copy at most
@@ -176,13 +202,16 @@ public struct SystemVisionDetector: VisionDetector {
     /// recognition: fast recognition misses single digits, text turned 30° or more and text cut
     /// by an edge. Throws when the image or a tile can't be prepared, so the step fails closed.
     public func textRects(in image: CGImage) throws -> [CGRect] {
-        // An image with alpha is read twice, on white and on black (`VisionInput`); the boxes are joined and the
-        // report counts overlapping ones once (`TextBoxes.distinctCount`).
-        let backgrounds = VisionInput.backgrounds(forText: image)
+        // An image with transparent pixels is read twice, on white and on black (`VisionInput`); the boxes are
+        // joined and the report counts overlapping ones once (`TextBoxes.distinctCount`).
+        guard let copy = VisionInput.prepared(image, maxSide: Redaction.textMaxLongSide) else {
+            throw VisionInputError()
+        }
+        let backgrounds = VisionInput.textBackgrounds(forCopy: copy)
         var recognized: [CGRect] = []
         var rectangles: [CGRect] = []
         for background in backgrounds {
-            guard let input = VisionInput.prepared(image, maxSide: Redaction.textMaxLongSide,
+            guard let input = VisionInput.prepared(copy, maxSide: Redaction.textMaxLongSide,
                                                    background: background) else {
                 throw VisionInputError()
             }

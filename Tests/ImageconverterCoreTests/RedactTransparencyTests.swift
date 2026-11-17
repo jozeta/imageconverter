@@ -63,11 +63,43 @@ final class RedactTransparencyTests: XCTestCase {
         }
         XCTAssertEqual(VisionInput.textBackgrounds, [1, 0])
         XCTAssertEqual(VisionInput.faceBackground, 0.5)
-        XCTAssertEqual(VisionInput.backgrounds(forText: clear), [1, 0])
+        XCTAssertEqual(VisionInput.textBackgrounds(forCopy: clear), [1, 0])
         let opaque = try XCTUnwrap(ImageEncoder.flattened(clear, onto: Self.white))
         XCTAssertFalse(ImageOps.hasAlpha(opaque))
         XCTAssertTrue(VisionInput.prepared(opaque, maxSide: 2048, background: 0.5) === opaque)
-        XCTAssertEqual(VisionInput.backgrounds(forText: opaque), [nil])
+        XCTAssertEqual(VisionInput.textBackgrounds(forCopy: opaque), [nil])
+    }
+
+    /// An RGBA image whose pixels are all opaque (a PNG screenshot) is read once; a small transparent area, also
+    /// one shrunk onto the ≤ 2048 px copy, makes it two passes.
+    func testOnlyTransparentPixelsCostASecondPass() throws {
+        let opaqueRGBA = Self.rgba(width: 1400, height: 300, hole: nil)
+        XCTAssertTrue(ImageOps.hasAlpha(opaqueRGBA))
+        let opaqueCopy = try XCTUnwrap(VisionInput.prepared(opaqueRGBA, maxSide: Redaction.textMaxLongSide))
+        XCTAssertTrue(opaqueCopy === opaqueRGBA, "fits: no copy")
+        XCTAssertEqual(VisionInput.textBackgrounds(forCopy: opaqueCopy), [nil])
+        let largeOpaque = try XCTUnwrap(VisionInput.prepared(Self.rgba(width: 6000, height: 4000, hole: nil),
+                                                             maxSide: Redaction.textMaxLongSide))
+        XCTAssertEqual(VisionInput.textBackgrounds(forCopy: largeOpaque), [nil], "downsampling keeps it opaque")
+
+        let small = Self.rgba(width: 1400, height: 300, hole: CGRect(x: 700, y: 150, width: 3, height: 3))
+        XCTAssertEqual(VisionInput.textBackgrounds(forCopy: small), [1, 0])
+        // One transparent pixel of an 8000 px image: area-averaged into the copy as alpha < 255.
+        let large = Self.rgba(width: 8000, height: 6000, hole: CGRect(x: 4321, y: 2345, width: 1, height: 1))
+        let largeCopy = try XCTUnwrap(VisionInput.prepared(large, maxSide: Redaction.textMaxLongSide))
+        XCTAssertEqual(largeCopy.width, 2048)
+        XCTAssertEqual(VisionInput.textBackgrounds(forCopy: largeCopy), [1, 0])
+    }
+
+    /// An 8-bit RGBA image, white and opaque except `hole` (cleared to alpha 0).
+    private static func rgba(width: Int, height: Int, hole: CGRect?) -> CGImage {
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.setFillColor(gray: 1, alpha: 1)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        if let hole { ctx.clear(hole) }
+        return ctx.makeImage()!
     }
 
     /// The red channel of the top-left pixel.
