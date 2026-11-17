@@ -599,7 +599,8 @@ unsandboxed.
    shows a histogram in the preview's bottom-left corner: red, green and blue as translucent areas and
    luminance (Rec. 709) as a line, scaled so one tall spike doesn't flatten the rest. Choose **Original**
    or **Result** above it (remembered). It is measured on the preview image (at most 1024 px on the
-   long side), not on the full-size file; fully transparent pixels don't count. Under it, **Highlights**
+   long side), not on the full-size file, and so is the clipping overlay below (it is coarse when you zoom
+   in far); fully and nearly transparent pixels (alpha below 8 of 255) don't count. Under it, **Highlights**
    is the share of pixels with any channel at 255 (bright HDR values count too) and **Shadows** the
    share with all three at 0; above 0.1 % the figure turns red. Click either figure, or choose
    View ▸ Show Clipping (⌥⌘J), to mark the clipped pixels on the result: highlights red, shadows blue,

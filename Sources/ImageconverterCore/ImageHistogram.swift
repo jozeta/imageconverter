@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 /// The preview's histogram: 256 bins per channel and for luminance, measured on a small sRGB copy of the image,
-/// plus how much of it is clipped. Pixels with alpha 0 are not counted.
+/// plus how much of it is clipped. Pixels with alpha below 8 (of 255) are not counted.
 public struct ImageHistogram: Equatable, Sendable {
     public let red: [Int]
     public let green: [Int]
@@ -144,8 +144,13 @@ private struct SRGBPixels: @unchecked Sendable {
         self.bytes = bytes
     }
 
-    /// Calls `body` with each pixel's straight (non-premultiplied) values, left to right. Pixels with alpha 0 are
-    /// skipped, or passed as (-1, -1, -1) with `includeTransparent`, so a caller can keep its column count.
+    /// Pixels below this alpha are treated as transparent: premultiplied, their colour is rounded away (straight grey
+    /// 128 at alpha 1 is stored as 0 or 1), so they would show up as false shadows or random values.
+    static let minimumAlpha = 8
+
+    /// Calls `body` with each pixel's straight (non-premultiplied) values, left to right. Pixels below
+    /// `minimumAlpha` are skipped, or passed as (-1, -1, -1) with `includeTransparent`, so a caller can keep its
+    /// column count.
     func forEachPixel(inRow row: Int, includeTransparent: Bool = false, _ body: (Int, Int, Int) -> Void) {
         bytes.withUnsafeBufferPointer { buffer in
             var offset = row * width * 4
@@ -153,7 +158,7 @@ private struct SRGBPixels: @unchecked Sendable {
                 let alpha = Int(buffer[offset + 3])
                 if alpha == 255 {
                     body(Int(buffer[offset]), Int(buffer[offset + 1]), Int(buffer[offset + 2]))
-                } else if alpha > 0 {
+                } else if alpha >= Self.minimumAlpha {
                     body(Self.straight(buffer[offset], alpha), Self.straight(buffer[offset + 1], alpha),
                          Self.straight(buffer[offset + 2], alpha))
                 } else if includeTransparent {

@@ -41,6 +41,36 @@ final class ImageHistogramTests: XCTestCase {
         XCTAssertEqual(histogram.shadowFraction, 0)
     }
 
+    func testNearlyTransparentPixelsNotCounted() throws {
+        // Straight grey 128 at alpha 1 is stored premultiplied as 0 or 1: neither a value nor a crushed shadow.
+        let faint = image(width: 4, height: 4) { _ in (128, 128, 128, 1) }
+        let histogram = ImageHistogram.compute(faint)
+        XCTAssertEqual(histogram.counted, 0)
+        XCTAssertEqual(histogram.highlightFraction, 0)
+        XCTAssertEqual(histogram.shadowFraction, 0)
+        let mask = try XCTUnwrap(ImageHistogram.clippingMask(for: faint))
+        XCTAssertTrue(rgba(of: mask).allSatisfy { $0.alpha == 0 })
+    }
+
+    func testMultiThreadedPathMatchesExpectedCounts() {
+        // 1024 × 1024 is over 1 MP, so the rows are split across threads.
+        let side = 1024
+        let value: (Int) -> RGBA = { index in
+            (UInt8(index % 256), UInt8((index / 3) % 256), UInt8((index * 5) % 256), 255)
+        }
+        let histogram = ImageHistogram.compute(image(width: side, height: side, value))
+        var red = [Int](repeating: 0, count: 256), green = red, blue = red
+        for index in 0..<(side * side) {
+            let pixel = value(index)
+            red[Int(pixel.red)] += 1; green[Int(pixel.green)] += 1; blue[Int(pixel.blue)] += 1
+        }
+        XCTAssertEqual(histogram.counted, side * side)
+        XCTAssertEqual(histogram.red, red)
+        XCTAssertEqual(histogram.green, green)
+        XCTAssertEqual(histogram.blue, blue)
+        XCTAssertEqual(histogram.luminance.reduce(0, +), side * side)
+    }
+
     func testClippingFractions() {
         let histogram = ImageHistogram.compute(image(width: 10, height: 10) { index -> RGBA in
             if index < 25 { return (255, 255, 255, 255) }
