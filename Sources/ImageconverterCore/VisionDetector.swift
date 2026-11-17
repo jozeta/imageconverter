@@ -21,25 +21,46 @@ extension VisionDetector {
 }
 
 /// The working copy Vision looks at: an image is shrunk to `maxLongSide` first, so a 100 MP photo costs about
-/// a megapixel to analyse.
+/// a megapixel to analyse. Vision reads transparent pixels as black, so dark text on a transparent background
+/// looked like black on black and was found nowhere: an image with alpha is read flattened onto a background
+/// (text on white and on black, faces on mid grey). An opaque image is read as it is, in one pass.
 public enum VisionInput {
     public static let maxLongSide = 1024
+    /// The grey levels text is read on when the image has alpha: light for dark ink, dark for light ink.
+    public static let textBackgrounds: [CGFloat] = [1, 0]
+    /// The grey level faces are read on when the image has alpha.
+    public static let faceBackground: CGFloat = 0.5
 
-    /// `image` itself when it already fits, else a copy at most `maxSide` on the long side (8-bit sRGB).
-    /// Nil only when the copy can't be made.
-    public static func prepared(_ image: CGImage, maxSide: Int = maxLongSide) -> CGImage? {
+    /// The backgrounds to read text on: `[nil]` (the image as it is) when it is opaque, else `textBackgrounds`.
+    public static func backgrounds(forText image: CGImage) -> [CGFloat?] {
+        ImageOps.hasAlpha(image) ? textBackgrounds : [nil]
+    }
+
+    /// `image` itself when it already fits (and is opaque, or no `background` is given), else a copy at most
+    /// `maxSide` on the long side (8-bit sRGB): flattened onto the grey `background` when the image has alpha and
+    /// one is given, otherwise keeping its alpha. Nil only when the copy can't be made.
+    public static func prepared(_ image: CGImage, maxSide: Int = maxLongSide, background: CGFloat? = nil)
+        -> CGImage? {
+        let flatten = background != nil && ImageOps.hasAlpha(image)
         let longSide = max(image.width, image.height)
-        guard longSide > maxSide else { return image }
-        let scale = Double(maxSide) / Double(longSide)
+        guard longSide > maxSide || flatten else { return image }
+        let scale = longSide > maxSide ? Double(maxSide) / Double(longSide) : 1
         let width = max(1, Int((Double(image.width) * scale).rounded()))
         let height = max(1, Int((Double(image.height) * scale).rounded()))
+        let alpha: CGImageAlphaInfo = flatten ? .noneSkipLast : .premultipliedLast
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                  space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                                  space: space, bitmapInfo: alpha.rawValue) else {
             return nil
         }
+        let rect = CGRect(x: 0, y: 0, width: width, height: height)
+        if flatten, let background {
+            let level = min(max(background, 0), 1)
+            ctx.setFillColor(CGColor(srgbRed: level, green: level, blue: level, alpha: 1))
+            ctx.fill(rect)
+        }
         ctx.interpolationQuality = .medium
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        ctx.draw(image, in: rect)
         return ctx.makeImage()
     }
 }
@@ -127,7 +148,9 @@ public struct SystemVisionDetector: VisionDetector {
     }
 
     public func faceRects(in image: CGImage, maxSide: Int) throws -> [CGRect] {
-        guard let input = VisionInput.prepared(image, maxSide: maxSide) else { throw VisionInputError() }
+        guard let input = VisionInput.prepared(image, maxSide: maxSide, background: VisionInput.faceBackground) else {
+            throw VisionInputError()
+        }
         let request = VNDetectFaceRectanglesRequest()
         try VNImageRequestHandler(cgImage: input, options: [:]).perform([request])
         return (request.results ?? []).map { Self.topLeft($0.boundingBox) }
@@ -153,32 +176,46 @@ public struct SystemVisionDetector: VisionDetector {
     /// recognition: fast recognition misses single digits, text turned 30° or more and text cut
     /// by an edge. Throws when the image or a tile can't be prepared, so the step fails closed.
     public func textRects(in image: CGImage) throws -> [CGRect] {
-        guard let input = VisionInput.prepared(image, maxSide: Redaction.textMaxLongSide) else {
-            throw VisionInputError()
+        // An image with alpha is read twice, on white and on black (`VisionInput`); the boxes are joined and the
+        // report counts overlapping ones once (`TextBoxes.distinctCount`).
+        let backgrounds = VisionInput.backgrounds(forText: image)
+        var recognized: [CGRect] = []
+        var rectangles: [CGRect] = []
+        for background in backgrounds {
+            guard let input = VisionInput.prepared(image, maxSide: Redaction.textMaxLongSide,
+                                                   background: background) else {
+                throw VisionInputError()
+            }
+            let request = Self.redactTextRequest()
+            let rectangleRequest = VNDetectTextRectanglesRequest()
+            try VNImageRequestHandler(cgImage: input, options: [:]).perform([request, rectangleRequest])
+            recognized += Self.textBoxes(request.results ?? [])
+            rectangles += (rectangleRequest.results ?? []).map { Self.topLeft($0.boundingBox) }
         }
-        let request = Self.redactTextRequest()
-        let rectangles = VNDetectTextRectanglesRequest()
-        try VNImageRequestHandler(cgImage: input, options: [:]).perform([request, rectangles])
-        var recognized = Self.textBoxes(request.results ?? [])
         let tiles = TextTiles.tiles(width: image.width, height: image.height)
         if !tiles.isEmpty {
-            recognized += try TextTiles.gated { try Self.tileBoxes(tiles, in: image) }
+            recognized += try TextTiles.gated { try Self.tileBoxes(tiles, in: image, backgrounds: backgrounds) }
         }
-        return TextBoxes.combined(recognized: recognized,
-                                  rectangles: (rectangles.results ?? []).map { Self.topLeft($0.boundingBox) })
+        return TextBoxes.combined(recognized: recognized, rectangles: rectangles)
     }
 
-    /// Recognised lines in each of `tiles` of `image`, as boxes normalised to the whole image.
-    private static func tileBoxes(_ tiles: [CGRect], in image: CGImage) throws -> [CGRect] {
+    /// Recognised lines in each of `tiles` of `image`, read on each of `backgrounds`, as boxes normalised to the
+    /// whole image.
+    private static func tileBoxes(_ tiles: [CGRect], in image: CGImage, backgrounds: [CGFloat?]) throws -> [CGRect] {
         var boxes: [CGRect] = []
         for tile in tiles {
-            if Task.isCancelled { throw CancellationError() }
-            try autoreleasepool {
-                guard let crop = image.cropping(to: tile) else { throw VisionInputError() }
-                let request = redactTextRequest()
-                try VNImageRequestHandler(cgImage: crop, options: [:]).perform([request])
-                boxes += textBoxes(request.results ?? []).map {
-                    TextTiles.imageBox($0, tile: tile, width: image.width, height: image.height)
+            for background in backgrounds {
+                if Task.isCancelled { throw CancellationError() }
+                try autoreleasepool {
+                    guard let crop = image.cropping(to: tile),
+                          let input = VisionInput.prepared(crop, maxSide: TextTiles.side, background: background) else {
+                        throw VisionInputError()
+                    }
+                    let request = redactTextRequest()
+                    try VNImageRequestHandler(cgImage: input, options: [:]).perform([request])
+                    boxes += textBoxes(request.results ?? []).map {
+                        TextTiles.imageBox($0, tile: tile, width: image.width, height: image.height)
+                    }
                 }
             }
         }

@@ -1066,7 +1066,11 @@ recognition on that copy (recognised lines plus Vision's text rectangles, which 
 text) and, for images larger than 2048 px, also in full-resolution tiles of 896 px that overlap by 192 px, so small
 text in a large photo isn't lost when the image is shrunk (measured on this Apple silicon Mac: about 1.3 s for a
 24 MP image and 5 s for 100 MP; at most two images are read this way at once, which is faster than more). The tile size was chosen by measurement: on grids of 20 lines of 20 and 24 px text
-on a busy 8000 × 6000 image, 2048 px tiles found 7 of 20 lines, 896 px tiles all 20 at every placement tried. Each box covers the whole of a line, also when it is turned; the boxes are then mapped back to the
+on a busy 8000 × 6000 image, 2048 px tiles found 7 of 20 lines, 896 px tiles all 20 at every placement tried.
+Transparent images are checked on light and dark backgrounds: Vision reads transparent pixels as black, so an image
+with an alpha channel is read twice for text (the copy and every tile), flattened onto white and onto black, and the
+boxes of both are joined (a line found twice is still counted once); faces are looked for on a copy flattened onto
+mid grey. Opaque images are read once, as they are. Each box covers the whole of a line, also when it is turned; the boxes are then mapped back to the
 image, padded and clamped. Pixels outside the boxes are copied unchanged. **If Vision can't run for an image, that
 image isn't written**: it fails with "Not written: couldn't check for faces (…)" and the rest of the run goes on
 (jobs try it again later, like any failure). An **If … then … else** that would **copy the original unchanged**
