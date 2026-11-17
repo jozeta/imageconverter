@@ -4,10 +4,20 @@ import Foundation
 public struct PlannedVariant: Equatable, Sendable {
     public let variant: OutputVariant
     public let destination: URL
+    /// How the name was built, for a commit that finds it taken (`PlannedOutput.naming`).
+    public var naming: OutputNaming?
+
+    public init(variant: OutputVariant, destination: URL, naming: OutputNaming? = nil) {
+        self.variant = variant
+        self.destination = destination
+        self.naming = naming
+    }
 
     /// The commit plan: always a new file, never replacing or trashing anything.
     func plan(for item: InputItem) -> PlannedOutput {
-        PlannedOutput(item: item, destination: destination, replacesSource: false, trashesSource: false)
+        var plan = PlannedOutput(item: item, destination: destination, replacesSource: false, trashesSource: false)
+        plan.naming = naming
+        return plan
     }
 }
 
@@ -38,7 +48,8 @@ extension OutputPlanner {
     /// get none, and an output with no free name is left out (`failures` lists it).
     public static func planVariants(
         _ targets: [VariantTarget], primaries: [PlannedOutput], reservedSources: [URL] = [],
-        folders: [String: URL] = [:], fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+        folders: [String: URL] = [:], fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
+        claim: (URL) -> Bool = { _ in true }
     ) -> (plans: [[PlannedVariant]], failures: [[OutputVariant]]) {
         var claimed = Set(primaries.map { key($0.item.source) })
         claimed.formUnion(reservedSources.map(key))
@@ -66,16 +77,16 @@ extension OutputPlanner {
                     .prefix(SubfolderTemplate.maxDepth)))
                 let name = fitted(target.baseName ?? sourceName, suffix: suffix)
                 let dotExt = ".\(variant.settings.format.fileExtensions[0])"
+                let naming = OutputNaming(name: name, suffix: suffix, dotExtension: dotExt)
                 let candidate = (1...maxNameAttempts).lazy.map { number -> URL in
-                    let stem = number == 1 ? "\(name)\(suffix)" : "\(name)\(suffix)_\(number)"
-                    return directory.appendingPathComponent("\(stem)\(dotExt)")
-                }.first { !claimed.contains(key($0)) && !fileExists($0) }
+                    directory.appendingPathComponent(naming.fileName(number))
+                }.first { !claimed.contains(key($0)) && !fileExists($0) && claim($0) }
                 guard let candidate else {
                     missing.append(variant)
                     continue
                 }
                 claimed.insert(key(candidate))
-                planned.append(PlannedVariant(variant: variant, destination: candidate))
+                planned.append(PlannedVariant(variant: variant, destination: candidate, naming: naming))
             }
             plans.append(planned)
             failures.append(missing)
@@ -83,10 +94,10 @@ extension OutputPlanner {
         return (plans, failures)
     }
 
-    /// `name` shortened (by characters) so `name + suffix` stays within the name limit in UTF-8 bytes.
-    static func fitted(_ name: String, suffix: String) -> String {
+    /// `name` shortened (by characters) so `name + suffix` stays within `limit` UTF-8 bytes.
+    static func fitted(_ name: String, suffix: String, limit: Int = RenameTemplate.maxBytes) -> String {
         var name = name
-        while !name.isEmpty, name.utf8.count + suffix.utf8.count > RenameTemplate.maxBytes { name.removeLast() }
+        while !name.isEmpty, name.utf8.count + suffix.utf8.count > limit { name.removeLast() }
         return name
     }
 }

@@ -201,7 +201,12 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
 - **Histogram and clipping** (⌥⌘G, ⌥⌘J): RGB and luminance histogram of the original or the result, with the share of clipped highlights and shadows, and an overlay marking the clipped pixels. See [Preview before running](#preview-before-running).
 - **Metadata panel** (⌥⌘I): the selected image's metadata by group, searchable; edit, remove or add fields for that image's outputs only (the original is never changed). See [Change one image's metadata](#change-one-images-metadata).
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
-  half-written files, and name collisions resolved with `_2`, `_3`, …
+  half-written files, and name collisions resolved with `_2`, `_3`, …. **Never loses files:** a file is moved
+  into place only if nothing has its name, so two runs at once into one folder (a manual run next to a job, several
+  Shortcuts actions, the command line) or a file another app saves meanwhile is never replaced: the new file takes the
+  next free `_2`, `_3`, … and the report, Finder tags and "When finished" name the file really written; in overwrite
+  mode the original goes to the Trash only after that file is in place. Names longer than the 255-byte limit (a
+  long source name plus the suffix, `_2` or a longer extension) are shortened at the end of the name instead of failing.
 - **Updates**: Check Now in About imageconverter (and, if you allow it, a check at every launch) finds a newer
   GitHub release; **Install and Relaunch** downloads it, checks its checksum, Developer ID signature and
   notarization, swaps it in (the old app goes to the Trash) and relaunches (see [Updates](#updates)).

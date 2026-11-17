@@ -14,11 +14,15 @@ public enum FileCommitter {
 
     /// Writes `data` next to its destination as a temporary file, then moves it into place, so a
     /// half-written file never appears under the final name. An existing file is only replaced
-    /// when `plan.replacesSource` is set; otherwise an existing destination makes this fail.
+    /// when `plan.replacesSource` is set (in place, keeping its path). Otherwise the move is exclusive
+    /// (`renamex_np` with `RENAME_EXCL`): when something already has the planned name (another run, another app),
+    /// the file takes the next free `_n` (`plan.naming`, claimed in `PlannedDestinations`), up to
+    /// `maxCommitAttempts` names. Returns the URL actually written.
     /// The original is trashed only after the new file is in place. If trashing fails, the new
     /// file stays and `.writeFailed("Converted, but couldn't move the original to the Trash: …")`
     /// is thrown. Every other failure removes the temp file and throws `.writeFailed`.
-    public static func commit(_ data: Data, for plan: PlannedOutput, trash: Trasher = systemTrash) throws {
+    @discardableResult
+    public static func commit(_ data: Data, for plan: PlannedOutput, trash: Trasher = systemTrash) throws -> URL {
         guard !(plan.replacesSource && plan.trashesSource) else {
             throw ConversionError.writeFailed("Invalid output plan")
         }
@@ -27,16 +31,20 @@ public enum FileCommitter {
         let temp = beginTemp(in: directory)
         defer { endTemp(temp) }
 
+        let written: URL
         do {
             try files.createDirectory(at: directory, withIntermediateDirectories: true)
             try data.write(to: temp, options: [.withoutOverwriting])
             if plan.replacesSource {
                 _ = try files.replaceItemAt(plan.destination, withItemAt: temp)
+                written = plan.destination
             } else {
-                try files.moveItem(at: temp, to: plan.destination)
+                written = try placeExclusively(temp, at: plan.destination,
+                                               naming: plan.naming ?? OutputNaming(destination: plan.destination))
             }
         } catch {
             try? files.removeItem(at: temp)
+            if let error = error as? ConversionError { throw error }
             throw ConversionError.writeFailed(error.localizedDescription)
         }
 
@@ -47,6 +55,45 @@ public enum FileCommitter {
                 throw ConversionError.writeFailed(trashFailurePrefix + error.localizedDescription)
             }
         }
+        return written
+    }
+
+    /// How many other names (`_2`, `_3`, …) a commit tries when its planned name is taken.
+    static let maxCommitAttempts = 1000
+
+    /// Moves `temp` to `destination`, or to the next free name of `naming` in its folder when something is
+    /// already there; never replaces anything.
+    private static func placeExclusively(_ temp: URL, at destination: URL, naming: OutputNaming) throws -> URL {
+        if try renameExclusive(temp, to: destination) { return destination }
+        let directory = destination.deletingLastPathComponent()
+        var tried = 0
+        for number in 2...Int.max {
+            guard tried < maxCommitAttempts else { break }
+            let candidate = directory.appendingPathComponent(naming.fileName(number))
+            guard FileIdentity.pathKey(candidate) != FileIdentity.pathKey(destination) else { continue }
+            tried += 1
+            guard !FileManager.default.fileExists(atPath: candidate.path),
+                  let key = PlannedDestinations.claimKey(candidate) else { continue }
+            defer { PlannedDestinations.releaseKey(key) }
+            if try renameExclusive(temp, to: candidate) { return candidate }
+        }
+        throw ConversionError.writeFailed(OutputPlanner.noFreeNameReason)
+    }
+
+    /// Renames `source` to `destination` only when nothing has that name (atomic, `RENAME_EXCL`); false when
+    /// something does, throws for every other failure.
+    static func renameExclusive(_ source: URL, to destination: URL) throws -> Bool {
+        // errno is read right after the call, before anything else can change it; -1 is an invalid path.
+        let code = source.withUnsafeFileSystemRepresentation { origin in
+            destination.withUnsafeFileSystemRepresentation { target -> Int32 in
+                guard let origin, let target else { return -1 }
+                return renamex_np(origin, target, UInt32(RENAME_EXCL)) == 0 ? 0 : errno
+            }
+        }
+        if code == 0 { return true }
+        if code == -1 { throw ConversionError.writeFailed("Invalid file name") }
+        if code == EEXIST { return false }
+        throw ConversionError.writeFailed(POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO).localizedDescription)
     }
 
     /// Starts the reason of a failure that happened after the new file was in place.

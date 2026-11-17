@@ -180,11 +180,13 @@ public enum BatchRunner {
                 // Read before the commit: overwrite mode replaces or trashes the source.
                 let sourceDates = setsDates ? fileDates(plan.item.source) : nil
                 options.stage(.writing)
-                let primary = PlannedOutput(item: plan.item, destination: plan.destination,
+                var primary = PlannedOutput(item: plan.item, destination: plan.destination,
                                             replacesSource: plan.replacesSource, trashesSource: false)
-                try FileCommitter.commit(encoded.data, for: primary, trash: trash)
+                primary.naming = plan.naming
+                // The URL really written: another run or app may have taken the planned name since (`_2`).
+                let destination = try FileCommitter.commit(encoded.data, for: primary, trash: trash)
                 var notes = [encoded.note].compactMap { $0 }
-                if setsDates, let failure = setFileDates(of: plan.destination, taken: encoded.dateTaken,
+                if setsDates, let failure = setFileDates(of: destination, taken: encoded.dateTaken,
                                                          source: sourceDates) {
                     notes.append(failure)
                 }
@@ -201,7 +203,7 @@ public enum BatchRunner {
                         trashFailed = true
                     }
                 }
-                var written = WrittenItem(url: plan.destination, note: notes.isEmpty ? nil : notes.joined(separator: "; "),
+                var written = WrittenItem(url: destination, note: notes.isEmpty ? nil : notes.joined(separator: "; "),
                                           inputBytes: inputBytes, outputBytes: encoded.data.count)
                 written.inputSize = inputSize
                 written.outputSize = ImageLoader.pixelSize(of: encoded.data)

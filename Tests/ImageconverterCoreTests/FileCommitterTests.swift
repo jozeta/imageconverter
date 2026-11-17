@@ -86,8 +86,11 @@ final class FileCommitterTests: XCTestCase {
 
     func testNoTrashWhenWriteFails() throws {
         let source = dir.appendingPathComponent("x.jpg")
-        let dest = dir.appendingPathComponent("x.png")
-        try Data("keep".utf8).write(to: dest)
+        let locked = dir.appendingPathComponent("locked", isDirectory: true)
+        try files.createDirectory(at: locked, withIntermediateDirectories: true)
+        try files.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        defer { try? files.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path) }
+        let dest = locked.appendingPathComponent("x.png")
         let recorder = Recorder()
         XCTAssertThrowsError(try FileCommitter.commit(
             Data("new".utf8), for: plan(source: source, destination: dest, trashes: true),
@@ -95,14 +98,15 @@ final class FileCommitterTests: XCTestCase {
         XCTAssertTrue(recorder.all.isEmpty)
     }
 
+    /// An existing file at the destination is kept; the new file takes the next free name (bug B1).
     func testExistingDestinationIsNotClobbered() throws {
         let dest = dir.appendingPathComponent("out.png")
         try Data("keep".utf8).write(to: dest)
-        XCTAssertThrowsError(try FileCommitter.commit(
-            Data("new".utf8), for: plan(source: dir.appendingPathComponent("in.jpg"), destination: dest))) {
-            guard case .writeFailed = $0 as? ConversionError else { return XCTFail("\($0)") }
-        }
+        let written = try FileCommitter.commit(
+            Data("new".utf8), for: plan(source: dir.appendingPathComponent("in.jpg"), destination: dest))
+        XCTAssertEqual(written.lastPathComponent, "out_2.png")
         XCTAssertEqual(try Data(contentsOf: dest), Data("keep".utf8))
+        XCTAssertEqual(try Data(contentsOf: written), Data("new".utf8))
         XCTAssertTrue(tempFiles(in: dir).isEmpty)
     }
 

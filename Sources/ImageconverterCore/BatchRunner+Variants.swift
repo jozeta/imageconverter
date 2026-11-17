@@ -149,11 +149,11 @@ extension BatchRunner {
             let name = output.variant.displayName
             do {
                 let data = try output.outcome.get()
-                try FileCommitter.commit(data.data, for: place.plan(for: item), trash: trash)
-                var extra = WrittenExtra(url: place.destination, name: name, outputBytes: data.data.count)
+                let url = try FileCommitter.commit(data.data, for: place.plan(for: item), trash: trash)
+                var extra = WrittenExtra(url: url, name: name, outputBytes: data.data.count)
                 extra.outputSize = ImageLoader.pixelSize(of: data.data)
                 var extraNotes = [data.note].compactMap { $0 }
-                if let failure = setDates?(place.destination, data.dateTaken) { extraNotes.append(failure) }
+                if let failure = setDates?(url, data.dateTaken) { extraNotes.append(failure) }
                 extra.note = extraNotes.isEmpty ? nil : extraNotes.joined(separator: "; ")
                 written.append(extra)
             } catch let error as ConversionError {
