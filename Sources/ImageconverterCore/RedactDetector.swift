@@ -22,11 +22,25 @@ public final class RedactCache: @unchecked Sendable {
         shared = SharedDetections(limit: limit) { $0.failure == nil && !$0.cancelled }
     }
 
+    /// `grace`: how long a detection every caller left keeps running for the next one (`SharedDetections`).
+    init(limit: Int = 256, grace: TimeInterval) {
+        shared = SharedDetections(limit: limit, grace: grace) { $0.failure == nil && !$0.cancelled }
+    }
+
     /// How many detections ran (for tests).
     public var detectionCount: Int { shared.runCount }
 
+    /// How many lookups wait for a detection right now (for tests).
+    var waiterCount: Int { shared.waiterCount }
+
+    /// Forgets the kept detections and cancels those nobody waits for (`SharedDetections.removeAll`).
     public func removeAll() {
         shared.removeAll()
+    }
+
+    /// Cancels the detections nobody waits for; kept detections stay (`SharedDetections.cancelIdle`).
+    public func cancelIdleDetections() {
+        shared.cancelIdle()
     }
 
     /// The detections for `key`; cancelled when the caller was cancelled while it waited.

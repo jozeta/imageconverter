@@ -19,14 +19,22 @@ public final class FocusCache: @unchecked Sendable {
     private let shared: SharedDetections<Key, FocusOutcome>
     /// How many detections ran (for tests).
     public var detectionCount: Int { shared.runCount }
+    /// How many lookups wait for a detection right now (for tests).
+    var waiterCount: Int { shared.waiterCount }
 
     public init(limit: Int = 256) {
         // A failed detection is asked again next time.
         shared = SharedDetections(limit: limit) { !$0.detectionFailed }
     }
 
+    /// Forgets the kept outcomes and cancels the detections nobody waits for (`SharedDetections.removeAll`).
     public func removeAll() {
         shared.removeAll()
+    }
+
+    /// Cancels the detections nobody waits for; kept outcomes stay (`SharedDetections.cancelIdle`).
+    public func cancelIdleDetections() {
+        shared.cancelIdle()
     }
 
     /// The outcome for `key`; lookups for a detection in progress wait for it (`SharedDetections`). A caller

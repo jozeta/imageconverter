@@ -155,9 +155,13 @@ public actor PreviewRenderer {
                               image: image, skipReason: skip)
     }
 
-    /// Releases the cached source, watermark images and ML enlarge results (call when a batch starts or finishes).
+    /// Releases the cached source, watermark images and ML enlarge results and cancels detections nobody waits for
+    /// (call when a batch starts or finishes).
     public func purge() {
         enlargeCache.removeAll()
+        // A detection left in its grace period mustn't keep Vision busy while a batch runs.
+        focusCache.cancelIdleDetections()
+        redactCache.cancelIdleDetections()
         cachedSource = nil
         cachedAssets = nil
         cachedAssetKeys = nil
