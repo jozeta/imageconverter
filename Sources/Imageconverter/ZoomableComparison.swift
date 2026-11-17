@@ -111,6 +111,8 @@ struct ZoomableImage: View {
     let side: ZoomSide
     let isReference: Bool
     let zoom: ZoomController
+    /// Drawn scaled over the whole image at the same zoom (the clipping overlay); nil for none.
+    var overlay: CGImage?
     var interactive = true
     var visible: ClosedRange<CGFloat> = 0...1
     /// The split divider (fraction of the width) and what dragging it does; nil outside the split view.
@@ -141,6 +143,13 @@ struct ZoomableImage: View {
                         .interpolation(geometry.percent(at: state.scale) > 100.5 ? .none : .high)
                         .frame(width: shown.width * cover.width, height: shown.height * cover.height)
                         .position(x: frame.minX + shown.width * cover.midX, y: frame.minY + shown.height * cover.midY)
+                    if let overlay {
+                        Image(overlay, scale: 1, label: Text("Clipped pixels"))
+                            .resizable()
+                            .interpolation(.none)
+                            .frame(width: shown.width, height: shown.height)
+                            .position(x: frame.midX, y: frame.midY)
+                    }
                 }
                 // The enlarged image reaches far outside the clipped box; only the event view takes input.
                 .allowsHitTesting(false)

@@ -27,6 +27,9 @@ struct PreviewPane: View {
                 .frame(minHeight: Self.stageMinHeight)
                 .overlay { if model.isRenderingPreview { spinner } }
                 .overlay { if !model.previewAllowed { pausedNote } }
+                .overlay(alignment: .bottomLeading) {
+                    if model.histogram.showHistogram { HistogramPanel(model: model).padding(LadaGlass.Spacing.xs) }
+                }
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Before and after, \(model.compare.mode.title)")
                 .accessibilityZoomAction { action in
@@ -69,6 +72,7 @@ struct PreviewPane: View {
         .task(id: model.ladderKey) { await model.renderLadder(for: model.ladderKey) }
         .task(id: model.altTextRequest) { await model.generatePreviewAltText(for: model.altTextRequest) }
         .task(id: model.ladderCropKey) { await model.recropLadder(for: model.ladderCropKey) }
+        .task(id: model.clippingKey) { await model.renderClippingMask(for: model.clippingKey) }
         // Single mode's Space/B monitor exists only while it can matter.
         .onChange(of: model.compare.mode == .single && !model.items.isEmpty, initial: true) { _, active in
             model.compare.setKeyMonitor(active: active)
@@ -90,14 +94,15 @@ struct PreviewPane: View {
                 titleRow
                 Spacer(minLength: LadaGlass.Spacing.s)
                 compareControls(segmented: true)
+                HistogramToggle(model: model)
                 InspectorToggle(model: model)
             }
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-                HStack { titleRow; Spacer(); InspectorToggle(model: model) }
+                HStack { titleRow; Spacer(); HistogramToggle(model: model); InspectorToggle(model: model) }
                 HStack(spacing: LadaGlass.Spacing.s) { compareControls(segmented: true); Spacer() }
             }
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-                HStack { titleRow; Spacer(); InspectorToggle(model: model) }
+                HStack { titleRow; Spacer(); HistogramToggle(model: model); InspectorToggle(model: model) }
                 HStack(spacing: LadaGlass.Spacing.s) { compareControls(segmented: false); Spacer() }
             }
         }
@@ -256,10 +261,6 @@ struct PreviewPane: View {
         return ByteCountFormatter.string(fromByteCount: Int64(count), countStyle: .file)
     }
 
-    private func label(_ text: String) -> some View {
-        Text(text).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-    }
-
     /// "+2 outputs"; hovering lists them.
     private func extraOutputsChip(_ names: [String]) -> some View {
         let label = "+\(names.count) \(names.count == 1 ? "output" : "outputs")"
@@ -268,8 +269,10 @@ struct PreviewPane: View {
             .help(names.joined(separator: "\n"))
             .accessibilityLabel("\(label): \(names.joined(separator: ", "))")
     }
+}
 
-    private func cell(_ text: String, muted: Bool = false) -> some View {
+extension PreviewPane {
+    fileprivate func cell(_ text: String, muted: Bool = false) -> some View {
         Text(text)
             .font(muted ? LadaGlass.Typography.label : LadaGlass.Typography.mono)
             .foregroundStyle(muted ? LadaGlass.Colors.muted : LadaGlass.Colors.text)
@@ -277,12 +280,16 @@ struct PreviewPane: View {
             .truncationMode(.middle)
     }
 
-    private func folderCell(_ url: URL) -> some View {
+    fileprivate func folderCell(_ url: URL) -> some View {
         let path = url.path
         return Text(path)
             .font(LadaGlass.Typography.mono)
             .lineLimit(1)
             .truncationMode(.middle)
             .help(path)
+    }
+
+    fileprivate func label(_ text: String) -> some View {
+        Text(text).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
     }
 }

@@ -101,26 +101,57 @@ extension AppModel {
             let conditions = pipeline.hasConditions ? await cache.preview(of: index, in: batch, pipeline: pipeline, presets: presets)
                 : nil
             guard !Task.isCancelled else { return }
-            let outcome = await renderer.render(item: item, index: conditions?.counterIndex ?? index, pipeline: pipeline,
+            var outcome = await renderer.render(item: item, index: conditions?.counterIndex ?? index, pipeline: pipeline,
                                                 mode: mode, presets: presets)
-            guard let self, generation == self.previewGeneration else { return }
-            isRenderingPreview = false
-            switch outcome {
-            case .ready(let result):
-                previewResult = result
-                previewConditions = conditions
-                previewFailure = nil
-                previewFailureName = nil
-            case .failed(let reason):
-                // A cancelled render belongs to a newer request that is already on its way.
-                if reason == "Cancelled" { return }
-                // The previous image stays only when it belongs to this same item.
-                if previewResult?.source != item.source { previewResult = nil }
-                previewConditions = conditions
-                previewFailureName = item.source.lastPathComponent
-                previewFailure = reason
+            // The histograms of the images about to be shown, measured off the main actor.
+            if case .ready(let result) = outcome {
+                guard !Task.isCancelled else { return }
+                outcome = .ready(await Self.measured(result))
             }
+            guard let self, generation == self.previewGeneration else { return }
+            apply(outcome, for: item, conditions: conditions)
         }
+    }
+
+    /// Shows a finished render (only called for the newest request).
+    private func apply(_ outcome: PreviewOutcome, for item: InputItem, conditions: ConditionPreview?) {
+        isRenderingPreview = false
+        switch outcome {
+        case .ready(let result):
+            previewResult = result
+            previewConditions = conditions
+            previewFailure = nil
+            previewFailureName = nil
+        case .failed(let reason):
+            // A cancelled render belongs to a newer request that is already on its way.
+            if reason == "Cancelled" { return }
+            // The previous image stays only when it belongs to this same item.
+            if previewResult?.source != item.source { previewResult = nil }
+            previewConditions = conditions
+            previewFailureName = item.source.lastPathComponent
+            previewFailure = reason
+        }
+    }
+
+    /// `result` with the histograms of its display images; runs on the global executor (nonisolated async).
+    nonisolated static func measured(_ result: PreviewResult) async -> PreviewResult {
+        result.withHistograms()
+    }
+
+    /// Makes the clipping overlay for the shown result (View ▸ Show Clipping) off the main actor; nil when it's off.
+    func renderClippingMask(for key: ClippingKey) async {
+        guard key.enabled, let after = key.image else {
+            histogram.clippingMask = nil
+            return
+        }
+        if histogram.clippingMask?.after === after { return }
+        let mask = await Self.makeClippingMask(after)
+        guard !Task.isCancelled else { return }
+        histogram.clippingMask = mask.map { ClippingMask(after: after, mask: $0) }
+    }
+
+    nonisolated private static func makeClippingMask(_ image: CGImage) async -> CGImage? {
+        Task.isCancelled ? nil : ImageHistogram.clippingMask(for: image)
     }
 
     // MARK: Thumbnails

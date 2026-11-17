@@ -12,6 +12,8 @@ struct PreviewSide {
     let pixelSize: CGSize?
     let isReference: Bool
     let failure: String?
+    /// The clipping overlay drawn over this side (the result only, while View ▸ Show Clipping is on).
+    var clipping: CGImage?
 
     var size: CGSize? { pixelSize ?? image.map { CGSize(width: $0.width, height: $0.height) } }
 }
@@ -41,7 +43,8 @@ struct ComparisonStage: View {
                             isReference: after == nil, failure: nil),
                 PreviewSide(kind: .after, title: "After", image: after, full: full?.encoded,
                             pixelSize: result.map { CGSize(width: $0.outputSize.0, height: $0.outputSize.1) },
-                            isReference: true, failure: model.previewFailure))
+                            isReference: true, failure: model.previewFailure,
+                            clipping: model.clippingOverlay(for: after)))
     }
 
     private func sideBySide(_ before: PreviewSide, _ after: PreviewSide) -> some View {
@@ -59,7 +62,8 @@ struct ComparisonStage: View {
             ZStack {
                 if let image = side.image, let size = side.size {
                     ZoomableImage(image: image, fullImage: side.full, pixelSize: size, label: "\(side.title) image",
-                                  side: side.kind, isReference: side.isReference, zoom: model.zoom)
+                                  side: side.kind, isReference: side.isReference, zoom: model.zoom,
+                                  overlay: side.clipping)
                 } else if let failure = side.failure {
                     FailureText(text: failure)
                 }
@@ -101,7 +105,8 @@ struct SplitComparison: View {
                                   side: .before, isReference: false, zoom: model.zoom, interactive: false,
                                   visible: 0...position)
                     ZoomableImage(image: afterImage, fullImage: after.full, pixelSize: afterSize, label: "After image",
-                                  side: .after, isReference: true, zoom: model.zoom, visible: position...1,
+                                  side: .after, isReference: true, zoom: model.zoom, overlay: after.clipping,
+                                  visible: position...1,
                                   divider: position, onDivider: { compare.setSplit($0) },
                                   onDividerEnd: { compare.commitSplit() })
                     dividerLine(at: position)
@@ -232,7 +237,8 @@ struct SingleComparison: View {
                 // After keeps its geometry while hidden, so the zoom range and 100 % stay the After image's.
                 if let afterImage = after.image, let afterSize = after.size {
                     ZoomableImage(image: afterImage, fullImage: after.full, pixelSize: afterSize, label: "After image",
-                                  side: .after, isReference: true, zoom: model.zoom, visible: showBefore ? 0...0 : 0...1)
+                                  side: .after, isReference: true, zoom: model.zoom, overlay: after.clipping,
+                                  visible: showBefore ? 0...0 : 0...1)
                 }
                 if let beforeImage = before.image, let beforeSize = before.size {
                     ZoomableImage(image: beforeImage, fullImage: before.full, pixelSize: beforeSize, label: "Before image",

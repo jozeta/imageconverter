@@ -9,6 +9,8 @@ final class AppModel {
     /// The metadata panel: open or closed, the row to highlight, the images with changes (`AppModel+MetadataOverrides`).
     let inspector: InspectorState
     let privacy = PrivacyState()  // the privacy scan's results and panel (`AppModel+Privacy.swift`)
+    /// The preview's histogram panel and clipping overlay (`HistogramPanel.swift`).
+    let histogram: HistogramState
     /// The selected preset and the pipeline being edited; both are saved to `UserDefaults` on every change.
     var session: PresetSession {
         didSet { persist() }
@@ -128,6 +130,7 @@ final class AppModel {
         outputPanel = OutputPanelState(defaults: defaults)
         lowMemoryMode = defaults.bool(forKey: Self.lowMemoryModeKey)
         inspector = InspectorState(defaults: defaults)
+        histogram = HistogramState(defaults: defaults)
         windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey),
                                   inspectorShown: inspector.isOpen, defaults: defaults)
         let saved = Self.loadPipeline(from: defaults)

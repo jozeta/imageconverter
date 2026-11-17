@@ -25,6 +25,18 @@ public struct PreviewResult: @unchecked Sendable {
     public var extraOutputNames: [String] = []
     /// Set when the Metadata step generates alt text: what `PreviewRenderer.altText(for:)` asks the model about.
     public var altTextRequest: AltTextRequest?
+    /// The histograms of the shown `before`/`after` images; set by the app after each render (off the main actor).
+    public var beforeHistogram: ImageHistogram?
+    public var afterHistogram: ImageHistogram?
+
+    /// This result with the histograms of its display images (one computation when both sides are the same image).
+    public func withHistograms() -> PreviewResult {
+        var copy = self
+        let before = ImageHistogram.compute(self.before)
+        copy.beforeHistogram = before
+        copy.afterHistogram = self.after === self.before ? before : ImageHistogram.compute(self.after)
+        return copy
+    }
 }
 
 /// The preview's alt text question: the rendered result as the model sees it, and a key for this file version and

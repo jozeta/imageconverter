@@ -4,6 +4,8 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- **Histogram and clipping in the preview**: a chart button in the preview header (View ▸ Show Histogram, ⌥⌘G) shows the RGB and luminance histogram of the Original or the Result (remembered) in the preview's corner, measured on the preview image (≤ 1024 px) after each render, scaled to the 99.5th percentile bin; "Highlights x.x %" and "Shadows x.x %" turn red above 0.1 %. View ▸ Show Clipping (⌥⌘J), or a click on either figure, marks clipped highlights red and crushed shadows blue over the result in side by side, split and single mode, following the zoom. Both off by default (keys `showHistogram`, `showClipping`, `histogramSource`). Core `ImageHistogram` (`compute`, `clippingMask`, `displayPeak`); `PreviewResult.beforeHistogram`/`afterHistogram`.
+
 ## 1.4.0 (2026-11-16)
 
 - Redact boxes always keep a safety margin of 12 % of the box's shorter side (at least 2 px), also at Padding 0 %: macOS 15's Vision boxes are tighter than macOS 26's, and CI on macOS 15 showed glyph edges left visible at 0 %. Adjust sliders that fill from the centre now take the knob's position from AppKit (macOS 15 and 26 lay the knob out differently), and a double-click reset sends its action straight to the target.

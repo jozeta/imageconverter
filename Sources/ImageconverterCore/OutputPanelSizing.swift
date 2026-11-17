@@ -115,6 +115,12 @@ public enum ViewDefaults {
         defaults.string(forKey: compareModeKey).flatMap(Mode.init(rawValue:)) ?? Mode(rawValue: compareMode)
     }
 
+    /// The preview's histogram panel and clipping overlay (View ▸ Show Histogram / Show Clipping), both off by default.
+    public static let showHistogramKey = "showHistogram"
+    public static let showClippingKey = "showClipping"
+    /// Which image the histogram measures: "result" (the default) or "original".
+    public static let histogramSourceKey = "histogramSource"
+
     /// Set once the one-time switch to Split has run.
     public static let splitDefaultAppliedKey = "compareModeDefaultSplitApplied"
 

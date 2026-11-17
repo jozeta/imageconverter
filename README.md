@@ -198,6 +198,7 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version, and **More ▸ Clear All…** to empty the image list and start again from an empty pipeline), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
 - **Live preview** of the selected image before and after the pipeline, with its new name and
   size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and the batch as a filmstrip, grid or list; pinch to zoom in sync in every comparison mode (side by side, split, difference, single), with a checkerboard behind transparent images and a quality ladder to choose the output quality. Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
+- **Histogram and clipping** (⌥⌘G, ⌥⌘J): RGB and luminance histogram of the original or the result, with the share of clipped highlights and shadows, and an overlay marking the clipped pixels. See [Preview before running](#preview-before-running).
 - **Metadata panel** (⌥⌘I): the selected image's metadata by group, searchable; edit, remove or add fields for that image's outputs only (the original is never changed). See [Change one image's metadata](#change-one-images-metadata).
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
   half-written files, and name collisions resolved with `_2`, `_3`, …
@@ -514,6 +515,9 @@ Presets and preview:
 | Split position | Where the split divider sits (2…98 % of the width); key `compareSplitPosition` | 50 % |
 | Batch view | Filmstrip, Grid or List under the preview; key `batchBrowserMode` | Filmstrip |
 | Metadata panel | The panel right of the preview: the sidebar button in the preview header, View → Show Metadata / Hide Metadata (⌥⌘I) or a privacy link; it shows with the preview (opening it opens a hidden preview); key `inspectorOpen` | closed |
+| Histogram | The chart button in the preview header or View → Show Histogram (⌥⌘G); key `showHistogram` | off |
+| Histogram source | Original or Result above the histogram; key `histogramSource` | Result |
+| Clipping overlay | View → Show Clipping (⌥⌘J) or a click on the Highlights / Shadows figure; key `showClipping` | off |
 | Metadata panel width | Drag the panel's left edge (or focus its handle and press ← / →), 260–560 pt; the preview gives way; key `inspectorWidth` | 300 pt |
 | Window height | The window's height when you resize it by hand (the window also grows and shrinks with the pipeline and the preview); key `expandedWindowHeight` | fits the content |
 | Grid / list height | Drag the bar above the grid or list (90…420 pt); key `batchBrowserHeight` | 180 pt |
@@ -591,6 +595,16 @@ unsandboxed.
    here". Click a tile to use that quality (Target size and
    Smart switch to Quality; Maximum size keeps its limit). The tiles are rendered in the background
    and start again when you select another image or change the pipeline.
+8. **Histogram and clipping**: the chart button in the preview header (or View ▸ Show Histogram, ⌥⌘G)
+   shows a histogram in the preview's bottom-left corner: red, green and blue as translucent areas and
+   luminance (Rec. 709) as a line, scaled so one tall spike doesn't flatten the rest. Choose **Original**
+   or **Result** above it (remembered). It is measured on the preview image (at most 1024 px on the
+   long side), not on the full-size file; fully transparent pixels don't count. Under it, **Highlights**
+   is the share of pixels with any channel at 255 (bright HDR values count too) and **Shadows** the
+   share with all three at 0; above 0.1 % the figure turns red. Click either figure, or choose
+   View ▸ Show Clipping (⌥⌘J), to mark the clipped pixels on the result: highlights red, shadows blue,
+   in side by side, split and single mode (not in Difference), zoomed and panned with the image.
+   Both are off by default and remembered.
 
 ### Build a pipeline
 
