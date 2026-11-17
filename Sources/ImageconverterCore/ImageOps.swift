@@ -76,6 +76,7 @@ public enum ImageOps {
             return image
         case .sRGB, .displayP3:
             let name = profile == .sRGB ? CGColorSpace.sRGB : CGColorSpace.displayP3
+            if isAlreadyConverted(image, to: name) { return image }
             guard let space = CGColorSpace(name: name),
                   let ctx = makeContext(width: width, height: height, like: image, space: space,
                                         alpha: hasAlpha(image)) else {
@@ -98,6 +99,20 @@ public enum ImageOps {
             ctx.fill(rect)
             ctx.draw(image, in: rect)
             return try finish(ctx, step: step)
+        }
+    }
+
+    /// True when redrawing `image` into `name` would only copy it: it is already in that space (equal to it, so the
+    /// written profile stays the same), with the bit depth
+    /// (8 or 16 bpc integer) and the alpha (none, or premultiplied) the redraw makes. The channel order may differ
+    /// (a JPEG decodes as XRGB, the redraw makes RGBX); nothing downstream depends on it (`.keep` passes any layout on).
+    static func isAlreadyConverted(_ image: CGImage, to name: CFString) -> Bool {
+        guard let own = image.colorSpace, own.name == name, own == CGColorSpace(name: name), !isFloat(image),
+              [8, 16].contains(image.bitsPerComponent), image.bitsPerPixel == 4 * image.bitsPerComponent
+        else { return false }
+        switch image.alphaInfo {
+        case .noneSkipFirst, .noneSkipLast, .premultipliedFirst, .premultipliedLast: return true
+        default: return false
         }
     }
 

@@ -90,9 +90,9 @@ final class ImageLoaderTests: XCTestCase {
             XCTAssertEqual(fast.image.height, full.height, "\(mode)")
             let stats = try XCTUnwrap(ImageDifference.stats(before: full, after: fast.image))
             XCTAssertGreaterThan(stats.psnr, 40, "\(mode)")
-            // Peak memory: the decoded image is far smaller.
+            // Peak memory: the decoded image is far smaller (at most source / 2 per side).
             XCTAssertEqual(source.width * source.height, 1600 * 1200)
-            XCTAssertLessThan(fast.source.width * fast.source.height, 1600 * 1200 / 4, "\(mode)")
+            XCTAssertLessThanOrEqual(fast.source.width * fast.source.height, 1600 * 1200 / 4, "\(mode)")
         }
     }
 
@@ -163,6 +163,50 @@ final class ImageLoaderTests: XCTestCase {
         XCTAssertNil(hint([resize(.exactSize(width: 200, height: 200, fill: .fillAndCrop))]))
         XCTAssertNil(hint([resize(.longestEdge(200), .nearest)]))
         XCTAssertNil(hint([shrink], width: 0, height: 0))
+    }
+
+    /// A JPEG decodes cheaply only at source / 2^k (DCT scaling): any other size decodes larger and resamples, so
+    /// 2 × 2048 = 4096 on an 8000 px source was slower than the full decode. The hint is rounded to such a size: the
+    /// smallest one at least twice the target, but never between source / 2 and the source (source / 2 instead).
+    func testDecodeHintRoundsToPowerOfTwoFraction() throws {
+        func hint(_ edge: Int) -> DecodeHint? {
+            Pipeline(steps: [resize(.longestEdge(edge))]).decodeHint(sourceWidth: 8000, sourceHeight: 6000)
+        }
+        XCTAssertEqual(try XCTUnwrap(hint(2048)).maxLongSide, 4000, "source / 2, not 4096")
+        XCTAssertEqual(try XCTUnwrap(hint(900)).maxLongSide, 2000, "source / 4: the smallest ≥ 2 × 900")
+        XCTAssertEqual(try XCTUnwrap(hint(1000)).maxLongSide, 2000, "exactly 2 × target is kept")
+        XCTAssertEqual(try XCTUnwrap(hint(100)).maxLongSide, 250, "source / 32")
+        for edge in [100, 333, 900, 1000, 1001, 2048, 3000, 3999] {
+            let side = try XCTUnwrap(hint(edge), "\(edge)").maxLongSide
+            XCTAssertFalse(side > 4000 && side < 8000, "\(edge): never between source / 2 and the source")
+            let fractions = (1...6).map { (8000 + (1 << $0) - 1) >> $0 }
+            XCTAssertTrue(fractions.contains(side), "\(edge) → \(side): source / 2^k")
+            if side < 4000 { XCTAssertGreaterThanOrEqual(side, 2 * edge, "\(edge): still ≥ 2 × target") }
+            XCTAssertGreaterThan(side, edge, "\(edge): the resize still shrinks")
+        }
+        // The exact size the resize makes is still measured on the full-size source.
+        XCTAssertEqual(try XCTUnwrap(hint(2048)).pipeline.steps.first?.operation,
+                       .resize(ResizeOptions(mode: .exactSize(width: 2048, height: 1536, fill: .stretch),
+                                             allowEnlarge: true)))
+    }
+
+    func testHeicThumbnailUsesEmbedded() {
+        for size in [64, 256, 512] {
+            let options = ImageLoader.thumbnailOptions(maxPixelSize: size)
+            XCTAssertEqual(options[kCGImageSourceCreateThumbnailFromImageIfAbsent] as? Bool, true, "\(size)")
+            XCTAssertNil(options[kCGImageSourceCreateThumbnailFromImageAlways], "\(size)")
+        }
+        // Larger copies feed analysis and redaction: always made from the image itself.
+        let large = ImageLoader.thumbnailOptions(maxPixelSize: 1024)
+        XCTAssertEqual(large[kCGImageSourceCreateThumbnailFromImageAlways] as? Bool, true)
+        XCTAssertNil(large[kCGImageSourceCreateThumbnailFromImageIfAbsent])
+    }
+
+    func testSmallThumbnailStillComesBackAtTheAskedSize() throws {
+        let url = dir.appendingPathComponent("photo.jpg")
+        try TestImages.write(photo(width: 1200, height: 800), to: url, type: .jpeg)
+        let thumb = try XCTUnwrap(ImageLoader.thumbnail(of: url, maxPixelSize: 64))
+        XCTAssertEqual(max(thumb.width, thumb.height), 64)
     }
 
     func testDownsampleNotUsedForConditionResolvedCrop() throws {

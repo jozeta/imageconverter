@@ -3,8 +3,9 @@ import Foundation
 
 /// How the batch may decode a source smaller than its full size without changing the result.
 public struct DecodeHint: Equatable, Sendable {
-    /// The longest side to decode at (`kCGImageSourceThumbnailMaxPixelSize`): twice the resize's target, so the
-    /// resize still does the real filtering with its own resampler.
+    /// The longest side to decode at (`kCGImageSourceThumbnailMaxPixelSize`): source / 2^k, the smallest such size
+    /// at least twice the resize's target (else source / 2), so the resize still does the real filtering with its
+    /// own resampler and a JPEG decodes at a size its DCT scaling makes cheaply.
     public let maxLongSide: Int
     /// The pipeline to run on the smaller image: the first resize becomes an exact scale to the size it would
     /// have produced from the full-size image (a percentage or a fit would otherwise be measured on the smaller
@@ -52,8 +53,13 @@ extension Pipeline {
               case .scale(let target) = Geometry.resizePlan(source: input, options: options),
               target.width < input.width, target.height < input.height,
               target.width >= 1, target.height >= 1 else { return nil }
-        let decodeLongSide = 2 * Int(max(target.width, target.height).rounded(.up))
-        guard decodeLongSide < longSide else { return nil }
+        let twice = 2 * Int(max(target.width, target.height).rounded(.up))
+        guard twice < longSide else { return nil }
+        // A JPEG decodes cheaply only at source / 2^k (DCT scaling); any other size decodes larger and resamples,
+        // which made 2 × target slower than a full decode. The smallest such size at least twice the target, or
+        // source / 2 when only the full size is (never between source / 2 and the source).
+        let decodeLongSide = PreviewProxy.decodeLongSide(sourceLongSide: longSide, target: twice, jpeg: true)
+            ?? (longSide + 1) / 2
         var exact = options
         exact.mode = .exactSize(width: Int(target.width), height: Int(target.height), fill: .stretch)
         // The decoded image is at least twice the target, so this always shrinks; enlarging is allowed only so

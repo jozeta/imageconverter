@@ -85,16 +85,33 @@ public enum ImageLoader {
 }
 
 extension ImageLoader {
+    /// The largest thumbnail made from the file's embedded thumbnail when it has one (the filmstrip and the
+    /// watermark chip): a 48 MP HEIC's takes 3 ms instead of 100. Larger copies feed analysis, redaction and alt
+    /// text, so they always come from the image itself (an embedded thumbnail may be small or stale).
+    static let embeddedThumbnailMaxSize = 512
+
     /// A thumbnail of `url` with its longer side at most `maxPixelSize`, upright; nil when the file is unreadable
-    /// or breaks `limits` (ImageIO may decode the whole image to make it).
+    /// or breaks `limits` (ImageIO may decode the whole image to make it). Up to `embeddedThumbnailMaxSize` the
+    /// file's embedded thumbnail is used when it is big enough; a smaller one is made from the image again.
     public static func thumbnail(of url: URL, maxPixelSize: Int, limits: DecodeLimits = .standard) -> CGImage? {
-        guard let source = try? limits.open(url, decodeLongSide: max(1, maxPixelSize)).source else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
+        guard let (source, header) = try? limits.open(url, decodeLongSide: max(1, maxPixelSize)) else { return nil }
+        let size = max(1, maxPixelSize)
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions(maxPixelSize: size) as CFDictionary)
+        else { return nil }
+        let expected = min(size, max(header.width, header.height))
+        guard size <= embeddedThumbnailMaxSize, max(thumbnail.width, thumbnail.height) < expected else { return thumbnail }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions(maxPixelSize: size, embedded: false) as CFDictionary)
+    }
+
+    /// `embedded`: allow the file's embedded thumbnail (only up to `embeddedThumbnailMaxSize`).
+    static func thumbnailOptions(maxPixelSize: Int, embedded: Bool = true) -> [CFString: Any] {
+        let fromImage = embedded && maxPixelSize <= embeddedThumbnailMaxSize
+            ? kCGImageSourceCreateThumbnailFromImageIfAbsent : kCGImageSourceCreateThumbnailFromImageAlways
+        return [
+            fromImage: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixelSize),
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 }

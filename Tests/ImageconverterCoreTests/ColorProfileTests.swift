@@ -34,6 +34,32 @@ final class ColorProfileTests: XCTestCase {
         XCTAssertTrue(try ImageOps.convertColor(image, to: .keep) === image)
     }
 
+    func testColorProfileSkipsRedrawWhenAlreadyTarget() throws {
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        func image(bits: Int, alpha: CGImageAlphaInfo, in space: CGColorSpace) throws -> CGImage {
+            let ctx = try XCTUnwrap(CGContext(data: nil, width: 8, height: 8, bitsPerComponent: bits, bytesPerRow: 0,
+                                              space: space, bitmapInfo: alpha.rawValue))
+            ctx.setFillColor(CGColor(red: 0.2, green: 0.5, blue: 0.7, alpha: 1))
+            ctx.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+            return try XCTUnwrap(ctx.makeImage())
+        }
+        // Already what the step makes: sRGB, 8 or 16 bpc, opaque (XRGB like a JPEG decode, or RGBX) or premultiplied:
+        // the same image back.
+        for (bits, alpha) in [(8, CGImageAlphaInfo.noneSkipLast), (8, .noneSkipFirst), (8, .premultipliedLast),
+                              (16, .noneSkipLast)] {
+            let input = try image(bits: bits, alpha: alpha, in: space)
+            XCTAssertTrue(try ImageOps.color(input, ColorOptions(profile: .sRGB)) === input, "\(bits) \(alpha)")
+        }
+        // Anything else is still redrawn: another space, or a re-color.
+        let device = try image(bits: 8, alpha: .noneSkipLast, in: CGColorSpaceCreateDeviceRGB())
+        let converted = try ImageOps.color(device, ColorOptions(profile: .sRGB))
+        XCTAssertFalse(converted === device)
+        XCTAssertEqual(converted.colorSpace?.name as String?, CGColorSpace.sRGB as String)
+        let srgb = try image(bits: 8, alpha: .noneSkipLast, in: space)
+        XCTAssertFalse(try ImageOps.color(srgb, ColorOptions(profile: .displayP3)) === srgb)
+        XCTAssertFalse(try ImageOps.color(srgb, ColorOptions(profile: .sRGB, recolor: RecolorOptions(kind: .sepia))) === srgb)
+    }
+
     func testStaleProfilePropertiesDropped() throws {
         let props: [String: Any] = [
             kCGImagePropertyProfileName as String: "Display P3",

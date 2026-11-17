@@ -29,9 +29,9 @@ final class AppModel {
     /// The last run in the shared report model (summary plus one entry per file); cleared by a new run or Clear.
     var runReport: ProcessingReport?
     var isRunning = false
-    /// Number of drops/pickers still being scanned off the main actor.
-    private(set) var pendingAdds = 0
-    var isAdding: Bool { pendingAdds > 0 }
+    /// The drops/pickers still being scanned off the main actor, and found items waiting for a run to end.
+    private(set) var adds = ItemAdds()
+    var isAdding: Bool { adds.isAdding }
     let toasts = LGToastCenter()
     /// The before/after zoom, shared by both preview sides and the View menu.
     let zoom = ZoomController()
@@ -194,28 +194,9 @@ final class AppModel {
         return true
     }
 
-    /// Scans `urls` off the main actor (large folders), then merges new items in, skipping duplicates.
-    /// `userChosen`: dropped or picked in a panel, so the sandbox lets the app use those folders this session
-    /// (false for scripts, services and links, which bring no such permission). Nothing is added while a run is
-    /// in progress (drops, Add…, Open With and Services are all refused then).
-    func add(_ urls: [URL], userChosen: Bool = true) {
-        guard !urls.isEmpty, !isRunning else { return }
-        if userChosen { AccessStore.shared.noteAdded(urls) }
-        pendingAdds += 1
-        Task { [weak self] in
-            let found = await Task.detached(priority: .userInitiated) { InputCollector.collect(urls) }.value
-            guard let self else { return }
-            // By file, not by item: a file added loose and again through its folder is listed once.
-            var seen = Set(self.items.map(\.fileKey))
-            for item in found where seen.insert(item.fileKey).inserted {
-                self.items.append(item)
-            }
-            self.pendingAdds -= 1
-        }
-    }
-
     func clear() {
         guard !isRunning else { return }
+        adds.clear()
         items = []
         selectedIndex = 0
         thumbnailCache.removeAllObjects()
@@ -326,6 +307,7 @@ final class AppModel {
         let (summary, hasProblems) = RunCountsText.runSummary(report)
         toasts.show("\(prefix)\(summary)", type: hasProblems ? .bad : (report.cancelled ? .info : .ok))
         runAfterRunAction(report, summary: summary)
+        addQueuedItems()
     }
 }
 
@@ -376,5 +358,36 @@ extension AppModel {
         guard let data = defaults.data(forKey: pipelineKey),
               let pipeline = try? JSONDecoder().decode(Pipeline.self, from: data) else { return Pipeline() }
         return pipeline
+    }
+}
+
+// MARK: Adding images
+
+extension AppModel {
+    /// Scans `urls` off the main actor (large folders), then merges new items in, skipping duplicates, in one change
+    /// to the list. `userChosen`: dropped or picked in a panel, so the sandbox lets the app use those folders this
+    /// session (false for scripts, services and links, which bring no such permission). Nothing is added while a run
+    /// is in progress (drops, Add…, Open With and Services are all refused then); a scan that ends during a run
+    /// (started by a service, script or link meanwhile) is added when the run ends. Clear drops a scan in progress.
+    func add(_ urls: [URL], userChosen: Bool = true) {
+        guard !urls.isEmpty, !isRunning else { return }
+        if userChosen { AccessStore.shared.noteAdded(urls) }
+        let token = adds.begin()
+        Task { [weak self] in
+            let found = await Task.detached(priority: .userInitiated) { InputCollector.collect(urls) }.value
+            guard let self else { return }
+            switch self.adds.finish(token, found: found, existing: self.items, running: self.isRunning) {
+            case .replace(let merged): self.items = merged
+            case .dropped, .queued: break
+            }
+        }
+    }
+
+    /// Adds what was found during the run that just ended.
+    private func addQueuedItems() {
+        guard let merged = adds.takeQueued(existing: items) else { return }
+        items = merged.items
+        toasts.show("Added \(merged.added) \(merged.added == 1 ? "image" : "images") that arrived during the run",
+                    type: .info)
     }
 }
