@@ -161,4 +161,76 @@ final class ExclusiveCommitTests: XCTestCase {
         XCTAssertFalse(PlannedDestinations.isClaimed(out.appendingPathComponent("a.png")))
         XCTAssertFalse(PlannedDestinations.isClaimed(out.appendingPathComponent("a_2.png")))
     }
+
+    // MARK: Volumes without RENAME_EXCL (exFAT)
+
+    private let unsupported: FileCommitter.ExclusiveRename = { _, _ in ENOTSUP }
+
+    func testFallbackPlacesFileWhenNameIsFree() throws {
+        let out = try folder("out")
+        let temp = out.appendingPathComponent("temp")
+        try Data("new".utf8).write(to: temp)
+        let destination = out.appendingPathComponent("a.png")
+        XCTAssertTrue(try FileCommitter.renameExclusive(temp, to: destination, exclusiveRename: unsupported))
+        XCTAssertEqual(try Data(contentsOf: destination), Data("new".utf8))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: temp.path))
+    }
+
+    func testFallbackNeverReplacesATakenName() throws {
+        let out = try folder("out")
+        let temp = out.appendingPathComponent("temp")
+        try Data("new".utf8).write(to: temp)
+        let destination = out.appendingPathComponent("a.png")
+        try Data("keep".utf8).write(to: destination)
+        XCTAssertFalse(try FileCommitter.renameExclusive(temp, to: destination, exclusiveRename: unsupported))
+        XCTAssertEqual(try Data(contentsOf: destination), Data("keep".utf8))
+        XCTAssertEqual(try Data(contentsOf: temp), Data("new".utf8))
+    }
+
+    func testFallbackRemovesItsPlaceholderWhenTheRenameFails() throws {
+        let out = try folder("out")
+        let destination = out.appendingPathComponent("a.png")
+        XCTAssertThrowsError(try FileCommitter.renameExclusive(out.appendingPathComponent("missing"), to: destination,
+                                                               exclusiveRename: unsupported))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
+    }
+
+    func testEINVALAlsoFallsBack() throws {
+        let out = try folder("out")
+        let temp = out.appendingPathComponent("temp")
+        try Data("new".utf8).write(to: temp)
+        let destination = out.appendingPathComponent("a.png")
+        XCTAssertTrue(try FileCommitter.renameExclusive(temp, to: destination, exclusiveRename: { _, _ in EINVAL }))
+        XCTAssertEqual(try Data(contentsOf: destination), Data("new".utf8))
+    }
+
+    /// A real exFAT volume (a 16 MB disk image): commits work, and a taken name gets `_2`. Skipped without hdiutil.
+    func testCommitsOnExFATVolume() throws {
+        let image = root.appendingPathComponent("exfat.dmg")
+        let mount = root.appendingPathComponent("mnt", isDirectory: true)
+        guard Self.hdiutil(["create", "-quiet", "-size", "16m", "-fs", "ExFAT", "-volname", "ictest", "-o", image.path]),
+              Self.hdiutil(["attach", "-quiet", "-nobrowse", "-mountpoint", mount.path, image.path]) else {
+            throw XCTSkip("hdiutil couldn't make an exFAT disk image here")
+        }
+        defer { _ = Self.hdiutil(["detach", "-quiet", "-force", mount.path]) }
+        let item = InputItem(source: root.appendingPathComponent("src.png"), relativeDirectory: "")
+        let plan = PlannedOutput(item: item, destination: mount.appendingPathComponent("a.png"),
+                                 replacesSource: false, trashesSource: false)
+        let first = try FileCommitter.commit(Data("first".utf8), for: plan)
+        let second = try FileCommitter.commit(Data("second".utf8), for: plan)
+        XCTAssertEqual([first.lastPathComponent, second.lastPathComponent], ["a.png", "a_2.png"])
+        XCTAssertEqual(try Data(contentsOf: first), Data("first".utf8))
+        XCTAssertEqual(try Data(contentsOf: second), Data("second".utf8))
+    }
+
+    private static func hdiutil(_ arguments: [String]) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/hdiutil")
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return false }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }
 }

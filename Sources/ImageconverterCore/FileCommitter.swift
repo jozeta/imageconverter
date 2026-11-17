@@ -80,20 +80,64 @@ public enum FileCommitter {
         throw ConversionError.writeFailed(OutputPlanner.noFreeNameReason)
     }
 
-    /// Renames `source` to `destination` only when nothing has that name (atomic, `RENAME_EXCL`); false when
-    /// something does, throws for every other failure.
-    static func renameExclusive(_ source: URL, to destination: URL) throws -> Bool {
-        // errno is read right after the call, before anything else can change it; -1 is an invalid path.
-        let code = source.withUnsafeFileSystemRepresentation { origin in
+    /// The exclusive rename: 0, or the `errno` it failed with (-1: a path with no file system representation).
+    typealias ExclusiveRename = (URL, URL) -> Int32
+
+    /// `renamex_np` with `RENAME_EXCL`; errno is read right after the call, before anything else can change it.
+    static let systemExclusiveRename: ExclusiveRename = { source, destination in
+        source.withUnsafeFileSystemRepresentation { origin in
             destination.withUnsafeFileSystemRepresentation { target -> Int32 in
                 guard let origin, let target else { return -1 }
                 return renamex_np(origin, target, UInt32(RENAME_EXCL)) == 0 ? 0 : errno
             }
         }
-        if code == 0 { return true }
-        if code == -1 { throw ConversionError.writeFailed("Invalid file name") }
-        if code == EEXIST { return false }
-        throw ConversionError.writeFailed(POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO).localizedDescription)
+    }
+
+    /// Renames `source` to `destination` only when nothing has that name (atomic, `RENAME_EXCL`); false when
+    /// something does, throws for every other failure. Volumes without `RENAME_EXCL` (exFAT, some network volumes:
+    /// `ENOTSUP`/`EINVAL`) reserve the name instead (`renameOverPlaceholder`).
+    static func renameExclusive(_ source: URL, to destination: URL,
+                                exclusiveRename: ExclusiveRename = systemExclusiveRename) throws -> Bool {
+        switch exclusiveRename(source, destination) {
+        case 0: return true
+        case EEXIST: return false
+        case ENOTSUP, EINVAL: return try renameOverPlaceholder(source, to: destination)
+        case -1: throw ConversionError.writeFailed("Invalid file name")
+        case let code: throw posixFailure(code)
+        }
+    }
+
+    /// Reserves `destination` by creating it exclusively (`O_CREAT | O_EXCL`: false when it exists), then renames
+    /// `source` over that empty placeholder of its own; the placeholder is removed when the rename fails.
+    static func renameOverPlaceholder(_ source: URL, to destination: URL) throws -> Bool {
+        let created = destination.withUnsafeFileSystemRepresentation { target -> Int32 in
+            guard let target else { return -1 }
+            let descriptor = open(target, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0o600)
+            guard descriptor >= 0 else { return errno }
+            close(descriptor)
+            return 0
+        }
+        switch created {
+        case 0: break
+        case EEXIST: return false
+        case -1: throw ConversionError.writeFailed("Invalid file name")
+        case let code: throw posixFailure(code)
+        }
+        let renamed = source.withUnsafeFileSystemRepresentation { origin in
+            destination.withUnsafeFileSystemRepresentation { target -> Int32 in
+                guard let origin, let target else { return -1 }
+                return rename(origin, target) == 0 ? 0 : errno
+            }
+        }
+        guard renamed == 0 else {
+            try? FileManager.default.removeItem(at: destination)
+            throw renamed == -1 ? ConversionError.writeFailed("Invalid file name") : posixFailure(renamed)
+        }
+        return true
+    }
+
+    private static func posixFailure(_ code: Int32) -> ConversionError {
+        .writeFailed(POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO).localizedDescription)
     }
 
     /// Starts the reason of a failure that happened after the new file was in place.

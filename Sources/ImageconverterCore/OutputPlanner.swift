@@ -114,10 +114,12 @@ public struct OutputNaming: Equatable, Sendable {
     /// APFS and HFS+ allow 255 bytes per name.
     public static let maxNameBytes = 255
 
-    /// The name with number `number` (1: no number), fitted to the limit.
+    /// The name with number `number` (1: no number), fitted to the limit. At least the name's first character is
+    /// kept, so the suffix never leads the name (or makes a hidden file).
     public func fileName(_ number: Int) -> String {
         let tail = (number == 1 ? suffix : "\(suffix)_\(number)") + dotExtension
-        return OutputPlanner.fitted(name, suffix: tail, limit: Self.maxNameBytes) + tail
+        let fitted = OutputPlanner.fitted(name, suffix: tail, limit: Self.maxNameBytes)
+        return (fitted.isEmpty ? String(name.prefix(1)) : fitted) + tail
     }
 }
 
@@ -200,7 +202,7 @@ public enum OutputPlanner {
                 directory = within(sourceDir, target.subfolder)
                 // Only a would-be source overwrite needs telling apart from the original.
                 let plain = directory.appendingPathComponent("\(name)\(dotExt)")
-                if sameFile(plain, item.source) { suffix = sanitized(value) }
+                if sameFile(plain, item.source) { suffix = cappedSuffix(value) }
             case .overwrite:
                 directory = sourceDir
             }
@@ -270,6 +272,16 @@ public enum OutputPlanner {
         String(suffix.unicodeScalars.filter {
             $0 != "/" && $0 != ":" && !CharacterSet.controlCharacters.contains($0) && !hiddenScalars.contains($0.value)
         })
+    }
+
+    /// The longest same-folder suffix kept, in UTF-8 bytes.
+    static let maxSuffixBytes = 64
+
+    /// `sanitized(suffix)` cut (by characters) to `maxSuffixBytes`.
+    static func cappedSuffix(_ suffix: String) -> String {
+        var clean = sanitized(suffix)
+        while clean.utf8.count > maxSuffixBytes { clean.removeLast() }
+        return clean
     }
 
     /// Zero-width, bidi and byte-order marks: U+200B–200F, U+202A–202E, U+2066–2069, U+FEFF.

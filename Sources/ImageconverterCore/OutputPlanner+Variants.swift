@@ -94,10 +94,14 @@ extension OutputPlanner {
         return (plans, failures)
     }
 
-    /// `name` shortened (by characters) so `name + suffix` stays within `limit` UTF-8 bytes.
+    /// `name` shortened (by characters) so `name + suffix` stays within `limit` UTF-8 bytes, counted precomposed
+    /// (NFC), as the file system's name limit is: names read from URLs come decomposed, which would count "é" as 3.
     static func fitted(_ name: String, suffix: String, limit: Int = RenameTemplate.maxBytes) -> String {
         var name = name
-        while !name.isEmpty, name.utf8.count + suffix.utf8.count > limit { name.removeLast() }
+        let suffixBytes = suffix.precomposedStringWithCanonicalMapping.utf8.count
+        while !name.isEmpty, name.precomposedStringWithCanonicalMapping.utf8.count + suffixBytes > limit {
+            name.removeLast()
+        }
         return name
     }
 }
