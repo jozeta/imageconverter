@@ -191,22 +191,38 @@ final class ImageLoaderTests: XCTestCase {
     }
 
     func testHeicThumbnailUsesEmbedded() {
-        for size in [64, 256, 512] {
-            let options = ImageLoader.thumbnailOptions(maxPixelSize: size)
-            XCTAssertEqual(options[kCGImageSourceCreateThumbnailFromImageIfAbsent] as? Bool, true, "\(size)")
-            XCTAssertNil(options[kCGImageSourceCreateThumbnailFromImageAlways], "\(size)")
+        // Only callers that ask (the filmstrip, the watermark chip) may get the embedded thumbnail.
+        for size in [64, 512, 1024] {
+            let embedded = ImageLoader.thumbnailOptions(maxPixelSize: size, allowEmbedded: true)
+            XCTAssertEqual(embedded[kCGImageSourceCreateThumbnailFromImageIfAbsent] as? Bool, true, "\(size)")
+            XCTAssertNil(embedded[kCGImageSourceCreateThumbnailFromImageAlways], "\(size)")
+            let fromImage = ImageLoader.thumbnailOptions(maxPixelSize: size, allowEmbedded: false)
+            XCTAssertEqual(fromImage[kCGImageSourceCreateThumbnailFromImageAlways] as? Bool, true, "\(size)")
+            XCTAssertNil(fromImage[kCGImageSourceCreateThumbnailFromImageIfAbsent], "\(size)")
         }
-        // Larger copies feed analysis and redaction: always made from the image itself.
-        let large = ImageLoader.thumbnailOptions(maxPixelSize: 1024)
-        XCTAssertEqual(large[kCGImageSourceCreateThumbnailFromImageAlways] as? Bool, true)
-        XCTAssertNil(large[kCGImageSourceCreateThumbnailFromImageIfAbsent])
+    }
+
+    func testEmbeddedThumbnailMustBeBigEnoughAndTheSameShape() {
+        let photo = (width: 8000, height: 6000)
+        XCTAssertTrue(ImageLoader.embeddedThumbnailFits(width: 64, height: 48, image: photo, maxPixelSize: 64))
+        XCTAssertTrue(ImageLoader.embeddedThumbnailFits(width: 64, height: 43, image: (1200, 800), maxPixelSize: 64),
+                      "Rounding stays within 2 %")
+        XCTAssertFalse(ImageLoader.embeddedThumbnailFits(width: 160, height: 120, image: photo, maxPixelSize: 256),
+                       "Smaller than asked")
+        XCTAssertTrue(ImageLoader.embeddedThumbnailFits(width: 40, height: 30, image: (40, 30), maxPixelSize: 64),
+                      "A small image's own size is enough")
+        XCTAssertFalse(ImageLoader.embeddedThumbnailFits(width: 64, height: 36, image: photo, maxPixelSize: 64),
+                       "16:9 thumbnail of a 4:3 image (the uncropped photo)")
+        XCTAssertFalse(ImageLoader.embeddedThumbnailFits(width: 0, height: 0, image: photo, maxPixelSize: 64))
     }
 
     func testSmallThumbnailStillComesBackAtTheAskedSize() throws {
         let url = dir.appendingPathComponent("photo.jpg")
         try TestImages.write(photo(width: 1200, height: 800), to: url, type: .jpeg)
-        let thumb = try XCTUnwrap(ImageLoader.thumbnail(of: url, maxPixelSize: 64))
-        XCTAssertEqual(max(thumb.width, thumb.height), 64)
+        for allowEmbedded in [false, true] {
+            let thumb = try XCTUnwrap(ImageLoader.thumbnail(of: url, maxPixelSize: 64, allowEmbedded: allowEmbedded))
+            XCTAssertEqual(max(thumb.width, thumb.height), 64)
+        }
     }
 
     func testDownsampleNotUsedForConditionResolvedCrop() throws {

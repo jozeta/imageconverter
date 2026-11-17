@@ -228,7 +228,7 @@ extension AppModel {
 
     nonisolated private static func makeThumbnail(_ url: URL) -> CGImage? {
         // Core's decode limits decide first, like every other reader.
-        ImageLoader.thumbnail(of: url, maxPixelSize: thumbnailPixels)
+        ImageLoader.thumbnail(of: url, maxPixelSize: thumbnailPixels, allowEmbedded: true)
     }
 }
 

@@ -8,18 +8,35 @@ final class ItemAddsTests: XCTestCase {
 
     func testAddManyFilesIsOneUpdate() {
         var adds = ItemAdds()
-        var updates = 0
-        var list = items(3) { didSet { updates += 1 } }
+        let existing = items(3)
         let token = adds.begin()
         XCTAssertTrue(adds.isAdding)
-        // 5000 found, the first 3 already listed.
-        let outcome = adds.finish(token, found: items(5000), existing: list, running: false)
-        guard case .replace(let merged) = outcome else { return XCTFail("\(outcome)") }
-        list = merged
-        XCTAssertEqual(updates, 1, "One change to the list, not one per file")
-        XCTAssertEqual(list.count, 5000)
-        XCTAssertEqual(list.prefix(3).map(\.source), items(3).map(\.source), "Existing items stay first")
+        // 5000 found, the first 3 already listed: one new list, existing first, no duplicates.
+        let found = ItemAdds.prepare(items(5000), against: existing)
+        XCTAssertEqual(found.new.count, 4997)
+        guard case .replace(let merged) = adds.finish(token, found: found, existing: existing, running: false) else {
+            return XCTFail("Expected one replacement")
+        }
+        XCTAssertEqual(merged.map(\.source), items(5000).map(\.source))
         XCTAssertFalse(adds.isAdding)
+    }
+
+    func testAddingListedFilesLeavesTheListAlone() {
+        var adds = ItemAdds()
+        let existing = items(4)
+        let token = adds.begin()
+        let found = ItemAdds.prepare(items(4), against: existing)
+        XCTAssertEqual(adds.finish(token, found: found, existing: existing, running: false), .unchanged)
+        XCTAssertFalse(adds.isAdding)
+    }
+
+    func testListChangedDuringScanIsMergedAgainstTheCurrentList() {
+        var adds = ItemAdds()
+        let token = adds.begin()
+        let found = ItemAdds.prepare(items(3), against: [])
+        // Another add listed item 0 meanwhile: it isn't added twice.
+        let now = Array(items(1))
+        XCTAssertEqual(adds.finish(token, found: found, existing: now, running: false), .replace(items(3)))
     }
 
     func testClearCancelsPendingAdd() {
@@ -27,27 +44,30 @@ final class ItemAddsTests: XCTestCase {
         let token = adds.begin()
         adds.clear()
         XCTAssertFalse(adds.isAdding, "Clear ends the add at once")
-        XCTAssertEqual(adds.finish(token, found: items(10), existing: [], running: false), .dropped)
+        let found = ItemAdds.prepare(items(10), against: [])
+        XCTAssertEqual(adds.finish(token, found: found, existing: [], running: false), .dropped)
         XCTAssertFalse(adds.isAdding)
         // A new add after the Clear works as usual.
         let next = adds.begin()
-        XCTAssertEqual(adds.finish(next, found: items(2), existing: [], running: false), .replace(items(2)))
+        XCTAssertEqual(adds.finish(next, found: ItemAdds.prepare(items(2), against: []), existing: [], running: false),
+                       .replace(items(2)))
     }
 
     func testAddDuringRunIsQueued() {
         var adds = ItemAdds()
         let token = adds.begin()
-        XCTAssertEqual(adds.finish(token, found: items(4), existing: items(1), running: true), .queued(4))
+        let found = ItemAdds.prepare(items(4), against: items(1))
+        XCTAssertEqual(adds.finish(token, found: found, existing: items(1), running: true), .queued(4))
         XCTAssertFalse(adds.isAdding)
         XCTAssertTrue(adds.hasQueued)
         // After the run: appended once, without the duplicate.
-        let after = adds.takeQueued(existing: items(1))
-        XCTAssertEqual(after, ItemAdds.Merge(items: items(4), added: 3))
+        XCTAssertEqual(adds.takeQueued(existing: items(1)), ItemAdds.Merge(items: items(4), added: 3))
         XCTAssertFalse(adds.hasQueued)
         XCTAssertNil(adds.takeQueued(existing: items(4)))
         // A Clear drops what waits for the run's end too.
         let again = adds.begin()
-        _ = adds.finish(again, found: items(2, folder: "/tmp/other"), existing: [], running: true)
+        _ = adds.finish(again, found: ItemAdds.prepare(items(2, folder: "/tmp/other"), against: []), existing: [],
+                        running: true)
         adds.clear()
         XCTAssertNil(adds.takeQueued(existing: []))
     }

@@ -301,13 +301,14 @@ final class AppModel {
                                      presetName: presetName, startedAt: runInfo.started)
         if let finished = runReport { recordRun(finished) }
         progress = nil
+        // Before the missing-file check, so queued files that went away during the run are dropped with the rest.
+        addQueuedItems()
         dropMissingItems()
         let prefix = report.cancelled ? "Cancelled. " : ""
         // Failed files or failed extra outputs make it a warning.
         let (summary, hasProblems) = RunCountsText.runSummary(report)
         toasts.show("\(prefix)\(summary)", type: hasProblems ? .bad : (report.cancelled ? .info : .ok))
         runAfterRunAction(report, summary: summary)
-        addQueuedItems()
     }
 }
 
@@ -373,12 +374,16 @@ extension AppModel {
         guard !urls.isEmpty, !isRunning else { return }
         if userChosen { AccessStore.shared.noteAdded(urls) }
         let token = adds.begin()
+        let listed = items
         Task { [weak self] in
-            let found = await Task.detached(priority: .userInitiated) { InputCollector.collect(urls) }.value
+            // The scan and the files' keys (a stat each) off the main actor, against the list as it is now.
+            let found = await Task.detached(priority: .userInitiated) {
+                ItemAdds.prepare(InputCollector.collect(urls), against: listed)
+            }.value
             guard let self else { return }
             switch self.adds.finish(token, found: found, existing: self.items, running: self.isRunning) {
             case .replace(let merged): self.items = merged
-            case .dropped, .queued: break
+            case .unchanged, .dropped, .queued: break
             }
         }
     }
