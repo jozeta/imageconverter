@@ -25,6 +25,8 @@ public struct PreviewResult: @unchecked Sendable {
     public var extraOutputNames: [String] = []
     /// Set when the Metadata step generates alt text: what `PreviewRenderer.altText(for:)` asks the model about.
     public var altTextRequest: AltTextRequest?
+    /// "Block size raised to keep 1 area unreadable": a Redact step's old fixed pixel size was drawn larger.
+    public var redactSizeNote: String?
     /// The histograms of the shown `before`/`after` images; set by the app after each render (off the main actor).
     public var beforeHistogram: ImageHistogram?
     public var afterHistogram: ImageHistogram?
@@ -188,11 +190,12 @@ public actor PreviewRenderer {
         }
         if Task.isCancelled { return cancelled }
         let result: CGImage
+        var notes: [String] = []
         do {
             // Synchronous and not interruptible; cancellation is only seen before and after it.
             let context = pipeline.watermarkTextContext(source: item.source, properties: properties)
             let focus = caches.context(for: item.source, detector: detector, enlarger: enlarger)
-            result = try pipeline.apply(to: source, assets: assets, textContext: context, focus: focus)
+            result = try pipeline.apply(to: source, assets: assets, textContext: context, focus: focus, notes: &notes)
         } catch let error as ConversionError {
             return .failed(reason: error.reason)
         } catch {
@@ -212,6 +215,7 @@ public actor PreviewRenderer {
             outputURL: destination, sourceFileSize: fileSize, disposition: .process, statusNote: resolved.statusNote)
         ready.extraOutputNames = extraOutputNames(for: item, index: index, resolved: resolved, primary: destination)
         ready.altTextRequest = altTextRequest(for: item, pipeline: pipeline, result: result)
+        ready.redactSizeNote = notes.first(where: RedactOptions.isRaisedNote)
         return .ready(ready)
     }
 

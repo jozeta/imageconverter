@@ -10,6 +10,8 @@ struct AdjustSliderControl: NSViewRepresentable {
     var resetValue: Double = 0
     /// Fill the track from this value to the knob (a centred, bipolar slider); `nil` fills from the left.
     var fillOrigin: Double?
+    /// Whole-number stops shown as tick marks the knob snaps to (keys move one stop); `nil`: a plain slider.
+    var stops: Int?
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -19,6 +21,10 @@ struct AdjustSliderControl: NSViewRepresentable {
         slider.isContinuous = true
         slider.resetValue = resetValue
         slider.fillOrigin = fillOrigin
+        if let stops {
+            slider.numberOfTickMarks = stops
+            slider.allowsTickMarkValuesOnly = true
+        }
         slider.setContentHuggingPriority(.defaultLow, for: .horizontal)
         slider.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return slider

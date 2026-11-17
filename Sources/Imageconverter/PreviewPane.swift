@@ -112,6 +112,12 @@ struct PreviewPane: View {
         HStack(spacing: LadaGlass.Spacing.s) {
             Text("Preview").font(LadaGlass.Typography.subtitle)
             conditionChips
+            if model.previewFailure == nil, let note = model.previewResult?.redactSizeNote {
+                LGChip(note, status: .warn)
+                    .lineLimit(1)
+                    .help("\(note). The Redact step was saved with a size in pixels; move its slider to switch to "
+                          + "Blocks across or Strength.")
+            }
             if let percent = model.zoom.percent {
                 LGChip("\(percent) %", status: .neutral)
                     .accessibilityLabel("Zoom \(percent) percent")

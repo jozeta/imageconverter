@@ -1047,13 +1047,15 @@ versions read a Subject or Faces crop as a centred one.
    **Fill colour** (always fully opaque). A new step blurs faces; as soon as **Hide** includes text it switches to
    Solid colour (unless you chose another style). For text, use Solid colour: blur and pixelation can sometimes be
    reversed (by rendering guesses in the same font and comparing), especially for short text such as number plates.
-   With Pixelate, **Block size** is **Auto** (the default: a third of each box's shorter side, so every box gets
-   about three blocks) or **Fixed** 4–256 px; with Blur, **Strength** is **Auto** (a radius of a third of the box's
-   shorter side) or **Fixed** radius 2–200 px. Fixed sizes are pixels of the image as it reaches the step (after any
-   Resize before it); a Fixed choice starts at 16 px blocks or a 20 px radius. **Small sizes are raised where needed
-   so text and faces stay unreadable**: each box gets at least 8 px and a fifth of its shorter side (4 px blocks or a
-   2 px blur left 40 px text readable to Vision), and the report says so once per image ("Block size raised to keep
-   3 areas unreadable"). Steps saved before this version stay Auto.
+   With Pixelate, **Blocks across** sets how many blocks span each area's shorter side: **Coarse** (2) to **Fine**
+   (5); with Blur, **Strength** sets the blur radius as a share of each area's shorter side: **Light** (1/5) to
+   **Strong** (1/2). Both are relative to each area, so every slider position changes the result, on a 12 MP and a
+   48 MP photo alike. **Auto** (the default, 3: a third of the shorter side) is the middle position; double-click the
+   slider to go back to it. The finest setting (5) is the safety floor: blocks or a radius smaller than a fifth of
+   an area's shorter side (or 8 px) left 40 px text readable to Vision, so nothing goes below it. Steps saved before
+   1.5 with a size in pixels keep drawing that size (raised to the same floor where needed; the report and the
+   preview header say so: "Block size raised to keep 3 areas unreadable"); the editor shows "Saved as 16 px; move
+   the slider to switch", and the first move switches the step to the relative setting.
 4. **Padding** grows each box on every side by that percentage of its own width and height, so hair, chins and the
    edges of letters are covered too. Even at 0 % every box keeps a small safety margin (12 % of its shorter side, at
    least 2 px), because Vision's boxes can be tighter than the letters, especially on macOS 15.
@@ -1090,8 +1092,8 @@ paragraph, text on gradients and busy backgrounds, at the edges, and small text 
 |--------|---------|---------|
 | Hide | Faces · Text · Faces and text | Faces |
 | Style | Blur · Pixelate · Solid colour | Blur for faces; Solid colour when text is included |
-| Block size | Auto · Fixed 4…256 px, with Pixelate | Auto (a third of each box's shorter side) |
-| Strength | Auto · Fixed radius 2…200 px, with Blur | Auto (a third of each box's shorter side) |
+| Blocks across | Coarse 2 · 3 · 4 · Fine 5 blocks across each area's shorter side, with Pixelate | Auto (3) |
+| Strength | Light 1/5 · 1/4 · 1/3 · Strong 1/2 of each area's shorter side as blur radius, with Blur | Auto (1/3) |
 | Fill colour | any colour (opaque), with Solid colour | black |
 | Padding | 0…100 % of each box's size, per side (never less than a 12 %-of-the-shorter-side, 2 px minimum margin) | 15 % |
 

@@ -32,15 +32,7 @@ struct RedactEditor: View {
                     }), supportsOpacity: false)
                     .accessibilityLabel("Fill colour")
             }
-            if options.style == .pixelate {
-                RedactSizeRow(title: "Block size", value: $options.fixedBlockSize,
-                              range: RedactOptions.blockSizeRange, start: RedactOptions.defaultFixedBlockSize,
-                              autoHelp: "Auto: a third of each box's shorter side, so every box gets about three blocks.")
-            } else if options.style == .blur {
-                RedactSizeRow(title: "Strength", value: $options.fixedBlurRadius,
-                              range: RedactOptions.blurRadiusRange, start: RedactOptions.defaultFixedBlurRadius,
-                              autoHelp: "Auto: a blur radius of a third of each box's shorter side.")
-            }
+            if options.style != .fill { RedactSizeRow(options: $options) }
             HStack(spacing: LadaGlass.Spacing.s) {
                 Text("Padding").font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
                     .frame(width: 72, alignment: .leading)
@@ -67,50 +59,85 @@ struct RedactEditor: View {
     }
 }
 
-/// Auto or a fixed number of pixels (of the image as it arrives at the step) for Pixelate's blocks or Blur's radius.
+/// Pixelate's "Blocks across" (Coarse 2 … Fine 5) or Blur's "Strength" (Light 5 … Strong 2): parts of each area's
+/// shorter side, so every position changes the result on any image size. Double-click: Auto (3). A step saved with
+/// a pixel size keeps it until the slider is moved.
 private struct RedactSizeRow: View {
-    let title: String
-    @Binding var value: Double?
-    let range: ClosedRange<Double>
-    let start: Double
-    let autoHelp: String
+    @Binding var options: RedactOptions
+
+    private var pixelate: Bool { options.style == .pixelate }
+    private var title: String { pixelate ? "Blocks across" : "Strength" }
+    /// Pixelate: the slider is N (Coarse 2 on the left). Blur: Light (N = 5) on the left, so the position is 7 − N.
+    private func position(_ across: Int) -> Int {
+        pixelate ? across : RedactOptions.acrossRange.lowerBound + RedactOptions.acrossRange.upperBound - across
+    }
+
+    private var isAuto: Bool {
+        options.legacyPixels == nil && (pixelate ? options.clampedBlocksAcross : options.clampedBlurAcross) == nil
+    }
+
+    private var valueText: String {
+        if let pixels = options.legacyPixels { return "\(Int(pixels)) px" }
+        return isAuto ? "Auto" : "\(options.across)"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
             HStack(spacing: LadaGlass.Spacing.s) {
+                // "Blocks across" wraps onto two lines rather than being cut in the 72 pt label column.
                 Text(title).font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(width: 72, alignment: .leading)
                     .accessibilityHidden(true)
-                Picker(title, selection: Binding(get: { value != nil },
-                                                 set: { value = $0 ? (value ?? start) : nil })) {
-                    Text("Auto").tag(false)
-                    Text("Fixed").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .accessibilityLabel(title)
+                Text(pixelate ? "Coarse" : "Light").font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
+                    .accessibilityHidden(true)
+                AdjustSliderControl(
+                    value: Binding(get: { Double(position(options.across)) },
+                                   set: { options = options.withAcross(position(Int($0.rounded()))) }),
+                    range: Double(RedactOptions.acrossRange.lowerBound)...Double(RedactOptions.acrossRange.upperBound),
+                    resetValue: Double(position(RedactOptions.autoAcross)),
+                    stops: RedactOptions.acrossRange.count)
+                    .accessibilityLabel(title)
+                    .accessibilityValue(accessibilityValue)
+                Text(pixelate ? "Fine" : "Strong").font(LadaGlass.Typography.label)
+                    .foregroundStyle(LadaGlass.Colors.muted)
+                    .accessibilityHidden(true)
+                Text(valueText).font(LadaGlass.Typography.mono)
+                    .foregroundStyle(LadaGlass.Colors.text)
+                    .frame(width: 52, alignment: .trailing)
+                    .accessibilityHidden(true)
             }
-            if let fixed = value {
-                HStack(spacing: LadaGlass.Spacing.s) {
-                    Spacer().frame(width: 72)
-                    Slider(value: Binding(get: { min(max(fixed, range.lowerBound), range.upperBound) },
-                                          set: { value = $0.rounded() }), in: range)
-                        .accessibilityLabel("\(title) in pixels")
-                        .accessibilityValue("\(Int(fixed)) pixels")
-                    Text("\(Int(fixed)) px").font(LadaGlass.Typography.mono)
-                        .foregroundStyle(LadaGlass.Colors.text)
-                        .frame(width: 52, alignment: .trailing)
-                        .accessibilityHidden(true)
-                }
-                Text("In pixels of the image as it reaches this step. "
-                     + "Small sizes are raised where needed so text and faces stay unreadable.")
-                    .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text(autoHelp)
-                    .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            .help(help)
+            Text(note)
+                .font(LadaGlass.Typography.label).foregroundStyle(LadaGlass.Colors.muted)
+                .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    private var accessibilityValue: String {
+        if let pixels = options.legacyPixels { return "Saved as \(Int(pixels)) pixels" }
+        let across = options.across
+        let parts = [2: "half", 3: "third", 4: "quarter", 5: "fifth"][across] ?? "\(across)th"
+        let value = pixelate ? "\(across) blocks across" : "radius one \(parts) of each area"
+        return (isAuto ? "Auto, " : "") + value
+    }
+
+    private var note: String {
+        if let pixels = options.legacyPixels { return "Saved as \(Int(pixels)) px; move the slider to switch." }
+        return isAuto
+            ? (pixelate ? "Auto: about three blocks across each area's shorter side."
+                        : "Auto: a blur radius of a third of each area's shorter side.")
+            : (pixelate ? "\(options.across) blocks across each area's shorter side."
+                        : "A blur radius of 1/\(options.across) of each area's shorter side.")
+    }
+
+    private var help: String {
+        pixelate
+            ? "How many blocks span each hidden area's shorter side: 2 (coarse) to 5 (fine). Never finer than 5, "
+                + "so faces and text stay unreadable. Double-click for Auto (3)."
+            : "How strongly each hidden area is blurred: a radius of 1/5 (light) to 1/2 (strong) of its shorter side. "
+                + "Never lighter than 1/5, so faces and text stay unreadable. Double-click for Auto (1/3)."
     }
 }
