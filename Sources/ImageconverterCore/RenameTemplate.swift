@@ -242,7 +242,8 @@ public struct RenameTemplate: Equatable, Sendable {
     /// The parts joined, each token value sanitised and separators next to empty values dropped.
     private func joined(_ context: RenameContext) -> String {
         var out = ""
-        var lastIsLiteral = false
+        // How many characters at the end of `out` came from literal text (only those may be dropped).
+        var literalTail = 0
         var dropNextSeparator = false
         for part in parts {
             switch part {
@@ -252,20 +253,22 @@ public struct RenameTemplate: Equatable, Sendable {
                 }
                 dropNextSeparator = false
                 out += text
-                lastIsLiteral = !text.isEmpty || lastIsLiteral
+                literalTail += text.count
             case let .token(name, arg, raw):
                 let value = Self.isKnown(name, context)
                     ? Self.sanitize(Self.value(of: name, arg: arg, context: context)) : raw
                 if value.isEmpty {
-                    if lastIsLiteral, let last = out.last, Self.separators.contains(last) {
+                    if literalTail > 0, let last = out.last, Self.separators.contains(last) {
                         out.removeLast()
-                    } else {
+                        literalTail -= 1
+                    } else if out.isEmpty {
+                        // Nothing before it to separate from: drop the separator after it instead.
                         dropNextSeparator = true
                     }
                 } else {
                     dropNextSeparator = false
                     out += value
-                    lastIsLiteral = false
+                    literalTail = 0
                 }
             }
         }

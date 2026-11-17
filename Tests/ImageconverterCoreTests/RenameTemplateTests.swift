@@ -99,6 +99,15 @@ final class RenameTemplateTests: XCTestCase {
         XCTAssertEqual(RenameTemplate("{make}{camera}-{name}").render(context()), "IMG_1")
     }
 
+    func testTwoEmptyTokensKeepOneSeparator() {
+        let ctx = context(date: Date(timeIntervalSince1970: 0), counter: 7)
+        XCTAssertEqual(RenameTemplate("{date}_{camera}{lens}_{counter:00}").render(ctx), "1970-01-01_07")
+        XCTAssertEqual(RenameTemplate("{date}{camera}_{counter}").render(ctx), "1970-01-01_7")
+        XCTAssertEqual(RenameTemplate("{camera}_{counter}").render(ctx), "7")
+        XCTAssertEqual(RenameTemplate("{camera}{lens}_{counter}").render(ctx), "7")
+        XCTAssertEqual(RenameTemplate("{date}_{camera}_{counter:00}").render(ctx), "1970-01-01_07")
+    }
+
     func testEmptyResultFallsBackToName() {
         XCTAssertEqual(RenameTemplate("{lens}").render(context()), "IMG_1")
     }

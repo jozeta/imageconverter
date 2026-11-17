@@ -900,6 +900,8 @@ metadata settings (left out when off; older files load with both off).
 3. The line under the pattern shows an example from the first image in the batch (or a sample
    photo when the batch is empty), such as `Example: 2026-11-13_iPhone 15 Pro_001.jpg`. An
    unknown token like `{foo}` is flagged with a warning and kept as written (`:` still becomes `-`).
+   A token with no value for an image (no camera, no lens) is left out with one separator next to it:
+   `{date}_{camera}{lens}_{counter:00}` gives `2026-11-13_07`, `{camera}_{name}` gives `IMG_0001`.
 4. Set **Counter starts at** if numbering should not begin at 1, and **Step** to count in steps other than 1
    (10, 20, 30 … with start 10 and step 10). The counter follows input order; images a condition skips take no
    number. A negative step counts down and stops at 0.
@@ -1234,7 +1236,8 @@ especially). Nothing about your images leaves the Mac.
    **+ Add condition** adds one; the trash button removes one (a step always keeps at least one). Everything is read
    from the file's header (the XMP packet and the frame count only when a check needs them), so checks stay quick on
    large batches.
-3. Fill **Then** and **Else** with **+ Add** (up to 20 actions each). The menu is grouped:
+3. Fill **Then** and **Else** with **+ Add** (up to 20 actions each; conditions can't be nested: a file with a
+   condition inside a branch loads without it and says so). The menu is grouped:
    - **Steps**: any image step (Resize, Crop, Watermark, …), or **Apply a saved preset…**: pick a preset; its switched-on
      image steps run at this point, its output settings (and its Metadata and Rename settings when they are on) apply
      to this image, its own conditions are not used. If the preset is deleted later, nothing is applied and the report

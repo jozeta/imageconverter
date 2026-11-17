@@ -328,6 +328,8 @@ extension MetadataOverrides {
                   ["gps", "latitude", "longitude", "altitude"].contains(where: name.lowercased().contains) else { continue }
             CGImageMetadataRemoveTagWithPath(xmp, nil, "\(prefix):\(name)" as CFString)
         }
+        // And location structures holding coordinates (IPTC Extension LocationCreated/LocationShown).
+        MetadataOps.removeTagsHoldingGPS(from: xmp)
     }
 }
 

@@ -109,13 +109,46 @@ extension MetadataOps {
         return ["gps", "latitude", "longitude", "altitude"].contains { lower.contains($0) }
     }
 
+    /// The top-level XMP tags ("prefix:name") whose struct or array value holds a GPS coordinate, e.g. IPTC
+    /// Extension's LocationCreated/LocationShown with exif:GPSLatitude inside (Lightroom, Photo Mechanic).
+    static func pathsHoldingGPS(in meta: CGImageMetadata?) -> [String] {
+        guard let meta, let tags = CGImageMetadataCopyTags(meta) as? [CGImageMetadataTag] else { return [] }
+        return tags.compactMap { tag in
+            guard let prefix = CGImageMetadataTagCopyPrefix(tag) as String?,
+                  let name = CGImageMetadataTagCopyName(tag) as String?, holdsGPS(tag) else { return nil }
+            return "\(prefix):\(name)"
+        }.sorted()
+    }
+
+    /// Removes every top-level tag `pathsHoldingGPS` finds.
+    static func removeTagsHoldingGPS(from meta: CGMutableImageMetadata) {
+        for path in pathsHoldingGPS(in: meta) { CGImageMetadataRemoveTagWithPath(meta, nil, path as CFString) }
+    }
+
+    /// Whether a struct or array value has a GPS field at any depth (at most 8 levels: the XMP is untrusted).
+    private static func holdsGPS(_ tag: CGImageMetadataTag, depth: Int = 0) -> Bool {
+        guard depth < 8 else { return false }
+        switch CGImageMetadataTagCopyValue(tag) {
+        case let items as [CGImageMetadataTag]:
+            return items.contains { holdsGPS($0, depth: depth + 1) }
+        case let fields as [String: CGImageMetadataTag]:
+            return fields.contains { isGPSName($0.key) || holdsGPS($0.value, depth: depth + 1) }
+        default:
+            return false
+        }
+    }
+
     private static func strip(_ options: MetadataOptions, in meta: CGMutableImageMetadata) {
         switch options.location {
         case .keep: break
-        case .remove: removeTags(in: meta) { _, path, name in locationPaths.contains(path) || isGPSName(name) }
+        case .remove:
+            removeTags(in: meta) { _, path, name in locationPaths.contains(path) || isGPSName(name) }
+            removeTagsHoldingGPS(from: meta)
         case .set:
             let places = options.removePlaceNames
             removeTags(in: meta) { _, path, name in isGPSName(name) || places && locationPaths.contains(path) }
+            // The old coordinates inside a location structure go too (its place names with them).
+            removeTagsHoldingGPS(from: meta)
         }
         if options.removeCamera {
             removeTags(in: meta) { namespace, path, name in isCameraTag(namespace: namespace, path: path, name: name) }
@@ -171,9 +204,17 @@ extension MetadataOps {
             let present = CGImageMetadataCopyTagMatchingImageProperty(
                 meta, kCGImagePropertyIPTCDictionary, key as CFString) != nil
             guard !(unchanged && present) else { continue }
+            // Values from the source file's IPTC: no XML-illegal characters in the XMP.
             CGImageMetadataSetValueMatchingImageProperty(meta, kCGImagePropertyIPTCDictionary, key as CFString,
-                                                         value as CFTypeRef)
+                                                         xmlSafe(value) as CFTypeRef)
         }
+    }
+
+    /// A text or list-of-text IPTC value without XML-illegal characters; other values as they are.
+    private static func xmlSafe(_ value: Any) -> Any {
+        if let text = value as? String { return MetadataFields.xmlSafe(text) }
+        if let list = value as? [Any] { return list.map { ($0 as? String).map(MetadataFields.xmlSafe) ?? $0 } }
+        return value
     }
 
     /// ImageIO's IPTC twins (and simple values in source files) are plain text; XMP wants a language
