@@ -91,7 +91,7 @@ public struct OutputTarget: Equatable, Sendable {
 }
 
 /// An output's name as `<name><suffix>[_n]<ext>`, with `name` shortened (by characters) so the whole name stays
-/// within `maxNameBytes` in UTF-8.
+/// within `maxNameLength` (`OutputPlanner.nameLength`: NFD UTF-16 units, as APFS counts).
 public struct OutputNaming: Equatable, Sendable {
     public let name: String
     public let suffix: String
@@ -111,14 +111,14 @@ public struct OutputNaming: Equatable, Sendable {
                   dotExtension: ext.isEmpty ? "" : ".\(ext)")
     }
 
-    /// APFS and HFS+ allow 255 bytes per name.
-    public static let maxNameBytes = 255
+    /// APFS allows 255 UTF-16 units of the decomposed name.
+    public static let maxNameLength = 255
 
     /// The name with number `number` (1: no number), fitted to the limit. At least the name's first character is
     /// kept, so the suffix never leads the name (or makes a hidden file).
     public func fileName(_ number: Int) -> String {
         let tail = (number == 1 ? suffix : "\(suffix)_\(number)") + dotExtension
-        let fitted = OutputPlanner.fitted(name, suffix: tail, limit: Self.maxNameBytes)
+        let fitted = OutputPlanner.fitted(name, suffix: tail, limit: Self.maxNameLength)
         return (fitted.isEmpty ? String(name.prefix(1)) : fitted) + tail
     }
 }
@@ -274,13 +274,13 @@ public enum OutputPlanner {
         })
     }
 
-    /// The longest same-folder suffix kept, in UTF-8 bytes.
-    static let maxSuffixBytes = 64
+    /// The longest same-folder suffix kept, as `nameLength` counts it.
+    static let maxSuffixLength = 64
 
-    /// `sanitized(suffix)` cut (by characters) to `maxSuffixBytes`.
+    /// `sanitized(suffix)` cut (by characters) to `maxSuffixLength`.
     static func cappedSuffix(_ suffix: String) -> String {
         var clean = sanitized(suffix)
-        while clean.utf8.count > maxSuffixBytes { clean.removeLast() }
+        while nameLength(clean) > maxSuffixLength { clean.removeLast() }
         return clean
     }
 

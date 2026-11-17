@@ -94,14 +94,17 @@ extension OutputPlanner {
         return (plans, failures)
     }
 
-    /// `name` shortened (by characters) so `name + suffix` stays within `limit` UTF-8 bytes, counted precomposed
-    /// (NFC), as the file system's name limit is: names read from URLs come decomposed, which would count "é" as 3.
+    /// `name` shortened (by characters) so `name + suffix` stays within `limit` as `nameLength` counts it.
     static func fitted(_ name: String, suffix: String, limit: Int = RenameTemplate.maxBytes) -> String {
         var name = name
-        let suffixBytes = suffix.precomposedStringWithCanonicalMapping.utf8.count
-        while !name.isEmpty, name.precomposedStringWithCanonicalMapping.utf8.count + suffixBytes > limit {
-            name.removeLast()
-        }
+        let suffixLength = nameLength(suffix)
+        while !name.isEmpty, nameLength(name) + suffixLength > limit { name.removeLast() }
         return name
+    }
+
+    /// A name's length as APFS limits it (255): UTF-16 units of the decomposed (NFD) form, which is what
+    /// Foundation's file system representation hands the system. So "é" counts 2, "ǘ" (U+01D8) 3, an emoji 2.
+    static func nameLength(_ name: String) -> Int {
+        name.decomposedStringWithCanonicalMapping.utf16.count
     }
 }

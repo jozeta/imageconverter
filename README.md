@@ -205,7 +205,7 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
   into place only if nothing has its name, so two runs at once into one folder (a manual run next to a job, several
   Shortcuts actions, the command line) or a file another app saves meanwhile is never replaced: the new file takes the
   next free `_2`, `_3`, … and the report, Finder tags and "When finished" name the file really written; in overwrite
-  mode the original goes to the Trash only after that file is in place. Names longer than the 255-byte limit (a
+  mode the original goes to the Trash only after that file is in place. Names longer than the 255-character limit (a
   long source name plus the suffix, `_2` or a longer extension) are shortened at the end of the name instead of failing.
 - **Updates**: Check Now in About imageconverter (and, if you allow it, a check at every launch) finds a newer
   GitHub release; **Install and Relaunch** downloads it, checks its checksum, Developer ID signature and
