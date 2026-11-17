@@ -72,9 +72,16 @@ final class RedactBlockSizeTests: XCTestCase {
         built.fixedBlockSize = 16
         built.fixedBlurRadius = 20
         XCTAssertEqual(old, built)
+        // Drawn as 208 px blocks, not 16 px: one block from the patch's bottom-left corner (Core Image's origin) is one
+        // colour, the next block along differs.
         let (image, rect) = Self.photo()
-        XCTAssertEqual(try Self.pixels(of: ImageOps.redact(image, old, rects: [rect]), in: rect),
-                       try Self.pixels(of: ImageOps.redact(image, built, rects: [rect]), in: rect))
+        let out = try ImageOps.redact(image, old, rects: [rect])
+        let (left, bottom) = (Int(rect.minX), Int(rect.maxY) - 1)
+        let corner = TestImages.pixel(of: out, x: left + 10, y: bottom - 10)
+        let sameBlock = TestImages.pixel(of: out, x: left + 198, y: bottom - 198)
+        let nextBlock = TestImages.pixel(of: out, x: left + 218, y: bottom - 10)
+        XCTAssertEqual([corner.red, corner.green, corner.blue], [sameBlock.red, sameBlock.green, sameBlock.blue])
+        XCTAssertNotEqual([corner.red, corner.green, corner.blue], [nextBlock.red, nextBlock.green, nextBlock.blue])
         let encoded = try XCTUnwrap(String(data: JSONEncoder().encode(old), encoding: .utf8))
         XCTAssertTrue(encoded.contains(#""blockSize":16"#), encoded)
         XCTAssertFalse(encoded.contains("Across"), encoded)

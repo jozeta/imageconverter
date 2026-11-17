@@ -78,7 +78,8 @@ private struct RedactSizeRow: View {
 
     private var valueText: String {
         if let pixels = options.legacyPixels { return "\(Int(pixels)) px" }
-        return isAuto ? "Auto" : "\(options.across)"
+        if isAuto { return "Auto" }
+        return pixelate ? "\(options.across)" : "1/\(options.across)"
     }
 
     var body: some View {

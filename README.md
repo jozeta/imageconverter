@@ -1050,8 +1050,8 @@ versions read a Subject or Faces crop as a centred one.
    With Pixelate, **Blocks across** sets how many blocks span each area's shorter side: **Coarse** (2) to **Fine**
    (5); with Blur, **Strength** sets the blur radius as a share of each area's shorter side: **Light** (1/5) to
    **Strong** (1/2). Both are relative to each area, so every slider position changes the result, on a 12 MP and a
-   48 MP photo alike. **Auto** (the default, 3: a third of the shorter side) is the middle position; double-click the
-   slider to go back to it. The finest setting (5) is the safety floor: blocks or a radius smaller than a fifth of
+   48 MP photo alike. **Auto** (the default: 3 blocks across, or a blur radius of 1/3 of the shorter side) is the
+   second stop from Coarse and Strong; double-click the slider to go back to it. The finest setting (5) is the safety floor: blocks or a radius smaller than a fifth of
    an area's shorter side (or 8 px) left 40 px text readable to Vision, so nothing goes below it. Steps saved before
    1.5 with a size in pixels keep drawing that size (raised to the same floor where needed; the report and the
    preview header say so: "Block size raised to keep 3 areas unreadable"); the editor shows "Saved as 16 px; move
