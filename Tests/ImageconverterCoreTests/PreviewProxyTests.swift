@@ -11,7 +11,7 @@ final class PreviewProxyTests: XCTestCase {
     override func setUpWithError() throws { dir = try TestImages.tempDir().resolvingSymlinksInPath() }
     override func tearDownWithError() throws { try? FileManager.default.removeItem(at: dir) }
 
-    private func item(_ name: String = "a.png", width: Int = 1000, height: Int = 800) throws -> InputItem {
+    fileprivate func item(_ name: String = "a.png", width: Int = 1000, height: Int = 800) throws -> InputItem {
         let url = dir.appendingPathComponent(name)
         try TestImages.write(TestImages.noise(width: width, height: height), to: url, type: name.hasSuffix(".jpg") ? .jpeg : .png)
         return InputItem(source: url, relativeDirectory: "")
@@ -256,18 +256,6 @@ final class PreviewProxyTests: XCTestCase {
         XCTAssertEqual(try written.resourceValues(forKeys: [.fileSizeKey]).fileSize, estimate.bytes)
     }
 
-    func testConcurrentPreviewAndEstimateShareOneDecode() async throws {
-        let source = try item()
-        let renderer = PreviewRenderer(displayMax: 200)
-        let caches = renderer.caches
-        let plain = pipeline(.adjust(adjust))
-        async let preview = renderer.render(item: source, index: 0, pipeline: plain)
-        async let estimate = Task.detached { try SizeEstimator.render(item: source, pipeline: plain, caches: caches) }.value
-        _ = await preview
-        _ = try await estimate
-        XCTAssertEqual(caches.sources.decodeCount, 1)
-    }
-
     func testSourceCacheFollowsTheFileAndPurge() async throws {
         let source = try item()
         let renderer = PreviewRenderer(displayMax: 200)
@@ -279,6 +267,50 @@ final class PreviewProxyTests: XCTestCase {
         let estimate = try SizeEstimator.render(item: source, pipeline: Pipeline(), caches: renderer.caches)
         XCTAssertEqual(estimate.original?.width, 320)
         XCTAssertEqual(renderer.caches.sources.decodeCount, 3)
+    }
+}
+
+extension PreviewProxyTests {
+    func testLocalToneAdjustmentsGetNoProxy() {
+        var shadows = AdjustOptions()
+        shadows.shadows = 30
+        var lowHighlights = AdjustOptions()
+        lowHighlights.highlights = -30
+        var highHighlights = AdjustOptions()
+        highHighlights.highlights = 30
+        let make = { (options: AdjustOptions) in Pipeline(steps: [PipelineStep(operation: .adjust(options))]) }
+        XCTAssertFalse(make(shadows).isScaleInvariant, "CIHighlightShadowAdjust works on a pixel neighbourhood")
+        XCTAssertFalse(make(lowHighlights).isScaleInvariant)
+        XCTAssertTrue(make(highHighlights).isScaleInvariant, "Highlights above 0 is a tone curve")
+    }
+
+    func testConcurrentPreviewAndEstimateShareOneDecode() async throws {
+        let source = try item()
+        let renderer = PreviewRenderer(displayMax: 200)
+        let caches = renderer.caches
+        var options = AdjustOptions()
+        options.exposure = 20
+        let plain = Pipeline(steps: [PipelineStep(operation: .adjust(options))], output: .init(format: .png))
+        // Hold the first decode until the second caller is waiting for it, so the two really overlap.
+        let started = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        caches.sources.willDecode = {
+            started.signal()
+            release.wait()
+        }
+        let preview = Task.detached { await renderer.render(item: source, index: 0, pipeline: plain) }
+        started.wait()
+        let estimate = Task.detached { try SizeEstimator.render(item: source, pipeline: plain, caches: caches) }
+        let deadline = Date().addingTimeInterval(5)
+        while caches.sources.waiterCount == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        XCTAssertEqual(caches.sources.waiterCount, 1, "The estimate waits for the preview's decode in progress")
+        // Twice, so a regression that decodes again fails here instead of hanging.
+        release.signal()
+        release.signal()
+        guard case .ready = await preview.value else { return XCTFail("The preview failed") }
+        let shared = try await estimate.value
+        XCTAssertEqual(caches.sources.decodeCount, 1)
+        XCTAssertEqual(shared.original?.width, 1000)
     }
 }
 

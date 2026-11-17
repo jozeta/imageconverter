@@ -567,7 +567,7 @@ unsandboxed.
    file size, the estimated output size (for the selected image, once it is known) and, after a run,
    whether it was written, skipped or failed.
 3. Edit a step: the preview updates 300 ms after your last change, and shows a spinner meanwhile.
-   When every step looks the same on a smaller copy (Adjust without Sharpen or Noise reduction, Color
+   When every step looks the same on a smaller copy (Adjust without Sharpen, Noise reduction, Shadows or negative Highlights, Color
    without Reduce colours, 90° turns and flips, Resize by percentage, edge or fit), a quick preview
    made from a display-size copy shows at once, also while you drag a slider, with "Refining…" in the
    header; the full-size result replaces it 300 ms after the last change and is exactly what the batch

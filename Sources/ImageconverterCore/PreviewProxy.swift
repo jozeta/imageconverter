@@ -91,7 +91,8 @@ public enum PreviewProxy {
 
 extension Pipeline {
     /// True when every enabled image step looks the same on a smaller copy of the image, so a preview proxy is a fair
-    /// stand-in: Adjust without sharpening or noise reduction (soften and definition scale with the image), Color
+    /// stand-in: Adjust without sharpening, noise reduction, negative Highlights or Shadows (soften and definition
+    /// scale with the image), Color
     /// without colour reduction, 90° turns and flips without an angle, and resizes by percentage, fit or edge (not to an
     /// exact size, not nearest neighbour, not ML enlarge). Crop, Canvas, Perspective, Trim, Watermark, Redact and
     /// conditions work in pixels or on content, so they never get a proxy. Metadata and Rename don't touch pixels.
@@ -100,7 +101,10 @@ extension Pipeline {
             guard step.isEnabled else { return true }
             switch step.operation {
             case .adjust(let options):
-                return options.sharpness <= 0 && options.noiseReduction == 0
+                // Highlights below 0 and Shadows use CIHighlightShadowAdjust, a local tone operator whose
+                // neighbourhood is in pixels.
+                return options.sharpness <= 0 && options.noiseReduction == 0 && options.highlights >= 0
+                    && options.shadows == 0
             case .colorProfile(let options):
                 return !options.reduce.isEnabled
             case .rotateFlip(let options):

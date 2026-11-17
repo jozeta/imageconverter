@@ -22,6 +22,9 @@ public final class SourceCache: @unchecked Sendable {
     private var entry: (key: Key, loaded: LoadedImage)?
     private var flights: [String: (key: Key, flight: Flight)] = [:]
     private var decodes = 0
+    private var waiting = 0
+    /// Called on the decoding thread just before a decode starts (tests hold a decode to make callers overlap).
+    var willDecode: (@Sendable () -> Void)?
 
     public init() {}
 
@@ -30,6 +33,13 @@ public final class SourceCache: @unchecked Sendable {
         condition.lock()
         defer { condition.unlock() }
         return decodes
+    }
+
+    /// How many callers are waiting for a decode in progress (for tests).
+    var waiterCount: Int {
+        condition.lock()
+        defer { condition.unlock() }
+        return waiting
     }
 
     /// The full-size upright decode of `url` with its properties and metadata view, from the cache, from a decode
@@ -42,7 +52,10 @@ public final class SourceCache: @unchecked Sendable {
             return entry.loaded
         }
         if let running = flights[url.path], running.key == key {
+            // This blocks the caller's (cooperative pool) thread for at most the one decode it would otherwise do.
+            waiting += 1
             while running.flight.result == nil { condition.wait() }
+            waiting -= 1
             let shared = running.flight.result
             condition.unlock()
             guard let shared else { throw ConversionError.unreadable }
@@ -53,7 +66,9 @@ public final class SourceCache: @unchecked Sendable {
         let flight = Flight()
         flights[url.path] = (key, flight)
         decodes += 1
+        let hook = willDecode
         condition.unlock()
+        hook?()
 
         let result = Result { try ImageLoader.load(url, maxPixels: maxPixels, includeMetadata: true) }
         condition.lock()
