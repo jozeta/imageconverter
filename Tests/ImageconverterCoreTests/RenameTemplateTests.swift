@@ -108,6 +108,12 @@ final class RenameTemplateTests: XCTestCase {
         XCTAssertEqual(RenameTemplate("{date}_{camera}_{counter:00}").render(ctx), "1970-01-01_07")
     }
 
+    func testEmptyTokenAfterLiteralKeepsTheFollowingSeparator() {
+        // Text before an empty token is something to separate from: the separator after the token stays.
+        let ctx = context(counter: 7)
+        XCTAssertEqual(RenameTemplate("IMG{camera}_{counter}").render(ctx), "IMG_7")
+    }
+
     func testEmptyResultFallsBackToName() {
         XCTAssertEqual(RenameTemplate("{lens}").render(context()), "IMG_1")
     }

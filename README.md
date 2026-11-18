@@ -901,7 +901,8 @@ metadata settings (left out when off; older files load with both off).
    photo when the batch is empty), such as `Example: 2026-11-13_iPhone 15 Pro_001.jpg`. An
    unknown token like `{foo}` is flagged with a warning and kept as written (`:` still becomes `-`).
    A token with no value for an image (no camera, no lens) is left out with one separator next to it:
-   `{date}_{camera}{lens}_{counter:00}` gives `2026-11-13_07`, `{camera}_{name}` gives `IMG_0001`.
+   `{date}_{camera}{lens}_{counter:00}` gives `2026-11-13_07`, `{camera}_{name}` gives `IMG_0001` and
+   `IMG{camera}_{counter}` gives `IMG_7`.
 4. Set **Counter starts at** if numbering should not begin at 1, and **Step** to count in steps other than 1
    (10, 20, 30 … with start 10 and step 10). The counter follows input order; images a condition skips take no
    number. A negative step counts down and stops at 0.

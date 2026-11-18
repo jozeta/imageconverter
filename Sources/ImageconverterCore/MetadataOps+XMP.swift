@@ -104,7 +104,7 @@ extension MetadataOps {
             || (keep.contains(.cameraInfo) && isCameraTag(namespace: namespace, path: path, name: name))
     }
 
-    private static func isGPSName(_ name: String) -> Bool {
+    static func isGPSName(_ name: String) -> Bool {
         let lower = name.lowercased()
         return ["gps", "latitude", "longitude", "altitude"].contains { lower.contains($0) }
     }

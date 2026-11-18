@@ -127,8 +127,28 @@ final class UntrustedInputFixTests: XCTestCase {
             XCTAssertFalse(written.contains("GPSLatitude") || written.contains("59,20.0N") || written.contains("57,42.0N"),
                            "\(format)")
             XCTAssertNil(PrivacyScanner.scan(written.url).findings.first { $0.kind == .location }, "\(format)")
+            for path in ["Iptc4xmpExt:LocationCreated", "Iptc4xmpExt:LocationShown"] {
+                XCTAssertNil(written.meta.flatMap { CGImageMetadataCopyTagWithPath($0, nil, path as CFString) },
+                             "\(format) \(path)")
+            }
             XCTAssertEqual(written.xmp("dc:title[x-default]"), "KEEPTITLE", "\(format)")
         }
+    }
+
+    func testSetLocationRemovesWholeXMPLocationStructures() async throws {
+        let url = try locationStructPhoto(shown: true)
+        var options = MetadataOptions(isEnabled: true, removeLocation: false)
+        options.location = .set(latitude: -33.5, longitude: 151.25, altitude: nil)
+        XCTAssertFalse(options.removePlaceNames, "place names are not asked to be removed")
+        let written = try await MetadataTestSupport.convert(url, options: options, root: root)
+        let meta = try XCTUnwrap(written.meta)
+        XCTAssertNil(CGImageMetadataCopyTagWithPath(meta, nil, "Iptc4xmpExt:LocationCreated" as CFString))
+        XCTAssertNil(CGImageMetadataCopyTagWithPath(meta, nil, "Iptc4xmpExt:LocationShown" as CFString))
+        // The structures' place names went with them; the new position is written.
+        XCTAssertFalse(written.contains("59,20.0N") || written.contains("57,42.0N") || written.contains("Stockholm"))
+        let gps = try XCTUnwrap(written.sub(kCGImagePropertyGPSDictionary))
+        XCTAssertEqual(gps[kCGImagePropertyGPSLatitudeRef as String] as? String, "S")
+        XCTAssertEqual(written.xmp("dc:title[x-default]"), "KEEPTITLE")
     }
 
     // MARK: XML-illegal characters
@@ -180,5 +200,24 @@ final class UntrustedInputFixTests: XCTestCase {
         XCTAssertEqual(string(mirrored, "dc:title[x-default]"), "srcname")
         XCTAssertEqual(string(mirrored, "photoshop:City"), "Stockholm")
         XCTAssertEqual(string(mirrored, "dc:creator[0]"), "Ann")
+    }
+
+    func testControlCharactersStrippedFromMirroredIPTC() throws {
+        XCTAssertEqual(MetadataFields.xmlSafe("a\u{01}b\u{08}c\u{0B}d\u{1F}e\tf\ng\rh"), "abcde\tf\ng\rh")
+        let iptc: [String: Any] = [
+            kCGImagePropertyIPTCObjectName as String: "src\u{01}na\u{1B}me",
+            kCGImagePropertyIPTCKeywords as String: ["k\u{07}1", "k2"],
+        ]
+        var plain = MetadataOptions(isEnabled: true, removeLocation: false)
+        plain.artist = "Ann"
+        let mirrored = try reparsedXMP(MetadataOps.output(
+            plain, properties: [kCGImagePropertyIPTCDictionary as String: iptc], metadata: nil))
+        XCTAssertNotNil(mirrored, "the XMP packet must parse")
+        XCTAssertEqual(string(mirrored, "dc:title[x-default]"), "srcname")
+        XCTAssertEqual(string(mirrored, "dc:creator[0]"), "Ann")
+        let keywords = try XCTUnwrap(mirrored.flatMap { CGImageMetadataCopyTagWithPath($0, nil, "dc:subject" as CFString) })
+        let values = (CGImageMetadataTagCopyValue(keywords) as? [CGImageMetadataTag] ?? [])
+            .compactMap { CGImageMetadataTagCopyValue($0) as? String }
+        XCTAssertEqual(Set(values), ["k1", "k2"])
     }
 }
