@@ -4,6 +4,7 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- **The Output heading and its "+" stay in view** (bug fix): with more outputs than the Output panel's height holds, scrolling the cards took the "Output" heading and the "+" (Add output) out of view. The heading now stays at the top of the panel and only the cards and When finished scroll.
 - **No other image's result while Redact looks for faces and text** (bug fix): choosing another image with a Redact step kept the previous image's before and after on screen for the seconds detection takes. Once detection starts for a different image, the old result goes and the preview shows the spinner and "Finding faces and text…" until the new one is ready. Core `PreviewTiming.keepsShown`.
 - **A transparent image previewed as JPEG shows white, as it is written** (bug fix): the After side kept the checkerboard for a transparent PNG converted to a format without transparency (JPEG, BMP), although the file is flattened onto white. The preview (exact and quick) now flattens it the same way, onto white or Perspective's fill colour, so the histogram measures it too. Core `Pipeline.asWritten`.
 
