@@ -94,7 +94,7 @@ swiftlint           # if installed (brew install swiftlint)
     expects; SHA-256 check for quick feedback),
     `UpdateInstaller.swift` (`prepare` before downloading: refusals incl. no bundle/no installer service, translocated/read-only location;
     `install`: running re-check, then one XPC call to the installer service; `cleanUp` after an interrupted update;
-    relaunch as a new instance then terminate), `UpdateController.swift` (`@Observable` state, the
+    relaunch as a new instance, then `quitForRelaunch`: closes every attached sheet first (AppKit refuses to quit with a sheet up), then terminates; DEBUG `-debugQuitForRelaunch` runs that step 3 s after launch), `UpdateController.swift` (`@Observable` state, the
     `updateCheckOnLaunch` answer, launch check once from the main window's onAppear, Check Now, install, Later);
     `UpdateViews.swift` (About section, offer sheet with plain-text notes, first-launch question, `updateSheets` held
     back while the interrupted-batch sheet shows). `GeometryEditors.swift` (Rotate/flip, Perspective, Trim editors; Crop and Canvas are in `StepEditors.swift`), `ColorEditor.swift` (the Color step: Profile, Re-color, Reduce colours), `FocusPicker.swift` (Focus: Position/Subject/Faces, used by Crop and Resize fill),
@@ -271,7 +271,7 @@ old). UI must stay responsive (no sideways scrolling at 375 px) and keyboard acc
   sanitizer, never `innerHTML`; no `eval`; no third-party requests (self-host libraries in `vendor/`).
 - Keep CI (`.github/workflows/ci.yml`) green; record user-visible changes under "Unreleased" in
   `CHANGELOG.md`.
-- Version 1.5.1 (in `VERSION`). Show it in the app (an About page, `--version` or a footer, read
+- Version 1.5.2 (in `VERSION`). Show it in the app (an About page, `--version` or a footer, read
   from that file). Bump it on every push that changes the app (patch: fixes, minor: features, major:
   breaking changes), and in the same commit move "Unreleased" under the new version and update the
   README's version and "What's new".

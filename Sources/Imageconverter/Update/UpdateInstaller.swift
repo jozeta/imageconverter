@@ -100,9 +100,30 @@ enum UpdateInstaller {
                 if let message {
                     onFailure("The update is installed, but it could not be opened (\(message)). Quit and open imageconverter again.")
                 } else {
-                    NSApp.terminate(nil)
+                    quitForRelaunch(onRefused: onFailure)
                 }
             }
+        }
+    }
+
+    /// Quits this instance once the new one is open. AppKit refuses to quit while a window has a sheet attached ("App
+    /// termination blocked by modal sheet"), and the update sheet is still up, so every sheet is closed first.
+    /// `terminate` returns only when quitting was refused anyway; then the sheet says so instead of staying on
+    /// "Installing…".
+    static func quitForRelaunch(onRefused: @MainActor (String) -> Void) {
+        closeSheets()
+        NSApp.terminate(nil)
+        onRefused("The update is installed and the new version is open, but this copy could not quit. "
+            + "Quit it to finish.")
+    }
+
+    /// Ends every attached sheet, nested ones included (a sheet's own sheet is a window in `NSApp.windows` too).
+    /// Bounded, in case a sheet doesn't go away when ended.
+    private static func closeSheets() {
+        for _ in 0..<4 {
+            let attached = NSApp.windows.compactMap { window in window.attachedSheet.map { (window, $0) } }
+            if attached.isEmpty { return }
+            for (window, sheet) in attached { window.endSheet(sheet) }
         }
     }
 }
