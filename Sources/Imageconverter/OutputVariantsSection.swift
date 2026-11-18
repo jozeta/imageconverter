@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 import ImageconverterCore
 
-/// The Output panel's extra outputs (Johan, round 3): each one is a full output panel of its own (format,
-/// compression, size, name suffix and its own Save to), collapsible like a step, with a remove button. The "+" that
-/// adds one sits at the top right of the Output panel (`AddOutputButton`).
+/// The Output panel's extra outputs (Johan, round 3), the cards under "Output 1" (`MainOutputCard`): each one is a
+/// full output panel of its own (format, compression, size, name suffix and its own Save to), collapsible like a
+/// step, with a remove button. The "+" that adds one sits at the top right of the Output panel (`AddOutputButton`).
 struct OutputVariantsSection: View {
     @Bindable var model: AppModel
 

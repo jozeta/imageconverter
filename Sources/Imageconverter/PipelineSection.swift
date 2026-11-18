@@ -292,9 +292,10 @@ struct PipelineHeader: View {
     }
 }
 
-/// The fixed Output panel under the steps: format and compression (the ⓘ right of the format shows every output's
-/// size estimate), where to save, every extra output as a panel of its own, and When finished (for the whole run).
-/// The "+" at the top right adds an output.
+/// The fixed Output panel under the steps (Johan, 2026-11-17): the "Output" heading with the "+" that adds an output,
+/// then every output as a card of its own: "Output 1" (the main output: format and compression, the ⓘ with every
+/// output's size estimate, Save to), then the extra outputs ("Output 2", "Output 3", …), and When finished (for the
+/// whole run) under the cards.
 struct OutputPanel: View {
     @Bindable var model: AppModel
     var settings: AppSettings
@@ -307,11 +308,7 @@ struct OutputPanel: View {
                 Spacer(minLength: 0)
                 AddOutputButton(model: model)
             }
-            OutputFormatControls(output: $model.pipeline.output) {
-                EstimateInfoButton(model: model)
-            }
-            .disabled(model.isRunning)
-            saveToControls
+            MainOutputCard(model: model, settings: settings)
             OutputVariantsSection(model: model)
             afterRunControls
         }
@@ -319,14 +316,6 @@ struct OutputPanel: View {
         .padding(.vertical, LadaGlass.Spacing.s)
         .frame(maxWidth: .infinity, alignment: .leading)
         // The surface is drawn by `CollapsibleOutputPanel`, around its scroll view, so a shorter panel keeps its edge.
-    }
-
-    // MARK: Save to
-
-    private var saveToControls: some View {
-        @Bindable var settings = settings
-        return SaveToControl(kind: $settings.modeKind, folder: $settings.outputFolder, suffix: $settings.sameFolderSuffix)
-            .disabled(model.isRunning)
     }
 
     // MARK: When finished

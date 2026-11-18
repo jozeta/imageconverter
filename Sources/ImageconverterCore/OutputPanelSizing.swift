@@ -99,6 +99,13 @@ public enum OutputSummary {
         if extraOutputs > 0 { parts.append("+\(extraOutputs) \(extraOutputs == 1 ? "output" : "outputs")") }
         return parts.joined(separator: " · ")
     }
+
+    /// The "Output 1" card's line under its title: format · quality · Save to (the extra outputs have cards of
+    /// their own).
+    public static func cardLine(_ output: OutputSettings, saveTo: OutputModeKind, folderName: String?,
+                                suffix: String) -> String {
+        line(output, saveTo: saveTo, folderName: folderName, suffix: suffix)
+    }
 }
 
 /// Defaults of the app's view settings that Core can state (and test).

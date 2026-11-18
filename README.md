@@ -226,7 +226,7 @@ Generated with `scripts/screenshots.sh` from synthetic sample images (nothing pe
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/adjust.png" alt="Adjust step" width="400"><br>The Adjust step: light and colour sliders, with the preview updating live</td>
-    <td width="50%"><img src="docs/screenshots/output-target-size.png" alt="Output with a target size" width="400"><br>The Output row set to a target size: the quality is chosen to fit the size</td>
+    <td width="50%"><img src="docs/screenshots/output-target-size.png" alt="Output with a target size" width="400"><br>The Output 1 card set to a target size: the quality is chosen to fit the size</td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/outputs.png" alt="Output panel with two extra outputs" width="400"><br>Two extra outputs, each with its own format and Save to; the ⓘ box lists every output's size</td>
@@ -324,13 +324,13 @@ build has no Shortcuts actions. `swift build`, `swift run` and `swift test` are 
 
 ## Configuration
 
-The output settings are in the Output row of the sidebar (there is no Settings window). The pipeline itself (steps and output format) is edited in the sidebar and saved automatically (UserDefaults key `currentPipeline`); if it cannot be read at launch you start with an empty pipeline and the default output.
+The output settings are in the Output panel of the sidebar (the Output 1 card) (there is no Settings window). The pipeline itself (steps and output format) is edited in the sidebar and saved automatically (UserDefaults key `currentPipeline`); if it cannot be read at launch you start with an empty pipeline and the default output.
 
 | Setting | Options | Default |
 |---------|---------|---------|
-| Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
+| Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output 1 card). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
 | When finished | Nothing · Reveal in Finder · Notify me · Reveal and notify (the "When finished" dropdown under Save to). Applies to every run of the main window, including runs started from Finder Services, AppleScript and links; jobs have their own notifications. Reveal selects the written files in Finder (up to 50; with more it opens their folders). Notify posts "Run finished" with the counts and space saved, only when imageconverter is not the frontmost app. The first time you pick a notify choice macOS asks for permission; if notifications are off, a note says where to turn them on. Not stored in presets | Nothing |
-| Extra outputs | Up to 8 more files per image, added with the **+** at the top right of the Output panel; each is an output panel of its own. Each has a name (its label in the report; new ones are *Output 2*, *Output 3*, …, starting from the main output's settings), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case, also between outputs in different folders; `/` and `:` become `-`), a **Save to** (*Beside the main output* (default), *Same folder as original*, *Subfolder next to original* with a folder name, or *New folder* with a chosen folder; never overwrite) and an optional **subfolder** (rename tokens allowed, under the main output's folder or the chosen folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
+| Extra outputs | Up to 8 more files per image, added with the **+** at the top right of the Output panel; each is a card of its own under the **Output 1** card. Each has a name (its label in the report; new ones are *Output 2*, *Output 3*, …, starting from the main output's settings), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case, also between outputs in different folders; `/` and `:` become `-`), a **Save to** (*Beside the main output* (default), *Same folder as original*, *Subfolder next to original* with a folder name, or *New folder* with a chosen folder; never overwrite) and an optional **subfolder** (rename tokens allowed, under the main output's folder or the chosen folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Check for updates when the app starts | Checkbox in About imageconverter. Set by the question at the first launch (**Yes** / **No**); until you answer, nothing goes online. UserDefaults key `updateCheckOnLaunch` (absent until answered). See [Updates](#updates) | off until answered |
 | Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
@@ -515,6 +515,7 @@ Presets and preview:
 | Show preview | View → Hide Preview / Show Preview (⌥⌘P); UserDefaults key `previewCollapsed` | shown |
 | Pipeline collapsed | The handle on the pipeline's edge or View → Collapse Pipeline (⌥⌘L); key `pipelineCollapsed` | expanded |
 | Output collapsed | Click the handle above the Output panel or View → Collapse Output (⌥⌘U); collapsed it shows one line (format · quality · where files go), and clicking that line opens it again; key `outputCollapsed` | expanded |
+| Output 1 card open | Click the **Output 1** card's title or chevron; closed it shows one line (format · quality · Save to); key `mainOutputExpanded` | open |
 | Output height | Drag the handle above the Output panel (or focus it and press ↑ / ↓) between its one-line height and its full content; a shorter panel scrolls, and the steps above give way; key `outputHeight` | full content |
 | Compare mode | The Compare control in the preview header or View → Side by side / Split / Difference / Single (⌘1…⌘4); key `compareMode`. The first launch of version 1.4 switches it to Split once (also when you chose another mode before; key `compareModeDefaultSplitApplied`); a mode you choose after that is kept | Split |
 | Split position | Where the split divider sits (2…98 % of the width); key `compareSplitPosition` | 50 % |
@@ -628,8 +629,10 @@ unsandboxed.
 3. Reorder by dragging the handle, or with the keyboard: the right-click menu has
    **Move Up**, **Move Down** and **Remove**.
 4. Switch a step off with its toggle to skip it without losing its settings; it is dimmed.
-5. Steps run top to bottom on every image. The **Output** row is always last: format, quality and
-   where files go. The handle on the pipeline's bottom edge (or ⌥⌘L) hides the whole list.
+5. Steps run top to bottom on every image. The **Output** panel is always last: under its heading every output is a
+   card, starting with **Output 1** (format, quality and where files go; its line under the title reads
+   "JPEG · 82 % · Converted" when it is closed), then any extra outputs as **Output 2**, **Output 3**, …
+   Click a card's title or chevron (or focus the chevron and press Space) to open or close it. The handle on the pipeline's bottom edge (or ⌥⌘L) hides the whole list.
 6. The handle above **Output** collapses it to one line ("JPEG · 82 % · Converted") with a click, or ⌥⌘U.
    Drag it up or down to give Output any height between that line and its full content (it scrolls when
    shorter; within 20 pt of the line it collapses). While you drag, the window keeps its height and the steps
@@ -645,7 +648,7 @@ Your pipeline is kept between launches.
    imageconverter**), or press **Add…** (⌘O). Folders are searched
    recursively. File types macOS can't read (for example SVG or PDF) are ignored when you add
    them; broken files of a readable type are skipped during the run and listed at the end.
-2. Under **Output** (the last row of the pipeline), pick a format (JPEG, PNG, HEIC, TIFF, plus GIF, BMP, JPEG 2000 and AVIF where your
+2. Under **Output** (the last panel of the pipeline), in the **Output 1** card, pick a format (JPEG, PNG, HEIC, TIFF, plus GIF, BMP, JPEG 2000 and AVIF where your
    Mac can write them). JPEG, HEIC, JPEG 2000 and AVIF have a **Compression** choice: *Quality* (the slider, 0–100 %),
    *Target size* (the highest quality that fits a size you type, in KB or MB, 1 KB = 1000 bytes), *Maximum size* (the slider's quality, lowered
    only as far as needed; files that can't fit are skipped) or *Smart* (the lowest quality that still looks the same, up to 95 %). JPEG has a
@@ -665,8 +668,8 @@ One run can write more than one file for every image, for example the full-size 
 web-sized HEIC:
 
 1. Set up the pipeline and the main output as usual.
-2. Press **+** at the top right of the Output panel (VoiceOver: "Add output"). A new output panel appears under the
-   main one, named *Output 2* with the main output's format and compression, the same size and the suffix `_out2`.
+2. Press **+** at the top right of the Output panel (VoiceOver: "Add output"). A new output card appears under the
+   **Output 1** card, named *Output 2* with the main output's format and compression, the same size and the suffix `_out2`.
    It has the same controls as the main output: name, format, compression (quality, target or maximum size, Smart),
    Progressive / Optimise PNG, a size (*Same as main output*, longest edge, max width or height, percentage), the
    name suffix and its own **Save to**:

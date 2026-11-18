@@ -65,7 +65,7 @@ swiftlint           # if installed (brew install swiftlint)
     `EdgeHandle.swift` (grab handles on the panel edges), `OutputPanelHandle.swift` (`CollapsibleOutputPanel`: the Output
     panel's top-edge handle; click collapses to the `OutputSummary` line, drag sets `outputHeight` while
     `WindowSizer.pinHeight`/`releaseHeight` keep the window height; `OutputPanelState` (`model.outputPanel`) persists
-    `outputCollapsed`/`outputHeight`). DEBUG: `-debugTogglePipelineEvery <s>`, `-debugStepCycle <s>`,
+    `outputCollapsed`/`outputHeight`/`mainOutputExpanded`). DEBUG: `-debugTogglePipelineEvery <s>`, `-debugStepCycle <s>`,
     `-debugWindowHeight <pt>`.
     `RunMonitor.swift` (live stages via an ordered event stream, `RunMetrics`, 1 s `ResourceSampler` while running),
     `RunStatusViews.swift` (progress area, Performance panel, thumbnail `StageRing`, interrupted-run sheet),
@@ -99,8 +99,11 @@ swiftlint           # if installed (brew install swiftlint)
     `UpdateViews.swift` (About section, offer sheet with plain-text notes, first-launch question, `updateSheets` held
     back while the interrupted-batch sheet shows). `GeometryEditors.swift` (Rotate/flip, Perspective, Trim editors; Crop and Canvas are in `StepEditors.swift`), `ColorEditor.swift` (the Color step: Profile, Re-color, Reduce colours), `FocusPicker.swift` (Focus: Position/Subject/Faces, used by Crop and Resize fill),
     `OutputRow.swift` (`OutputFormatControls`: format, quality and compression controls, an `accessory` right of the
-    format picker), `OutputVariantsSection.swift` (round 3: every extra output is a full output panel under the main
-    one's Save to: collapsible `VariantPanel` with name, format controls, size, suffix and `VariantSaveToControl`
+    format picker), `MainOutputCard.swift` (the main output as the "Output 1" `AccordionCard`
+    (Johan, 2026-11-17): format controls with the ⓘ and Save to, summary `OutputSummary.cardLine`, no remove/name/size/
+    suffix; the Output panel (`OutputPanel` in `PipelineSection.swift`) is the "Output" heading with the "+", then the
+    cards, then When finished), `OutputVariantsSection.swift` (round 3: every extra output is a card under "Output 1",
+    default names from `OutputVariant.defaultName` starting at "Output 2": collapsible `VariantPanel` with name, format controls, size, suffix and `VariantSaveToControl`
     (beside main / same folder / subfolder next to original / new folder, never overwrite; a chosen folder is
     `AccessStore.remember`ed); `AddOutputButton`, the "+" at the top right of the Output panel; open panels in
     `model.outputPanel.expandedVariants`), `EstimateInfoButton.swift` (the ⓘ right of the main format picker: a

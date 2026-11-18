@@ -170,6 +170,13 @@ public enum OutputDestination: Codable, Equatable, Sendable {
 }
 
 extension OutputVariant {
+    /// The main output's card title (Johan, 2026-11-17): every output is a card under the Output heading, the main
+    /// one first, so an added output's default name starts at "Output 2".
+    public static let mainOutputName = defaultName(1)
+
+    /// "Output N", the default name of the N-th output card.
+    public static func defaultName(_ number: Int) -> String { "Output \(number)" }
+
     /// The output "+" adds: a copy of the main output's settings (format, compression, quality and the rest; the
     /// same size), named "Output N" after the main output and the ones already there, with a suffix no other output
     /// uses (`_out2`, `_out3`, …), saved beside the main output until another Save to is chosen.
@@ -178,9 +185,9 @@ extension OutputVariant {
         let suffixes = Set(existing.map { $0.cleanSuffix.lowercased() })
         let first = existing.count + 2
         let number = (first...(first + maxCount + 1)).first {
-            !names.contains("output \($0)") && !suffixes.contains("_out\($0)")
+            !names.contains(defaultName($0).lowercased()) && !suffixes.contains("_out\($0)")
         } ?? first
-        return OutputVariant(name: "Output \(number)", settings: main, resize: nil, nameSuffix: "_out\(number)")
+        return OutputVariant(name: defaultName(number), settings: main, resize: nil, nameSuffix: "_out\(number)")
     }
 
     public static let noFolderProblem = "Choose a folder for this output"
