@@ -8,7 +8,7 @@ on your Mac: no uploads, and no network access except the optional update check 
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 1.4.0 · **Status:** released — signed and notarized, sandboxed, works offline (only the optional update check and download, and Apple's enlargement model if you choose to download it, go online).
+**Version:** 1.5.0 · **Status:** released — signed and notarized, sandboxed, works offline (only the optional update check and download, and Apple's enlargement model if you choose to download it, go online).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -30,6 +30,15 @@ Started 2026-11-13. The full design is in
 </table>
 
 ## What's new
+
+### 1.5.0 (2026-11-18)
+
+- **Histogram and clipping**: a chart button in the preview header (View ▸ Show Histogram, ⌥⌘G) shows the RGB and luminance histogram of the Original or the Result; View ▸ Show Clipping (⌥⌘J) marks clipped highlights red and crushed shadows blue.
+- **Output cards**: every output is now a card under the Output heading: **Output 1**, then **Output 2**, **Output 3**, … all with the same look.
+- **Redact**: the size sliders now work on every photo (**Blocks across**, Coarse to Fine, and Blur **Strength**, relative to each area), text on transparent images is found, and previews with Redact load much faster.
+- **Faster**: clicking another image shows a quick preview at once ("Refining…") and then the exact one; faster downsampled JPEG decodes, HEIC thumbnails and adding large folders.
+- **Never lose files**: runs at the same time into one folder can no longer replace each other's files (also on exFAT cards), and very long names are shortened instead of failing.
+- **Fixes** from a full bug check: fresh privacy, estimate, metadata and thumbnails after an Overwrite originals run; GPS inside XMP location structures is found and removed; Shortcuts actions run one at a time; clean quits; nested conditions in a file can no longer crash the app; command-line `SIGTERM`/`SIGHUP`, `--` and quoted `--variant` values. See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 ### 1.4.0 (2026-11-16)
 
