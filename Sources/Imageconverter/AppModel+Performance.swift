@@ -115,9 +115,11 @@ extension AppModel {
     /// In the sandbox the batch's folders and loose files are opened again through the journal's bookmarks (the
     /// sandbox forgets them on quit); for any image still unreadable its folder is asked for before the plan is
     /// made, and images in a folder the user doesn't allow are reported as "couldn't open", never dropped silently.
+    /// The interrupted batch stays (`interruptedRun`, so other runs still ask before replacing it) until its run has
+    /// started; a refused start keeps it and says why (Core `ResumeStart`).
     func resumeInterruptedRun() {
         guard let journal = interruptedRun, !isRunning else { return }
-        interruptedRun = nil
+        showsInterruptedRun = false
         let existing = items
         let regained = journal.regainAccess()
         _ = AccessStore.shared.holdForSession(regained.access)
@@ -143,6 +145,8 @@ extension AppModel {
     }
 
     private func apply(_ plan: ResumePlan) {
+        // Discarded meanwhile (another run's question, or Run): nothing to resume.
+        guard interruptedRun != nil else { return }
         items.append(contentsOf: plan.toAdd)
         if !plan.missing.isEmpty {
             let names = plan.missing.map(\.lastPathComponent).sorted()
@@ -167,16 +171,32 @@ extension AppModel {
         }
         switch plan.problem {
         case .nothingLeft:
-            RunJournal.discard(at: AppDefaults.journalURL)
+            discardInterruptedRun()
         case .outputFolderMissing(let folder):
             // Without its folder the batch can't run as it was: the images and pipeline are set up for a new Run.
-            RunJournal.discard(at: AppDefaults.journalURL)
+            discardInterruptedRun()
             session = PresetSession(selected: nil, pipeline: plan.pipeline)
             toasts.show("The folder \(folder.lastPathComponent) can't be found", type: .bad,
                         description: "The images and the batch's pipeline were added. Choose an output folder, then Run.")
         case nil:
-            Task { await startRun(plan.toRun, pipeline: plan.pipeline, mode: plan.mode, presetName: nil) }
+            Task { [weak self] in
+                guard let started = await self?.startRun(plan.toRun, pipeline: plan.pipeline, mode: plan.mode,
+                                                         presetName: nil) else { return }
+                self?.resumeDidStart(started)
+            }
         }
+    }
+
+    /// A refused or busy start keeps the interrupted batch (journal and question) and says why.
+    /// Started: `startRun` replaced it with this run's journal. Not started: it's still there, unless the user
+    /// discarded it meanwhile (another run's question), and then there's nothing to say.
+    private func resumeDidStart(_ started: RunStart) {
+        let outcome = ResumeStart.after(started)
+        guard outcome.keepsInterruptedRun, interruptedRun != nil else { return }
+        if let title = outcome.toastTitle {
+            toasts.show(title, type: .bad, description: outcome.toastDescription)
+        }
+        if outcome.asksAgain, !isRunning { showsInterruptedRun = true }
     }
 
     #if DEBUG

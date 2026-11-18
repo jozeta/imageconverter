@@ -66,7 +66,7 @@ final class JobsController {
     /// Follow-up scans for files that were still being written (see `retryWaiting`).
     @ObservationIgnored var waitRetries: [UUID: Int] = [:]
     /// Shortcuts actions waiting for a job's run to end (see `runNowAndWait`).
-    @ObservationIgnored var runWaiters: [UUID: [RunWaiter]] = [:]
+    @ObservationIgnored var runWaiters = RunWaiterList<JobRunResult>()
     static let maxWaitRetries = 20
     @ObservationIgnored private var notices = JobNoticeCoalescer()
     @ObservationIgnored private var noticeFlushes: [UUID: Task<Void, Never>] = [:]
@@ -246,11 +246,13 @@ final class JobsController {
     var hasPendingWrites: Bool { pendingWrites > 0 }
 
     /// Quit was confirmed: nothing new starts, waiting runs are dropped, running ones are cancelled (they record
-    /// what they finished in the ledger and history before they end).
+    /// what they finished in the ledger and history before they end). Every Run Job action waiting is answered
+    /// "imageconverter is quitting." (a dropped run never reports back).
     func stopForQuit() {
         isQuitting = true
         jobs.forEach { disarm($0.id); coordinator.drop($0.id) }
         runTasks.values.forEach { $0.cancel() }
+        runWaiters.answerAllForQuit()
     }
 
     // MARK: Recording

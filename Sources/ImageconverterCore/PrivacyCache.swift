@@ -1,20 +1,15 @@
 import Foundation
 
-/// Privacy findings per file, read once per file version (URL, modification date and size) so adding images or
+/// Privacy findings per file, read once per file version (URL and `FileVersion`: identity, modification date and size) so adding images or
 /// changing the pipeline never rescans an unchanged file. Scans run on the actor, never on the main actor.
 public actor PrivacyCache {
     private struct Key: Hashable {
         let url: URL
-        let modified: Date?
-        let size: Int?
+        let version: FileVersion
 
         init(_ url: URL) {
-            // A fresh URL: a URL caches its resource values, which would hide a rewritten file.
-            let values = try? URL(fileURLWithPath: url.path)
-                .resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
             self.url = url
-            modified = values?.contentModificationDate
-            size = values?.fileSize
+            version = FileVersion(url)
         }
     }
 
@@ -25,12 +20,18 @@ public actor PrivacyCache {
     public init() {}
 
     public func findings(for url: URL) -> PrivacyFindings {
+        versionedFindings(for: url).findings
+    }
+
+    /// The findings and the file version they were read from (taken before the scan: a file rewritten during it
+    /// looks changed afterwards, never the reverse).
+    public func versionedFindings(for url: URL) -> (findings: PrivacyFindings, version: FileVersion) {
         let key = Key(url)
-        if let cached = entries[key] { return cached }
+        if let cached = entries[key] { return (cached, key.version) }
         let found = PrivacyScanner.scan(url)
         scanCount += 1
         entries[key] = found
-        return found
+        return (found, key.version)
     }
 
     public func removeAll() { entries = [:] }

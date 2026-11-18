@@ -6,7 +6,7 @@ import Foundation
 /// the size estimate and the quality ladder asking at once share one detection (`SharedDetections`).
 public final class FocusCache: @unchecked Sendable {
     public struct Key: Hashable, Sendable {
-        /// The source file's path, modification date and size.
+        /// The source file's path and version (`sourceKey`).
         let source: String
         let step: Int
         /// The enabled operations before the step, encoded: a change there changes the step's input.
@@ -43,12 +43,10 @@ public final class FocusCache: @unchecked Sendable {
         shared.value(for: key, detect: detect) ?? FocusOutcome(rect: nil)
     }
 
-    /// The version part of a key: path, modification date and size (a rewritten file changes them).
+    /// The version part of a key: path and `FileVersion` (identity, modification date and size; a rewritten file
+    /// changes them).
     public static func sourceKey(for url: URL) -> String {
-        let values = try? URL(fileURLWithPath: url.path)
-            .resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let date = values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
-        return "\(url.path)|\(date)|\(values?.fileSize ?? -1)"
+        "\(url.path)|\(FileVersion(url))"
     }
 }
 

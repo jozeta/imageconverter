@@ -84,6 +84,9 @@ final class AppModel {
     let monitor = RunMonitor()
     /// An unfinished batch found at launch (see `AppModel+Performance.swift`); the sheet shows while `shows…` is set.
     var interruptedRun: RunJournal?
+    /// Bumped after every run, so views keyed by a source file's version look again (the metadata panel; an
+    /// Overwrite originals run rewrites the file at the same URL).
+    var filesRevision = 0
     var showsInterruptedRun = false
 
     @ObservationIgnored var task: Task<Void, Never>?
@@ -304,6 +307,7 @@ final class AppModel {
         // Before the missing-file check, so queued files that went away during the run are dropped with the rest.
         addQueuedItems()
         dropMissingItems()
+        refreshRewrittenSources()
         let prefix = report.cancelled ? "Cancelled. " : ""
         // Failed files or failed extra outputs make it a warning.
         let (summary, hasProblems) = RunCountsText.runSummary(report)
@@ -312,14 +316,8 @@ final class AppModel {
     }
 }
 
-/// What `startRun` did.
-enum AppRunStart: Equatable {
-    case started
-    /// A run is already going (or there was nothing to run).
-    case busy
-    /// Sandbox: the user didn't allow a folder the run needs (a toast said so).
-    case noAccess
-}
+/// What `startRun` did (Core `RunStart`: started, busy, or no access to a folder the run needs).
+typealias AppRunStart = RunStart
 
 extension AppModel {
     func cancel() { task?.cancel() }

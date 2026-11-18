@@ -22,9 +22,11 @@ private struct EstimateOutcome: Sendable {
     let failure: String?
 }
 
-/// What an estimate depends on; an unchanged key needs no new computation.
+/// What an estimate depends on; an unchanged key needs no new computation. The file's version is part of it, so
+/// a source rewritten in place (Overwrite originals) is estimated again.
 struct EstimateKey: Equatable {
     let item: URL
+    let version: FileVersion
     let pipeline: Pipeline
 }
 
@@ -49,7 +51,8 @@ extension AppModel {
         let item = items[index]
         let pipeline = self.pipeline
         // The item's metadata panel changes are part of what the estimate depends on.
-        let key = EstimateKey(item: item.source, pipeline: pipeline.withMetadataOverrides(item.metadataOverrides))
+        let key = EstimateKey(item: item.source, version: FileVersion(item.source),
+                              pipeline: pipeline.withMetadataOverrides(item.metadataOverrides))
         if key == estimateKey { return }
         let delay = PreviewTiming.estimateDelay(selectionChanged: estimateKey?.item != key.item)
         let previous = estimateTask

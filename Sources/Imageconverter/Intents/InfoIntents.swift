@@ -21,11 +21,15 @@ struct RunJobIntent: AppIntent {
         let found: Job
         do { found = try ExternalRequests.job(named: job.id, in: jobs) } catch { throw IntentFailure(error) }
         let id = found.id
-        guard let result = await MainActor.run(body: { JobsController.shared }).runNowAndWait(id) else {
+        switch await MainActor.run(body: { JobsController.shared }).runNowAndWait(id) {
+        case .finished(let result):
+            return .result(value: Automation.jobSummary(of: result, job: found.name))
+        case .quitting:
+            throw IntentFailure(AutomationError.quitting)
+        case .didNotRun:
             let reason = await MainActor.run { JobsController.shared.job(id)?.disabledReason }
             throw IntentFailure("The job \(found.name) didn't run." + (reason.map { " \($0)" } ?? ""))
         }
-        return .result(value: Automation.jobSummary(of: result, job: found.name))
     }
 }
 

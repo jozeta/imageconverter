@@ -35,6 +35,9 @@ final class UpdateController {
     var showsLaunchQuestion = false
     /// Set by the app: whether a batch or a job is running (installing is refused then).
     @ObservationIgnored var isRunning: () -> Bool = { false }
+    /// Set while the installer service call runs (staging and swapping the app): quitting then only offers to wait
+    /// (`QuitCoordinator`, Core `QuitPolicy`).
+    @ObservationIgnored let installActivity = InstallActivity()
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -151,8 +154,10 @@ final class UpdateController {
                 // Later while checking: nothing is installed.
                 try Task.checkCancellation()
                 status = .installing
-                try await UpdateInstaller.install(zip: download.zip, sha256: download.sha256, version: release.version,
-                                                  isRunning: isRunning)
+                try await installActivity.perform {
+                    try await UpdateInstaller.install(zip: download.zip, sha256: download.sha256,
+                                                      version: release.version, isRunning: isRunning)
+                }
                 UpdateVerifier.remove(folder)
                 UpdateInstaller.relaunch { message in self.status = .failed(message) }
             } catch {
