@@ -224,8 +224,8 @@ public actor PreviewRenderer {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
         if Task.isCancelled { return cancelled }
-        // Shown as the main output is written: a format without alpha gets the step's fill colour (`matted`).
-        guard let after = fit(pipeline.matted(result, for: pipeline.output.format).image) else {
+        // Shown as the main output is written: a format without alpha is flattened like the encoder does (`asWritten`).
+        guard let after = fit(pipeline.asWritten(result, for: pipeline.output.format)) else {
             return .failed(reason: ConversionError.processingFailed("preview").reason)
         }
         var ready = processed(item: item, index: index, resolved: resolved, mode: mode,

@@ -4,6 +4,8 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+- **A transparent image previewed as JPEG shows white, as it is written** (bug fix): the After side kept the checkerboard for a transparent PNG converted to a format without transparency (JPEG, BMP), although the file is flattened onto white. The preview (exact and quick) now flattens it the same way, onto white or Perspective's fill colour, so the histogram measures it too. Core `Pipeline.asWritten`.
+
 ## 1.5.0 (2026-11-18)
 
 - **Filmstrip thumbnails are fresh after an Overwrite originals run** (bug fix): a file rewritten in place (crop, rotate) kept its old picture in the filmstrip; its thumbnail is now loaded again. The histogram's help and the README say clipping is measured in sRGB, so Display P3 colours beyond sRGB show as clipped.

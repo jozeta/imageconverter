@@ -159,7 +159,7 @@ extension PreviewRenderer {
                                           displayMax: displayMax)
         guard let result = try? proxy.apply(to: source.image, focus: caches.context(for: item.source, detector: detector,
                                                                                      enlarger: enlarger)),
-              let after = fit(pipeline.matted(result, for: pipeline.output.format).image), !Task.isCancelled
+              let after = fit(pipeline.asWritten(result, for: pipeline.output.format)), !Task.isCancelled
         else { return nil }
         let output = pipeline.outputSize(sourceWidth: size.width, sourceHeight: size.height)
         var ready = processed(item: item, index: index, resolved: resolved, mode: mode,
