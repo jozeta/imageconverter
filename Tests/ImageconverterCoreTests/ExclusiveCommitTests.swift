@@ -233,4 +233,20 @@ final class ExclusiveCommitTests: XCTestCase {
         process.waitUntilExit()
         return process.terminationStatus == 0
     }
+
+    func testRemoveOwnTempsLeavesForeignTempFiles() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("own-temps-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let own = FileCommitter.beginTemp(in: folder)
+        defer { FileCommitter.endTemp(own) }
+        try Data("mine".utf8).write(to: own)
+        // Same name pattern, written by someone else (the app, a job, another command-line run).
+        let foreign = folder.appendingPathComponent("\(FileCommitter.tempPrefix)\(UUID().uuidString)\(FileCommitter.tempSuffix)")
+        try Data("theirs".utf8).write(to: foreign)
+
+        FileCommitter.removeOwnTemps()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: own.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: foreign.path))
+    }
 }

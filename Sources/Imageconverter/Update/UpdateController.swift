@@ -99,7 +99,16 @@ final class UpdateController {
 
     // MARK: Check
 
-    func checkNow() { check(reporting: true) }
+    func checkNow() {
+        if isInstalledAwaitingRelaunch { return }
+        check(reporting: true)
+    }
+
+    /// Installed, but the old version is still on disk: Relaunch is offered until the app is relaunched.
+    var isInstalledAwaitingRelaunch: Bool {
+        if case .installedWithNote = status { return true }
+        return false
+    }
 
     private func check(reporting: Bool) {
         guard !isBusy else { return }

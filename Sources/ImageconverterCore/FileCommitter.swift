@@ -180,14 +180,13 @@ public enum FileCommitter {
     /// of an hour, at the start of a run. The files are deleted, not "securely wiped": on SSDs and APFS
     /// (copy-on-write) overwriting a file doesn't reliably overwrite its old blocks, so wiping would promise
     /// something it can't do.
-    public static func cleanUp(in directories: [URL], olderThan age: TimeInterval = 0, now: Date = Date(),
-                               includingInUse: Bool = false) {
+    public static func cleanUp(in directories: [URL], olderThan age: TimeInterval = 0, now: Date = Date()) {
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
         for folder in directories {
             guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { continue }
             for name in names where isTempFileName(name) {
                 let url = folder.appendingPathComponent(name)
-                guard includingInUse || !state.isInUse(url), let values = try? url.resourceValues(forKeys: keys),
+                guard !state.isInUse(url), let values = try? url.resourceValues(forKeys: keys),
                       values.isRegularFile == true, values.isSymbolicLink != true,
                       let modified = values.contentModificationDate,
                       age <= 0 || now.timeIntervalSince(modified) >= age else {
@@ -196,6 +195,12 @@ public enum FileCommitter {
                 try? FileManager.default.removeItem(at: url)
             }
         }
+    }
+
+    /// Removes the temp files this process is writing right now (and only those: a temp file made by the app, a job
+    /// or another command-line run in the same folder is never touched). For the forced exit of the command line.
+    public static func removeOwnTemps() {
+        for path in state.inUsePaths { try? FileManager.default.removeItem(atPath: path) }
     }
 }
 
@@ -224,6 +229,12 @@ private final class TempState: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return inUse.contains(url.standardizedFileURL.path)
+    }
+
+    var inUsePaths: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return Array(inUse)
     }
 
     var directories: [URL] {

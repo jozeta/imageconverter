@@ -37,6 +37,8 @@ final class CLIVariantTests: XCTestCase {
         XCTAssertEqual(quoted.variants.first?.settings.format, .png)
         let escaped = try convert(["--variant", "folder=/a\\,b,format=png,suffix=_x"])
         XCTAssertEqual(escaped.variants.first?.destination, .folder(VariantFolder(path: "/a,b")))
+        // `\\` is one backslash; any other backslash stays.
+        XCTAssertEqual(try CLIParser.variantPairs(#"name=a\\b,suffix=c\d"#), [#"name=a\b"#, #"suffix=c\d"#])
         XCTAssertNotNil(error(["--variant", "folder=\"/a,b,format=png,suffix=_x"]), "an unclosed quote is refused")
     }
 

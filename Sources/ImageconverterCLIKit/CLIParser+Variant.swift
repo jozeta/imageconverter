@@ -51,8 +51,8 @@ extension CLIParser {
         return fields
     }
 
-    /// Splits on commas, except a comma written `\\,` or inside a double-quoted value (`folder="/a,b"`), which is
-    /// part of the value. The quotes themselves are dropped; `\\"` and `\\\\` give a quote or a backslash, and any
+    /// Splits on commas, except a comma written `\,` or inside a double-quoted value (`folder="/a,b"`), which is
+    /// part of the value. The quotes themselves are dropped; `\"` and `\\` give a quote or a backslash, and any
     /// other backslash stays as it is. An unclosed quote is a usage error.
     static func variantPairs(_ text: String) throws -> [String] {
         var pairs: [String] = []

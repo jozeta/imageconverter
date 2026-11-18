@@ -103,7 +103,8 @@ enum CLIText {
                                               (an absolute path: the output's own folder; relative:
                                               a subfolder of the main output's folder). A comma inside
                                               a value: write \\, or put the value in double quotes,
-                                              e.g. 'name=web,folder="/Photos/a, b"'.
+                                              e.g. 'name=web,folder="/Photos/a, b"'. Inside
+                                              a value \\\\ is a backslash and \\" a quote.
       --strip-gps | --strip-all               Remove GPS data, or all metadata (ignores the preset's keep list)
       --report csv|json|text                  Print a full report to stdout
       --dry-run                               Show what would be written; change nothing

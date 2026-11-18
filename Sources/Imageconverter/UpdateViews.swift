@@ -7,10 +7,16 @@ struct AboutUpdateSection: View {
 
     var body: some View {
         VStack(spacing: LadaGlass.Spacing.s) {
-            Button("Check Now") { updates.checkNow() }
-                .buttonStyle(.lg(.secondary))
-                .disabled(updates.isBusy)
-                .accessibilityLabel("Check for updates now")
+            if updates.isInstalledAwaitingRelaunch {
+                Button("Relaunch") { updates.relaunch() }
+                    .buttonStyle(.lg(.primary))
+                    .accessibilityLabel("Relaunch to finish the update")
+            } else {
+                Button("Check Now") { updates.checkNow() }
+                    .buttonStyle(.lg(.secondary))
+                    .disabled(updates.isBusy)
+                    .accessibilityLabel("Check for updates now")
+            }
             Toggle("Check for updates when the app starts", isOn: $updates.checkOnLaunch)
                 .toggleStyle(.checkbox)
                 .font(LadaGlass.Typography.body)
