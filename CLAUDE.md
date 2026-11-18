@@ -271,7 +271,7 @@ old). UI must stay responsive (no sideways scrolling at 375 px) and keyboard acc
   sanitizer, never `innerHTML`; no `eval`; no third-party requests (self-host libraries in `vendor/`).
 - Keep CI (`.github/workflows/ci.yml`) green; record user-visible changes under "Unreleased" in
   `CHANGELOG.md`.
-- Version 1.5.0 (in `VERSION`). Show it in the app (an About page, `--version` or a footer, read
+- Version 1.5.1 (in `VERSION`). Show it in the app (an About page, `--version` or a footer, read
   from that file). Bump it on every push that changes the app (patch: fixes, minor: features, major:
   breaking changes), and in the same commit move "Unreleased" under the new version and update the
   README's version and "What's new".
