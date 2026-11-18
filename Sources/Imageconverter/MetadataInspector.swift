@@ -1,9 +1,6 @@
 import SwiftUI
 import ImageconverterCore
 
-/// The metadata panel right of the preview: the selected image's metadata by group, searchable, read from the
-/// file's header only. Edits, removals and additions are this image's metadata overrides: they apply to its
-/// outputs (after the Metadata step), never to the original.
 /// What the panel's read depends on: the image, its file version and the model's `filesRevision` (bumped after a
 /// run, which may have rewritten the file in place).
 private struct InspectedFile: Equatable {
@@ -18,6 +15,9 @@ private struct InspectedFile: Equatable {
     }
 }
 
+/// The metadata panel right of the preview: the selected image's metadata by group, searchable, read from the
+/// file's header only. Edits, removals and additions are this image's metadata overrides: they apply to its
+/// outputs (after the Metadata step), never to the original.
 struct MetadataInspector: View {
     @Bindable var model: AppModel
     @State private var inspection: MetadataInspection?

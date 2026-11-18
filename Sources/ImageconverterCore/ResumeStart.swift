@@ -13,6 +13,9 @@ public enum RunStart: Equatable, Sendable {
 /// the question), and a toast says why, instead of losing the batch's own pipeline and output mode silently.
 public struct ResumeStart: Equatable, Sendable {
     public let keepsInterruptedRun: Bool
+    /// Started: the in-memory interrupted batch goes (the journal file now belongs to the running batch and is
+    /// not deleted), so later runs aren't asked about a batch that is being converted.
+    public var clearsInterruptedRun: Bool { !keepsInterruptedRun }
     /// Shown again at once, so Resume can be pressed again.
     public let asksAgain: Bool
     public let toastTitle: String?

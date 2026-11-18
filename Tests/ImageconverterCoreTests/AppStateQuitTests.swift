@@ -46,9 +46,10 @@ final class AppStateQuitTests: XCTestCase {
         XCTAssertEqual(scans, 2, "the rewritten file was scanned again")
         XCTAssertFalse(MetadataInspection.read(url).entries.contains { $0.group == .location })
         // A file that went away counts as changed too.
+        let rewritten = FileVersion(url)
         try FileManager.default.removeItem(at: url)
-        XCTAssertEqual(FileVersion.changed([url: FileVersion(dir.appendingPathComponent("photo.jpg"))]), [])
-        XCTAssertEqual(FileVersion.changed([url: before]), [url])
+        XCTAssertNotEqual(FileVersion(url), rewritten)
+        XCTAssertEqual(FileVersion.changed([url: rewritten]), [url])
     }
 
     // MARK: B2
@@ -176,6 +177,15 @@ final class AppStateQuitTests: XCTestCase {
         let started = ResumeStart.after(.started)
         XCTAssertFalse(started.keepsInterruptedRun)
         XCTAssertNil(started.toastTitle)
+        XCTAssertFalse(started.asksAgain)
+    }
+
+    /// A resumed batch that started is no longer "interrupted": the in-memory reference goes (the running batch owns
+    /// the journal file now), so the next Run, Service, link or script isn't asked about it.
+    func testResumeStartedClearsInterruptedRun() {
+        XCTAssertTrue(ResumeStart.after(.started).clearsInterruptedRun)
+        XCTAssertFalse(ResumeStart.after(.busy).clearsInterruptedRun)
+        XCTAssertFalse(ResumeStart.after(.noAccess).clearsInterruptedRun)
     }
 
     // MARK: D1

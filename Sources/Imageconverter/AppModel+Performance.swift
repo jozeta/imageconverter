@@ -188,10 +188,14 @@ extension AppModel {
     }
 
     /// A refused or busy start keeps the interrupted batch (journal and question) and says why.
-    /// Started: `startRun` replaced it with this run's journal. Not started: it's still there, unless the user
+    /// Started: the interrupted batch is cleared in memory (`startRun` does it as the run starts, and this again);
+    /// its journal file was replaced by the running batch's. Not started: it's still there, unless the user
     /// discarded it meanwhile (another run's question), and then there's nothing to say.
     private func resumeDidStart(_ started: RunStart) {
         let outcome = ResumeStart.after(started)
+        // `startRun` already cleared it when the run started; said here too so the resume path doesn't depend on it.
+        // Never `discardInterruptedRun()`: the running batch's journal is at the same path.
+        if outcome.clearsInterruptedRun { interruptedRun = nil }
         guard outcome.keepsInterruptedRun, interruptedRun != nil else { return }
         if let title = outcome.toastTitle {
             toasts.show(title, type: .bad, description: outcome.toastDescription)

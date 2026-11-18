@@ -1,8 +1,8 @@
 import Foundation
 
 /// What a caller waiting for a job's run (the Run Job Shortcuts action) is told.
-public enum RunWaitOutcome<Result: Sendable>: Sendable {
-    case finished(Result)
+public enum RunWaitOutcome<Value: Sendable>: Sendable {
+    case finished(Value)
     /// The run never started (the job is gone, off, or its folder can't be found).
     case didNotRun
     /// The app is quitting: the run was dropped or cancelled (C3).
@@ -11,8 +11,8 @@ public enum RunWaitOutcome<Result: Sendable>: Sendable {
 
 /// The callers waiting for jobs' runs, per job. Every waiter is answered exactly once: by its run's result, with
 /// `didNotRun`, or with `quitting` when the app quits (dropped queued runs never report back on their own).
-public struct RunWaiterList<Result: Sendable> {
-    public typealias Answer = (RunWaitOutcome<Result>) -> Void
+public struct RunWaiterList<Value: Sendable> {
+    public typealias Answer = (RunWaitOutcome<Value>) -> Void
 
     private struct Waiter {
         /// Runs to let pass first: 1 when the job was already running when asked (its next run is the one asked for).
@@ -35,7 +35,7 @@ public struct RunWaiterList<Result: Sendable> {
 
     /// Hands a finished run's result (nil: it never started) to the callers waiting for it. A waiter still skipping
     /// a run waits for the next one.
-    public mutating func resume(_ job: UUID, with result: Result?) {
+    public mutating func resume(_ job: UUID, with result: Value?) {
         guard let list = waiters.removeValue(forKey: job) else { return }
         var left: [Waiter] = []
         for var waiter in list {
