@@ -8,7 +8,7 @@ on your Mac: no uploads, and no network access except the optional update check 
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 1.5.0 · **Status:** released — signed and notarized, sandboxed, works offline (only the optional update check and download, and Apple's enlargement model if you choose to download it, go online).
+**Version:** 1.5.1 · **Status:** released — signed and notarized, sandboxed, works offline (only the optional update check and download, and Apple's enlargement model if you choose to download it, go online).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -30,6 +30,13 @@ Started 2026-11-13. The full design is in
 </table>
 
 ## What's new
+
+### 1.5.1 (2026-11-18)
+
+- **Preview**: a transparent image converted to JPEG (or BMP) shows white on the After side, as it is written, instead of the checkerboard; while Redact looks for faces and text in a newly selected image, the previous image's result no longer stands in for it.
+- **Histogram**: an opaque backing, so bright images don't wash it out, and a size that follows the preview (compact on short windows).
+- **Output**: the "Output" heading and its **+** stay in view when the outputs scroll.
+- **Redact**: the strength help now says the finest setting can leave a little of a text line's shape (Solid colour hides it completely).
 
 ### 1.5.0 (2026-11-18)
 

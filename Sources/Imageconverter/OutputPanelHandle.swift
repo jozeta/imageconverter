@@ -47,9 +47,12 @@ struct CollapsibleOutputPanel: View {
     @Bindable var model: AppModel
     var settings: AppSettings
 
-    /// The open panel's natural height and the collapsed panel's height, as last measured.
-    @State private var fullHeight: CGFloat = 0
+    /// The open panel's heading and cards, and the collapsed panel's height, as last measured.
+    @State private var headingHeight: CGFloat = 0
+    @State private var cardsHeight: CGFloat = 0
     @State private var collapsedHeight: CGFloat = 0
+    /// The open panel's natural height: the fixed heading plus the scrolling cards.
+    private var fullHeight: CGFloat { headingHeight + cardsHeight }
     /// The panel's height when the drag began, and its height now; nil while not dragging.
     @State private var dragStart: CGFloat?
     @State private var dragHeight: CGFloat?
@@ -227,14 +230,30 @@ struct CollapsibleOutputPanel: View {
 
     // MARK: Panel
 
+    /// The heading stays put above the scrolling cards; the natural height is both together.
     private var openPanel: some View {
+        VStack(spacing: 0) {
+            OutputPanelHeading(model: model)
+                .fixedSize(horizontal: false, vertical: true)
+                .background(GeometryReader { proxy in
+                    Color.clear.onAppear { headingHeight = proxy.size.height }
+                        .onChange(of: proxy.size.height) { _, height in headingHeight = height }
+                })
+            scrollingCards
+        }
+        .frame(height: openHeight)
+        .clipShape(RoundedRectangle(cornerRadius: LadaGlass.Radius.card))
+        .lgSurface()
+    }
+
+    private var scrollingCards: some View {
         ScrollViewReader { reader in
             ScrollView {
                 OutputPanel(model: model, settings: settings)
                     .fixedSize(horizontal: false, vertical: true)
                     .background(GeometryReader { proxy in
-                        Color.clear.onAppear { fullHeight = proxy.size.height }
-                            .onChange(of: proxy.size.height) { _, height in fullHeight = height }
+                        Color.clear.onAppear { cardsHeight = proxy.size.height }
+                            .onChange(of: proxy.size.height) { _, height in cardsHeight = height }
                     })
             }
             // A new output panel is scrolled into view when the panel is shorter than its content.
@@ -248,9 +267,6 @@ struct CollapsibleOutputPanel: View {
         .scrollDisabled(openHeight == nil)
         .scrollIndicators(openHeight == nil ? .never : .automatic)
         .scrollBounceBehavior(.basedOnSize)
-        .frame(height: openHeight)
-        .clipShape(RoundedRectangle(cornerRadius: LadaGlass.Radius.card))
-        .lgSurface()
     }
 
     /// One line: "Output", then format · quality · where the files go.

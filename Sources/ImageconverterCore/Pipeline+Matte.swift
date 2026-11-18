@@ -28,4 +28,13 @@ extension Pipeline {
               let flat = ImageEncoder.flattened(image, onto: matte) else { return (image, nil) }
         return (flat, Perspective.noTransparencyNote(format, color: matte))
     }
+
+    /// `image` as `format` stores it, for showing: `matted`, then, for a format without alpha, flattened onto white
+    /// the way `ImageEncoder.encode` flattens it, so the preview never shows transparency a JPEG can't keep.
+    public func asWritten(_ image: CGImage, for format: OutputFormat) -> CGImage {
+        let shown = matted(image, for: format).image
+        guard !format.supportsAlpha, ImageOps.hasAlpha(shown),
+              let flat = ImageEncoder.flattened(shown, onto: .white) else { return shown }
+        return flat
+    }
 }

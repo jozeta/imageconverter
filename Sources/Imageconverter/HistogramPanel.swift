@@ -80,23 +80,43 @@ struct HistogramToggle: View {
     }
 }
 
-/// The histogram of the original or the result in the preview's bottom-left corner, with the clipping figures.
+/// The histogram panel in the stage's bottom-left corner while it is shown, sized for the stage's height.
+struct HistogramCorner: ViewModifier {
+    let model: AppModel
+    @State private var stageHeight: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { stageHeight = $0 }
+            .overlay(alignment: .bottomLeading) {
+                if model.histogram.showHistogram {
+                    HistogramPanel(model: model, layout: HistogramLayout(stageHeight: stageHeight))
+                        .padding(LadaGlass.Spacing.xs)
+                }
+            }
+    }
+}
+
+/// The histogram of the original or the result in the preview's bottom-left corner, with the clipping figures. Its
+/// size follows the stage (`HistogramLayout`); it sits on an opaque backing so a bright image can't wash it out.
 struct HistogramPanel: View {
     @Bindable var model: AppModel
-    static let chartSize = CGSize(width: 240, height: 120)
+    var layout = HistogramLayout(stageHeight: 0)
 
     var body: some View {
         let state = model.histogram
         let histogram = shownHistogram
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.xs) {
-            Picker("Histogram of", selection: Bindable(state).source) {
-                ForEach(HistogramSource.allCases) { Text($0.title).tag($0) }
+            if !layout.compact {
+                Picker("Histogram of", selection: Bindable(state).source) {
+                    ForEach(HistogramSource.allCases) { Text($0.title).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityLabel("Histogram of")
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .accessibilityLabel("Histogram of")
-            ZStack {
+            ZStack(alignment: .topLeading) {
                 if let histogram {
                     HistogramChart(histogram: histogram)
                         .opacity(model.isRenderingPreview ? 0.4 : 1)
@@ -104,11 +124,25 @@ struct HistogramPanel: View {
                     Text(emptyText)
                         .font(LadaGlass.Typography.label)
                         .foregroundStyle(LadaGlass.Colors.muted)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                // Compact (a short stage): which image is measured, in place of the picker; a click switches it.
+                if layout.compact {
+                    Button { state.source = state.source == .result ? .original : .result } label: {
+                        Text(state.source.title)
+                            .font(LadaGlass.Typography.label)
+                            .foregroundStyle(LadaGlass.Colors.muted)
+                            .padding(LadaGlass.Spacing.xxs)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Histogram of the \(state.source.title.lowercased()); click to measure the "
+                          + (state.source == .result ? "original" : "result"))
+                    .accessibilityLabel("Histogram of the \(state.source.title.lowercased())")
+                    .accessibilityHint("Switches between the original and the result")
                 }
             }
-            .frame(width: Self.chartSize.width, height: Self.chartSize.height)
-            .background(LadaGlass.Colors.muted.opacity(0.08),
-                        in: RoundedRectangle(cornerRadius: LadaGlass.Radius.small))
+            .frame(width: layout.chartSize.width, height: layout.chartSize.height)
+            .background(LadaGlass.Colors.code, in: RoundedRectangle(cornerRadius: LadaGlass.Radius.small))
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(histogram.map { "Histogram of the \(state.source.title.lowercased()): highlights "
                 + "\(Self.percent($0.highlightFraction)), shadows \(Self.percent($0.shadowFraction))" } ?? emptyText)
@@ -118,6 +152,8 @@ struct HistogramPanel: View {
             }
         }
         .padding(LadaGlass.Spacing.s)
+        // Opaque under the glass: the image behind must not show through the chart and chips.
+        .background(LadaGlass.Colors.surface.opacity(0.92), in: RoundedRectangle(cornerRadius: LadaGlass.Radius.card))
         .lgSurface()
         .help("Measured on the preview image (at most 1024 px on the long side), not on the full-size file. "
               + "Highlights: pixels with a channel at 255; shadows: pixels with all channels at 0. "

@@ -53,7 +53,7 @@ swiftlint           # if installed (brew install swiftlint)
     `PresetBar.swift` and `AppModel+Presets.swift` (preset picker, save/rename/delete),
     `PreviewPane.swift` (before/after, Original | Result table, run progress bar), `ComparisonViews.swift` (side by side, split, difference, single), `QualityPanel.swift` (quality ladder tiles), `CompareController.swift` (compare and browser modes, per-selection difference and ladder) and `CompareController+Keys.swift` (Space/B monitor, only while Single mode is shown), `AppModel+Compare.swift` (difference/ladder renders, list facts), `Checkerboard.swift`, `BatchBrowser.swift` (filmstrip, grid, resizable area) and `BatchTable.swift` (list),
     `ZoomableComparison.swift` (`ZoomController` on the model: synced zoom shared by both preview sides and the View menu; pinch/scroll/drag NSView overlay; `overlay` draws the clipping mask at the same zoom),
-    `HistogramPanel.swift` (`HistogramState` on the model: `showHistogram`/`showClipping`/`histogramSource` keys from `ViewDefaults`, the result's `ClippingMask`; `HistogramToggle` in the preview header, `HistogramPanel` + chart in the preview's bottom-left corner; View ▸ Show Histogram ⌥⌘G / Show Clipping ⌥⌘J; the mask is made off the main actor by `AppModel.renderClippingMask`, a `.task(id: clippingKey)` in `PreviewPane`),
+    `HistogramPanel.swift` (`HistogramState` on the model: `showHistogram`/`showClipping`/`histogramSource` keys from `ViewDefaults`, the result's `ClippingMask`; `HistogramToggle` in the preview header, `HistogramPanel` + chart in the preview's bottom-left corner (`HistogramCorner`: sized by Core `HistogramLayout` from the stage height, ≤ 40 % of it, compact below 300 pt; opaque backing); View ▸ Show Histogram ⌥⌘G / Show Clipping ⌥⌘J; the mask is made off the main actor by `AppModel.renderClippingMask`, a `.task(id: clippingKey)` in `PreviewPane`),
     `AppModel+Preview.swift` (selection: a new item renders at once, edits 300 ms after the last one (`PreviewTiming`); a scale-invariant pipeline shows `renderProxy`'s proxy first ("Refining…" in the header, `PreviewStatus`), then the exact render; a generation counter, histograms measured in that task off the main actor (`measured`), thumbnail cache).
     `WindowSizer.swift` + `WindowSizer+Height.swift` (apply `WindowLayout`: fixed 360 pt sidebar; height from the sidebar's
     measured parts: pipeline collapsed → exactly the content; expanded → user-resizable, the chosen height remembered in
@@ -101,8 +101,8 @@ swiftlint           # if installed (brew install swiftlint)
     `OutputRow.swift` (`OutputFormatControls`: format, quality and compression controls, an `accessory` right of the
     format picker), `MainOutputCard.swift` (the main output as the "Output 1" `AccordionCard`
     (Johan, 2026-11-17): format controls with the ⓘ and Save to, summary `OutputSummary.cardLine`, no remove/name/size/
-    suffix; `OutputCardHeader`: the header every output card shares (title + line as one VoiceOver element, optional trailing remove button); the Output panel (`OutputPanel` in `PipelineSection.swift`) is the "Output" heading with the "+", then the
-    cards, then When finished), `OutputVariantsSection.swift` (round 3: every extra output is a card under "Output 1",
+    suffix; `OutputCardHeader`: the header every output card shares (title + line as one VoiceOver element, optional trailing remove button); the Output panel (`PipelineSection.swift`) is `OutputPanelHeading` (the "Output" heading with the "+", kept above the scroll view by
+    `CollapsibleOutputPanel`), then `OutputPanel`: the cards, then When finished, which scroll), `OutputVariantsSection.swift` (round 3: every extra output is a card under "Output 1",
     default names from `OutputVariant.defaultName` starting at "Output 2": collapsible `VariantPanel` with name, format controls, size, suffix and `VariantSaveToControl`
     (beside Output 1 / same folder / subfolder next to original / new folder, never overwrite; a chosen folder is
     `AccessStore.remember`ed); `AddOutputButton`, the "+" at the top right of the Output panel; open panels in
@@ -271,7 +271,7 @@ old). UI must stay responsive (no sideways scrolling at 375 px) and keyboard acc
   sanitizer, never `innerHTML`; no `eval`; no third-party requests (self-host libraries in `vendor/`).
 - Keep CI (`.github/workflows/ci.yml`) green; record user-visible changes under "Unreleased" in
   `CHANGELOG.md`.
-- Version 1.5.0 (in `VERSION`). Show it in the app (an About page, `--version` or a footer, read
+- Version 1.5.1 (in `VERSION`). Show it in the app (an About page, `--version` or a footer, read
   from that file). Bump it on every push that changes the app (patch: fixes, minor: features, major:
   breaking changes), and in the same commit move "Unreleased" under the new version and update the
   README's version and "What's new".

@@ -4,6 +4,14 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+## 1.5.1 (2026-11-18)
+
+- **Honest Redact strength help** (wording): the Blocks across and Strength help said the finest setting keeps faces and text unreadable, but at 5 blocks across (or a 1/5 blur) a line of digits can keep a little of its shape. It now says so and points to Solid colour, the default for text, which hides it completely. The range is unchanged.
+- **The histogram is easier to read and fits short windows** (bug fix): the panel was translucent glass, so a bright image showed through behind the chart and chips; it now has an opaque backing. Its size follows the preview: at most two fifths of the image area, with the chart's height between 48 and 120 points, and below a 300-point-high preview the Original/Result picker becomes a small label in the chart (click it to switch). On a short window the panel covered about a third of the image before. Core `HistogramLayout`.
+- **The Output heading and its "+" stay in view** (bug fix): with more outputs than the Output panel's height holds, scrolling the cards took the "Output" heading and the "+" (Add output) out of view. The heading now stays at the top of the panel and only the cards and When finished scroll.
+- **No other image's result while Redact looks for faces and text** (bug fix): choosing another image with a Redact step kept the previous image's before and after on screen for the seconds detection takes. Once detection starts for a different image, the old result goes and the preview shows the spinner and "Finding faces and text…" until the new one is ready. Core `PreviewTiming.keepsShown`.
+- **A transparent image previewed as JPEG shows white, as it is written** (bug fix): the After side kept the checkerboard for a transparent PNG converted to a format without transparency (JPEG, BMP), although the file is flattened onto white. The preview (exact and quick) now flattens it the same way, onto white or Perspective's fill colour, so the histogram measures it too. Core `Pipeline.asWritten`.
+
 ## 1.5.0 (2026-11-18)
 
 - **Filmstrip thumbnails are fresh after an Overwrite originals run** (bug fix): a file rewritten in place (crop, rotate) kept its old picture in the filmstrip; its thumbnail is now loaded again. The histogram's help and the README say clipping is measured in sRGB, so Display P3 colours beyond sRGB show as clipped.

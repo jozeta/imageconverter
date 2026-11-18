@@ -10,6 +10,13 @@ public enum PreviewTiming {
     /// The wait after the last pipeline edit before the size estimate (a full encode).
     public static let estimateEditDelay = Duration.milliseconds(400)
 
+    /// Whether the result on screen (from `shown`) may stay up once the render for `selected` starts a Redact
+    /// detection: only when it is the same image. Detection takes seconds, and another image's result would stand in
+    /// for this one meanwhile (with this image's name above it); the stage shows the detection status instead.
+    public static func keepsShown(_ shown: URL?, whileDetectingFor selected: URL) -> Bool {
+        shown == nil || shown == selected
+    }
+
     /// No delay when the selected image changed (a click is one event); `editDelay` for edits.
     public static func previewDelay(selectionChanged: Bool) -> Duration {
         selectionChanged ? .zero : editDelay
@@ -159,7 +166,7 @@ extension PreviewRenderer {
                                           displayMax: displayMax)
         guard let result = try? proxy.apply(to: source.image, focus: caches.context(for: item.source, detector: detector,
                                                                                      enlarger: enlarger)),
-              let after = fit(pipeline.matted(result, for: pipeline.output.format).image), !Task.isCancelled
+              let after = fit(pipeline.asWritten(result, for: pipeline.output.format)), !Task.isCancelled
         else { return nil }
         let output = pipeline.outputSize(sourceWidth: size.width, sourceHeight: size.height)
         var ready = processed(item: item, index: index, resolved: resolved, mode: mode,

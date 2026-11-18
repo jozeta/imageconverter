@@ -136,9 +136,10 @@ private struct RedactSizeRow: View {
 
     private var help: String {
         pixelate
-            ? "How many blocks span each hidden area's shorter side: 2 (coarse) to 5 (fine). Never finer than 5, "
-                + "so faces and text stay unreadable. Double-click for Auto (3)."
+            ? "How many blocks span each hidden area's shorter side: 2 (coarse) to 5 (fine). At 5 a line of text "
+                + "can keep a little of its shape; for text, Solid colour hides it completely. Double-click for Auto (3)."
             : "How strongly each hidden area is blurred: a radius of 1/5 (light) to 1/2 (strong) of its shorter side. "
-                + "Never lighter than 1/5, so faces and text stay unreadable. Double-click for Auto (1/3)."
+                + "At 1/5 a line of text can keep a little of its shape; for text, Solid colour hides it completely. "
+                + "Double-click for Auto (1/3)."
     }
 }

@@ -296,18 +296,31 @@ struct PipelineHeader: View {
 /// then every output as a card of its own: "Output 1" (the main output: format and compression, the ⓘ with every
 /// output's size estimate, Save to), then the extra outputs ("Output 2", "Output 3", …), and When finished (for the
 /// whole run) under the cards.
+/// The open Output panel's heading: "Output" and the "+". `CollapsibleOutputPanel` keeps it above the scrolling
+/// cards, so the "+" stays in reach however many outputs there are.
+struct OutputPanelHeading: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        HStack(spacing: LadaGlass.Spacing.s) {
+            Text("Output").font(LadaGlass.Typography.subtitle)
+                .stepHelp(.output)
+            Spacer(minLength: 0)
+            AddOutputButton(model: model)
+        }
+        .padding(.horizontal, LadaGlass.Spacing.m)
+        .padding(.top, LadaGlass.Spacing.s)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// The open Output panel's cards (Output 1, the extra outputs) and When finished, below `OutputPanelHeading`.
 struct OutputPanel: View {
     @Bindable var model: AppModel
     var settings: AppSettings
 
     var body: some View {
         VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
-            HStack(spacing: LadaGlass.Spacing.s) {
-                Text("Output").font(LadaGlass.Typography.subtitle)
-                    .stepHelp(.output)
-                Spacer(minLength: 0)
-                AddOutputButton(model: model)
-            }
             MainOutputCard(model: model, settings: settings)
             OutputVariantsSection(model: model)
             afterRunControls
