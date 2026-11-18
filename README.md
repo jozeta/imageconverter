@@ -8,7 +8,7 @@ on your Mac: no uploads, and no network access except the optional update check 
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 1.5.1 · **Status:** released — signed and notarized, sandboxed, works offline (only the optional update check and download, and Apple's enlargement model if you choose to download it, go online).
+**Version:** 1.5.2 · **Status:** released — signed and notarized, sandboxed, works offline (only the optional update check and download, and Apple's enlargement model if you choose to download it, go online).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -30,6 +30,10 @@ Started 2026-11-13. The full design is in
 </table>
 
 ## What's new
+
+### 1.5.2 (2026-11-18)
+
+- **Updates**: after **Install and Relaunch** the old version now quits instead of staying on "Installing…" (macOS won't quit an app with a sheet open). Updating *to* 1.5.2 from 1.5.1 or older can still leave the old copy open once: the update is installed, force-quit the old copy (⌥⌘Esc).
 
 ### 1.5.1 (2026-11-18)
 

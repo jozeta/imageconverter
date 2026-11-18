@@ -4,6 +4,8 @@ All notable changes to imageconverter are listed here, newest first.
 
 ## Unreleased
 
+## 1.5.2 (2026-11-18)
+
 - **The old version quits after an update** (bug fix): after Install and Relaunch the new version opened, but the old one stayed on screen at "Installing…" and couldn't be quit, because macOS won't quit an app while a sheet is open and the update sheet still was. The app now closes its sheets before quitting, and if quitting is still refused the sheet says the update is installed instead of staying on "Installing…". The fix is in the version being replaced, so updating *to* this version from 1.5.1 or older can still leave the old copy open once: the update is installed, force-quit the old copy (⌥⌘Esc) and carry on.
 
 ## 1.5.1 (2026-11-18)
