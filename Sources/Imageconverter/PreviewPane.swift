@@ -28,9 +28,7 @@ struct PreviewPane: View {
                 // A shown proxy says "Refining…" in the header instead of covering the image.
                 .overlay { if model.isRenderingPreview, !model.showsPreviewProxy { spinner } }
                 .overlay { if !model.previewAllowed { pausedNote } }
-                .overlay(alignment: .bottomLeading) {
-                    if model.histogram.showHistogram { HistogramPanel(model: model).padding(LadaGlass.Spacing.xs) }
-                }
+                .modifier(HistogramCorner(model: model))
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Before and after, \(model.compare.mode.title)")
                 .accessibilityZoomAction { action in
