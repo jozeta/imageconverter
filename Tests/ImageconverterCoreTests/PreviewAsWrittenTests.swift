@@ -54,3 +54,19 @@ final class PreviewAsWrittenTests: XCTestCase {
         XCTAssertGreaterThan(corner.blue, 240)
     }
 }
+
+/// Which shown result stays up while a newer render works.
+final class PreviewKeepShownTests: XCTestCase {
+    private let a = URL(fileURLWithPath: "/tmp/a.png")
+    private let b = URL(fileURLWithPath: "/tmp/b.png")
+
+    func testAnotherImagesResultGoesWhenDetectionStarts() {
+        // Redact detection on a newly selected image takes seconds: the previous image's result must not stand in.
+        XCTAssertFalse(PreviewTiming.keepsShown(a, whileDetectingFor: b))
+    }
+
+    func testTheSameImagesResultStaysWhileDetecting() {
+        XCTAssertTrue(PreviewTiming.keepsShown(a, whileDetectingFor: a))
+        XCTAssertTrue(PreviewTiming.keepsShown(nil, whileDetectingFor: a))
+    }
+}

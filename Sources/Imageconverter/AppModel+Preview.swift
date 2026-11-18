@@ -105,7 +105,7 @@ extension AppModel {
         let renderer = previewRenderer
         let presets = presetLibrary
         let cache = factsCache
-        let activity = detectionActivity(generation: generation)
+        let activity = detectionActivity(generation: generation, for: item.source)
         // Only a scale-invariant pipeline gets a proxy (it has no conditions, so the item's own index is its counter).
         let proxy: (() async -> PreviewRendering?)? = pipeline.isScaleInvariant ? {
             guard let result = await renderer.renderProxy(item: item, index: index, pipeline: pipeline, mode: mode,
@@ -135,13 +135,18 @@ extension AppModel {
         }
     }
 
-    /// Sets `previewDetecting` from the render's thread, in order, while `generation` is the newest request.
-    private func detectionActivity(generation: Int) -> @Sendable (RedactTarget?) -> Void {
+    /// Sets `previewDetecting` from the render's thread, in order, while `generation` is the newest request. A
+    /// detection for `source` drops another image's result still on screen (`PreviewTiming.keepsShown`).
+    private func detectionActivity(generation: Int, for source: URL) -> @Sendable (RedactTarget?) -> Void {
         { [weak self] target in
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self, generation == self.previewGeneration else { return }
                     self.previewDetecting = target
+                    if target != nil, !PreviewTiming.keepsShown(self.previewResult?.source, whileDetectingFor: source) {
+                        self.previewResult = nil
+                        self.previewConditions = nil
+                    }
                 }
             }
         }
