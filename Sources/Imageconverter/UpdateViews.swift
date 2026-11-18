@@ -65,10 +65,16 @@ struct UpdateOfferSheet: View {
                     .keyboardShortcut(.cancelAction)
                     .disabled(updates.status == .installing)
                 Spacer()
-                Button("Install and Relaunch") { updates.install() }
-                    .buttonStyle(.lg(.primary))
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(updates.isBusy)
+                if case .installedWithNote = updates.status {
+                    Button("Relaunch") { updates.relaunch() }
+                        .buttonStyle(.lg(.primary))
+                        .keyboardShortcut(.defaultAction)
+                } else {
+                    Button("Install and Relaunch") { updates.install() }
+                        .buttonStyle(.lg(.primary))
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(updates.isBusy)
+                }
             }
         }
         .padding(LadaGlass.Spacing.l)

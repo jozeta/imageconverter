@@ -31,6 +31,15 @@ final class CLIVariantTests: XCTestCase {
         }
     }
 
+    func testVariantQuotedValueWithComma() throws {
+        let quoted = try convert(["--variant", "folder=\"/a,b\",format=png,suffix=_x"])
+        XCTAssertEqual(quoted.variants.first?.destination, .folder(VariantFolder(path: "/a,b")))
+        XCTAssertEqual(quoted.variants.first?.settings.format, .png)
+        let escaped = try convert(["--variant", "folder=/a\\,b,format=png,suffix=_x"])
+        XCTAssertEqual(escaped.variants.first?.destination, .folder(VariantFolder(path: "/a,b")))
+        XCTAssertNotNil(error(["--variant", "folder=\"/a,b,format=png,suffix=_x"]), "an unclosed quote is refused")
+    }
+
     private func error(_ arguments: [String]) -> String? {
         if case .failure(let error) = CLIParser.parse(["convert", "a.jpg", "--out", "/tmp/o"] + arguments) {
             return error.message

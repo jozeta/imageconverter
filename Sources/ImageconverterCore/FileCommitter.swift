@@ -180,13 +180,14 @@ public enum FileCommitter {
     /// of an hour, at the start of a run. The files are deleted, not "securely wiped": on SSDs and APFS
     /// (copy-on-write) overwriting a file doesn't reliably overwrite its old blocks, so wiping would promise
     /// something it can't do.
-    public static func cleanUp(in directories: [URL], olderThan age: TimeInterval = 0, now: Date = Date()) {
+    public static func cleanUp(in directories: [URL], olderThan age: TimeInterval = 0, now: Date = Date(),
+                               includingInUse: Bool = false) {
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]
         for folder in directories {
             guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { continue }
             for name in names where isTempFileName(name) {
                 let url = folder.appendingPathComponent(name)
-                guard !state.isInUse(url), let values = try? url.resourceValues(forKeys: keys),
+                guard includingInUse || !state.isInUse(url), let values = try? url.resourceValues(forKeys: keys),
                       values.isRegularFile == true, values.isSymbolicLink != true,
                       let modified = values.contentModificationDate,
                       age <= 0 || now.timeIntervalSince(modified) >= age else {

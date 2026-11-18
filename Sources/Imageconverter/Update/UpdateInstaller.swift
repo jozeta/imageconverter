@@ -32,19 +32,21 @@ enum UpdateInstaller {
         }
     }
 
-    /// Asks the service to install `zip` (in the app's container). Throws with the service's message on refusal.
-    static func install(zip: URL, sha256: String, version: AppVersion, isRunning: () -> Bool) async throws {
+    /// Asks the service to install `zip` (in the app's container). Throws with the service's message on refusal;
+    /// returns the service's note when the install worked but the old version is still on disk.
+    static func install(zip: URL, sha256: String, version: AppVersion, isRunning: () -> Bool) async throws -> String? {
         try checkAllowed(isRunning: isRunning())
-        let message = try await callService { service, reply in
+        let reply = try await callService { service, reply in
             service.install(zipPath: zip.path, expectedSHA256: sha256, version: version.description, reply: reply)
         }
-        if let message { throw UpdateError.installRefused(message) }
+        if let message = reply.error { throw UpdateError.installRefused(message) }
+        return reply.note
     }
 
     /// Removes what an interrupted install left (the service's folders, hidden siblings next to the app). Best effort.
     static func cleanUp() {
         guard isBundle, FileManager.default.fileExists(atPath: serviceURL.path) else { return }
-        Task { _ = try? await callService { service, reply in service.cleanUp { reply(nil) } } }
+        Task { _ = try? await callService { service, reply in service.cleanUp { reply(nil, nil) } } }
     }
 
     /// How long the app waits for the service before giving up (a 200 MB unpack and check takes far less).
@@ -52,8 +54,8 @@ enum UpdateInstaller {
 
     /// One call to the service; the reply, the connection error or the timeout ends it (exactly once). On a timeout
     /// the connection is invalidated.
-    private static func callService(_ body: @escaping (UpdateInstallerProtocol, @escaping (String?) -> Void) -> Void)
-        async throws -> String? {
+    private static func callService(_ body: @escaping (UpdateInstallerProtocol, @escaping (String?, String?) -> Void) -> Void)
+        async throws -> (error: String?, note: String?) {
         let connection = NSXPCConnection(serviceName: UpdateInstallerService.name)
         connection.remoteObjectInterface = NSXPCInterface(with: UpdateInstallerProtocol.self)
         connection.resume()
@@ -81,8 +83,8 @@ enum UpdateInstaller {
                 if once.claim() { continuation.resume(throwing: UpdateError.installFailed("the installer could not be reached.")) }
                 return
             }
-            body(service) { message in
-                if once.claim() { continuation.resume(returning: message) }
+            body(service) { message, note in
+                if once.claim() { continuation.resume(returning: (message, note)) }
             }
         }
     }
