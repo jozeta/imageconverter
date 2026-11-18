@@ -60,7 +60,7 @@ Five on-device AI features, all running on your Mac with Apple's frameworks (not
 
 ### 1.1.0 (2026-11-15)
 
-- **Extra outputs**: up to 8 more files per image in one run (**+ Add output** under the Output format), each with its own format, compression, size, name suffix and optional subfolder, written beside the main output as new files. The size line lists every output, the preview shows a "+N outputs" chip, reports have a row per output, and failed extra outputs are shown in the end-of-run notice, notification and error log. Command line: `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"`.
+- **Extra outputs**: up to 8 more files per image in one run (**+** at the top right of the Output heading), each with its own format, compression, size, name suffix and optional subfolder, written beside the main output as new files. The size line lists every output, the preview shows a "+N outputs" chip, reports have a row per output, and failed extra outputs are shown in the end-of-run notice, notification and error log. Command line: `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"`.
 - **Lossless metadata edits**: when only metadata changes and the format stays the same, JPEG and HEIC image data is copied untouched instead of re-encoded ("Metadata only, pixels untouched"). The copy keeps only known-safe JPEG segments (no Photoshop previews, comments or embedded thumbnails) and is checked after writing; anything doubtful is re-encoded with a note.
 - **When finished**: reveal the outputs in Finder and/or get a notification when a run ends; clicking the notification opens the Report.
 
@@ -112,9 +112,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
   RAW, JPEG 2000, ICNS and more. Animated and multi-page files are read using their first frame.
 - **Writes** JPEG, PNG, HEIC and TIFF, plus GIF, BMP and JPEG 2000 where macOS supports them, with
   quality and compression options.
-- **Several outputs per image**: besides the main output, up to 8 extra outputs (for example a thumbnail and
+- **Several outputs per image**: besides Output 1, up to 8 extra outputs (for example a thumbnail and
   a web-sized copy), each a full output panel with its own format, quality, size, name suffix and **Save to**
-  (beside the main output, next to the original, in a subfolder next to it, or a folder of its own), written in
+  (beside Output 1, next to the original, in a subfolder next to it, or a folder of its own), written in
   the same run from one decode (see [Write several outputs per image](#write-several-outputs-per-image)).
 - **Pipeline** of steps, applied in order to every image. Steps can be switched off and reordered:
   - (available) **Resize**: a grouped mode picker. *Pixels*: max width, max height, fit inside a box,
@@ -618,6 +618,7 @@ unsandboxed.
    share with all three at 0; above 0.1 % the figure turns red. Click either figure, or choose
    View ▸ Show Clipping (⌥⌘J), to mark the clipped pixels on the result: highlights red, shadows blue,
    in side by side, split and single mode (not in Difference), zoomed and panned with the image.
+   Clipping is measured in sRGB, so wide-gamut (Display P3) colours beyond sRGB show as clipped.
    Both are off by default and remembered.
 
 ### Build a pipeline
@@ -692,25 +693,25 @@ web-sized HEIC:
 
 Rules worth knowing:
 
-- Extra outputs are always new files, whatever their Save to. Beside the main output in *Same folder* and
+- Extra outputs are always new files, whatever their Save to. Beside Output 1 in *Same folder* and
   *Overwrite* modes they go into the original's folder; they never replace or trash anything, and a name that is taken (by any file, another image's original or
-  another output) gets `_2`, `_3`, … In overwrite mode only the main output replaces the original (once); when it
+  another output) gets `_2`, `_3`, … In overwrite mode only Output 1 replaces the original (once); when it
   has a new name or format, the original goes to the Trash after the extra outputs are saved. An extra output's
   subfolder is used in every mode, overwrite included (under the original's folder there), unlike a condition's
   *Save into subfolder*, which overwrite mode ignores.
-- An extra output's subfolder may use rename tokens, but they describe the main output: `thumbs/{width}` gets the
-  main output's width and `{format}` its format.
-- If the main output fails, no extra output is written for that image. If an extra output fails (it can't be
+- An extra output's subfolder may use rename tokens, but they describe Output 1: `thumbs/{width}` gets the
+  Output 1's width and `{format}` its format.
+- If Output 1 fails, no extra output is written for that image. If an extra output fails (it can't be
   encoded or saved, or no free name is left), the image and its other outputs are still written, and the run says
   so: the report has a failed row for it under its image ("Extra output “Thumbnail” failed: …"), the end-of-run
   notice and the *When finished* notification add "· 2 extra outputs failed" (and the notice turns red), the error
   log gets a line per failed output, the history and exported reports count them, and the command line exits 1.
-- Conditions: *Set output* changes only the main output; the action **Skip extra outputs** (Output & files) writes
-  only the main output for the images that match. An image copied unchanged (*Copy original unchanged*) gets no
+- Conditions: *Set output* changes only Output 1; the action **Skip extra outputs** (Output & files) writes
+  only Output 1 for the images that match. An image copied unchanged (*Copy original unchanged*) gets no
   extra outputs. *Apply a saved preset* takes the preset's steps, output, metadata and rename, but not its extra
   outputs: the extra outputs are always the pipeline's own.
 - A metadata-only extra output in the image's own format (no resize, Quality compression) is copied losslessly,
-  like the main output.
+  like Output 1.
 - Reports list each extra output as its own row under its image (the CSV's `output` column names it); counts such
   as "24 converted" are images, while Reveal in Finder includes every file written. The "saved" figure compares the
   main outputs with their originals; the report's output total includes every file. Jobs record every output, so

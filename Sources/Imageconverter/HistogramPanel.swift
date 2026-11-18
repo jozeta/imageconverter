@@ -120,7 +120,8 @@ struct HistogramPanel: View {
         .padding(LadaGlass.Spacing.s)
         .lgSurface()
         .help("Measured on the preview image (at most 1024 px on the long side), not on the full-size file. "
-              + "Highlights: pixels with a channel at 255; shadows: pixels with all channels at 0.")
+              + "Highlights: pixels with a channel at 255; shadows: pixels with all channels at 0. "
+              + "Measured in sRGB, so wide-gamut (Display P3) colours beyond sRGB show as clipped.")
     }
 
     private var shownHistogram: ImageHistogram? {

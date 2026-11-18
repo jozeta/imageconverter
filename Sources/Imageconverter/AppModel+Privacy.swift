@@ -162,7 +162,11 @@ extension AppModel {
                 privacy.findings[url] = nil
                 privacy.content[url] = nil
                 privacy.versions[url] = nil
+                // The filmstrip's thumbnail is keyed by URL: drop the old picture and load it again.
+                thumbnailCache.removeObject(forKey: url as NSURL)
+                thumbnailsFailed.remove(url)
             }
+            thumbnailTick += 1
             schedulePrivacyScan()
         }
     }
