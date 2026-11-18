@@ -89,6 +89,16 @@ final class UpdateController {
         case .check: check(reporting: false)
         case .skip: break
         }
+        #if DEBUG
+        // Test aid: `-debugQuitForRelaunch` runs the relaunch's quit step 3 s after launch, with whatever sheet is up
+        // (a fresh `-debugDefaultsSuite` shows the launch question).
+        if CommandLine.arguments.contains("-debugQuitForRelaunch") {
+            Task {
+                try? await Task.sleep(for: .seconds(3))
+                UpdateInstaller.quitForRelaunch { message in self.status = .failed(message) }
+            }
+        }
+        #endif
     }
 
     func answerLaunchQuestion(_ yes: Bool) {

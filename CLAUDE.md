@@ -94,7 +94,7 @@ swiftlint           # if installed (brew install swiftlint)
     expects; SHA-256 check for quick feedback),
     `UpdateInstaller.swift` (`prepare` before downloading: refusals incl. no bundle/no installer service, translocated/read-only location;
     `install`: running re-check, then one XPC call to the installer service; `cleanUp` after an interrupted update;
-    relaunch as a new instance then terminate), `UpdateController.swift` (`@Observable` state, the
+    relaunch as a new instance, then `quitForRelaunch`: closes every attached sheet first (AppKit refuses to quit with a sheet up), then terminates; DEBUG `-debugQuitForRelaunch` runs that step 3 s after launch), `UpdateController.swift` (`@Observable` state, the
     `updateCheckOnLaunch` answer, launch check once from the main window's onAppear, Check Now, install, Later);
     `UpdateViews.swift` (About section, offer sheet with plain-text notes, first-launch question, `updateSheets` held
     back while the interrupted-batch sheet shows). `GeometryEditors.swift` (Rotate/flip, Perspective, Trim editors; Crop and Canvas are in `StepEditors.swift`), `ColorEditor.swift` (the Color step: Profile, Re-color, Reduce colours), `FocusPicker.swift` (Focus: Position/Subject/Faces, used by Crop and Resize fill),
