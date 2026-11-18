@@ -38,7 +38,7 @@ extension CLIParser {
     /// The `key=value` pairs, keys lower-cased; each key at most once.
     private static func variantFields(_ text: String) throws -> [String: String] {
         var fields: [String: String] = [:]
-        for pair in text.split(separator: ",", omittingEmptySubsequences: true) {
+        for pair in try variantPairs(text) {
             let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
             let key = parts[0].trimmingCharacters(in: .whitespaces).lowercased()
             guard parts.count == 2, !key.isEmpty else {
@@ -49,6 +49,31 @@ extension CLIParser {
             }
         }
         return fields
+    }
+
+    /// Splits on commas, except a comma written `\,` or inside a double-quoted value (`folder="/a,b"`), which is
+    /// part of the value. The quotes themselves are dropped; `\"` and `\\` give a quote or a backslash, and any
+    /// other backslash stays as it is. An unclosed quote is a usage error.
+    static func variantPairs(_ text: String) throws -> [String] {
+        var pairs: [String] = []
+        var current = ""
+        var quoted = false
+        var chars = text.makeIterator()
+        while let char = chars.next() {
+            switch char {
+            case "\\":
+                guard let next = chars.next() else { current.append(char); break }
+                if next == "," || next == "\"" || next == "\\" { current.append(next) } else { current.append(char); current.append(next) }
+            case "\"" where quoted || current.hasSuffix("="): quoted.toggle()
+            case "," where !quoted:
+                if !current.isEmpty { pairs.append(current) }
+                current = ""
+            default: current.append(char)
+            }
+        }
+        guard !quoted else { throw CLIUsageError("--variant: a quoted value is missing its closing \".") }
+        if !current.isEmpty { pairs.append(current) }
+        return pairs
     }
 
     /// The format, quality and size keys.

@@ -33,6 +33,10 @@ public struct PlannedOutput: Equatable, Sendable {
     /// Why a refused plan was refused (the item's failure), when the planner says.
     public var failureReason: String?
 
+    /// How the planner built the name, so a commit that finds it taken picks the next free `_n` the same way
+    /// (nil: the destination's own name is the stem).
+    public var naming: OutputNaming?
+
     public init(item: InputItem, destination: URL, replacesSource: Bool, trashesSource: Bool,
                 failureReason: String? = nil) {
         self.item = item
@@ -86,6 +90,39 @@ public struct OutputTarget: Equatable, Sendable {
     }
 }
 
+/// An output's name as `<name><suffix>[_n]<ext>`, with `name` shortened (by characters) so the whole name stays
+/// within `maxNameLength` (`OutputPlanner.nameLength`: NFD UTF-16 units, as APFS counts).
+public struct OutputNaming: Equatable, Sendable {
+    public let name: String
+    public let suffix: String
+    /// With its leading dot, or empty.
+    public let dotExtension: String
+
+    public init(name: String, suffix: String = "", dotExtension: String) {
+        self.name = name
+        self.suffix = suffix
+        self.dotExtension = dotExtension
+    }
+
+    /// The destination's own name as the stem.
+    init(destination: URL) {
+        let ext = destination.pathExtension
+        self.init(name: destination.deletingPathExtension().lastPathComponent,
+                  dotExtension: ext.isEmpty ? "" : ".\(ext)")
+    }
+
+    /// APFS allows 255 UTF-16 units of the decomposed name.
+    public static let maxNameLength = 255
+
+    /// The name with number `number` (1: no number), fitted to the limit. At least the name's first character is
+    /// kept, so the suffix never leads the name (or makes a hidden file).
+    public func fileName(_ number: Int) -> String {
+        let tail = (number == 1 ? suffix : "\(suffix)_\(number)") + dotExtension
+        let fitted = OutputPlanner.fitted(name, suffix: tail, limit: Self.maxNameLength)
+        return (fitted.isEmpty ? String(name.prefix(1)) : fitted) + tail
+    }
+}
+
 public enum OutputPlanner {
     /// Suffix offered by default for same-folder output.
     public static let defaultSuffix = "_new"
@@ -122,7 +159,8 @@ public enum OutputPlanner {
         _ targets: [OutputTarget],
         mode: OutputMode,
         reservedSources: [URL] = [],
-        fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) }
+        fileExists: (URL) -> Bool = { FileManager.default.fileExists(atPath: $0.path) },
+        claim: (URL) -> Bool = { _ in true }
     ) -> [PlannedOutput] {
         let isOverwrite = mode == .overwrite
         var claimed = Set<String>()
@@ -164,24 +202,27 @@ public enum OutputPlanner {
                 directory = within(sourceDir, target.subfolder)
                 // Only a would-be source overwrite needs telling apart from the original.
                 let plain = directory.appendingPathComponent("\(name)\(dotExt)")
-                if sameFile(plain, item.source) { suffix = sanitized(value) }
+                if sameFile(plain, item.source) { suffix = cappedSuffix(value) }
             case .overwrite:
                 directory = sourceDir
             }
 
-            // Every name up to `_10000` taken: this item fails, nothing is replaced.
+            // Every name up to `_10000` taken: this item fails, nothing is replaced. A long name is shortened to fit,
+            // and `claim` (another run's planned names) is asked last, only for a name that is free here.
+            let naming = OutputNaming(name: name, suffix: suffix, dotExtension: dotExt)
             guard let candidate = (1...maxNameAttempts).lazy.map({ number -> URL in
-                let base = number == 1 ? "\(name)\(suffix)" : "\(name)\(suffix)_\(number)"
-                return directory.appendingPathComponent("\(base)\(dotExt)")
-            }).first(where: { !claimed.contains(key($0)) && !fileExists($0) }) else {
+                directory.appendingPathComponent(naming.fileName(number))
+            }).first(where: { !claimed.contains(key($0)) && !fileExists($0) && claim($0) }) else {
                 plans.append(PlannedOutput(item: item, destination: item.source, replacesSource: true,
                                            trashesSource: true, failureReason: noFreeNameReason))
                 continue
             }
 
             claimed.insert(key(candidate))
-            plans.append(PlannedOutput(item: item, destination: candidate,
-                                       replacesSource: false, trashesSource: isOverwrite))
+            var plan = PlannedOutput(item: item, destination: candidate, replacesSource: false,
+                                     trashesSource: isOverwrite)
+            plan.naming = naming
+            plans.append(plan)
         }
         return plans
     }
@@ -225,10 +266,25 @@ public enum OutputPlanner {
         FileIdentity.pathKey(url)
     }
 
-    /// Drops path separators and control characters so a suffix cannot leave the folder.
-    private static func sanitized(_ suffix: String) -> String {
+    /// Drops path separators and control characters so a suffix cannot leave the folder, and zero-width and bidi
+    /// characters so it can't hide or reorder the name (a job's suffix comes from its JSON file).
+    static func sanitized(_ suffix: String) -> String {
         String(suffix.unicodeScalars.filter {
-            $0 != "/" && $0 != ":" && !CharacterSet.controlCharacters.contains($0)
+            $0 != "/" && $0 != ":" && !CharacterSet.controlCharacters.contains($0) && !hiddenScalars.contains($0.value)
         })
     }
+
+    /// The longest same-folder suffix kept, as `nameLength` counts it.
+    static let maxSuffixLength = 64
+
+    /// `sanitized(suffix)` cut (by characters) to `maxSuffixLength`.
+    static func cappedSuffix(_ suffix: String) -> String {
+        var clean = sanitized(suffix)
+        while nameLength(clean) > maxSuffixLength { clean.removeLast() }
+        return clean
+    }
+
+    /// Zero-width, bidi and byte-order marks: U+200B–200F, U+202A–202E, U+2066–2069, U+FEFF.
+    private static let hiddenScalars: Set<UInt32> = Set(Array(0x200B...0x200F) + Array(0x202A...0x202E)
+        + Array(0x2066...0x2069) + [0xFEFF])
 }

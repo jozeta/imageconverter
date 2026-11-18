@@ -141,6 +141,23 @@ public struct ConditionalStep: Codable, Equatable, Sendable {
     public static let ignoredForCopyPrefix = "Ignored for a copied original: "
     /// A copy converted for a Redact step or the metadata removals runs only the Redact steps.
     public static let notAppliedToConversionPrefix = "Not applied to the converted copy: "
+    /// Conditions found inside this step's branches and left out on load (`Pipeline.loadNotes` says so).
+    public internal(set) var droppedNested = NestedConditionCount()
+
+    /// The load note for the conditions `steps`' condition steps left out of their branches on load (none: empty).
+    static func nestedNotes(in steps: [PipelineStep]) -> [String] {
+        let nested = steps.reduce(0) { total, step in
+            guard case .condition(let condition) = step.operation else { return total }
+            return total + condition.droppedNested.count
+        }
+        return nested > 0 ? [nestedConditionNote(count: nested)] : []
+    }
+
+    /// The load note for conditions found inside a condition's branch (conditions can't be nested).
+    public static func nestedConditionNote(count: Int) -> String {
+        count == 1 ? "A condition inside another condition's branch was left out (conditions can't be nested)"
+            : "\(count) conditions inside other conditions' branches were left out (conditions can't be nested)"
+    }
 
     public var match: Match
     /// 1...10 conditions.
@@ -179,9 +196,9 @@ public struct ConditionalStep: Codable, Equatable, Sendable {
         case match, conditions, then, otherwise
     }
 
-    /// Lenient like the rest of a pipeline: unreadable or invalid conditions and actions (including a nested
-    /// condition) are dropped. More than 10 conditions, or none left, rejects the whole step; a branch keeps at
-    /// most 20 actions.
+    /// Lenient like the rest of a pipeline: unreadable or invalid conditions and actions are dropped; a nested
+    /// condition is dropped without being read (`BranchAction`) and counted in `droppedNested`. More than 10
+    /// conditions, or none left, rejects the whole step; a branch keeps at most 20 actions.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         match = (try? container.decodeIfPresent(Match.self, forKey: .match)) ?? .all
@@ -194,10 +211,53 @@ public struct ConditionalStep: Codable, Equatable, Sendable {
         guard !conditions.isEmpty else {
             throw DecodingError.dataCorruptedError(forKey: .conditions, in: container, debugDescription: "No conditions")
         }
-        then = Array((try container.decodeIfPresent([Lossy<ConditionalAction>].self, forKey: .then) ?? [])
-            .compactMap(\.value).filter(\.isValid).prefix(Self.maxActions))
-        otherwise = Array((try container.decodeIfPresent([Lossy<ConditionalAction>].self, forKey: .otherwise) ?? [])
-            .compactMap(\.value).filter(\.isValid).prefix(Self.maxActions))
+        let thenRaw = try container.decodeIfPresent([BranchAction].self, forKey: .then) ?? []
+        let otherwiseRaw = try container.decodeIfPresent([BranchAction].self, forKey: .otherwise) ?? []
+        then = Array(thenRaw.compactMap(\.value).filter(\.isValid).prefix(Self.maxActions))
+        otherwise = Array(otherwiseRaw.compactMap(\.value).filter(\.isValid).prefix(Self.maxActions))
+        droppedNested = NestedConditionCount((thenRaw + otherwiseRaw).filter(\.isNestedCondition).count)
+    }
+}
+
+/// How many nested conditions decoding left out (not saved; never makes two steps unequal).
+public struct NestedConditionCount: Equatable, Sendable {
+    public var count: Int
+
+    public init(_ count: Int = 0) {
+        self.count = count
+    }
+
+    public static func == (lhs: NestedConditionCount, rhs: NestedConditionCount) -> Bool { true }
+}
+
+/// One branch action as read: nil when unreadable. A step holding another condition is recognised by its keys
+/// and never decoded, so a deeply nested file can't recurse (and overflow a worker thread's stack).
+private struct BranchAction: Decodable {
+    let value: ConditionalAction?
+    let isNestedCondition: Bool
+
+    private struct Key: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
+        static let step = Key(stringValue: "step"), payload = Key(stringValue: "_0")
+        static let operation = Key(stringValue: "operation"), condition = Key(stringValue: "condition")
+    }
+
+    init(from decoder: Decoder) throws {
+        isNestedCondition = Self.holdsCondition(decoder)
+        value = isNestedCondition ? nil : try? ConditionalAction(from: decoder)
+    }
+
+    /// True for `{"step": {"_0": {"operation": {"condition": …}}}}`, looked at without decoding the condition.
+    private static func holdsCondition(_ decoder: Decoder) -> Bool {
+        guard let action = try? decoder.container(keyedBy: Key.self), action.contains(.step),
+              let step = try? action.nestedContainer(keyedBy: Key.self, forKey: .step),
+              let payload = try? step.nestedContainer(keyedBy: Key.self, forKey: .payload),
+              let operation = try? payload.nestedContainer(keyedBy: Key.self, forKey: .operation)
+        else { return false }
+        return operation.contains(.condition)
     }
 }
 

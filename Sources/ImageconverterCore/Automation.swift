@@ -17,6 +17,8 @@ public enum AutomationError: Error, Equatable, Sendable {
     case fileTooLarge(name: String, limit: Int)
     case nothingWritten(String)
     case cancelled
+    /// The app is quitting: new actions (and Run Job waiting for a run) are refused.
+    case quitting
 
     public var message: String {
         switch self {
@@ -35,6 +37,7 @@ public enum AutomationError: Error, Equatable, Sendable {
             return "The file \(name) is larger than \(SizeFormat.bytes(limit)), the most imageconverter reads."
         case .nothingWritten(let reason): return "No image was converted. \(reason)"
         case .cancelled: return "The action was cancelled."
+        case .quitting: return "imageconverter is quitting."
         }
     }
 }

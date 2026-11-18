@@ -89,6 +89,7 @@ public enum MetadataOps {
         case .set:
             props.removeValue(forKey: gpsKey) // replaced, with nothing of the old position left
             if options.removePlaceNames { remove(iptcLocationKeys, from: iptcKey, in: &props) }
+            removeIPTCLocationsHoldingGPS(from: &props)
         }
         if options.removeCamera {
             remove(tiffCameraKeys, from: tiffKey, in: &props)
@@ -187,6 +188,25 @@ public enum MetadataOps {
         guard var dict = props[dictKey] as? [String: Any] else { return }
         for key in keys { dict.removeValue(forKey: key) }
         store(dict, at: dictKey, in: &props)
+    }
+
+    /// IPTC Extension's LocationCreated/LocationShown in the IPTC dictionary when they hold GPS coordinates
+    /// (ImageIO's reading of the XMP structures; written back into XMP otherwise).
+    static func removeIPTCLocationsHoldingGPS(from props: inout [String: Any]) {
+        guard var dict = props[iptcKey] as? [String: Any] else { return }
+        for key in [kCGImagePropertyIPTCExtLocationShown, kCGImagePropertyIPTCExtLocationCreated].map({ $0 as String })
+        where dict[key].map({ holdsGPSKey($0) }) == true {
+            dict.removeValue(forKey: key)
+        }
+        store(dict, at: iptcKey, in: &props)
+    }
+
+    /// Whether a dictionary or array value has a GPS-named key at any depth (at most 8 levels).
+    private static func holdsGPSKey(_ value: Any, depth: Int = 0) -> Bool {
+        guard depth < 8 else { return false }
+        if let list = value as? [Any] { return list.contains { holdsGPSKey($0, depth: depth + 1) } }
+        guard let fields = value as? [String: Any] else { return false }
+        return fields.contains { isGPSName($0.key) || holdsGPSKey($0.value, depth: depth + 1) }
     }
 
     /// Writes `dict` back, or drops the sub-dictionary when it is empty.

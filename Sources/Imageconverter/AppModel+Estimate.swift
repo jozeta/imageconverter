@@ -22,15 +22,15 @@ private struct EstimateOutcome: Sendable {
     let failure: String?
 }
 
-/// What an estimate depends on; an unchanged key needs no new computation.
+/// What an estimate depends on; an unchanged key needs no new computation. The file's version is part of it, so
+/// a source rewritten in place (Overwrite originals) is estimated again.
 struct EstimateKey: Equatable {
     let item: URL
+    let version: FileVersion
     let pipeline: Pipeline
 }
 
 extension AppModel {
-    static let estimateDebounce = Duration.milliseconds(400)
-
     func cancelEstimate() {
         estimateTask?.cancel()
         estimateTask = nil
@@ -41,7 +41,8 @@ extension AppModel {
         estimateFailure = nil
     }
 
-    /// Recomputes the size estimate 400 ms after the last change, off the main actor.
+    /// Recomputes the size estimate off the main actor: at once for a newly selected image, 400 ms after the last edit
+    /// otherwise (`PreviewTiming`). It shares the preview's full-size decode (`PreviewCaches.sources`).
     func scheduleEstimate() {
         guard previewAllowed, let index = selectedItemIndex else {
             cancelEstimate()
@@ -50,8 +51,10 @@ extension AppModel {
         let item = items[index]
         let pipeline = self.pipeline
         // The item's metadata panel changes are part of what the estimate depends on.
-        let key = EstimateKey(item: item.source, pipeline: pipeline.withMetadataOverrides(item.metadataOverrides))
+        let key = EstimateKey(item: item.source, version: FileVersion(item.source),
+                              pipeline: pipeline.withMetadataOverrides(item.metadataOverrides))
         if key == estimateKey { return }
+        let delay = PreviewTiming.estimateDelay(selectionChanged: estimateKey?.item != key.item)
         let previous = estimateTask
         previous?.cancel()
         estimateKey = key
@@ -64,7 +67,7 @@ extension AppModel {
         let presets = presetLibrary
         let caches = previewRenderer.caches
         estimateTask = Task { [weak self] in
-            do { try await Task.sleep(for: Self.estimateDebounce) } catch { return }
+            if delay > .zero { do { try await Task.sleep(for: delay) } catch { return } }
             // Wait for the superseded render so two full-size renders never overlap.
             await previous?.value
             guard !Task.isCancelled else { return }

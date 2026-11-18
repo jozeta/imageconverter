@@ -86,15 +86,38 @@ public enum ImageLoader {
 
 extension ImageLoader {
     /// A thumbnail of `url` with its longer side at most `maxPixelSize`, upright; nil when the file is unreadable
-    /// or breaks `limits` (ImageIO may decode the whole image to make it).
-    public static func thumbnail(of url: URL, maxPixelSize: Int, limits: DecodeLimits = .standard) -> CGImage? {
-        guard let source = try? limits.open(url, decodeLongSide: max(1, maxPixelSize)).source else { return nil }
-        let options: [CFString: Any] = [
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
+    /// or breaks `limits` (ImageIO may decode the whole image to make it). `allowEmbedded` (the filmstrip and the
+    /// watermark chip only): the file's embedded thumbnail may be used (a 48 MP HEIC's takes 3 ms instead of 100);
+    /// one smaller than asked for, or of another shape than the image (it may show the uncropped photo), is ignored
+    /// and the thumbnail is made from the image. Analysis, redaction and alt text copies always come from the image.
+    public static func thumbnail(of url: URL, maxPixelSize: Int, limits: DecodeLimits = .standard,
+                                 allowEmbedded: Bool = false) -> CGImage? {
+        guard let (source, header) = try? limits.open(url, decodeLongSide: max(1, maxPixelSize)) else { return nil }
+        let size = max(1, maxPixelSize)
+        let options = thumbnailOptions(maxPixelSize: size, allowEmbedded: allowEmbedded)
+        guard let thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        guard allowEmbedded, !embeddedThumbnailFits(width: thumbnail.width, height: thumbnail.height,
+                                                    image: header.uprightSize, maxPixelSize: size) else { return thumbnail }
+        return CGImageSourceCreateThumbnailAtIndex(source, 0,
+                                                   thumbnailOptions(maxPixelSize: size, allowEmbedded: false) as CFDictionary)
+    }
+
+    /// True when a `width` x `height` thumbnail can stand for an `image`-sized picture asked for at `maxPixelSize`:
+    /// at least the asked size (or the image's, if smaller) and the same shape within 2 %.
+    static func embeddedThumbnailFits(width: Int, height: Int, image: (width: Int, height: Int), maxPixelSize: Int) -> Bool {
+        guard width > 0, height > 0, image.width > 0, image.height > 0 else { return false }
+        guard max(width, height) >= min(maxPixelSize, max(image.width, image.height)) else { return false }
+        let aspect = Double(width) / Double(height)
+        let expected = Double(image.width) / Double(image.height)
+        return abs(aspect - expected) / expected <= 0.02
+    }
+
+    static func thumbnailOptions(maxPixelSize: Int, allowEmbedded: Bool) -> [CFString: Any] {
+        [
+            allowEmbedded ? kCGImageSourceCreateThumbnailFromImageIfAbsent : kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: max(1, maxPixelSize),
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 }

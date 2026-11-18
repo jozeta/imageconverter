@@ -70,6 +70,11 @@ struct ImageconverterApp: App {
                     .disabled(model.pipelineCollapsed)
                 Toggle("Low-Memory Mode", isOn: $model.lowMemoryMode)
                 Divider()
+                Toggle("Show Histogram", isOn: Bindable(model.histogram).showHistogram)
+                    .keyboardShortcut("g", modifiers: [.option, .command])
+                Toggle("Show Clipping", isOn: Bindable(model.histogram).showClipping)
+                    .keyboardShortcut("j", modifiers: [.option, .command])
+                Divider()
                 compareCommands
                 Divider()
                 zoomCommands

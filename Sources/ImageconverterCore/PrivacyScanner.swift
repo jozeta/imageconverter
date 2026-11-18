@@ -104,7 +104,8 @@ public enum PrivacyScanner {
 
     private static func scan(source: CGImageSource, head: () -> Data?) -> PrivacyFindings {
         guard let header = ImageHeader.read(source) else { return PrivacyFindings(findings: []) }
-        let xmp = xmpTags(CGImageSourceCopyMetadataAtIndex(source, 0, nil))
+        let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil)
+        let xmp = xmpTags(metadata)
         var found: [PrivacyFinding.Kind: [String]] = [:]
         var details: [PrivacyFinding.Kind: [PrivacyDetail]] = [:]
         func add(_ kind: PrivacyFinding.Kind, _ fields: [PrivacyDetail]) {
@@ -115,7 +116,7 @@ public enum PrivacyScanner {
             }
         }
         let props = header.properties
-        add(.location, locationFields(props, xmp: xmp))
+        add(.location, locationFields(props, xmp: xmp, structures: MetadataOps.pathsHoldingGPS(in: metadata)))
         add(.serialNumbers, serialFields(props, xmp: xmp))
         add(.owner, ownerFields(props, xmp: xmp))
         add(.editHistory, historyFields(xmp))
@@ -176,16 +177,21 @@ public enum PrivacyScanner {
         }
     }
 
-    private static func locationFields(_ props: [String: Any], xmp: [String: String]) -> [PrivacyDetail] {
+    /// The GPS position, plus XMP structures holding coordinates (`structures`, e.g. IPTC Extension's
+    /// LocationCreated/LocationShown), which the suggested location removal also clears.
+    private static func locationFields(_ props: [String: Any], xmp: [String: String], structures: [String])
+        -> [PrivacyDetail] {
+        let inStructures = xmpDetails(xmp, field: "GPS position in an XMP location") { structures.contains($0) }
         let gps = dictionary(kCGImagePropertyGPSDictionary, in: props)
         let coordinates = [kCGImagePropertyGPSLatitude, kCGImagePropertyGPSLongitude, kCGImagePropertyGPSAltitude]
         if coordinates.contains(where: { present(gps[$0 as String]) }) {
             let text = MetadataInspection.position(gps).map(MetadataInspection.positionText)
                 ?? MetadataInspection.text(gps)
             return [PrivacyDetail(field: "GPS position", value: text,
-                                  path: .dictionary(kCGImagePropertyGPSDictionary as String))]
+                                  path: .dictionary(kCGImagePropertyGPSDictionary as String))] + inStructures
         }
         return xmpDetails(xmp, field: "GPS position") { $0.hasSuffix(":GPSLatitude") || $0.hasSuffix(":GPSLongitude") }
+            + inStructures
     }
 
     private static func serialFields(_ props: [String: Any], xmp: [String: String]) -> [PrivacyDetail] {

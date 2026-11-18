@@ -36,24 +36,31 @@ public enum CLIParser {
     private static func parseJobs(_ arguments: [String]) throws -> CLICommand {
         switch arguments.first {
         case "list": return .jobsList(json: try jsonOnly(Array(arguments.dropFirst())))
-        case "run":
-            var name: String?
-            var quiet = false
-            var json = false
-            for argument in arguments.dropFirst() {
-                switch argument {
-                case "--quiet": quiet = true
-                case "--json": json = true
-                default:
-                    if argument.hasPrefix("-") { throw CLIUsageError("Unknown option '\(argument)'.") }
-                    guard name == nil else { throw CLIUsageError("Give one job name (quote names with spaces).") }
-                    name = argument
-                }
-            }
-            guard let name else { throw CLIUsageError("Usage: imageconverter jobs run NAME [--quiet|--json]") }
-            return .jobsRun(name: name, quiet: quiet, json: json)
+        case "run": return try parseJobsRun(Array(arguments.dropFirst()))
         default: throw CLIUsageError("Usage: imageconverter jobs list|run NAME")
         }
+    }
+
+    private static func parseJobsRun(_ arguments: [String]) throws -> CLICommand {
+        var name: String?
+        var quiet = false
+        var json = false
+        var onlyNames = false
+        for argument in arguments {
+            switch argument {
+            case "--" where !onlyNames: onlyNames = true
+            case "--quiet" where !onlyNames: quiet = true
+            case "--json" where !onlyNames: json = true
+            default:
+                if !onlyNames, argument.hasPrefix("-") {
+                    throw CLIUsageError("Unknown option '\(argument)'. Put '--' before a job name that starts with '-'.")
+                }
+                guard name == nil else { throw CLIUsageError("Give one job name (quote names with spaces).") }
+                name = argument
+            }
+        }
+        guard let name else { throw CLIUsageError("Usage: imageconverter jobs run [--quiet|--json] [--] NAME") }
+        return .jobsRun(name: name, quiet: quiet, json: json)
     }
 
     private static func jsonOnly(_ arguments: [String]) throws -> Bool {

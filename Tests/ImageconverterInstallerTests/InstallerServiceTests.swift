@@ -190,14 +190,45 @@ final class InstallerServiceTests: XCTestCase {
         let first = expectation(description: "first")
         let second = expectation(description: "second")
         var replies: [String?] = []
-        service.install(zipPath: zip.path, expectedSHA256: zip.sha, version: "9.9.9") { replies.append($0); first.fulfill() }
-        service.install(zipPath: zip.path, expectedSHA256: zip.sha, version: "9.9.9") { message in
+        service.install(zipPath: zip.path, expectedSHA256: zip.sha, version: "9.9.9") { error, note in
+            XCTAssertNil(note)
+            replies.append(error)
+            first.fulfill()
+        }
+        service.install(zipPath: zip.path, expectedSHA256: zip.sha, version: "9.9.9") { message, _ in
             XCTAssertEqual(message, "An update is already being installed.")
             second.fulfill()
         }
         wait(for: [second, first], timeout: 30)
         XCTAssertEqual(replies, [nil])
         XCTAssertEqual(installedVersion, "9.9.9")
+    }
+
+    func testSwapNoteIsReturned() throws {
+        let zip = try download()
+        var environment = InstallerService.Environment(serviceBundle: service, home: home.path,
+                                                       workRoot: root.appendingPathComponent("work"))
+        environment.requirement = adHocRequirement
+        environment.operations = UnremovableOld()
+        let service = InstallerService(environment: environment)
+        let note = try service.perform(zipPath: zip.path, expectedSHA256: zip.sha, version: "9.9.9")
+        XCTAssertEqual(installedVersion, "9.9.9")
+        XCTAssertTrue(note?.contains("could not be moved to the Trash") == true, "\(String(describing: note))")
+        // Over the protocol the note arrives as the second reply value, not as an error.
+        let replied = expectation(description: "reply")
+        try writeInfo(to: installed, version: "1.0.0")
+        let zip2 = try download()
+        service.install(zipPath: zip2.path, expectedSHA256: zip2.sha, version: "9.9.9") { error, note in
+            XCTAssertNil(error)
+            XCTAssertNotNil(note)
+            replied.fulfill()
+        }
+        wait(for: [replied], timeout: 30)
+    }
+
+    func testNoNoteWhenTheOldAppIsTrashed() throws {
+        let zip = try download()
+        XCTAssertNil(try makeService().perform(zipPath: zip.path, expectedSHA256: zip.sha, version: "9.9.9"))
     }
 
     // MARK: Pure rules
@@ -253,4 +284,18 @@ private struct TempTrash: UpdateFileOperations {
     func move(_ source: URL, to destination: URL) throws { try system.move(source, to: destination) }
     func remove(_ url: URL) throws { try system.remove(url) }
     func trash(_ url: URL) throws { try system.move(url, to: trash.appendingPathComponent(url.lastPathComponent)) }
+}
+
+/// Trash and remove both fail, as for a root-owned old app in /Applications.
+private struct UnremovableOld: UpdateFileOperations {
+    private let system = SystemUpdateFileOperations()
+    struct Refused: Error {}
+
+    func copy(_ source: URL, to destination: URL) throws { try system.copy(source, to: destination) }
+    func move(_ source: URL, to destination: URL) throws { try system.move(source, to: destination) }
+    func remove(_ url: URL) throws {
+        if url.lastPathComponent.hasPrefix(UpdateReplacer.oldPrefix) { throw Refused() }
+        try system.remove(url)
+    }
+    func trash(_ url: URL) throws { throw Refused() }
 }

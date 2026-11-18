@@ -3,9 +3,11 @@ import Foundation
 
 /// Remembers a Redact step's detections, so the preview doesn't run Vision again on every edit (changing the
 /// style or padding never needs a new detection). Keyed like `FocusCache`: the source file's version, the step
-/// and everything before it. Failed and cancelled detections aren't kept, so the next render tries again.
+/// and everything before it. Lookups for a detection in progress wait for it (`SharedDetections`), so the preview,
+/// the size estimate and the quality ladder run one detection per image between them. Failed and cancelled
+/// detections aren't kept (every waiter gets the failure), so the next render tries again.
 public final class RedactCache: @unchecked Sendable {
-    struct Key: Hashable {
+    struct Key: Hashable, Sendable {
         let source: String
         let step: Int
         let before: Data
@@ -14,43 +16,40 @@ public final class RedactCache: @unchecked Sendable {
         let target: RedactTarget
     }
 
-    private let lock = NSLock()
-    private var entries: [Key: RedactDetections] = [:]
-    private let limit: Int
-    private var runs = 0
+    private let shared: SharedDetections<Key, RedactDetections>
 
     public init(limit: Int = 256) {
-        self.limit = max(1, limit)
+        shared = SharedDetections(limit: limit) { $0.failure == nil && !$0.cancelled }
+    }
+
+    /// `grace`: how long a detection every caller left keeps running for the next one (`SharedDetections`).
+    init(limit: Int = 256, grace: TimeInterval) {
+        shared = SharedDetections(limit: limit, grace: grace) { $0.failure == nil && !$0.cancelled }
     }
 
     /// How many detections ran (for tests).
-    public var detectionCount: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return runs
-    }
+    public var detectionCount: Int { shared.runCount }
 
+    /// How many lookups wait for a detection right now (for tests).
+    var waiterCount: Int { shared.waiterCount }
+
+    /// Forgets the kept detections and cancels those nobody waits for (`SharedDetections.removeAll`).
     public func removeAll() {
-        lock.lock()
-        defer { lock.unlock() }
-        entries = [:]
+        shared.removeAll()
     }
 
-    func detections(for key: Key, detect: () -> RedactDetections) -> RedactDetections {
-        lock.lock()
-        if let cached = entries[key] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-        let found = detect()
-        lock.lock()
-        defer { lock.unlock() }
-        runs += 1
-        guard found.failure == nil, !found.cancelled else { return found }
-        if entries.count >= limit { entries = [:] }
-        entries[key] = found
-        return found
+    /// Cancels the detections nobody waits for; kept detections stay (`SharedDetections.cancelIdle`).
+    public func cancelIdleDetections() {
+        shared.cancelIdle()
+    }
+
+    /// The detections for `key`; cancelled when the caller was cancelled while it waited.
+    func detections(for key: Key, waiting: ((Bool) -> Void)? = nil,
+                    detect: @escaping @Sendable () -> RedactDetections) -> RedactDetections {
+        if let found = shared.value(for: key, waiting: waiting, detect: detect) { return found }
+        var cancelled = RedactDetections()
+        cancelled.cancelled = true
+        return cancelled
     }
 }
 
@@ -59,14 +58,17 @@ extension Pipeline {
     /// Throws `redactUnchecked` when a detection the step needs failed: fail closed, never write it unchecked.
     func redactRects(_ options: RedactOptions, in image: CGImage, step: Int, context: FocusContext,
                      notes: inout [String]) throws -> [CGRect] {
-        let detect = { Redaction.detect(options.target, in: image, detector: context.detector) }
+        let detector = context.detector
+        let detect: @Sendable () -> RedactDetections = { Redaction.detect(options.target, in: image, detector: detector) }
         let found: RedactDetections
         let before = steps.prefix(step).filter(\.isEnabled).map(\.operation)
         if let cache = context.redactCache, let source = context.sourceKey,
            let encoded = try? JSONEncoder.sortedKeys.encode(before) {
             let key = RedactCache.Key(source: source, step: step, before: encoded, width: image.width,
                                       height: image.height, target: options.target)
-            found = cache.detections(for: key, detect: detect)
+            let activity = context.redactActivity
+            found = cache.detections(for: key, waiting: activity.map { report in { report($0 ? options.target : nil) } },
+                                     detect: detect)
         } else {
             found = detect()
         }

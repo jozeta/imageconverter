@@ -279,7 +279,7 @@ private struct ActionRow: View {
         case .copyOriginal: return "writes the file unchanged"
         case .skip: return "nothing is written"
         case .stop: return "later conditions aren't checked for this image"
-        case .skipExtraOutputs: return "only the main output is written"
+        case .skipExtraOutputs: return "only Output 1 is written"
         default: return action.summary
         }
     }

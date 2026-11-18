@@ -1,6 +1,20 @@
 import SwiftUI
 import ImageconverterCore
 
+/// What the panel's read depends on: the image, its file version and the model's `filesRevision` (bumped after a
+/// run, which may have rewritten the file in place).
+private struct InspectedFile: Equatable {
+    let url: URL?
+    let version: FileVersion?
+    let revision: Int
+
+    init(_ url: URL?, revision: Int) {
+        self.url = url
+        version = url.map(FileVersion.init)
+        self.revision = revision
+    }
+}
+
 /// The metadata panel right of the preview: the selected image's metadata by group, searchable, read from the
 /// file's header only. Edits, removals and additions are this image's metadata overrides: they apply to its
 /// outputs (after the Metadata step), never to the original.
@@ -46,7 +60,7 @@ struct MetadataInspector: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .lgBackdrop()
         .lgCompact()
-        .task(id: selected?.source) {
+        .task(id: InspectedFile(selected?.source, revision: model.filesRevision)) {
             editing = nil
             guard let url = selected?.source else { return inspection = nil }
             inspection = nil

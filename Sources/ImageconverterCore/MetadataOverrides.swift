@@ -311,8 +311,12 @@ public struct MetadataOverrides: Hashable, Sendable {
             }
         case .dictionary(let dictionary):
             props.removeValue(forKey: dictionary)
-            // The GPS position also lives in XMP outside the EXIF mirrors (e.g. a vendor schema).
-            if let xmp, dictionary == kCGImagePropertyGPSDictionary as String { removeGPSTags(from: xmp) }
+            // The GPS position also lives in XMP outside the EXIF mirrors (e.g. a vendor schema) and in IPTC
+            // Extension locations.
+            if dictionary == kCGImagePropertyGPSDictionary as String {
+                MetadataOps.removeIPTCLocationsHoldingGPS(from: &props)
+                if let xmp { removeGPSTags(from: xmp) }
+            }
         case .xmp(let tagPath):
             if let xmp { CGImageMetadataRemoveTagWithPath(xmp, nil, tagPath as CFString) }
         }
@@ -328,6 +332,8 @@ extension MetadataOverrides {
                   ["gps", "latitude", "longitude", "altitude"].contains(where: name.lowercased().contains) else { continue }
             CGImageMetadataRemoveTagWithPath(xmp, nil, "\(prefix):\(name)" as CFString)
         }
+        // And location structures holding coordinates (IPTC Extension LocationCreated/LocationShown).
+        MetadataOps.removeTagsHoldingGPS(from: xmp)
     }
 }
 

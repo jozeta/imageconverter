@@ -18,6 +18,8 @@ final class UpdateController {
         case downloading(received: Int64, total: Int64)
         case verifying
         case installing
+        /// Installed, but the old version could not be removed (the note); waits for the user to relaunch.
+        case installedWithNote(String)
         case failed(String)
     }
 
@@ -35,6 +37,9 @@ final class UpdateController {
     var showsLaunchQuestion = false
     /// Set by the app: whether a batch or a job is running (installing is refused then).
     @ObservationIgnored var isRunning: () -> Bool = { false }
+    /// Set while the installer service call runs (staging and swapping the app): quitting then only offers to wait
+    /// (`QuitCoordinator`, Core `QuitPolicy`).
+    @ObservationIgnored let installActivity = InstallActivity()
 
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -94,7 +99,16 @@ final class UpdateController {
 
     // MARK: Check
 
-    func checkNow() { check(reporting: true) }
+    func checkNow() {
+        if isInstalledAwaitingRelaunch { return }
+        check(reporting: true)
+    }
+
+    /// Installed, but the old version is still on disk: Relaunch is offered until the app is relaunched.
+    var isInstalledAwaitingRelaunch: Bool {
+        if case .installedWithNote = status { return true }
+        return false
+    }
 
     private func check(reporting: Bool) {
         guard !isBusy else { return }
@@ -151,10 +165,16 @@ final class UpdateController {
                 // Later while checking: nothing is installed.
                 try Task.checkCancellation()
                 status = .installing
-                try await UpdateInstaller.install(zip: download.zip, sha256: download.sha256, version: release.version,
-                                                  isRunning: isRunning)
+                let note = try await installActivity.perform {
+                    try await UpdateInstaller.install(zip: download.zip, sha256: download.sha256,
+                                                      version: release.version, isRunning: isRunning)
+                }
                 UpdateVerifier.remove(folder)
-                UpdateInstaller.relaunch { message in self.status = .failed(message) }
+                if let note {
+                    status = .installedWithNote(note)
+                } else {
+                    relaunch()
+                }
             } catch {
                 UpdateVerifier.remove(work)
                 // Later (a cancel) is not an error, even when it interrupted the download check midway.
@@ -168,6 +188,11 @@ final class UpdateController {
         }
     }
 
+    /// Opens the installed app as a new instance and quits this one.
+    func relaunch() {
+        UpdateInstaller.relaunch { message in self.status = .failed(message) }
+    }
+
     private func progress(received: Int64, total: Int64) {
         guard case .downloading = status else { return }
         status = .downloading(received: received, total: total)
@@ -176,6 +201,7 @@ final class UpdateController {
     /// Later: closes the sheet; a download in progress is stopped and deleted.
     func later() {
         if case .installing = status { return }
+        if case .installedWithNote = status { offer = nil; return }
         task?.cancel()
         task = nil
         UpdateVerifier.remove(workFolder)
@@ -196,6 +222,7 @@ final class UpdateController {
             total > 0 ? "Downloading… \(Self.bytes(received)) of \(Self.bytes(total))" : "Downloading… \(Self.bytes(received))"
         case .verifying: "Checking the download…"
         case .installing: "Installing…"
+        case .installedWithNote(let note): "The update is installed. \(note)"
         case .failed(let message): message
         }
     }

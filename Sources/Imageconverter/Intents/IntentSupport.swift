@@ -39,6 +39,8 @@ enum IntentContext {
         -> [IntentFile] {
         do {
             guard !files.isEmpty else { throw AutomationError.noFiles }
+            // Quit confirmed: refused before anything is copied (`AutomationRuns.run` checks again).
+            guard await !AutomationRuns.shared.isStopping else { throw AutomationError.quitting }
             let scratch = try Automation.newScratchFolder(in: Automation.scratchBase)
             let inputs = try IntentInputs(files, copiesIn: scratch.appendingPathComponent("in", isDirectory: true))
             // The copies of the user's images go when the action ends; the outputs stay for the day.

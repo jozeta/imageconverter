@@ -79,7 +79,7 @@ enum CLIText {
       imageconverter convert <files or folders...> [options]
       imageconverter presets list [--json]
       imageconverter jobs list [--json]
-      imageconverter jobs run NAME [--quiet|--json]
+      imageconverter jobs run [--quiet|--json] [--] NAME
       imageconverter --version | --help
 
     Global options:
@@ -101,15 +101,53 @@ enum CLIText {
                                               preset's). Keys: name, format, quality, max-size, long, width,
                                               height or percent, suffix (default _NAME), folder
                                               (an absolute path: the output's own folder; relative:
-                                              a subfolder of the main output's folder)
+                                              a subfolder of the main output's folder). A comma inside
+                                              a value: write \\, or put the value in double quotes,
+                                              e.g. 'name=web,folder="/Photos/a, b"'. Inside
+                                              a value \\\\ is a backslash and \\" a quote.
       --strip-gps | --strip-all               Remove GPS data, or all metadata (ignores the preset's keep list)
       --report csv|json|text                  Print a full report to stdout
       --dry-run                               Show what would be written; change nothing
-      --quiet                                 No progress on stderr (Ctrl-C stops cleanly, exit 130)
+      --quiet                                 No progress on stderr
       --json                                  Machine-readable JSON report on stdout (implies --quiet)
 
+    Ctrl-C, SIGTERM and SIGHUP stop cleanly (exit 130); a second one exits at once.
     Options override the preset or pipeline. Results go to stdout, progress to stderr.
-    Files starting with '-' need '--' before them. Exit codes: 0 all done, 1 some files failed or missing,
+    Files (and job names) starting with '-' need '--' before them. Exit codes: 0 all done, 1 some files failed or missing,
     2 usage error, 3 nothing to do, 130 interrupted.
     """
+}
+
+/// How the tool reacts to being stopped. The first SIGINT (Ctrl-C), SIGTERM (`kill`, `timeout`) or SIGHUP (closed
+/// terminal) cancels the batch cooperatively; a second one of any of them ends the process at once.
+public final class InterruptPolicy: @unchecked Sendable {
+    public enum Action: Equatable, Sendable {
+        /// The first signal: the batch was cancelled and finishes cleanly.
+        case cancelled
+        /// A further signal: clean up temp files and exit with this code.
+        case exitNow(Int32)
+    }
+
+    /// The signals that stop a run.
+    public static let handledSignals: [Int32] = [SIGINT, SIGTERM, SIGHUP]
+    public static let exitCode: Int32 = 130
+
+    private let lock = NSLock()
+    private var received = 0
+    private let token: CancelToken
+
+    public init(cancel: CancelToken) {
+        token = cancel
+    }
+
+    /// Called from a signal source's handler.
+    public func signalReceived() -> Action {
+        lock.lock()
+        received += 1
+        let first = received == 1
+        lock.unlock()
+        guard first else { return .exitNow(Self.exitCode) }
+        token.cancel()
+        return .cancelled
+    }
 }

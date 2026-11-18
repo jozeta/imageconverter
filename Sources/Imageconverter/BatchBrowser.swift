@@ -30,6 +30,12 @@ struct BatchBrowser: View {
 }
 
 /// A thumbnail on a checkerboard, so transparent images show as transparent.
+/// The thumbnail task's identity: a rewritten file keeps its URL, so the epoch makes the cell load again.
+private struct ThumbnailLoad: Equatable {
+    let source: URL
+    let epoch: Int
+}
+
 struct BatchThumbnail: View {
     @Bindable var model: AppModel
     let item: InputItem
@@ -59,7 +65,9 @@ struct BatchThumbnail: View {
         .overlay(alignment: .topTrailing) {
             if model.hasMetadataEdits(item.source) { MetadataEditBadge().padding(2) }
         }
-        .task(id: item.source) { await model.loadThumbnail(for: item.source) }
+        .task(id: ThumbnailLoad(source: item.source, epoch: model.thumbnailEpoch)) {
+            await model.loadThumbnail(for: item.source)
+        }
     }
 }
 

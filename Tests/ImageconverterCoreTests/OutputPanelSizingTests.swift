@@ -104,6 +104,15 @@ final class OutputPanelSizingTests: XCTestCase {
                        "PNG · overwrite originals · +2 outputs")
     }
 
+    func testMainCardLineLeavesOutTheExtraOutputs() {
+        let output = OutputSettings(format: .jpeg, quality: 0.8)
+        XCTAssertEqual(OutputSummary.cardLine(output, saveTo: .newFolder, folderName: "Converted", suffix: "_new"),
+                       "JPEG · 80 % · Converted")
+        XCTAssertEqual(OutputSummary.cardLine(OutputSettings(format: .png), saveTo: .overwrite, folderName: nil,
+                                              suffix: ""),
+                       "PNG · overwrite originals")
+    }
+
     func testSeveralPanelsScrollInsideAScreenShare() {
         XCTAssertEqual(OutputPanelSizing.maxOpenHeight(screenHeight: 1000), 600)
         XCTAssertEqual(OutputPanelSizing.maxOpenHeight(screenHeight: 300), OutputPanelSizing.minOpenCap)

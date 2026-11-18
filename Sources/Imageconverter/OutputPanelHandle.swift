@@ -8,6 +8,7 @@ import ImageconverterCore
 final class OutputPanelState {
     static let collapsedKey = "outputCollapsed"
     static let heightKey = "outputHeight"
+    static let mainOutputExpandedKey = "mainOutputExpanded"
 
     /// Only the summary line shows.
     var collapsed: Bool {
@@ -21,6 +22,10 @@ final class OutputPanelState {
             }
         }
     }
+    /// The "Output 1" card is open (the default).
+    var mainOutputExpanded: Bool {
+        didSet { defaults.set(mainOutputExpanded, forKey: Self.mainOutputExpandedKey) }
+    }
     /// The extra output panels that are open (a new one opens; not persisted).
     var expandedVariants: Set<UUID> = []
     @ObservationIgnored private let defaults: UserDefaults
@@ -29,6 +34,7 @@ final class OutputPanelState {
         self.defaults = defaults
         collapsed = defaults.bool(forKey: Self.collapsedKey)
         height = OutputPanelSizing.storedHeight(defaults.object(forKey: Self.heightKey) as? Double)
+        mainOutputExpanded = defaults.object(forKey: Self.mainOutputExpandedKey) as? Bool ?? true
     }
 }
 

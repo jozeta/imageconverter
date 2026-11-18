@@ -109,6 +109,21 @@ final class OutputDestinationTests: XCTestCase {
         XCTAssertTrue(OutputVariant.problems(in: [first, second]).isEmpty)
     }
 
+    func testExtraOutputDefaultNamesStartAtTwo() throws {
+        // The main output is the "Output 1" card; extra outputs follow the card numbering.
+        XCTAssertEqual(OutputVariant.mainOutputName, "Output 1")
+        let main = OutputSettings(format: .jpeg)
+        let first = OutputVariant.added(after: [], main: main)
+        let second = OutputVariant.added(after: [first], main: main)
+        XCTAssertEqual([first.name, second.name], ["Output 2", "Output 3"])
+        XCTAssertEqual(OutputVariant.defaultName(4), "Output 4")
+        // A name saved before (also "Output 1") loads unchanged.
+        let saved = OutputVariant(name: "Output 1", nameSuffix: "_old")
+        let loaded = try JSONDecoder().decode(OutputVariant.self, from: JSONEncoder().encode(saved))
+        XCTAssertEqual(loaded.name, "Output 1")
+        XCTAssertEqual(OutputVariant.added(after: [loaded], main: main).name, "Output 3")
+    }
+
     // MARK: Planning
 
     func testEachDestinationWritesWhereItSays() async throws {
@@ -232,7 +247,7 @@ final class OutputDestinationTests: XCTestCase {
             settings: OutputSettings(format: .jpeg, compression: .smart),
             variants: [VariantEstimate(name: "Thumbnail", formatName: "JPEG", bytes: 48_000, failure: nil, note: nil),
                        VariantEstimate(name: "Big", formatName: "PNG", bytes: nil, failure: "Too big", note: nil)])
-        XCTAssertEqual(lines.map(\.title), ["Main JPEG", "Thumbnail JPEG", "Big PNG"])
+        XCTAssertEqual(lines.map(\.title), ["Output 1 JPEG", "Thumbnail JPEG", "Big PNG"])
         XCTAssertTrue(lines[0].size.contains("at 80 %"), lines[0].size)
         XCTAssertTrue(lines[0].size.hasSuffix("(\u{2212}50 %)"), lines[0].size)
         XCTAssertTrue(lines[1].size.hasSuffix("(\u{2212}98 %)"), lines[1].size)

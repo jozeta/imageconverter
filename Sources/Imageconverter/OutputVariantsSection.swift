@@ -2,9 +2,9 @@ import AppKit
 import SwiftUI
 import ImageconverterCore
 
-/// The Output panel's extra outputs (Johan, round 3): each one is a full output panel of its own (format,
-/// compression, size, name suffix and its own Save to), collapsible like a step, with a remove button. The "+" that
-/// adds one sits at the top right of the Output panel (`AddOutputButton`).
+/// The Output panel's extra outputs (Johan, round 3), the cards under "Output 1" (`MainOutputCard`): each one is a
+/// full output panel of its own (format, compression, size, name suffix and its own Save to), collapsible like a
+/// step, with a remove button. The "+" that adds one sits at the top right of the Output panel (`AddOutputButton`).
 struct OutputVariantsSection: View {
     @Bindable var model: AppModel
 
@@ -51,7 +51,7 @@ struct OutputVariantsSection: View {
     }
 }
 
-/// The "+" at the top right of the Output panel: adds an output panel (a copy of the main output's settings).
+/// The "+" at the top right of the Output panel: adds an output card (a copy of Output 1's settings).
 struct AddOutputButton: View {
     var model: AppModel
     @State private var hovered = false
@@ -97,7 +97,7 @@ private struct VariantPanel: View {
         }
         parts.append(variant.resize?.summary ?? "same size")
         parts.append("name\(variant.cleanSuffix)")
-        parts.append(variant.destination?.summary ?? "beside the main output")
+        parts.append(variant.destination?.summary ?? "beside Output 1")
         return parts.joined(separator: " · ")
     }
 
@@ -113,22 +113,9 @@ private struct VariantPanel: View {
 
     var body: some View {
         AccordionCard(isExpanded: $isExpanded, canExpand: true, title: title) {
-            HStack(spacing: LadaGlass.Spacing.s) {
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(title).font(LadaGlass.Typography.subtitle)
-                    Text(statusLine)
-                        .font(LadaGlass.Typography.label)
-                        .foregroundStyle(problem == nil && !needsFolder ? LadaGlass.Colors.muted
-                                         : LadaGlass.Colors.badText)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .help(statusLine)
-                        .accessibilityLabel(statusLine)
-                }
-                Spacer(minLength: 0)
+            OutputCardHeader(title: title, line: statusLine, isProblem: problem != nil || needsFolder) {
                 RemoveStepButton(label: "output \(title)", action: remove)
             }
-            .contentShape(Rectangle())
         } content: {
             VStack(alignment: .leading, spacing: LadaGlass.Spacing.s) {
                 labelled("Name") {
@@ -187,7 +174,7 @@ private struct VariantSaveToControl: View {
     @State private var lastName = "thumbs"
 
     enum Choice: String, CaseIterable {
-        case besideMain = "Beside the main output"
+        case besideMain = "Beside Output 1"
         case sameFolder = "Same folder as original"
         case subfolder = "Subfolder next to original"
         case newFolder = "New folder"
@@ -210,7 +197,7 @@ private struct VariantSaveToControl: View {
             .accessibilityLabel("Output save to")
             switch destination {
             case nil:
-                note("Into the main output's folder (next to the originals when they are overwritten)")
+                note("Into Output 1's folder (next to the originals when they are overwritten)")
                 subfolderField
             case .sameFolder?:
                 note("Next to each original, as a new file; the original is never replaced")
@@ -311,7 +298,7 @@ private struct VariantSizeControls: View {
     @Binding var resize: VariantResize?
 
     enum Kind: String, CaseIterable {
-        case same = "Same as main output", longestEdge = "Longest edge", maxWidth = "Max width"
+        case same = "Same as Output 1", longestEdge = "Longest edge", maxWidth = "Max width"
         case maxHeight = "Max height", percent = "Percentage"
     }
 

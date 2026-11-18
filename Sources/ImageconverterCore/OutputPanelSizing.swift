@@ -99,6 +99,13 @@ public enum OutputSummary {
         if extraOutputs > 0 { parts.append("+\(extraOutputs) \(extraOutputs == 1 ? "output" : "outputs")") }
         return parts.joined(separator: " · ")
     }
+
+    /// The "Output 1" card's line under its title: format · quality · Save to (the extra outputs have cards of
+    /// their own).
+    public static func cardLine(_ output: OutputSettings, saveTo: OutputModeKind, folderName: String?,
+                                suffix: String) -> String {
+        line(output, saveTo: saveTo, folderName: folderName, suffix: suffix)
+    }
 }
 
 /// Defaults of the app's view settings that Core can state (and test).
@@ -114,6 +121,12 @@ public enum ViewDefaults {
         -> Mode? where Mode.RawValue == String {
         defaults.string(forKey: compareModeKey).flatMap(Mode.init(rawValue:)) ?? Mode(rawValue: compareMode)
     }
+
+    /// The preview's histogram panel and clipping overlay (View ▸ Show Histogram / Show Clipping), both off by default.
+    public static let showHistogramKey = "showHistogram"
+    public static let showClippingKey = "showClipping"
+    /// Which image the histogram measures: "result" (the default) or "original".
+    public static let histogramSourceKey = "histogramSource"
 
     /// Set once the one-time switch to Split has run.
     public static let splitDefaultAppliedKey = "compareModeDefaultSplitApplied"

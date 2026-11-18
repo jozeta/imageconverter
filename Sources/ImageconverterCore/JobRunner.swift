@@ -222,13 +222,8 @@ public enum JobRunner {
         try ReportExporter.data(report, format: format).write(to: temp, options: [.withoutOverwriting])
         for number in 1...1000 {
             let destination = folder.appendingPathComponent(reportFileName(date: date, format: format, number: number))
-            do {
-                try files.moveItem(at: temp, to: destination)
-                return destination
-            } catch let error as NSError where error.domain == NSCocoaErrorDomain
-                && error.code == NSFileWriteFileExistsError {
-                continue
-            }
+            // Exclusive: a report another run (or another app) wrote under this name is never replaced.
+            if try FileCommitter.renameExclusive(temp, to: destination) { return destination }
         }
         throw CocoaError(.fileWriteFileExists)
     }

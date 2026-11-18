@@ -207,7 +207,7 @@ public struct Pipeline: Codable, Equatable, Sendable {
         extraOutputs = kept
         // An output this version can't read (a newer format, broken settings) is left out, and said so.
         let unreadable = variants.filter { $0.variant == nil }.map { OutputVariant.unreadableNote($0.name) }
-        loadNotes = PipelineLoadNotes(unreadable + notes)
+        loadNotes = PipelineLoadNotes(ConditionalStep.nestedNotes(in: steps) + unreadable + notes)
     }
 }
 

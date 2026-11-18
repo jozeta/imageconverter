@@ -7,7 +7,8 @@ import Foundation
 /// is, so a test can check that every inked pixel ends up inside a redacted rect.
 enum RedactCorpus {
     enum Background {
-        case white, black, gray(Double), gradient, photo
+        /// `transparent`: nothing drawn, every pixel but the text's has alpha 0.
+        case white, black, gray(Double), gradient, photo, transparent
     }
 
     /// One piece of text: drawn centred on `center` (top-left origin, pixels), turned `angle` degrees
@@ -210,6 +211,7 @@ enum RedactCorpus {
         switch background {
         case .white: ctx.setFillColor(gray: 1, alpha: 1); ctx.fill(all)
         case .black: ctx.setFillColor(gray: 0, alpha: 1); ctx.fill(all)
+        case .transparent: break
         case .gray(let value): ctx.setFillColor(gray: value, alpha: 1); ctx.fill(all)
         case .gradient:
             let colors = [CGColor(srgbRed: 0.1, green: 0.3, blue: 0.7, alpha: 1),

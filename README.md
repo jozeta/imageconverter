@@ -8,7 +8,7 @@ on your Mac: no uploads, and no network access except the optional update check 
 For anyone who regularly prepares photos for the web, for sharing or for archiving, and is tired
 of doing it one image or one operation at a time.
 
-**Version:** 1.4.0 · **Status:** released — signed and notarized, sandboxed, works offline (only the optional update check and download, and Apple's enlargement model if you choose to download it, go online).
+**Version:** 1.5.0 · **Status:** released — signed and notarized, sandboxed, works offline (only the optional update check and download, and Apple's enlargement model if you choose to download it, go online).
 Started 2026-11-13. The full design is in
 [docs/superpowers/specs/2026-11-13-imageconverter-design.md](docs/superpowers/specs/2026-11-13-imageconverter-design.md).
 
@@ -30,6 +30,15 @@ Started 2026-11-13. The full design is in
 </table>
 
 ## What's new
+
+### 1.5.0 (2026-11-18)
+
+- **Histogram and clipping**: a chart button in the preview header (View ▸ Show Histogram, ⌥⌘G) shows the RGB and luminance histogram of the Original or the Result; View ▸ Show Clipping (⌥⌘J) marks clipped highlights red and crushed shadows blue.
+- **Output cards**: every output is now a card under the Output heading: **Output 1**, then **Output 2**, **Output 3**, … all with the same look.
+- **Redact**: the size sliders now work on every photo (**Blocks across**, Coarse to Fine, and Blur **Strength**, relative to each area), text on transparent images is found, and previews with Redact load much faster.
+- **Faster**: clicking another image shows a quick preview at once ("Refining…") and then the exact one; faster downsampled JPEG decodes, HEIC thumbnails and adding large folders.
+- **Never lose files**: runs at the same time into one folder can no longer replace each other's files (also on exFAT cards), and very long names are shortened instead of failing.
+- **Fixes** from a full bug check: fresh privacy, estimate, metadata and thumbnails after an Overwrite originals run; GPS inside XMP location structures is found and removed; Shortcuts actions run one at a time; clean quits; nested conditions in a file can no longer crash the app; command-line `SIGTERM`/`SIGHUP`, `--` and quoted `--variant` values. See [CHANGELOG.md](CHANGELOG.md) for the full list.
 
 ### 1.4.0 (2026-11-16)
 
@@ -60,7 +69,7 @@ Five on-device AI features, all running on your Mac with Apple's frameworks (not
 
 ### 1.1.0 (2026-11-15)
 
-- **Extra outputs**: up to 8 more files per image in one run (**+ Add output** under the Output format), each with its own format, compression, size, name suffix and optional subfolder, written beside the main output as new files. The size line lists every output, the preview shows a "+N outputs" chip, reports have a row per output, and failed extra outputs are shown in the end-of-run notice, notification and error log. Command line: `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"`.
+- **Extra outputs**: up to 8 more files per image in one run (**+** at the top right of the Output heading), each with its own format, compression, size, name suffix and optional subfolder, written beside the main output as new files. The size line lists every output, the preview shows a "+N outputs" chip, reports have a row per output, and failed extra outputs are shown in the end-of-run notice, notification and error log. Command line: `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"`.
 - **Lossless metadata edits**: when only metadata changes and the format stays the same, JPEG and HEIC image data is copied untouched instead of re-encoded ("Metadata only, pixels untouched"). The copy keeps only known-safe JPEG segments (no Photoshop previews, comments or embedded thumbnails) and is checked after writing; anything doubtful is re-encoded with a note.
 - **When finished**: reveal the outputs in Finder and/or get a notification when a run ends; clicking the notification opens the Report.
 
@@ -92,7 +101,7 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
 - Size estimate ("Original → about") under the quality slider.
 - Grab handles on the panel edges and View > Hide Preview (⌥⌘P) / Collapse Pipeline (⌥⌘L); the window resizes with them.
 - Original | Result table under the preview (name, folder, dimensions, size); progress bar and Cancel above it during a run.
-- Drop images or folders anywhere in the window (not only on the drop zone, also on a pipeline step); the window highlights while you drag. While a batch runs, nothing can be added (drops, **Add…** and File ▸ Add Images… are off).
+- Drop images or folders anywhere in the window (not only on the drop zone, also on a pipeline step); the window highlights while you drag. While a batch runs, nothing can be added (drops, **Add…** and File ▸ Add Images… are off); a folder still being scanned when a run starts (from a Finder service, a script or a link) is added after the run, with a note. **Clear** while "Adding…" shows also stops that scan: nothing comes back afterwards.
 - Pipeline rows reorder with a drag handle (Move Up/Down in the context menu).
 - Zoom the before/after preview with a trackpad pinch (or ⌘+ / ⌘− / ⌘0); both sides stay in sync, so encoder artifacts are easy to compare.
 - Compare modes (View ⌘1…⌘4): Side by side, Split with a draggable divider, Difference (amplified, with PSNR and mean error) and Single (hold Space or press B for Before); a checkerboard shows transparency; "Compare quality…" encodes the image at 40/60/80/95 % to pick a quality; the batch shows as a filmstrip, grid or list (with each file's result after a run).
@@ -112,9 +121,9 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
   RAW, JPEG 2000, ICNS and more. Animated and multi-page files are read using their first frame.
 - **Writes** JPEG, PNG, HEIC and TIFF, plus GIF, BMP and JPEG 2000 where macOS supports them, with
   quality and compression options.
-- **Several outputs per image**: besides the main output, up to 8 extra outputs (for example a thumbnail and
+- **Several outputs per image**: besides Output 1, up to 8 extra outputs (for example a thumbnail and
   a web-sized copy), each a full output panel with its own format, quality, size, name suffix and **Save to**
-  (beside the main output, next to the original, in a subfolder next to it, or a folder of its own), written in
+  (beside Output 1, next to the original, in a subfolder next to it, or a folder of its own), written in
   the same run from one decode (see [Write several outputs per image](#write-several-outputs-per-image)).
 - **Pipeline** of steps, applied in order to every image. Steps can be switched off and reordered:
   - (available) **Resize**: a grouped mode picker. *Pixels*: max width, max height, fit inside a box,
@@ -197,10 +206,16 @@ First release: a signed and notarized, sandboxed app with the command-line tool 
     with a live example
 - **Presets**: save a pipeline under a name (Save, Save as, rename, delete, reset to the saved version, and **More ▸ Clear All…** to empty the image list and start again from an empty pipeline), start from three built-ins, or set up a one-off run without saving. A preset holds the steps, output format and quality, metadata and rename; the output mode stays a global setting.
 - **Live preview** of the selected image before and after the pipeline, with its new name and
-  size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and the batch as a filmstrip, grid or list; pinch to zoom in sync in every comparison mode (side by side, split, difference, single), with a checkerboard behind transparent images and a quality ladder to choose the output quality. Renders happen in the background 300 ms after an edit. The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
+  size, an Original | Result table (name, folder, dimensions, file size with a live estimate), and the batch as a filmstrip, grid or list; pinch to zoom in sync in every comparison mode (side by side, split, difference, single), with a checkerboard behind transparent images and a quality ladder to choose the output quality. A newly selected image renders at once; edits render in the background 300 ms after the last change (simple looks show a quick preview at once while you drag, marked "Refining…"). The preview (⌥⌘P) and the pipeline can both be collapsed for a compact window; the choice is remembered.
+- **Histogram and clipping** (⌥⌘G, ⌥⌘J): RGB and luminance histogram of the original or the result, with the share of clipped highlights and shadows, and an overlay marking the clipped pixels. See [Preview before running](#preview-before-running).
 - **Metadata panel** (⌥⌘I): the selected image's metadata by group, searchable; edit, remove or add fields for that image's outputs only (the original is never changed). See [Change one image's metadata](#change-one-images-metadata).
 - **Safe runs**: progress with cancel, unreadable files skipped and listed at the end, no
-  half-written files, and name collisions resolved with `_2`, `_3`, …
+  half-written files, and name collisions resolved with `_2`, `_3`, …. **Never loses files:** a file is moved
+  into place only if nothing has its name, so two runs at once into one folder (a manual run next to a job, several
+  Shortcuts actions, the command line) or a file another app saves meanwhile is never replaced: the new file takes the
+  next free `_2`, `_3`, … and the report, Finder tags and "When finished" name the file really written; in overwrite
+  mode the original goes to the Trash only after that file is in place. Names longer than the 255-character limit (a
+  long source name plus the suffix, `_2` or a longer extension) are shortened at the end of the name instead of failing.
 - **Updates**: Check Now in About imageconverter (and, if you allow it, a check at every launch) finds a newer
   GitHub release; **Install and Relaunch** downloads it, checks its checksum, Developer ID signature and
   notarization, swaps it in (the old app goes to the Trash) and relaunches (see [Updates](#updates)).
@@ -220,7 +235,7 @@ Generated with `scripts/screenshots.sh` from synthetic sample images (nothing pe
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/adjust.png" alt="Adjust step" width="400"><br>The Adjust step: light and colour sliders, with the preview updating live</td>
-    <td width="50%"><img src="docs/screenshots/output-target-size.png" alt="Output with a target size" width="400"><br>The Output row set to a target size: the quality is chosen to fit the size</td>
+    <td width="50%"><img src="docs/screenshots/output-target-size.png" alt="Output with a target size" width="400"><br>The Output 1 card set to a target size: the quality is chosen to fit the size</td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/screenshots/outputs.png" alt="Output panel with two extra outputs" width="400"><br>Two extra outputs, each with its own format and Save to; the ⓘ box lists every output's size</td>
@@ -318,13 +333,13 @@ build has no Shortcuts actions. `swift build`, `swift run` and `swift test` are 
 
 ## Configuration
 
-The output settings are in the Output row of the sidebar (there is no Settings window). The pipeline itself (steps and output format) is edited in the sidebar and saved automatically (UserDefaults key `currentPipeline`); if it cannot be read at launch you start with an empty pipeline and the default output.
+The output settings are in the Output panel of the sidebar (the Output 1 card) (there is no Settings window). The pipeline itself (steps and output format) is edited in the sidebar and saved automatically (UserDefaults key `currentPipeline`); if it cannot be read at launch you start with an empty pipeline and the default output.
 
 | Setting | Options | Default |
 |---------|---------|---------|
-| Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output row). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
+| Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output 1 card). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
 | When finished | Nothing · Reveal in Finder · Notify me · Reveal and notify (the "When finished" dropdown under Save to). Applies to every run of the main window, including runs started from Finder Services, AppleScript and links; jobs have their own notifications. Reveal selects the written files in Finder (up to 50; with more it opens their folders). Notify posts "Run finished" with the counts and space saved, only when imageconverter is not the frontmost app. The first time you pick a notify choice macOS asks for permission; if notifications are off, a note says where to turn them on. Not stored in presets | Nothing |
-| Extra outputs | Up to 8 more files per image, added with the **+** at the top right of the Output panel; each is an output panel of its own. Each has a name (its label in the report; new ones are *Output 2*, *Output 3*, …, starting from the main output's settings), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case, also between outputs in different folders; `/` and `:` become `-`), a **Save to** (*Beside the main output* (default), *Same folder as original*, *Subfolder next to original* with a folder name, or *New folder* with a chosen folder; never overwrite) and an optional **subfolder** (rename tokens allowed, under the main output's folder or the chosen folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
+| Extra outputs | Up to 8 more files per image, added with the **+** at the top right of the Output panel; each is a card of its own under the **Output 1** card. Each has a name (its label in the report; new ones are *Output 2*, *Output 3*, …, starting from Output 1's settings), its own format, quality or compression mode, a size (*Same as Output 1*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case, also between outputs in different folders; `/` and `:` become `-`), a **Save to** (*Beside Output 1* (default), *Same folder as original*, *Subfolder next to original* with a folder name, or *New folder* with a chosen folder; never overwrite) and an optional **subfolder** (rename tokens allowed, under Output 1's folder or the chosen folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Check for updates when the app starts | Checkbox in About imageconverter. Set by the question at the first launch (**Yes** / **No**); until you answer, nothing goes online. UserDefaults key `updateCheckOnLaunch` (absent until answered). See [Updates](#updates) | off until answered |
 | Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
@@ -509,11 +524,15 @@ Presets and preview:
 | Show preview | View → Hide Preview / Show Preview (⌥⌘P); UserDefaults key `previewCollapsed` | shown |
 | Pipeline collapsed | The handle on the pipeline's edge or View → Collapse Pipeline (⌥⌘L); key `pipelineCollapsed` | expanded |
 | Output collapsed | Click the handle above the Output panel or View → Collapse Output (⌥⌘U); collapsed it shows one line (format · quality · where files go), and clicking that line opens it again; key `outputCollapsed` | expanded |
+| Output 1 card open | Click the **Output 1** card's title or chevron; closed it shows one line (format · quality · Save to); key `mainOutputExpanded` | open |
 | Output height | Drag the handle above the Output panel (or focus it and press ↑ / ↓) between its one-line height and its full content; a shorter panel scrolls, and the steps above give way; key `outputHeight` | full content |
 | Compare mode | The Compare control in the preview header or View → Side by side / Split / Difference / Single (⌘1…⌘4); key `compareMode`. The first launch of version 1.4 switches it to Split once (also when you chose another mode before; key `compareModeDefaultSplitApplied`); a mode you choose after that is kept | Split |
 | Split position | Where the split divider sits (2…98 % of the width); key `compareSplitPosition` | 50 % |
 | Batch view | Filmstrip, Grid or List under the preview; key `batchBrowserMode` | Filmstrip |
 | Metadata panel | The panel right of the preview: the sidebar button in the preview header, View → Show Metadata / Hide Metadata (⌥⌘I) or a privacy link; it shows with the preview (opening it opens a hidden preview); key `inspectorOpen` | closed |
+| Histogram | The chart button in the preview header or View → Show Histogram (⌥⌘G); key `showHistogram` | off |
+| Histogram source | Original or Result above the histogram; key `histogramSource` | Result |
+| Clipping overlay | View → Show Clipping (⌥⌘J) or a click on the Highlights / Shadows figure; key `showClipping` | off |
 | Metadata panel width | Drag the panel's left edge (or focus its handle and press ← / →), 260–560 pt; the preview gives way; key `inspectorWidth` | 300 pt |
 | Window height | The window's height when you resize it by hand (the window also grows and shrinks with the pipeline and the preview); key `expandedWindowHeight` | fits the content |
 | Grid / list height | Drag the bar above the grid or list (90…420 pt); key `batchBrowserHeight` | 180 pt |
@@ -551,12 +570,19 @@ unsandboxed.
 
 1. Add images; the preview pane on the right shows the first one before and after the pipeline,
    with an Original | Result table underneath (name, folder, `W × H`, file size; the result size is estimated and shows "Estimating…" while it is computed).
-2. Click a thumbnail in the filmstrip, or focus it and press ← / →, to look at another image. The
+2. Click a thumbnail in the filmstrip, or focus it and press ← / →, to look at another image (it
+   renders at once, with no wait). The
    picker above it switches to a **Grid** (← → ↑ ↓ move the selection; drag the bar on top, or focus it
    and press ↑ / ↓, to make the area taller or lower) or a **List** with each file's name, dimensions,
    file size, the estimated output size (for the selected image, once it is known) and, after a run,
    whether it was written, skipped or failed.
-3. Edit a step: the preview updates 300 ms later, and shows a spinner meanwhile. If an image can't
+3. Edit a step: the preview updates 300 ms after your last change, and shows a spinner meanwhile.
+   When every step looks the same on a smaller copy (Adjust without Sharpen, Noise reduction, Shadows or negative Highlights, Color
+   without Reduce colours, 90° turns and flips, Resize by percentage, edge or fit), a quick preview
+   made from a display-size copy shows at once, also while you drag a slider, with "Refining…" in the
+   header; the full-size result replaces it 300 ms after the last change and is exactly what the batch
+   writes. Crop, Canvas, Perspective, Trim, Watermark, Redact, conditions and exact-size resizes always
+   wait for the full-size result. If an image can't
    be rendered, the reason is shown instead of the "after" image. The preview shows the name for
    that image alone; numbers like `_2` that avoid clashes within a batch appear only when you run it.
 4. Hide the preview with the handle on its edge or ⌥⌘P (View menu); the window shrinks to the sidebar. While a batch runs, the progress bar and Cancel sit above the table.
@@ -591,6 +617,18 @@ unsandboxed.
    here". Click a tile to use that quality (Target size and
    Smart switch to Quality; Maximum size keeps its limit). The tiles are rendered in the background
    and start again when you select another image or change the pipeline.
+8. **Histogram and clipping**: the chart button in the preview header (or View ▸ Show Histogram, ⌥⌘G)
+   shows a histogram in the preview's bottom-left corner: red, green and blue as translucent areas and
+   luminance (Rec. 709) as a line, scaled so one tall spike doesn't flatten the rest. Choose **Original**
+   or **Result** above it (remembered). It is measured on the preview image (at most 1024 px on the
+   long side), not on the full-size file, and so is the clipping overlay below (it is coarse when you zoom
+   in far); fully and nearly transparent pixels (alpha below 8 of 255) don't count. Under it, **Highlights**
+   is the share of pixels with any channel at 255 (bright HDR values count too) and **Shadows** the
+   share with all three at 0; above 0.1 % the figure turns red. Click either figure, or choose
+   View ▸ Show Clipping (⌥⌘J), to mark the clipped pixels on the result: highlights red, shadows blue,
+   in side by side, split and single mode (not in Difference), zoomed and panned with the image.
+   Clipping is measured in sRGB, so wide-gamut (Display P3) colours beyond sRGB show as clipped.
+   Both are off by default and remembered.
 
 ### Build a pipeline
 
@@ -601,8 +639,10 @@ unsandboxed.
 3. Reorder by dragging the handle, or with the keyboard: the right-click menu has
    **Move Up**, **Move Down** and **Remove**.
 4. Switch a step off with its toggle to skip it without losing its settings; it is dimmed.
-5. Steps run top to bottom on every image. The **Output** row is always last: format, quality and
-   where files go. The handle on the pipeline's bottom edge (or ⌥⌘L) hides the whole list.
+5. Steps run top to bottom on every image. The **Output** panel is always last: under its heading every output is a
+   card, starting with **Output 1** (format, quality and where files go; its line under the title reads
+   "JPEG · 82 % · Converted" when it is closed), then any extra outputs as **Output 2**, **Output 3**, …
+   Click a card's title or chevron (or focus the chevron and press Space) to open or close it. The handle on the pipeline's bottom edge (or ⌥⌘L) hides the whole list.
 6. The handle above **Output** collapses it to one line ("JPEG · 82 % · Converted") with a click, or ⌥⌘U.
    Drag it up or down to give Output any height between that line and its full content (it scrolls when
    shorter; within 20 pt of the line it collapses). While you drag, the window keeps its height and the steps
@@ -618,7 +658,7 @@ Your pipeline is kept between launches.
    imageconverter**), or press **Add…** (⌘O). Folders are searched
    recursively. File types macOS can't read (for example SVG or PDF) are ignored when you add
    them; broken files of a readable type are skipped during the run and listed at the end.
-2. Under **Output** (the last row of the pipeline), pick a format (JPEG, PNG, HEIC, TIFF, plus GIF, BMP, JPEG 2000 and AVIF where your
+2. Under **Output** (the last panel of the pipeline), in the **Output 1** card, pick a format (JPEG, PNG, HEIC, TIFF, plus GIF, BMP, JPEG 2000 and AVIF where your
    Mac can write them). JPEG, HEIC, JPEG 2000 and AVIF have a **Compression** choice: *Quality* (the slider, 0–100 %),
    *Target size* (the highest quality that fits a size you type, in KB or MB, 1 KB = 1000 bytes), *Maximum size* (the slider's quality, lowered
    only as far as needed; files that can't fit are skipped) or *Smart* (the lowest quality that still looks the same, up to 95 %). JPEG has a
@@ -637,13 +677,13 @@ Your pipeline is kept between launches.
 One run can write more than one file for every image, for example the full-size JPEG plus a thumbnail and a
 web-sized HEIC:
 
-1. Set up the pipeline and the main output as usual.
-2. Press **+** at the top right of the Output panel (VoiceOver: "Add output"). A new output panel appears under the
-   main one, named *Output 2* with the main output's format and compression, the same size and the suffix `_out2`.
-   It has the same controls as the main output: name, format, compression (quality, target or maximum size, Smart),
-   Progressive / Optimise PNG, a size (*Same as main output*, longest edge, max width or height, percentage), the
+1. Set up the pipeline and the **Output 1** card as usual.
+2. Press **+** at the top right of the Output panel (VoiceOver: "Add output"). A new output card appears under the
+   **Output 1** card, named *Output 2* with Output 1's format and compression, the same size and the suffix `_out2`.
+   It has Output 1's format controls plus a few of its own: name, format, compression (quality, target or maximum size, Smart),
+   Progressive / Optimise PNG, a size (*Same as Output 1*, longest edge, max width or height, percentage), the
    name suffix and its own **Save to**:
-   - *Beside the main output* (the default): into the main output's folder (in overwrite mode, the original's
+   - *Beside Output 1* (the default): into Output 1's folder (in overwrite mode, the original's
      folder), with an optional subfolder under it.
    - *Same folder as original*: next to each original, as a new file.
    - *Subfolder next to original*: a folder inside each original's folder (rename tokens allowed, `thumbs/{date:yyyy}`).
@@ -653,7 +693,7 @@ web-sized HEIC:
    a panel, the bin to remove it; add more with **+** (up to 8).
 3. The **ⓘ** right of the main format picker shows the size estimate for the selected image when you point at it
    (click it, or press Space when it has keyboard focus, to keep the box open): one line per output, for example
-   "Main JPEG 2.1 MB → about 1.1 MB (−48 %)", "Thumbnail JPEG about 48 KB (−98 %)", with any notes. In the preview
+   "Output 1 JPEG 2.1 MB → about 1.1 MB (−48 %)", "Thumbnail JPEG about 48 KB (−98 %)", with any notes. In the preview
    table the Result name has a "+2 outputs" chip; hover it to see each file's name (an output in another folder
    shows that folder's name).
 4. Run as usual. Every image is loaded and processed once; each extra output is then resized (if it says so) and
@@ -662,25 +702,25 @@ web-sized HEIC:
 
 Rules worth knowing:
 
-- Extra outputs are always new files, whatever their Save to. Beside the main output in *Same folder* and
+- Extra outputs are always new files, whatever their Save to. Beside Output 1 in *Same folder* and
   *Overwrite* modes they go into the original's folder; they never replace or trash anything, and a name that is taken (by any file, another image's original or
-  another output) gets `_2`, `_3`, … In overwrite mode only the main output replaces the original (once); when it
+  another output) gets `_2`, `_3`, … In overwrite mode only Output 1 replaces the original (once); when it
   has a new name or format, the original goes to the Trash after the extra outputs are saved. An extra output's
   subfolder is used in every mode, overwrite included (under the original's folder there), unlike a condition's
   *Save into subfolder*, which overwrite mode ignores.
-- An extra output's subfolder may use rename tokens, but they describe the main output: `thumbs/{width}` gets the
-  main output's width and `{format}` its format.
-- If the main output fails, no extra output is written for that image. If an extra output fails (it can't be
+- An extra output's subfolder may use rename tokens, but they describe Output 1: `thumbs/{width}` gets the
+  Output 1's width and `{format}` its format.
+- If Output 1 fails, no extra output is written for that image. If an extra output fails (it can't be
   encoded or saved, or no free name is left), the image and its other outputs are still written, and the run says
   so: the report has a failed row for it under its image ("Extra output “Thumbnail” failed: …"), the end-of-run
   notice and the *When finished* notification add "· 2 extra outputs failed" (and the notice turns red), the error
   log gets a line per failed output, the history and exported reports count them, and the command line exits 1.
-- Conditions: *Set output* changes only the main output; the action **Skip extra outputs** (Output & files) writes
-  only the main output for the images that match. An image copied unchanged (*Copy original unchanged*) gets no
+- Conditions: *Set output* changes only Output 1; the action **Skip extra outputs** (Output & files) writes
+  only Output 1 for the images that match. An image copied unchanged (*Copy original unchanged*) gets no
   extra outputs. *Apply a saved preset* takes the preset's steps, output, metadata and rename, but not its extra
   outputs: the extra outputs are always the pipeline's own.
 - A metadata-only extra output in the image's own format (no resize, Quality compression) is copied losslessly,
-  like the main output.
+  like Output 1.
 - Reports list each extra output as its own row under its image (the CSV's `output` column names it); counts such
   as "24 converted" are images, while Reveal in Finder includes every file written. The "saved" figure compares the
   main outputs with their originals; the report's output total includes every file. Jobs record every output, so
@@ -873,6 +913,9 @@ metadata settings (left out when off; older files load with both off).
 3. The line under the pattern shows an example from the first image in the batch (or a sample
    photo when the batch is empty), such as `Example: 2026-11-13_iPhone 15 Pro_001.jpg`. An
    unknown token like `{foo}` is flagged with a warning and kept as written (`:` still becomes `-`).
+   A token with no value for an image (no camera, no lens) is left out with one separator next to it:
+   `{date}_{camera}{lens}_{counter:00}` gives `2026-11-13_07`, `{camera}_{name}` gives `IMG_0001` and
+   `IMG{camera}_{counter}` gives `IMG_7`.
 4. Set **Counter starts at** if numbering should not begin at 1, and **Step** to count in steps other than 1
    (10, 20, 30 … with start 10 and step 10). The counter follows input order; images a condition skips take no
    number. A negative step counts down and stops at 0.
@@ -1032,17 +1075,22 @@ versions read a Subject or Faces crop as a centred one.
    **Fill colour** (always fully opaque). A new step blurs faces; as soon as **Hide** includes text it switches to
    Solid colour (unless you chose another style). For text, use Solid colour: blur and pixelation can sometimes be
    reversed (by rendering guesses in the same font and comparing), especially for short text such as number plates.
-   With Pixelate, **Block size** is **Auto** (the default: a third of each box's shorter side, so every box gets
-   about three blocks) or **Fixed** 4–256 px; with Blur, **Strength** is **Auto** (a radius of a third of the box's
-   shorter side) or **Fixed** radius 2–200 px. Fixed sizes are pixels of the image as it reaches the step (after any
-   Resize before it); a Fixed choice starts at 16 px blocks or a 20 px radius. **Small sizes are raised where needed
-   so text and faces stay unreadable**: each box gets at least 8 px and a fifth of its shorter side (4 px blocks or a
-   2 px blur left 40 px text readable to Vision), and the report says so once per image ("Block size raised to keep
-   3 areas unreadable"). Steps saved before this version stay Auto.
+   With Pixelate, **Blocks across** sets how many blocks span each area's shorter side: **Coarse** (2) to **Fine**
+   (5); with Blur, **Strength** sets the blur radius as a share of each area's shorter side: **Light** (1/5) to
+   **Strong** (1/2). Both are relative to each area, so every slider position changes the result, on a 12 MP and a
+   48 MP photo alike. **Auto** (the default: 3 blocks across, or a blur radius of 1/3 of the shorter side) is the
+   second stop from Coarse and Strong; double-click the slider to go back to it. The finest setting (5) is the safety floor: blocks or a radius smaller than a fifth of
+   an area's shorter side (or 8 px) left 40 px text readable to Vision, so nothing goes below it. Steps saved before
+   1.5 with a size in pixels keep drawing that size (raised to the same floor where needed; the report and the
+   preview header say so: "Block size raised to keep 3 areas unreadable"); the editor shows "Saved as 16 px; move
+   the slider to switch", and the first move switches the step to the relative setting.
 4. **Padding** grows each box on every side by that percentage of its own width and height, so hair, chins and the
    edges of letters are covered too. Even at 0 % every box keeps a small safety margin (12 % of its shorter side, at
    least 2 px), because Vision's boxes can be tighter than the letters, especially on macOS 15.
-5. The preview shows the result for the selected image. After the run, each file's report row says what was
+5. The preview shows the result for the selected image. While it looks for faces or text the preview header says
+   "Finding faces and text…" ("Finding faces…" / "Finding text…" when only one is on); the preview, the size
+   estimate and the quality comparison share that one detection per image, and editing the style, size or padding
+   afterwards doesn't detect again. After the run, each file's report row says what was
    hidden ("Redacted 2 faces, 1 text area") or "Redact: nothing found".
 
 The step looks at the image as it arrives at the step, so boxes land on the right pixels after any Crop, Rotate or
@@ -1051,7 +1099,12 @@ recognition on that copy (recognised lines plus Vision's text rectangles, which 
 text) and, for images larger than 2048 px, also in full-resolution tiles of 896 px that overlap by 192 px, so small
 text in a large photo isn't lost when the image is shrunk (measured on this Apple silicon Mac: about 1.3 s for a
 24 MP image and 5 s for 100 MP; at most two images are read this way at once, which is faster than more). The tile size was chosen by measurement: on grids of 20 lines of 20 and 24 px text
-on a busy 8000 × 6000 image, 2048 px tiles found 7 of 20 lines, 896 px tiles all 20 at every placement tried. Each box covers the whole of a line, also when it is turned; the boxes are then mapped back to the
+on a busy 8000 × 6000 image, 2048 px tiles found 7 of 20 lines, 896 px tiles all 20 at every placement tried.
+Transparent images are checked on light and dark backgrounds: Vision reads transparent pixels as black, so an image
+with transparent pixels is read twice for text (the copy and every tile), flattened onto white and onto black, and
+the boxes of both are joined (a line found twice is still counted once); faces are looked for on a copy flattened
+onto mid grey. Images whose pixels are all opaque (also PNG screenshots with an unused alpha channel) are read once,
+as they are; transparency is checked on the 2048 px copy, where even one transparent pixel still shows. Each box covers the whole of a line, also when it is turned; the boxes are then mapped back to the
 image, padded and clamped. Pixels outside the boxes are copied unchanged. **If Vision can't run for an image, that
 image isn't written**: it fails with "Not written: couldn't check for faces (…)" and the rest of the run goes on
 (jobs try it again later, like any failure). An **If … then … else** that would **copy the original unchanged**
@@ -1070,8 +1123,8 @@ paragraph, text on gradients and busy backgrounds, at the edges, and small text 
 |--------|---------|---------|
 | Hide | Faces · Text · Faces and text | Faces |
 | Style | Blur · Pixelate · Solid colour | Blur for faces; Solid colour when text is included |
-| Block size | Auto · Fixed 4…256 px, with Pixelate | Auto (a third of each box's shorter side) |
-| Strength | Auto · Fixed radius 2…200 px, with Blur | Auto (a third of each box's shorter side) |
+| Blocks across | Coarse 2 · 3 · 4 · Fine 5 blocks across each area's shorter side, with Pixelate | Auto (3) |
+| Strength | Light 1/5 · 1/4 · 1/3 · Strong 1/2 of each area's shorter side as blur radius, with Blur | Auto (1/3) |
 | Fill colour | any colour (opaque), with Solid colour | black |
 | Padding | 0…100 % of each box's size, per side (never less than a 12 %-of-the-shorter-side, 2 px minimum margin) | 15 % |
 
@@ -1197,7 +1250,8 @@ especially). Nothing about your images leaves the Mac.
    **+ Add condition** adds one; the trash button removes one (a step always keeps at least one). Everything is read
    from the file's header (the XMP packet and the frame count only when a check needs them), so checks stay quick on
    large batches.
-3. Fill **Then** and **Else** with **+ Add** (up to 20 actions each). The menu is grouped:
+3. Fill **Then** and **Else** with **+ Add** (up to 20 actions each; conditions can't be nested: a file with a
+   condition inside a branch loads without it and says so). The menu is grouped:
    - **Steps**: any image step (Resize, Crop, Watermark, …), or **Apply a saved preset…**: pick a preset; its switched-on
      image steps run at this point, its output settings (and its Metadata and Rename settings when they are on) apply
      to this image, its own conditions are not used. If the preset is deleted later, nothing is applied and the report
@@ -1559,7 +1613,7 @@ cp .build/release/imageconverter-cli ~/.local/bin/imageconverter   # named image
 | `imageconverter convert <files or folders...> [options]` | Convert images |
 | `imageconverter presets list [--json]` | List the built-in presets and your own |
 | `imageconverter jobs list [--json]` | List saved jobs |
-| `imageconverter jobs run NAME [--quiet\|--json]` | Run a saved job once |
+| `imageconverter jobs run [--quiet\|--json] [--] NAME` | Run a saved job once (`--` before a name that starts with `-`) |
 | `imageconverter --version`, `--help` | Version (same number as the app) and usage |
 
 Convert options (options override the preset or pipeline file):
@@ -1572,13 +1626,13 @@ Convert options (options override the preset or pipeline file):
 | `--quality 0-100` | Quality for lossy formats |
 | `--max-size 500KB` | Largest file size (KB and MB are decimal) |
 | `--resize-long PX` | Scale so the longest edge is PX pixels |
-| `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"` | An extra output per image (repeatable, up to 8; replaces the preset's or file's extra outputs). Keys: `name`, `format`, `quality` (0–100), `max-size` (500KB), one of `long`, `width`, `height` (pixels, shrink only) or `percent` (1–1000), `suffix` (default `_` + name; must differ between outputs) and `folder` (an absolute path such as `folder=/Users/me/Web` or `folder=~/Web`: the output's own folder; a relative one such as `folder=thumbs`: a subfolder of the main output's folder; every extra output's folder is printed on stderr before the run). A format this Mac can't write is a usage error. `--dry-run` lists every output |
+| `--variant "name=thumb,format=jpeg,quality=70,long=400,suffix=_thumb"` | An extra output per image (repeatable, up to 8; replaces the preset's or file's extra outputs). Keys: `name`, `format`, `quality` (0–100), `max-size` (500KB), one of `long`, `width`, `height` (pixels, shrink only) or `percent` (1–1000), `suffix` (default `_` + name; must differ between outputs) and `folder` (an absolute path such as `folder=/Users/me/Web` or `folder=~/Web`: the output's own folder; a relative one such as `folder=thumbs`: a subfolder of the main output's folder; every extra output's folder is printed on stderr before the run). A comma inside a value is written `\,` or the value is put in double quotes (`--variant 'name=web,folder="/Photos/a, b"'`); inside a value `\\` is a backslash and `\"` a quote. A format this Mac can't write is a usage error. `--dry-run` lists every output |
 | `--strip-gps`, `--strip-all` | Remove the location (GPS and place names), or all metadata (the preset's "keep when removing all" list is ignored) |
 | `--report csv\|json\|text` | Print a full report on stdout |
 | `--dry-run` | Show what would happen (conditions, rename templates and collision names evaluated like a real run; skipped and copied files marked; with `--overwrite`, each destination is marked "replace" or, when the name or format changes, "replace (original to Trash)"); writes nothing; honours `--report`/`--json` |
 | `--quiet`, `--json` | No progress; `--json` prints the JSON report |
 
-Progress goes to stderr and results to stdout. Missing input paths are reported on stderr and count as failed files; options that the chosen format ignores (`--quality`, `--max-size` with PNG, TIFF, ...) print a warning. Only long options exist; file names starting with `-` go after `--`. Ctrl-C stops cleanly (no temp files left), prints the partial report and exits 130. `--strip-gps` and `--strip-all` also hold for images a preset's condition sends to its own metadata settings or to "Copy original unchanged" (those are converted instead). The tool isn't coordinated with the app: don't run it over a folder an active job watches. Exit codes: 0 all done, 1 some files failed or missing, 2 usage error, 3 nothing to do, 130 interrupted. The tool reads presets and jobs from the sandboxed app's container (`~/Library/Containers/io.github.jozeta.imageconverter/Data/Library/Application Support/imageconverter/`) when it exists, else from `~/Library/Application Support/imageconverter/` (where an unsandboxed `swift run` keeps them); `--data-dir DIR` (anywhere before `--`) reads them from DIR instead. macOS may ask once whether Terminal may access another app's data the first time the tool reads the container.
+Progress goes to stderr and results to stdout. Missing input paths are reported on stderr and count as failed files; options that the chosen format ignores (`--quality`, `--max-size` with PNG, TIFF, ...) print a warning. Only long options exist; file names (and, for `jobs run`, job names) starting with `-` go after `--`. Ctrl-C, `kill` (SIGTERM) and a closed terminal (SIGHUP) stop cleanly (no temp files left), print the partial report and exit 130; a second signal exits at once (also 130) after removing the temp files it is writing. `--strip-gps` and `--strip-all` also hold for images a preset's condition sends to its own metadata settings or to "Copy original unchanged" (those are converted instead). The tool isn't coordinated with the app: don't run it over a folder an active job watches. Exit codes: 0 all done, 1 some files failed or missing, 2 usage error, 3 nothing to do, 130 interrupted. The tool reads presets and jobs from the sandboxed app's container (`~/Library/Containers/io.github.jozeta.imageconverter/Data/Library/Application Support/imageconverter/`) when it exists, else from `~/Library/Application Support/imageconverter/` (where an unsandboxed `swift run` keeps them); `--data-dir DIR` (anywhere before `--`) reads them from DIR instead. macOS may ask once whether Terminal may access another app's data the first time the tool reads the container.
 
 Shortcuts has its own imageconverter actions (see [Shortcuts actions](#shortcuts-actions)); a shell script is still
 useful for options they don't have. Example: add **Run Shell Script** (Shell: zsh, Input: as arguments) with

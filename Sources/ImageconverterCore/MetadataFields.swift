@@ -92,10 +92,24 @@ public enum MetadataFields {
         writable[namespace]?.contains(key) ?? false
     }
 
-    /// `text` without control characters, cut to `maxValueLength` characters.
+    /// `text` without control characters and Unicode noncharacters, cut to `maxValueLength` characters.
     public static func sanitized(_ text: String, limit: Int = maxValueLength) -> String {
-        let scalars = text.unicodeScalars.filter { $0.properties.generalCategory != .control }
+        let scalars = text.unicodeScalars.filter { $0.properties.generalCategory != .control && isXMLSafe($0) }
         return String(String(String.UnicodeScalarView(scalars)).prefix(limit))
+    }
+
+    /// `text` without the scalars XML 1.0 forbids (C0 controls other than tab, line feed and return, and the
+    /// noncharacters U+FFFE, U+FFFF, U+FDD0–U+FDEF and every plane's …FFFE/…FFFF): one of them makes the
+    /// whole XMP packet unreadable.
+    public static func xmlSafe(_ text: String) -> String {
+        let scalars = text.unicodeScalars.filter {
+            isXMLSafe($0) && ($0.value >= 0x20 || $0 == "\t" || $0 == "\n" || $0 == "\r")
+        }
+        return String(String.UnicodeScalarView(scalars))
+    }
+
+    private static func isXMLSafe(_ scalar: Unicode.Scalar) -> Bool {
+        !scalar.properties.isNoncharacterCodePoint
     }
 
     /// Keywords cleaned for writing: sanitised, trimmed, at most 64 characters each, empty ones dropped,

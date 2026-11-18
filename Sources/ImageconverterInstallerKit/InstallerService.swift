@@ -40,15 +40,15 @@ public final class InstallerService: NSObject, UpdateInstallerProtocol, @uncheck
 
     // MARK: XPC
 
-    public func install(zipPath: String, expectedSHA256: String, version: String, reply: @escaping (String?) -> Void) {
-        guard begin() else { return reply("An update is already being installed.") }
+    public func install(zipPath: String, expectedSHA256: String, version: String, reply: @escaping (String?, String?) -> Void) {
+        guard begin() else { return reply("An update is already being installed.", nil) }
         queue.async {
             defer { self.end() }
             do {
-                try self.perform(zipPath: zipPath, expectedSHA256: expectedSHA256, version: version)
-                reply(nil)
+                let note = try self.perform(zipPath: zipPath, expectedSHA256: expectedSHA256, version: version)
+                reply(nil, note)
             } catch {
-                reply((error as? UpdateError)?.message ?? error.localizedDescription)
+                reply((error as? UpdateError)?.message ?? error.localizedDescription, nil)
             }
         }
     }
@@ -79,8 +79,10 @@ public final class InstallerService: NSObject, UpdateInstallerProtocol, @uncheck
 
     // MARK: Work
 
-    /// The whole install, synchronously. Throws `UpdateError`s whose `message` is shown to the user.
-    public func perform(zipPath: String, expectedSHA256: String, version versionText: String) throws {
+    /// The whole install, synchronously. Throws `UpdateError`s whose `message` is shown to the user. Returns the
+    /// swap's note when the old version could not be removed (the install itself succeeded).
+    @discardableResult
+    public func perform(zipPath: String, expectedSHA256: String, version versionText: String) throws -> String? {
         guard let version = AppVersion(versionText) else { throw UpdateError.noSuitableRelease }
         guard InstallRequest.isSHA256(expectedSHA256) else { throw UpdateError.badChecksumFile }
         guard let target = InstallRequest.targetApp(forService: environment.serviceBundle) else {
@@ -125,11 +127,16 @@ public final class InstallerService: NSObject, UpdateInstallerProtocol, @uncheck
             UpdateReplacer.discard(staged, using: environment.operations)
             throw error
         }
-        _ = try UpdateReplacer.swap(target, with: staged, using: environment.operations)
+        let note = try UpdateReplacer.swap(target, with: staged, using: environment.operations)
         // The app is in place and passed the notarized requirement: a leftover mark is logged, not a failure.
-        if UpdateQuarantine.isQuarantined(target) {
-            do { try UpdateQuarantine.strip(target) } catch { NSLog("imageconverter installer: %@", "\(error)") }
-        }
+        stripLeftoverQuarantine(of: target)
+        if let note { NSLog("imageconverter installer: %@", note) }
+        return note
+    }
+
+    private func stripLeftoverQuarantine(of target: URL) {
+        guard UpdateQuarantine.isQuarantined(target) else { return }
+        do { try UpdateQuarantine.strip(target) } catch { NSLog("imageconverter installer: %@", "\(error)") }
     }
 
     private func removeWorkFolders() {

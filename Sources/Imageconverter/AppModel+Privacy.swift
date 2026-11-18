@@ -9,6 +9,9 @@ final class PrivacyState {
     @ObservationIgnored let cache = PrivacyCache()
     @ObservationIgnored var task: Task<Void, Never>?
     @ObservationIgnored var scanQueued = false
+    /// The file version each finding was read from, so a file rewritten in place (Overwrite originals) is scanned
+    /// again (`AppModel.refreshRewrittenSources`).
+    @ObservationIgnored var versions: [URL: FileVersion] = [:]
     struct RowsKey: Equatable { let items: Int; let results: Int; let revision: Int }
     @ObservationIgnored var rows: (key: RowsKey, rows: [AppModel.PrivacyRow])?
     /// Bumped whenever `findings` or the item list change in a way a count would miss.
@@ -120,10 +123,11 @@ extension AppModel {
         let cache = privacy.cache
         privacy.task = Task { [weak self] in
             await cache.retain(only: current)
-            var batch: [URL: PrivacyFindings] = [:]
+            var batch: [URL: (PrivacyFindings, FileVersion)] = [:]
             for url in todo {
                 if Task.isCancelled { break }
-                batch[url] = await cache.findings(for: url)
+                let scanned = await cache.versionedFindings(for: url)
+                batch[url] = (scanned.findings, scanned.version)
                 // Publish in chunks so the chip fills in while a big folder is still being scanned.
                 if batch.count >= 100 { self?.publishPrivacy(batch); batch = [:] }
             }
@@ -131,10 +135,42 @@ extension AppModel {
         }
     }
 
-    private func publishPrivacy(_ batch: [URL: PrivacyFindings]) {
+    private func publishPrivacy(_ batch: [URL: (PrivacyFindings, FileVersion)]) {
         guard !batch.isEmpty else { return }
         let current = Set(items.map(\.source))
-        for (url, findings) in batch where current.contains(url) { privacy.findings[url] = findings }
+        for (url, (findings, version)) in batch where current.contains(url) {
+            privacy.findings[url] = findings
+            privacy.versions[url] = version
+        }
+    }
+
+    /// After a run: sources rewritten in place (Overwrite originals keeps the URL) lose their privacy findings and
+    /// content check and are scanned again; the size estimate and the metadata panel follow the file's version
+    /// themselves (`EstimateKey`, `filesRevision`). Versions are read off the main actor.
+    func refreshRewrittenSources() {
+        filesRevision += 1
+        let current = Set(items.map(\.source))
+        privacy.versions = privacy.versions.filter { current.contains($0.key) }
+        let known = privacy.versions
+        guard !known.isEmpty else { return }
+        Task { [weak self] in
+            let changed = await Task.detached(priority: .utility) { FileVersion.changed(known) }.value
+            guard let self, !changed.isEmpty else { return }
+            for url in changed {
+                // Only when nothing newer was recorded meanwhile.
+                guard privacy.versions[url] == known[url] else { continue }
+                privacy.findings[url] = nil
+                privacy.content[url] = nil
+                privacy.versions[url] = nil
+                // The filmstrip's thumbnail is keyed by URL: drop the old picture and load it again.
+                thumbnailCache.removeObject(forKey: url as NSURL)
+                thumbnailsFailed.remove(url)
+            }
+            // Cells reload through their task id (same URL, so `.task(id: source)` alone never re-runs).
+            thumbnailEpoch += 1
+            thumbnailTick += 1
+            schedulePrivacyScan()
+        }
     }
 
     /// Turns on the Metadata step with what the findings need; existing removals stay on (see

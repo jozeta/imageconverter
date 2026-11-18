@@ -245,11 +245,12 @@ final class BatchControlTests: XCTestCase {
         try TestImages.write(TestImages.make(width: 2000, height: 1000), to: disguised, type: .png)
         let shrink = Pipeline(steps: [PipelineStep(operation: .resize(ResizeOptions(mode: .longestEdge(200))))])
         let hint = try XCTUnwrap(shrink.decodeHint(sourceWidth: 2000, sourceHeight: 1000))
-        XCTAssertTrue(hint.decodedSize(sourceWidth: 2000, sourceHeight: 1000) == (400, 200))
+        // Source / 4: the smallest source / 2^k at least twice the 200 px target.
+        XCTAssertTrue(hint.decodedSize(sourceWidth: 2000, sourceHeight: 1000) == (500, 250))
         let full = shrink.peakPixels(sourceWidth: 2000, sourceHeight: 1000)
 
         XCTAssertEqual(BatchRunner.weight(of: plan(jpeg), pipeline: shrink),
-                       hint.pipeline.peakPixels(sourceWidth: 400, sourceHeight: 200))
+                       hint.pipeline.peakPixels(sourceWidth: 500, sourceHeight: 250))
         XCTAssertLessThan(BatchRunner.weight(of: plan(jpeg), pipeline: shrink), full)
         // Eligible for downsampling, but PNG decodes the full image: never under-counted.
         XCTAssertEqual(BatchRunner.weight(of: plan(png), pipeline: shrink), full)

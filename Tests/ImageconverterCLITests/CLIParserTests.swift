@@ -15,6 +15,24 @@ final class CLIParserTests: XCTestCase {
         return nil
     }
 
+    func testDoubleDashEndsOptions() {
+        XCTAssertEqual(CLIParser.parse(["jobs", "run", "--", "-weird"]), .success(.jobsRun(name: "-weird", quiet: false, json: false)))
+        XCTAssertEqual(CLIParser.parse(["jobs", "run", "--quiet", "--", "--json"]),
+                       .success(.jobsRun(name: "--json", quiet: true, json: false)))
+        if case .failure = CLIParser.parse(["jobs", "run", "-weird"]) {} else { XCTFail("without -- it's an option") }
+    }
+
+    func testSigtermAndSighupCancelLikeSigint() {
+        XCTAssertEqual(Set(InterruptPolicy.handledSignals), [SIGINT, SIGTERM, SIGHUP])
+        let token = CancelToken()
+        let policy = InterruptPolicy(cancel: token)
+        XCTAssertFalse(token.isCancelled)
+        XCTAssertEqual(policy.signalReceived(), .cancelled)
+        XCTAssertTrue(token.isCancelled)
+        XCTAssertEqual(policy.signalReceived(), .exitNow(130))
+        XCTAssertEqual(policy.signalReceived(), .exitNow(130))
+    }
+
     func testSimpleCommands() {
         XCTAssertEqual(CLIParser.parse(["--version"]), .success(.version))
         XCTAssertEqual(CLIParser.parse(["--help"]), .success(.help))

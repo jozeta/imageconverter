@@ -13,6 +13,15 @@ public enum RedactTarget: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    /// The preview's status while it waits for this target's detection.
+    public var findingStatus: String {
+        switch self {
+        case .faces: return "Finding faces…"
+        case .text: return "Finding text…"
+        case .both: return "Finding faces and text…"
+        }
+    }
+
     public var includesFaces: Bool { self != .text }
     public var includesText: Bool { self != .faces }
 
@@ -45,20 +54,26 @@ public struct RedactOptions: Codable, Equatable, Sendable {
     /// How far each box grows on every side, as a percentage of its own width (left, right) and height (top,
     /// bottom), 0...100.
     public var padding: Double
-    /// Pixelate's block size in pixels of the image as it arrives at the step; nil: Auto (a third of each box's
-    /// shorter side, `Redaction.blockSize(for:)`). Saved as `blockSize` only when fixed.
+    /// Pixelate's "Blocks across": each block is the area's shorter side / N (2 coarse … 5 fine, the privacy floor);
+    /// nil: Auto (3, `Redaction.blockSize(for:)`). Saved as `blocksAcross` only when set; wins over `fixedBlockSize`.
+    public var blocksAcross: Int?
+    /// Blur's "Strength": the radius is the area's shorter side / N (2 strong … 5 light, the floor); nil: Auto (3,
+    /// `Redaction.blurRadius(for:)`). Saved as `blurAcross` only when set; wins over `fixedBlurRadius`.
+    public var blurAcross: Int?
+    /// Pixelate's block size in pixels, from steps saved before 1.5 (`blockSize`); still drawn as before (raised to
+    /// the floor, with a note) until the editor's first change switches to `blocksAcross`.
     public var fixedBlockSize: Double?
-    /// Blur's Gaussian radius in pixels of the image as it arrives at the step; nil: Auto
-    /// (`Redaction.blurRadius(for:)`). Saved as `blurRadius` only when fixed.
+    /// Blur's radius in pixels, from steps saved before 1.5 (`blurRadius`); like `fixedBlockSize`.
     public var fixedBlurRadius: Double?
 
     public static let defaultPadding = 15.0
     public static let paddingRange: ClosedRange<Double> = 0...100
+    /// Blocks across / Strength: N parts of each area's shorter side. 5 is the floor (`minimumFixedSize`).
+    public static let acrossRange: ClosedRange<Int> = 2...5
+    /// Auto: a third of each area's shorter side.
+    public static let autoAcross = 3
     public static let blockSizeRange: ClosedRange<Double> = 4...256
     public static let blurRadiusRange: ClosedRange<Double> = 2...200
-    /// What a Fixed choice starts at in the editor.
-    public static let defaultFixedBlockSize = 16.0
-    public static let defaultFixedBlurRadius = 20.0
 
     /// `style` nil: the default for `target` (`defaultStyle(for:)`).
     public init(target: RedactTarget = .faces, style: RedactStyle? = nil, fillColor: RGBAColor = .black,
@@ -89,31 +104,70 @@ public struct RedactOptions: Codable, Equatable, Sendable {
             : Self.defaultPadding
     }
 
+    /// `blocksAcross` within `acrossRange`; nil for Auto.
+    public var clampedBlocksAcross: Int? { blocksAcross.map(Self.clampedAcross) }
+    /// `blurAcross` within `acrossRange`; nil for Auto.
+    public var clampedBlurAcross: Int? { blurAcross.map(Self.clampedAcross) }
+
+    /// The chosen style's N (Auto: `autoAcross`), for the editor's slider.
+    public var across: Int {
+        switch style {
+        case .pixelate: return clampedBlocksAcross ?? Self.autoAcross
+        case .blur: return clampedBlurAcross ?? Self.autoAcross
+        case .fill: return Self.autoAcross
+        }
+    }
+
+    /// The chosen style's old pixel size (a step saved before 1.5) while no relative value replaces it.
+    public var legacyPixels: Double? {
+        switch style {
+        case .pixelate: return clampedBlocksAcross == nil ? clampedBlockSize : nil
+        case .blur: return clampedBlurAcross == nil ? clampedBlurRadius : nil
+        case .fill: return nil
+        }
+    }
+
+    /// These options with the chosen style's N set (`autoAcross`: Auto, nil) and its old pixel size cleared.
+    public func withAcross(_ value: Int) -> RedactOptions {
+        var options = self
+        let clamped = Self.clampedAcross(value)
+        let stored = clamped == Self.autoAcross ? nil : clamped
+        switch style {
+        case .pixelate: options.blocksAcross = stored; options.fixedBlockSize = nil
+        case .blur: options.blurAcross = stored; options.fixedBlurRadius = nil
+        case .fill: break
+        }
+        return options
+    }
+
     /// The fixed block size within `blockSizeRange`; nil for Auto (also when it isn't a finite number).
     public var clampedBlockSize: Double? { Self.clamped(fixedBlockSize, to: Self.blockSizeRange) }
     /// The fixed blur radius within `blurRadiusRange`; nil for Auto.
     public var clampedBlurRadius: Double? { Self.clamped(fixedBlurRadius, to: Self.blurRadiusRange) }
 
-    /// Pixelate's block size for `rect` (whole pixels of the step's input): Auto, or the fixed size raised to
-    /// `Redaction.minimumFixedSize(for:)` so small blocks never leave text or a face readable.
+    /// Pixelate's block size for `rect` (whole pixels of the step's input): Blocks across (the shorter side / N,
+    /// never below `Redaction.minimumFixedSize(for:)`), an old fixed size raised to that floor so small blocks never
+    /// leave text or a face readable, or Auto.
     public func blockSize(for rect: CGRect) -> Double {
-        clampedBlockSize.map { max($0, Redaction.minimumFixedSize(for: rect)) } ?? Redaction.blockSize(for: rect)
-    }
-
-    /// Blur's radius for `rect`: Auto, or the fixed radius raised to the same floor.
-    public func blurRadius(for rect: CGRect) -> Double {
-        clampedBlurRadius.map { max($0, Redaction.minimumFixedSize(for: rect)) } ?? Redaction.blurRadius(for: rect)
-    }
-
-    /// True when the chosen style's fixed size is below the floor for `rect`, so it is drawn larger.
-    public func raisesFixedSize(for rect: CGRect) -> Bool {
-        let fixed: Double?
-        switch style {
-        case .pixelate: fixed = clampedBlockSize
-        case .blur: fixed = clampedBlurRadius
-        case .fill: fixed = nil
+        let floor = Redaction.minimumFixedSize(for: rect)
+        if let across = clampedBlocksAcross {
+            return max(floor, (Double(min(rect.width, rect.height)) / Double(across)).rounded(.up))
         }
-        guard let fixed else { return false }
+        return clampedBlockSize.map { max($0, floor) } ?? Redaction.blockSize(for: rect)
+    }
+
+    /// Blur's radius for `rect`: Strength (the shorter side / N, never below the floor), an old fixed radius raised
+    /// to the same floor, or Auto.
+    public func blurRadius(for rect: CGRect) -> Double {
+        let floor = Redaction.minimumFixedSize(for: rect)
+        if let across = clampedBlurAcross { return max(floor, Double(min(rect.width, rect.height)) / Double(across)) }
+        return clampedBlurRadius.map { max($0, floor) } ?? Redaction.blurRadius(for: rect)
+    }
+
+    /// True when the chosen style's old fixed pixel size is below the floor for `rect`, so it is drawn larger.
+    /// Blocks across and Strength have the floor built in, so they are never "raised".
+    public func raisesFixedSize(for rect: CGRect) -> Bool {
+        guard let fixed = legacyPixels else { return false }
         return fixed < Redaction.minimumFixedSize(for: rect)
     }
 
@@ -125,13 +179,22 @@ public struct RedactOptions: Codable, Equatable, Sendable {
         return "\(what) raised to keep \(count) \(count == 1 ? "area" : "areas") unreadable"
     }
 
+    /// True for a note `raisedNote(for:)` wrote (the preview shows it).
+    public static func isRaisedNote(_ note: String) -> Bool {
+        (note.hasPrefix("Block size raised") || note.hasPrefix("Blur strength raised")) && note.hasSuffix(" unreadable")
+    }
+
+    private static func clampedAcross(_ value: Int) -> Int {
+        min(max(value, acrossRange.lowerBound), acrossRange.upperBound)
+    }
+
     private static func clamped(_ value: Double?, to range: ClosedRange<Double>) -> Double? {
         guard let value, value.isFinite else { return nil }
         return min(max(value, range.lowerBound), range.upperBound)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case target, style, fillColor, padding
+        case target, style, fillColor, padding, blocksAcross, blurAcross
         case fixedBlockSize = "blockSize", fixedBlurRadius = "blurRadius"
     }
 
@@ -144,13 +207,24 @@ public struct RedactOptions: Codable, Equatable, Sendable {
         padding = (try? container.decodeIfPresent(Double.self, forKey: .padding)) ?? Self.defaultPadding
         fixedBlockSize = (try? container.decodeIfPresent(Double.self, forKey: .fixedBlockSize)) ?? nil
         fixedBlurRadius = (try? container.decodeIfPresent(Double.self, forKey: .fixedBlurRadius)) ?? nil
+        blocksAcross = (try? container.decodeIfPresent(Int.self, forKey: .blocksAcross)) ?? nil
+        blurAcross = (try? container.decodeIfPresent(Int.self, forKey: .blurAcross)) ?? nil
     }
 
-    /// "faces · blur", "faces · pixelate · blocks 16 px", "text · solid colour · padding 0 %".
+    /// "faces · blur", "faces · pixelate · 2 blocks across", "faces · blur · radius 1/5 of each area",
+    /// "faces · pixelate · blocks 16 px" (a step saved before 1.5), "text · solid colour · padding 0 %".
     public var summary: String {
         var parts = [target.displayName.lowercased(), style.displayName.lowercased()]
-        if style == .pixelate, let size = clampedBlockSize { parts.append("blocks \(Self.number(size)) px") }
-        if style == .blur, let radius = clampedBlurRadius { parts.append("radius \(Self.number(radius)) px") }
+        if style == .pixelate, let across = clampedBlocksAcross {
+            parts.append("\(across) blocks across")
+        } else if style == .pixelate, let size = clampedBlockSize {
+            parts.append("blocks \(Self.number(size)) px")
+        }
+        if style == .blur, let across = clampedBlurAcross {
+            parts.append("radius 1/\(across) of each area")
+        } else if style == .blur, let radius = clampedBlurRadius {
+            parts.append("radius \(Self.number(radius)) px")
+        }
         if clampedPadding != Self.defaultPadding { parts.append("padding \(Self.number(clampedPadding)) %") }
         return parts.joined(separator: " · ")
     }

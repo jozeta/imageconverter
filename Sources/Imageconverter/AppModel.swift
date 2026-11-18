@@ -9,6 +9,8 @@ final class AppModel {
     /// The metadata panel: open or closed, the row to highlight, the images with changes (`AppModel+MetadataOverrides`).
     let inspector: InspectorState
     let privacy = PrivacyState()  // the privacy scan's results and panel (`AppModel+Privacy.swift`)
+    /// The preview's histogram panel and clipping overlay (`HistogramPanel.swift`).
+    let histogram: HistogramState
     /// The selected preset and the pipeline being edited; both are saved to `UserDefaults` on every change.
     var session: PresetSession {
         didSet { persist() }
@@ -27,9 +29,9 @@ final class AppModel {
     /// The last run in the shared report model (summary plus one entry per file); cleared by a new run or Clear.
     var runReport: ProcessingReport?
     var isRunning = false
-    /// Number of drops/pickers still being scanned off the main actor.
-    private(set) var pendingAdds = 0
-    var isAdding: Bool { pendingAdds > 0 }
+    /// The drops/pickers still being scanned off the main actor, and found items waiting for a run to end.
+    private(set) var adds = ItemAdds()
+    var isAdding: Bool { adds.isAdding }
     let toasts = LGToastCenter()
     /// The before/after zoom, shared by both preview sides and the View menu.
     let zoom = ZoomController()
@@ -47,6 +49,8 @@ final class AppModel {
     /// The name of the item whose render failed, shown when there is no result for it.
     var previewFailureName: String?
     var isRenderingPreview = false
+    /// What the preview's render is waiting to find (a Redact step's detection), shown in the preview header.
+    var previewDetecting: RedactTarget?
     /// The shown preview's generated alt text, or that it is being generated (see `AppModel+AltText.swift`).
     var previewAltText: PreviewAltText?
     /// Original and estimated output size of the selected item (see `AppModel+Estimate.swift`).
@@ -60,6 +64,8 @@ final class AppModel {
     var estimateFailure: String?
     /// Bumped when a filmstrip thumbnail has loaded, so cells refresh (see `AppModel+Preview.swift`).
     var thumbnailTick = 0
+    /// Bumped when cached thumbnails were evicted because files changed on disk; cells key their load task on it.
+    var thumbnailEpoch = 0
     var previewCollapsed: Bool {
         didSet { defaults.set(previewCollapsed, forKey: Self.previewCollapsedKey) }
     }
@@ -80,11 +86,16 @@ final class AppModel {
     let monitor = RunMonitor()
     /// An unfinished batch found at launch (see `AppModel+Performance.swift`); the sheet shows while `shows…` is set.
     var interruptedRun: RunJournal?
+    /// Bumped after every run, so views keyed by a source file's version look again (the metadata panel; an
+    /// Overwrite originals run rewrites the file at the same URL).
+    var filesRevision = 0
     var showsInterruptedRun = false
 
     @ObservationIgnored var task: Task<Void, Never>?
     @ObservationIgnored var previewTask: Task<Void, Never>?
     @ObservationIgnored var previewGeneration = 0
+    /// The item the last preview was scheduled for: another one renders at once, an edit after `PreviewTiming.editDelay`.
+    @ObservationIgnored var previewScheduledSource: URL?
     @ObservationIgnored var estimateTask: Task<Void, Never>?
     @ObservationIgnored var estimateKey: EstimateKey?
     /// Sizes the main window to its panels and animates the preview and pipeline toggles.
@@ -128,6 +139,7 @@ final class AppModel {
         outputPanel = OutputPanelState(defaults: defaults)
         lowMemoryMode = defaults.bool(forKey: Self.lowMemoryModeKey)
         inspector = InspectorState(defaults: defaults)
+        histogram = HistogramState(defaults: defaults)
         windowSizer = WindowSizer(previewShown: !defaults.bool(forKey: Self.previewCollapsedKey),
                                   inspectorShown: inspector.isOpen, defaults: defaults)
         let saved = Self.loadPipeline(from: defaults)
@@ -187,28 +199,9 @@ final class AppModel {
         return true
     }
 
-    /// Scans `urls` off the main actor (large folders), then merges new items in, skipping duplicates.
-    /// `userChosen`: dropped or picked in a panel, so the sandbox lets the app use those folders this session
-    /// (false for scripts, services and links, which bring no such permission). Nothing is added while a run is
-    /// in progress (drops, Add…, Open With and Services are all refused then).
-    func add(_ urls: [URL], userChosen: Bool = true) {
-        guard !urls.isEmpty, !isRunning else { return }
-        if userChosen { AccessStore.shared.noteAdded(urls) }
-        pendingAdds += 1
-        Task { [weak self] in
-            let found = await Task.detached(priority: .userInitiated) { InputCollector.collect(urls) }.value
-            guard let self else { return }
-            // By file, not by item: a file added loose and again through its folder is listed once.
-            var seen = Set(self.items.map(\.fileKey))
-            for item in found where seen.insert(item.fileKey).inserted {
-                self.items.append(item)
-            }
-            self.pendingAdds -= 1
-        }
-    }
-
     func clear() {
         guard !isRunning else { return }
+        adds.clear()
         items = []
         selectedIndex = 0
         thumbnailCache.removeAllObjects()
@@ -302,8 +295,6 @@ final class AppModel {
         return .started
     }
 
-    func cancel() { task?.cancel() }
-
     private func finish(_ report: BatchReport, presetName: String?) {
         isRunning = false
         task = nil
@@ -315,7 +306,10 @@ final class AppModel {
                                      presetName: presetName, startedAt: runInfo.started)
         if let finished = runReport { recordRun(finished) }
         progress = nil
+        // Before the missing-file check, so queued files that went away during the run are dropped with the rest.
+        addQueuedItems()
         dropMissingItems()
+        refreshRewrittenSources()
         let prefix = report.cancelled ? "Cancelled. " : ""
         // Failed files or failed extra outputs make it a warning.
         let (summary, hasProblems) = RunCountsText.runSummary(report)
@@ -324,16 +318,12 @@ final class AppModel {
     }
 }
 
-/// What `startRun` did.
-enum AppRunStart: Equatable {
-    case started
-    /// A run is already going (or there was nothing to run).
-    case busy
-    /// Sandbox: the user didn't allow a folder the run needs (a toast said so).
-    case noAccess
-}
+/// What `startRun` did (Core `RunStart`: started, busy, or no access to a folder the run needs).
+typealias AppRunStart = RunStart
 
 extension AppModel {
+    func cancel() { task?.cancel() }
+
     func removeStep(_ id: PipelineStep.ID) {
         pipeline.steps.removeAll { $0.id == id }
     }
@@ -369,5 +359,40 @@ extension AppModel {
         guard let data = defaults.data(forKey: pipelineKey),
               let pipeline = try? JSONDecoder().decode(Pipeline.self, from: data) else { return Pipeline() }
         return pipeline
+    }
+}
+
+// MARK: Adding images
+
+extension AppModel {
+    /// Scans `urls` off the main actor (large folders), then merges new items in, skipping duplicates, in one change
+    /// to the list. `userChosen`: dropped or picked in a panel, so the sandbox lets the app use those folders this
+    /// session (false for scripts, services and links, which bring no such permission). Nothing is added while a run
+    /// is in progress (drops, Add…, Open With and Services are all refused then); a scan that ends during a run
+    /// (started by a service, script or link meanwhile) is added when the run ends. Clear drops a scan in progress.
+    func add(_ urls: [URL], userChosen: Bool = true) {
+        guard !urls.isEmpty, !isRunning else { return }
+        if userChosen { AccessStore.shared.noteAdded(urls) }
+        let token = adds.begin()
+        let listed = items
+        Task { [weak self] in
+            // The scan and the files' keys (a stat each) off the main actor, against the list as it is now.
+            let found = await Task.detached(priority: .userInitiated) {
+                ItemAdds.prepare(InputCollector.collect(urls), against: listed)
+            }.value
+            guard let self else { return }
+            switch self.adds.finish(token, found: found, existing: self.items, running: self.isRunning) {
+            case .replace(let merged): self.items = merged
+            case .unchanged, .dropped, .queued: break
+            }
+        }
+    }
+
+    /// Adds what was found during the run that just ended.
+    private func addQueuedItems() {
+        guard let merged = adds.takeQueued(existing: items) else { return }
+        items = merged.items
+        toasts.show("Added \(merged.added) \(merged.added == 1 ? "image" : "images") that arrived during the run",
+                    type: .info)
     }
 }

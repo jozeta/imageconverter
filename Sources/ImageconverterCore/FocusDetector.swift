@@ -2,10 +2,11 @@ import CoreGraphics
 import Foundation
 
 /// Remembers detected focus regions, so the preview doesn't run Vision again on every edit. Keyed by the source
-/// file's version, the step and everything before it, so an entry is only reused for the same pixels.
+/// file's version, the step and everything before it, so an entry is only reused for the same pixels. The preview,
+/// the size estimate and the quality ladder asking at once share one detection (`SharedDetections`).
 public final class FocusCache: @unchecked Sendable {
     public struct Key: Hashable, Sendable {
-        /// The source file's path, modification date and size.
+        /// The source file's path and version (`sourceKey`).
         let source: String
         let step: Int
         /// The enabled operations before the step, encoded: a change there changes the step's input.
@@ -15,47 +16,37 @@ public final class FocusCache: @unchecked Sendable {
         let focus: CropFocus
     }
 
-    private let lock = NSLock()
-    private var entries: [Key: FocusOutcome] = [:]
-    private let limit: Int
-    private var detections = 0
+    private let shared: SharedDetections<Key, FocusOutcome>
     /// How many detections ran (for tests).
-    public var detectionCount: Int { lock.withLock { detections } }
+    public var detectionCount: Int { shared.runCount }
+    /// How many lookups wait for a detection right now (for tests).
+    var waiterCount: Int { shared.waiterCount }
 
     public init(limit: Int = 256) {
-        self.limit = max(1, limit)
-    }
-
-    public func removeAll() {
-        lock.lock()
-        defer { lock.unlock() }
-        entries = [:]
-    }
-
-    func outcome(for key: Key, detect: () -> FocusOutcome) -> FocusOutcome {
-        lock.lock()
-        if let cached = entries[key] {
-            lock.unlock()
-            return cached
-        }
-        lock.unlock()
-        let outcome = detect()
-        lock.lock()
-        defer { lock.unlock() }
-        detections += 1
         // A failed detection is asked again next time.
-        guard !outcome.detectionFailed else { return outcome }
-        if entries.count >= limit { entries = [:] }
-        entries[key] = outcome
-        return outcome
+        shared = SharedDetections(limit: limit) { !$0.detectionFailed }
     }
 
-    /// The version part of a key: path, modification date and size (a rewritten file changes them).
+    /// Forgets the kept outcomes and cancels the detections nobody waits for (`SharedDetections.removeAll`).
+    public func removeAll() {
+        shared.removeAll()
+    }
+
+    /// Cancels the detections nobody waits for; kept outcomes stay (`SharedDetections.cancelIdle`).
+    public func cancelIdleDetections() {
+        shared.cancelIdle()
+    }
+
+    /// The outcome for `key`; lookups for a detection in progress wait for it (`SharedDetections`). A caller
+    /// cancelled while it waited gets the anchor (its render is thrown away).
+    func outcome(for key: Key, detect: @escaping @Sendable () -> FocusOutcome) -> FocusOutcome {
+        shared.value(for: key, detect: detect) ?? FocusOutcome(rect: nil)
+    }
+
+    /// The version part of a key: path and `FileVersion` (identity, modification date and size; a rewritten file
+    /// changes them).
     public static func sourceKey(for url: URL) -> String {
-        let values = try? URL(fileURLWithPath: url.path)
-            .resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let date = values?.contentModificationDate?.timeIntervalSinceReferenceDate ?? 0
-        return "\(url.path)|\(date)|\(values?.fileSize ?? -1)"
+        "\(url.path)|\(FileVersion(url))"
     }
 }
 
@@ -72,6 +63,9 @@ public struct FocusContext: Sendable {
     public let sourceKey: String?
     /// The super-resolution model for a Resize step's ML enlarge (tests inject a fake).
     public let enlarger: any SuperResolutionScaler
+    /// Told the target while this render waits for a Redact detection, and nil when it stops waiting (the preview
+    /// shows "Finding faces and text…" meanwhile). Only with `redactCache`.
+    public var redactActivity: (@Sendable (RedactTarget?) -> Void)?
 
     public init(detector: any VisionDetector = SystemVisionDetector(), cache: FocusCache? = nil,
                 redactCache: RedactCache? = nil, enlargeCache: EnlargeCache? = nil, sourceKey: String? = nil,
@@ -100,11 +94,12 @@ enum FocusDetector {
     static func focusRect(_ focus: CropFocus, in image: CGImage, at position: StepPosition,
                           context: FocusContext, notes: inout [String]) -> CGRect? {
         guard focus.isDetected else { return nil }
-        let detect = { () -> FocusOutcome in
+        let detector = context.detector
+        let detect = { @Sendable () -> FocusOutcome in
             // One small copy serves both detections (the detector's own shrink is then a no-op).
             let input = VisionInput.prepared(image)
-            return FocusResolution.resolve(focus, faces: { try input.map(context.detector.faceRects) ?? [] },
-                                           subject: { try input.map(context.detector.subjectRects) ?? [] })
+            return FocusResolution.resolve(focus, faces: { try input.map(detector.faceRects) ?? [] },
+                                           subject: { try input.map(detector.subjectRects) ?? [] })
         }
         let outcome: FocusOutcome
         if let cache = context.cache, let source = context.sourceKey,

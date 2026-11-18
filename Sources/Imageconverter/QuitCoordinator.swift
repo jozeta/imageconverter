@@ -1,12 +1,12 @@
 import AppKit
 import ImageconverterCore
 
-/// Decides whether the app may quit now (`applicationShouldTerminate`). With a manual batch, a job run or a
-/// Shortcuts action going it
-/// asks "Stop and quit?" first; on yes it cancels everything, waits (at most `maxWait`) until runs have committed
-/// their files and saved their ledgers and history, removes the app's leftover temp files, forgets the manual run's
-/// journal (only when a manual batch was running; the user chose to stop, a crash still leaves it for the next
-/// launch), and then lets the app quit.
+/// Decides whether the app may quit now (`applicationShouldTerminate`), with Core `QuitPolicy`. While the update
+/// installer service is replacing the app it only offers to wait. With a manual batch, a job run or a Shortcuts
+/// action going (or waiting for its turn) it asks "Stop and quit?" first; on yes it cancels everything, waits (at
+/// most `maxWait`) until runs have committed their files and saved their ledgers and history, removes the app's
+/// leftover temp files, forgets the manual run's journal (only when a manual batch was running; the user chose to
+/// stop, a crash still leaves it for the next launch), and then lets the app quit.
 @MainActor
 final class QuitCoordinator {
     static let shared = QuitCoordinator()
@@ -19,12 +19,16 @@ final class QuitCoordinator {
 
     private var manualRunning: Bool { model?.isRunning ?? false }
     private var actions: AutomationRuns { AutomationRuns.shared }
-    private var anythingRunning: Bool { manualRunning || jobs.hasActiveRuns || actions.count > 0 }
+    private var work: RunningWork {
+        RunningWork(manualBatch: manualRunning, jobs: jobs.hasActiveRuns ? max(jobs.runningCount, 1) : 0,
+                    actions: actions.count, installingUpdate: UpdateController.shared.installActivity.isInstalling)
+    }
+    private var anythingRunning: Bool { work.anything }
 
     func shouldTerminate() -> NSApplication.TerminateReply {
         if isStopping { return .terminateLater }
-        guard anythingRunning else { return .terminateNow }
-        guard confirm() else { return .terminateCancel }
+        guard let question = QuitPolicy.question(for: work) else { return .terminateNow }
+        guard confirm(question) else { return .terminateCancel }
         isStopping = true
         // Only a manual batch's journal is forgotten; a job-only quit keeps any pending resume offer.
         let manual = manualRunning
@@ -33,29 +37,20 @@ final class QuitCoordinator {
         return .terminateLater
     }
 
-    /// "Stop and quit?" Cancel is the default (Return) and also answers Escape.
-    private func confirm() -> Bool {
+    /// "Stop and quit?" Cancel is the default (Return) and also answers Escape. While an update installs there is
+    /// only Wait: the answer is always no.
+    private func confirm(_ question: QuitQuestion) -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Stop and quit?"
-        alert.informativeText = Self.message(manual: manualRunning, jobs: jobs.runningCount, actions: actions.count)
+        alert.messageText = question.title
+        alert.informativeText = question.message
         alert.alertStyle = .warning
-        let stop = alert.addButton(withTitle: "Stop and Quit")
-        stop.keyEquivalent = ""
-        let cancel = alert.addButton(withTitle: "Cancel")
+        let stop = question.stopButton.map { alert.addButton(withTitle: $0) }
+        stop?.keyEquivalent = ""
+        let cancel = alert.addButton(withTitle: question.cancelButton)
         cancel.keyEquivalent = "\u{1b}"
         alert.window.defaultButtonCell = cancel.cell as? NSButtonCell
-        return alert.runModal() == .alertFirstButtonReturn
-    }
-
-    static func message(manual: Bool, jobs: Int, actions: Int = 0) -> String {
-        var running: [String] = []
-        if manual { running.append("a batch") }
-        if jobs > 0 { running.append(jobs == 1 ? "a job" : "\(jobs) jobs") }
-        if actions > 0 { running.append(actions == 1 ? "a Shortcuts action" : "\(actions) Shortcuts actions") }
-        let list = running.count > 2 ? running.dropLast().joined(separator: ", ") + " and " + (running.last ?? "")
-            : running.joined(separator: " and ")
-        return "imageconverter is converting \(list). Files already written are kept; "
-            + "the rest is not converted. Nothing half-written is left behind."
+        let answer = alert.runModal()
+        return stop != nil && answer == .alertFirstButtonReturn
     }
 
     private func stopEverything() {

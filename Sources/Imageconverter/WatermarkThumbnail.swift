@@ -66,7 +66,7 @@ struct WatermarkThumbnail: View {
                 return .failure(error as? ConversionError ?? .watermarkSVGInvalid)
             }
         }
-        guard let cgImage = ImageLoader.thumbnail(of: fileURL, maxPixelSize: 64) else {
+        guard let cgImage = ImageLoader.thumbnail(of: fileURL, maxPixelSize: 64, allowEmbedded: true) else {
             return .failure(.watermarkImageUnreadable)
         }
         return .success(NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)))

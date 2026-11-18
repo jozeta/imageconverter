@@ -37,6 +37,9 @@ extension BatchRunner {
         let skippedIndices: [Int]
         /// Every image step the jobs use, so each watermark image is loaded once per batch.
         let assetPipeline: Pipeline
+        /// The names this run claimed in `PlannedDestinations` (none for a dry run); each item's are released when it
+        /// finishes, the rest when the run ends.
+        var claims = DestinationClaims()
     }
 
     /// Resolves, names and plans `items`; nil when the task is cancelled part-way (nothing is written then).
@@ -45,7 +48,8 @@ extension BatchRunner {
     static func planRun(_ items: [InputItem], pipeline: Pipeline, mode: OutputMode, maxPixels: Int,
                         busy: Set<String> = [], presets: PresetLibrary = .standard,
                         analysis: ImageAnalysisCache = .shared,
-                        variantFolders: VariantFolderPolicy = .confirmedOnly) async -> RunPlan? {
+                        variantFolders: VariantFolderPolicy = .confirmedOnly,
+                        claims: DestinationClaims? = nil) async -> RunPlan? {
         guard var resolved = await resolveAll(items, pipeline: pipeline, maxPixels: maxPixels, presets: presets,
                                               analysis: analysis)
         else { return nil }
@@ -78,16 +82,20 @@ extension BatchRunner {
         guard let reasons = skipReasons(skippedIndices, items: items, resolved: resolved, busy: busyIndices) else {
             return nil
         }
-        let primaries = OutputPlanner.plan(targets, mode: mode, reservedSources: skipped)
+        // A run claims the names it plans, so a run planning at the same time takes other ones; a dry run doesn't.
+        let claim: (URL) -> Bool = { claims?.claim($0) ?? true }
+        let primaries = OutputPlanner.plan(targets, mode: mode, reservedSources: skipped, claim: claim)
         guard let (variants, folderAccess) = plannedVariants(active.map { items[$0] }, jobs: &jobs,
                                                              baseNames: baseNames, primaries: primaries,
-                                                             reserved: skipped, policy: variantFolders)
+                                                             reserved: skipped, policy: variantFolders,
+                                                             claim: claim)
         else { return nil }
         var run = RunPlan(plans: primaries, jobs: jobs, skipped: skipped, skipReasons: reasons,
                           busyIndices: busyIndices, planIndices: active, skippedIndices: skippedIndices,
                           assetPipeline: assetPipeline(pipeline, resolved: jobs))
         run.variants = variants
         run.folderAccess = folderAccess
+        if let claims { run.claims = claims }
         return run
     }
 
@@ -97,7 +105,8 @@ extension BatchRunner {
     /// bookmarks followed) and opened for the run; under `.confirmedOnly` an output whose folder isn't confirmed is
     /// left out with a note. Nil when cancelled part-way.
     private static func plannedVariants(_ items: [InputItem], jobs: inout [ResolvedPipeline], baseNames: [String?],
-                                        primaries: [PlannedOutput], reserved: [URL], policy: VariantFolderPolicy)
+                                        primaries: [PlannedOutput], reserved: [URL], policy: VariantFolderPolicy,
+                                        claim: (URL) -> Bool)
         -> ([[PlannedVariant]], VariantFolderAccess)? {
         guard jobs.contains(where: { !$0.pipeline.extraOutputs.isEmpty }) else { return (jobs.map { _ in [] }, .none) }
         let access = VariantFolderAccess(jobs.flatMap(\.pipeline.extraOutputs), policy: policy)
@@ -118,7 +127,7 @@ extension BatchRunner {
                                                                                     job: jobs[index])))
         }
         let (plans, failures) = OutputPlanner.planVariants(targets, primaries: primaries, reservedSources: reserved,
-                                                           folders: access.folders)
+                                                           folders: access.folders, claim: claim)
         for (index, missing) in failures.enumerated() {
             jobs[index].notes += missing.map { noFreeNameNote($0.displayName) }
             jobs[index].unplannedOutputs += missing.map(\.displayName)
@@ -352,9 +361,19 @@ extension BatchRunner {
                 do { data = try Data(contentsOf: plan.item.source, options: .mappedIfSafe) } catch {
                     return .failure(.unreadable)
                 }
-                try FileCommitter.commit(data, for: plan, trash: trash)
-                return .success(WrittenItem(url: plan.destination, note: note, inputBytes: inputBytes,
-                                            outputBytes: data.count))
+                // Committed, then the original trashed here, so the item names the file really written (`_n`).
+                var primary = PlannedOutput(item: plan.item, destination: plan.destination, replacesSource: false,
+                                            trashesSource: false)
+                primary.naming = plan.naming
+                let destination = try FileCommitter.commit(data, for: primary, trash: trash)
+                var written = WrittenItem(url: destination, note: note, inputBytes: inputBytes, outputBytes: data.count)
+                if plan.trashesSource {
+                    do { try trash(plan.item.source) } catch {
+                        written.note = FileCommitter.trashFailurePrefix + error.localizedDescription + "; " + note
+                        written.warning = true
+                    }
+                }
+                return .success(written)
             } catch let error as ConversionError {
                 return .failure(error)
             } catch {
