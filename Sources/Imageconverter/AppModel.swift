@@ -64,6 +64,8 @@ final class AppModel {
     var estimateFailure: String?
     /// Bumped when a filmstrip thumbnail has loaded, so cells refresh (see `AppModel+Preview.swift`).
     var thumbnailTick = 0
+    /// Bumped when cached thumbnails were evicted because files changed on disk; cells key their load task on it.
+    var thumbnailEpoch = 0
     var previewCollapsed: Bool {
         didSet { defaults.set(previewCollapsed, forKey: Self.previewCollapsedKey) }
     }

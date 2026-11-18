@@ -166,6 +166,8 @@ extension AppModel {
                 thumbnailCache.removeObject(forKey: url as NSURL)
                 thumbnailsFailed.remove(url)
             }
+            // Cells reload through their task id (same URL, so `.task(id: source)` alone never re-runs).
+            thumbnailEpoch += 1
             thumbnailTick += 1
             schedulePrivacyScan()
         }
