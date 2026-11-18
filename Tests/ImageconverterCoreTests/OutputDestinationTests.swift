@@ -247,7 +247,7 @@ final class OutputDestinationTests: XCTestCase {
             settings: OutputSettings(format: .jpeg, compression: .smart),
             variants: [VariantEstimate(name: "Thumbnail", formatName: "JPEG", bytes: 48_000, failure: nil, note: nil),
                        VariantEstimate(name: "Big", formatName: "PNG", bytes: nil, failure: "Too big", note: nil)])
-        XCTAssertEqual(lines.map(\.title), ["Main JPEG", "Thumbnail JPEG", "Big PNG"])
+        XCTAssertEqual(lines.map(\.title), ["Output 1 JPEG", "Thumbnail JPEG", "Big PNG"])
         XCTAssertTrue(lines[0].size.contains("at 80 %"), lines[0].size)
         XCTAssertTrue(lines[0].size.hasSuffix("(\u{2212}50 %)"), lines[0].size)
         XCTAssertTrue(lines[1].size.hasSuffix("(\u{2212}98 %)"), lines[1].size)

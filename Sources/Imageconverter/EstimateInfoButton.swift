@@ -3,7 +3,7 @@ import SwiftUI
 import ImageconverterCore
 
 /// The ⓘ right of the main output's format picker (Johan, round 3): the size estimate for the selected image moved
-/// here from under the format. Pointing at it shows a box with every output's estimated size and notes ("Main
+/// here from under the format. Pointing at it shows a box with every output's estimated size and notes ("Output 1
 /// JPEG … · Thumbnail JPEG …"); a click (or Space when it has keyboard focus) pins the box open until clicked again
 /// or Escape. The box is a tooltip-style window that never becomes key (`HoverBox`), so a field being edited keeps
 /// its focus. VoiceOver reads the same text as the button's value.

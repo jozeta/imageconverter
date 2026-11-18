@@ -330,7 +330,7 @@ The output settings are in the Output panel of the sidebar (the Output 1 card) (
 |---------|---------|---------|
 | Save to | New folder · Same folder as original · Overwrite original files (the "Save to" dropdown in the Output 1 card). Overwrite replaces each original; with a new name (Rename step) or format the result is saved next to it and the original goes to the Trash after the new file is saved | New folder |
 | When finished | Nothing · Reveal in Finder · Notify me · Reveal and notify (the "When finished" dropdown under Save to). Applies to every run of the main window, including runs started from Finder Services, AppleScript and links; jobs have their own notifications. Reveal selects the written files in Finder (up to 50; with more it opens their folders). Notify posts "Run finished" with the counts and space saved, only when imageconverter is not the frontmost app. The first time you pick a notify choice macOS asks for permission; if notifications are off, a note says where to turn them on. Not stored in presets | Nothing |
-| Extra outputs | Up to 8 more files per image, added with the **+** at the top right of the Output panel; each is a card of its own under the **Output 1** card. Each has a name (its label in the report; new ones are *Output 2*, *Output 3*, …, starting from the main output's settings), its own format, quality or compression mode, a size (*Same as main output*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case, also between outputs in different folders; `/` and `:` become `-`), a **Save to** (*Beside the main output* (default), *Same folder as original*, *Subfolder next to original* with a folder name, or *New folder* with a chosen folder; never overwrite) and an optional **subfolder** (rename tokens allowed, under the main output's folder or the chosen folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
+| Extra outputs | Up to 8 more files per image, added with the **+** at the top right of the Output panel; each is a card of its own under the **Output 1** card. Each has a name (its label in the report; new ones are *Output 2*, *Output 3*, …, starting from Output 1's settings), its own format, quality or compression mode, a size (*Same as Output 1*, *Longest edge*, *Max width*, *Max height* in pixels, shrink only; or *Percentage* 1–1000 %, above 100 enlarges), a name **suffix** (required, different for every output, compared ignoring case, also between outputs in different folders; `/` and `:` become `-`), a **Save to** (*Beside Output 1* (default), *Same folder as original*, *Subfolder next to original* with a folder name, or *New folder* with a chosen folder; never overwrite) and an optional **subfolder** (rename tokens allowed, under Output 1's folder or the chosen folder). Saved with the pipeline, presets and jobs. Run stays disabled while a suffix is empty or used twice | none |
 | Output folder | Any folder (used by "New folder") | asked on first run |
 | Check for updates when the app starts | Checkbox in About imageconverter. Set by the question at the first launch (**Yes** / **No**); until you answer, nothing goes online. UserDefaults key `updateCheckOnLaunch` (absent until answered). See [Updates](#updates) | off until answered |
 | Same-folder suffix | Added by "Same folder" only when the output would have the same name as the original | `_new` |
@@ -667,13 +667,13 @@ Your pipeline is kept between launches.
 One run can write more than one file for every image, for example the full-size JPEG plus a thumbnail and a
 web-sized HEIC:
 
-1. Set up the pipeline and the main output as usual.
+1. Set up the pipeline and the **Output 1** card as usual.
 2. Press **+** at the top right of the Output panel (VoiceOver: "Add output"). A new output card appears under the
-   **Output 1** card, named *Output 2* with the main output's format and compression, the same size and the suffix `_out2`.
-   It has the same controls as the main output: name, format, compression (quality, target or maximum size, Smart),
-   Progressive / Optimise PNG, a size (*Same as main output*, longest edge, max width or height, percentage), the
+   **Output 1** card, named *Output 2* with Output 1's format and compression, the same size and the suffix `_out2`.
+   It has Output 1's format controls plus a few of its own: name, format, compression (quality, target or maximum size, Smart),
+   Progressive / Optimise PNG, a size (*Same as Output 1*, longest edge, max width or height, percentage), the
    name suffix and its own **Save to**:
-   - *Beside the main output* (the default): into the main output's folder (in overwrite mode, the original's
+   - *Beside Output 1* (the default): into Output 1's folder (in overwrite mode, the original's
      folder), with an optional subfolder under it.
    - *Same folder as original*: next to each original, as a new file.
    - *Subfolder next to original*: a folder inside each original's folder (rename tokens allowed, `thumbs/{date:yyyy}`).
@@ -683,7 +683,7 @@ web-sized HEIC:
    a panel, the bin to remove it; add more with **+** (up to 8).
 3. The **ⓘ** right of the main format picker shows the size estimate for the selected image when you point at it
    (click it, or press Space when it has keyboard focus, to keep the box open): one line per output, for example
-   "Main JPEG 2.1 MB → about 1.1 MB (−48 %)", "Thumbnail JPEG about 48 KB (−98 %)", with any notes. In the preview
+   "Output 1 JPEG 2.1 MB → about 1.1 MB (−48 %)", "Thumbnail JPEG about 48 KB (−98 %)", with any notes. In the preview
    table the Result name has a "+2 outputs" chip; hover it to see each file's name (an output in another folder
    shows that folder's name).
 4. Run as usual. Every image is loaded and processed once; each extra output is then resized (if it says so) and

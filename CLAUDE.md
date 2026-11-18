@@ -101,10 +101,10 @@ swiftlint           # if installed (brew install swiftlint)
     `OutputRow.swift` (`OutputFormatControls`: format, quality and compression controls, an `accessory` right of the
     format picker), `MainOutputCard.swift` (the main output as the "Output 1" `AccordionCard`
     (Johan, 2026-11-17): format controls with the ⓘ and Save to, summary `OutputSummary.cardLine`, no remove/name/size/
-    suffix; the Output panel (`OutputPanel` in `PipelineSection.swift`) is the "Output" heading with the "+", then the
+    suffix; `OutputCardHeader`: the header every output card shares (title + line as one VoiceOver element, optional trailing remove button); the Output panel (`OutputPanel` in `PipelineSection.swift`) is the "Output" heading with the "+", then the
     cards, then When finished), `OutputVariantsSection.swift` (round 3: every extra output is a card under "Output 1",
     default names from `OutputVariant.defaultName` starting at "Output 2": collapsible `VariantPanel` with name, format controls, size, suffix and `VariantSaveToControl`
-    (beside main / same folder / subfolder next to original / new folder, never overwrite; a chosen folder is
+    (beside Output 1 / same folder / subfolder next to original / new folder, never overwrite; a chosen folder is
     `AccessStore.remember`ed); `AddOutputButton`, the "+" at the top right of the Output panel; open panels in
     `model.outputPanel.expandedVariants`), `EstimateInfoButton.swift` (the ⓘ right of the main format picker: a
     non-activating child window (`HoverBox`, never key) on hover, click/Space pins it, every output's size via `SizeEstimator.lines`; DEBUG `-debugShowEstimateInfo`) and

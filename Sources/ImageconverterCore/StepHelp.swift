@@ -256,7 +256,7 @@ public enum StepHelp {
                         + "format changes, the original goes to the Trash after the new file is saved.",
                     "Output is always the last stage. Click the handle above it to fold it to one line; drag it to "
                         + "choose its height.",
-                    "+ (top right) adds an output panel: another file per image with its own format, size, "
+                    "+ (top right) adds an output card (Output 2, 3, …): another file per image with its own format, size, "
                         + "suffix and Save to; always a new file, never in place."
                 ])
         }

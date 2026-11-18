@@ -138,7 +138,7 @@ public enum SizeEstimator {
         return (["Primary \(SizeFormat.bytes(primary))"] + parts).joined(separator: " · ")
     }
 
-    /// One output's line in the size box behind the ⓘ: "Main JPEG", "1.1 MB at 80 % (−48 %)", its note.
+    /// One output's line in the size box behind the ⓘ: "Output 1 JPEG", "1.1 MB at 80 % (−48 %)", its note.
     public struct Line: Equatable, Sendable {
         public let title: String
         public let size: String
@@ -162,7 +162,7 @@ public enum SizeEstimator {
         }
     }
 
-    /// The size box: the main output first ("Main JPEG" — original → estimate, the quality the compression chose,
+    /// The size box: the main output first ("Output 1 JPEG" — original → estimate, the quality the compression chose,
     /// the change), then every extra output ("Thumbnail JPEG" — its size and change from the original), each with
     /// its note or why it can't be made.
     public static func lines(main: MainEstimate, settings: OutputSettings, variants: [VariantEstimate]) -> [Line] {
@@ -172,7 +172,7 @@ public enum SizeEstimator {
             original.flatMap { SizeFormat.percentChange(from: $0, to: bytes) }.map { " (\($0))" } ?? ""
         }
         let from = original.map { "\(SizeFormat.bytes($0)) → " } ?? ""
-        let main = Line(title: "Main \(format.displayName)",
+        let main = Line(title: "\(OutputVariant.mainOutputName) \(format.displayName)",
                         size: "\(from)about \(SizeFormat.bytes(primary))\(qualitySuffix(quality, mode: mode))"
                             + change(primary),
                         note: note, failed: false)
